@@ -13,8 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: get-open-ssl
-    run: |
-      sudo apt-get install libssl-dev
+      run: sudo apt-get install libssl-dev
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
