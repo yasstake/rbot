@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 #pyo3 = { version = "0.17.1", features="multiple-pymethods"}
-pyo3 = { version = "0.17", features="extension-module"}
+pyo3 = { version = "0.17"}
 chrono = {version= "*"}
 
 strum_macros = {version  = "0.24"}
@@ -48,6 +48,9 @@ csv = {version="1.1.6"}
 zip = {version="0.6.3"}
 
 tempfile={version="3.3"}
+
+[features]
+extension-module = ["pyo3/extension-module"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
