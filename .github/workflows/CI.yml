@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: apt-get-update
+      run sudo apt-get update
     - name: get-open-ssl
-      run: sudo apt-get update && apt-get install libssl-dev 
+      run: sudo apt-get install libssl-dev 
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
