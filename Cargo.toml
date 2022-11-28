@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 #pyo3 = { version = "0.17.1", features="multiple-pymethods"}
-pyo3 = { version = "0.17"}
+pyo3 = { version = "0.17", features="extension-module"}
 chrono = {version= "*"}
 
 strum_macros = {version  = "0.24"}
