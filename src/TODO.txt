@@ -1,0 +1,6 @@
+
+１  OLHCVの実装(Python側。現在のohclvはohlcvvに変更)
+２  キャンセルオーダーの実装
+３　Binanceの実装
+４　RealBinanceの実装
+５　

@@ -1,0 +1,57 @@
+[package]
+name = "rbot"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "rbot"
+crate-type = ["cdylib"]
+
+[dependencies]
+#pyo3 = { version = "0.17.1", features="multiple-pymethods"}
+pyo3 = { version = "0.17"}
+chrono = {version= "*"}
+
+strum_macros = {version  = "0.24"}
+strum = { version = "0.24", features = ["derive"] }
+
+tokio = { version = "1", features = ["full"] }
+
+rusqlite = {version = "0.28.0"}
+
+
+serde = {version="1.0"}
+serde_json = {version = "1.0"}
+serde_derive = {version = "1.0"}
+
+log = {version = "0.4"}
+simple_logger = {version = "4.0.0"}
+
+directories= "4.0.1"
+
+
+polars = {version="0.25.1"}
+polars-core = {version = "0.25.1", features=["ndarray", "temporal", "dtype-time", "object"]}
+polars-lazy = {version="0.25.1", features=["dynamic_groupby"]}
+polars-time = {version="0.25.1"}
+
+ndarray = {version="0.15"}
+numpy = {version="0.17"}
+
+reqwest = {version = "0.11", features=["blocking", "gzip"]}
+futures = {version="0.3"}
+flate2 = {version="1.0.24"}
+#async-compression = { version = "0.3", features = ["futures-io", "gzip"] }
+csv = {version="1.1.6"}
+#csv-async = {version="1.2.4"}
+zip = {version="0.6.3"}
+
+tempfile={version="3.3"}
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+
+
+
+
