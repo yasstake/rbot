@@ -305,8 +305,10 @@ impl TradeTable {
                 TradeTable::OHLCV_WINDOW_SEC,
             );
 
-            let ohlcv2 = select_df(&self.cache_ohlcv, ohlcv1_end, 0);
-            self.cache_ohlcv = merge_df(&ohlcv1, &ohlcv2);
+            if ohlcv1.shape().0 == 0 {
+                let ohlcv2 = select_df(&self.cache_ohlcv, ohlcv1_end, 0);
+                self.cache_ohlcv = merge_df(&ohlcv1, &ohlcv2);
+            }
         }
 
         if df_end_time < to_time {
@@ -440,12 +442,14 @@ impl TradeTable {
     }
 
     pub fn info(&mut self) -> String {
-        let sql = "select min(time_stamp), max(time_stamp), count(*) from trades";
+        let min = self.start_time().unwrap_or_default();
+        let max = self.end_time().unwrap_or_default();
+
+        /*
+        let sql = "select count(ROWID) from trades";
 
         let r = self.connection.query_row(sql, [], |row| {
-            let min: i64 = row.get_unwrap(0);
-            let max: i64 = row.get_unwrap(1);
-            let count: i64 = row.get_unwrap(2);
+            let count: i64 = row.get_unwrap(0);
 
             Ok(format!(
                 "{{\"start\": {}, \"end\": {}, \"count\": {}}}",
@@ -454,19 +458,26 @@ impl TradeTable {
                 count
             ))
         });
+       return r.unwrap();        
+        */
 
-        return r.unwrap();
+        return format!(
+            "{{\"start\": {}, \"end\": {}}}",
+            time_string(min),
+            time_string(max)
+        );
     }
 
     pub fn _repr_html_(&self) -> String {
-        let sql = "select min(time_stamp), max(time_stamp), count(*) from trades";
+
+        let min = self.start_time().unwrap_or_default();
+        let max = self.end_time().unwrap_or_default();
 
         let mut start_time = 0;
+        let sql = "select count(*) from trades";
 
         let r = self.connection.query_row(sql, [], |row| {
-            let min: i64 = row.get_unwrap(0);
-            let max: i64 = row.get_unwrap(1);
-            let count: i64 = row.get_unwrap(2);
+            let count: i64 = row.get_unwrap(0);
 
             start_time = min;
 
@@ -827,7 +838,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_array() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -838,7 +849,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_info() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
         println!("{}", db.info());
@@ -846,7 +857,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_start_time() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start_time = db.start_time();
@@ -855,6 +866,19 @@ mod test_transaction_table {
 
         println!("{}({})", time_string(s), s);
     }
+
+    #[test]
+    fn test_end_time() {
+        let db_name = db_full_path("BN", "BTCBUSD");
+        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+
+        let end_time = db.end_time();
+
+        let s = end_time.unwrap();
+
+        println!("{}({})", time_string(s), s);
+    }
+
 
     #[test]
     fn test_select_gap_chunks() {

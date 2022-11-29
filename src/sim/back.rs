@@ -141,7 +141,8 @@ impl BackTester {
                     //
                 }
                 Err(e) => {
-                    log::warn!("Call on_tick Error {:?}", e);
+                    println!("call Agent.on_tick error {:?}", e);
+                    log::error!("Call on_tick Error {:?}", e);
                 }
             }
         }
@@ -155,7 +156,8 @@ impl BackTester {
                 //
             }
             Err(e) => {
-                log::warn!("Call on_clock Error {:?}", e);
+                println!("call Agent.on_clock error {:?}", e);                
+                log::error!("Call on_clock Error {:?}", e);
             }
         }
 
@@ -176,7 +178,8 @@ impl BackTester {
                 //
             }
             Err(e) => {
-                log::warn!("Call on_clock Error {:?}", e);
+                println!("call Agent.on_update error {:?}", e);                                
+                log::error!("Call on_update Error {:?}", e);
             }
         }
 
