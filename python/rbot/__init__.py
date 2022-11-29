@@ -14,23 +14,14 @@ def decode_order_side(bs):
     else:
         return "ERROR"
 
-
-def decode_liquid(liq):
-    if liq == 0:
-        return False
-    else:
-        return True
-
-
 def trades_to_df(array):
     df = pd.DataFrame(
-        array, columns=["timestamp", "price", "size", "side", "liquid"])
+        array, columns=["timestamp", "price", "size", "side"])
     df['timestamp'] = pd.to_datetime(
         (df["timestamp"]), utc=True, unit='us')
     df = df.set_index('timestamp')
 
     df['side'] = df['side'].map(decode_order_side)
-    df['liquid'] = df['liquid'].map(decode_liquid)
 
     return df
 
@@ -230,5 +221,5 @@ class BinanceMarket:
         return self.market.download(ndays, force)
 
     def __getattr__(self, func):
-        return getattr(self.ftx, func)
+        return getattr(self.market, func)
 
