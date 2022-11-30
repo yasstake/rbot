@@ -184,25 +184,45 @@ impl OrderStatus {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct OrderResult {
+    #[pyo3(get)]
     pub update_time: MicroSec,
+    #[pyo3(get)]    
     pub order_id: String,
+    #[pyo3(get)]    
     pub order_sub_id: i32, // 分割された場合に利用
+    #[pyo3(get)]    
     pub order_side: OrderSide,
+    #[pyo3(get)]    
     pub post_only: bool,
+    #[pyo3(get)]    
     pub create_time: MicroSec,
+    #[pyo3(get)]    
     pub status: OrderStatus,
+    #[pyo3(get)]    
     pub open_price: f64,
+    #[pyo3(get)]
     pub open_home_size: f64,
-    pub open_foreign_size: f64,
+    #[pyo3(get)]
+    pub open_foreign_size: f64,    
+    #[pyo3(get)]
     pub close_price: f64,
+    #[pyo3(get)]    
     pub close_home_size: f64,
+    #[pyo3(get)]    
     pub close_foreign_size: f64,
+    #[pyo3(get)]
     pub order_price: f64,
+    #[pyo3(get)]
     pub order_home_size: f64,
-    pub order_foreign_size: f64,
+    #[pyo3(get)]
+    pub order_foreign_size: f64,    
+    #[pyo3(get)]
     pub profit: f64,
+    #[pyo3(get)]
     pub fee: f64,
+    #[pyo3(get)]
     pub total_profit: f64,
+    #[pyo3(get)]
     pub message: String,
 }
 

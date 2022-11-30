@@ -75,3 +75,4 @@ docs/_build/
 
 src/test/.ipynb_checkpoints/*
 
+test.db
