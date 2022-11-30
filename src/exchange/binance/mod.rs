@@ -152,6 +152,15 @@ impl BinanceMarket {
         return self.db.py_ohlcvv(from_time, to_time, window_sec);
     }
 
+    pub fn ohlcv(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        return self.db.py_ohlcv(from_time, to_time, window_sec);
+    }
+
     pub fn info(&mut self) -> String {
         return self.db.info();
     }

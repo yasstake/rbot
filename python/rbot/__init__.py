@@ -43,6 +43,16 @@ def ohlcvv_to_df(array):
 
     return df
 
+def ohlcv_to_df(array):
+    df = pd.DataFrame(
+        array, columns=["timestamp", "open", "high", "low", "close", "vol", "count"])
+
+    df['timestamp'] = pd.to_datetime(
+        (df["timestamp"]), utc=True, unit='us')
+    df = df.set_index('timestamp')
+
+    return df
+
 
 
 def result_to_df(result_list):
@@ -216,6 +226,9 @@ class BinanceMarket:
 
     def ohlcvv(self, from_time, to_time, window_sec):
         return ohlcvv_to_df(self.market.ohlcvv(from_time, to_time, window_sec))
+
+    def ohlcv(self, from_time, to_time, window_sec):
+        return ohlcv_to_df(self.market.ohlcv(from_time, to_time, window_sec))
 
     def download(self, ndays, force=False):
         return self.market.download(ndays, force)

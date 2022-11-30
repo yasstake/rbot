@@ -8,9 +8,9 @@ use pyo3::{PyResult, Py, Python};
 use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement};
 
 
-use super::df::{merge_df, ohlcv_from_ohlcv_df};
-use crate::db::df::{end_time_df, make_empty_ohlcv};
-use crate::db::df::ohlcv_df;
+use super::df::{merge_df, ohlcvv_from_ohlcvv_df};
+use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
+use crate::db::df::ohlcvv_df;
 use crate::db::df::select_df;
 use crate::db::df::start_time_df;
 use crate::db::df::TradeBuffer;
@@ -116,7 +116,7 @@ pub struct TradeTable {
     file_name: String,
     connection: Connection,
     cache_df: DataFrame,
-    cache_ohlcv: DataFrame,
+    cache_ohlcvv: DataFrame,
 }
 
 impl TradeTable {
@@ -138,13 +138,13 @@ impl TradeTable {
             Ok(conn) => {
                 let df = TradeBuffer::new().to_dataframe();
                 // let ohlcv = ohlcv_df(&df, 0, 0, TradeTable::OHLCV_WINDOW_SEC);
-                let ohlcv = make_empty_ohlcv();
+                let ohlcv = make_empty_ohlcvv();
 
                 Ok(TradeTable {
                     file_name: name.to_string(),
                     connection: conn,
                     cache_df: df,
-                    cache_ohlcv: ohlcv,
+                    cache_ohlcvv: ohlcv,
                 })
             }
             Err(e) => {
@@ -267,7 +267,7 @@ impl TradeTable {
                 self.load_df(from_time, to_time);
 
                 // update ohlcv
-                self.cache_ohlcv = ohlcv_df(
+                self.cache_ohlcvv = ohlcvv_df(
                     &self.cache_df,
                     TradeTable::ohlcv_start(from_time),
                     to_time,
@@ -298,7 +298,7 @@ impl TradeTable {
                 time_string(ohlcv1_start),
                 time_string(ohlcv1_end)
             );
-            let ohlcv1 = ohlcv_df(
+            let ohlcv1 = ohlcvv_df(
                 &self.cache_df,
                 ohlcv1_start,
                 ohlcv1_end,
@@ -306,8 +306,8 @@ impl TradeTable {
             );
 
             if ohlcv1.shape().0 == 0 {
-                let ohlcv2 = select_df(&self.cache_ohlcv, ohlcv1_end, 0);
-                self.cache_ohlcv = merge_df(&ohlcv1, &ohlcv2);
+                let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
+                self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
             }
         }
 
@@ -329,19 +329,19 @@ impl TradeTable {
                 "cache update diff after {} ",
                 time_string(ohlcv2_start),
             );
-            let ohlcv1 = select_df(&self.cache_ohlcv, 0, ohlcv2_start);
-            let ohlcv2 = ohlcv_df(
+            let ohlcv1 = select_df(&self.cache_ohlcvv, 0, ohlcv2_start);
+            let ohlcv2 = ohlcvv_df(
                 &self.cache_df,
                 ohlcv2_start,
                 0,
                 TradeTable::OHLCV_WINDOW_SEC,
             );
 
-            self.cache_ohlcv = merge_df(&ohlcv1, &ohlcv2);
+            self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
         }
     }
 
-    pub fn ohlcv_df(
+    pub fn ohlcvv_df(
         &mut self,
         from_time: MicroSec,
         to_time: MicroSec,
@@ -350,33 +350,13 @@ impl TradeTable {
         self.update_cache_df(from_time, to_time);
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
-            ohlcv_from_ohlcv_df(&self.cache_ohlcv, from_time, to_time, time_window_sec)
+            ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, from_time, to_time, time_window_sec)
         } else {
-            ohlcv_df(&self.cache_df, from_time, to_time, time_window_sec)
+            ohlcvv_df(&self.cache_df, from_time, to_time, time_window_sec)
         }
     }
 
-    pub fn py_ohlcvv(
-        &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
-        window_sec: i64,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        let array = self.ohlcv_array(from_time, to_time, window_sec);
-
-        let r = Python::with_gil(|py| {
-            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
-
-            return py_array2.to_owned();
-        });
-
-        return Ok(r);
-    }
-
-
-
-
-    pub fn ohlcv_array(
+    pub fn ohlcvv_array(
         &mut self,
         mut from_time: MicroSec,
         to_time: MicroSec,
@@ -384,7 +364,7 @@ impl TradeTable {
     ) -> ndarray::Array2<f64> {
         from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcv_df(from_time, to_time, time_window_sec);
+        let df = self.ohlcvv_df(from_time, to_time, time_window_sec);
 
         let array: ndarray::Array2<f64> = df
             .select(&[
@@ -405,6 +385,83 @@ impl TradeTable {
 
         array
     }
+
+    pub fn py_ohlcvv(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        let array = self.ohlcvv_array(from_time, to_time, window_sec);
+
+        let r = Python::with_gil(|py| {
+            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
+
+            return py_array2.to_owned();
+        });
+
+        return Ok(r);
+    }
+
+    pub fn ohlcv_df(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        time_window_sec: i64,
+    ) -> DataFrame {
+        self.update_cache_df(from_time, to_time);
+
+        if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
+            ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, from_time, to_time, time_window_sec)
+        } else {
+            ohlcv_df(&self.cache_df, from_time, to_time, time_window_sec)
+        }
+    }
+
+    pub fn ohlcv_array(
+        &mut self,
+        mut from_time: MicroSec,
+        to_time: MicroSec,
+        time_window_sec: i64,
+    ) -> ndarray::Array2<f64> {
+        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+
+        let df = self.ohlcvv_df(from_time, to_time, time_window_sec);
+
+        let array: ndarray::Array2<f64> = df
+            .select(&[
+                KEY::time_stamp,
+                KEY::open,
+                KEY::high,
+                KEY::low,
+                KEY::close,
+                KEY::vol,
+                KEY::count,
+            ])
+            .unwrap()
+            .to_ndarray::<Float64Type>()
+            .unwrap();
+
+        array
+    }
+
+    pub fn py_ohlcv(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        let array = self.ohlcv_array(from_time, to_time, window_sec);
+
+        let r = Python::with_gil(|py| {
+            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
+
+            return py_array2.to_owned();
+        });
+
+        return Ok(r);
+    }
+
 
     pub fn py_select_trades(
         &mut self,
@@ -796,7 +853,7 @@ mod test_transaction_table {
     use crate::common::time::DAYS;
     use crate::common::time::MICRO_SECOND;
     use crate::common::time::NOW;
-    use crate::db::df::ohlcv_from_ohlcv_df;
+    use crate::db::df::ohlcvv_from_ohlcvv_df;
     use crate::fs::db_full_path;
 
     use super::*;
@@ -966,32 +1023,32 @@ mod test_transaction_table {
 
         let start_timer = NOW();
         let now = NOW();
-        let ohlcv = db.ohlcv_df(NOW() - DAYS(50), now, 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), now, 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv2 = ohlcv_from_ohlcv_df(&ohlcv, NOW() - DAYS(50), NOW(), 120);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(50), NOW(), 120);
         println!("{:?}", ohlcv2);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv2 = ohlcv_from_ohlcv_df(&ohlcv, NOW() - DAYS(1), NOW(), 60);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(1), NOW(), 60);
         println!("{:?}", ohlcv2);
         println!("{} [us]", NOW() - start_timer);
     }

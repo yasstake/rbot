@@ -101,6 +101,7 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
     }
 }
 
+
 pub fn ohlcv_df(
     df: &DataFrame,
     start_time: MicroSec,
@@ -111,8 +112,56 @@ pub fn ohlcv_df(
     let df = select_df(df, start_time, end_time);
 
     if df.shape().0 == 0 {
-        log::debug!("empty ohlcv");
+        log::debug!("empty ohlc");
         return make_empty_ohlcv();
+    }
+
+    return df
+        .lazy()
+        .groupby_dynamic(
+            [],
+            DynamicGroupOptions {
+                index_column: KEY::time_stamp.into(),
+                every: Duration::new(SEC(time_window)), // グループ間隔
+                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+                offset: Duration::parse("0m"),
+                truncate: true,            // タイムスタンプを切り下げてまとめる。
+                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+            },
+        )
+        .agg([
+            col(KEY::price).first().alias(KEY::open),
+            col(KEY::price).max().alias(KEY::high),
+            col(KEY::price).min().alias(KEY::low),
+            col(KEY::price).last().alias(KEY::close),
+            col(KEY::size).sum().alias(KEY::vol),
+            col(KEY::price).count().alias(KEY::count),
+        ])
+        .sort(
+            KEY::time_stamp,
+            SortOptions {
+                descending: false,
+                nulls_last: false,
+            },
+        )
+        .collect()
+        .unwrap();
+}
+
+
+pub fn ohlcvv_df(
+    df: &DataFrame,
+    start_time: MicroSec,
+    end_time: MicroSec,
+    time_window: i64,
+) -> DataFrame {
+    log::debug!("ohlcv_df, from={} / to={}", time_string(start_time), time_string(end_time));
+    let df = select_df(df, start_time, end_time);
+
+    if df.shape().0 == 0 {
+        log::debug!("empty ohlcv");
+        return make_empty_ohlcvv();
     }
 
     return df
@@ -151,7 +200,57 @@ pub fn ohlcv_df(
 }
 
 
-pub fn ohlcv_from_ohlcv_df(
+pub fn ohlcv_from_ohlcvv_df(
+    df: &DataFrame,
+    start_time: MicroSec,
+    end_time: MicroSec,
+    time_window: i64,
+) -> DataFrame {
+    log::debug!("ohlc {:?} -> {:?}", time_string(start_time), time_string(end_time));
+    let df = select_df(df, start_time, end_time);
+
+    if df.shape().0 == 0 {
+        log::debug!("empty ohlc");
+        return make_empty_ohlcv();
+    }
+
+    return df
+        .lazy()
+        .groupby_dynamic(
+            [col(KEY::order_side)],
+            DynamicGroupOptions {
+                index_column: KEY::time_stamp.into(),
+                every: Duration::new(SEC(time_window)), // グループ間隔
+                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+                offset: Duration::parse("0m"),
+                truncate: true,            // タイムスタンプを切り下げてまとめる。
+                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+            },
+        )
+        .agg([
+            col(KEY::open)
+                .sort_by([KEY::start_time],[false]).first().alias(KEY::open),
+            col(KEY::high).max().alias(KEY::high),
+            col(KEY::low).min().alias(KEY::low),
+            col(KEY::close)
+                .sort_by([KEY::end_time], [false]).last().alias(KEY::close),
+            col(KEY::vol).sum().alias(KEY::vol),
+            col(KEY::count).sum().alias(KEY::count),
+        ])
+        .sort(
+            KEY::time_stamp,
+            SortOptions {
+                descending: false,
+                nulls_last: false,
+            },
+        )
+        .collect()
+        .unwrap();
+}
+
+
+pub fn ohlcvv_from_ohlcvv_df(
     df: &DataFrame,
     start_time: MicroSec,
     end_time: MicroSec,
@@ -392,7 +491,7 @@ impl TradeBuffer {
 }
 
 
-pub fn make_empty_ohlcv() -> DataFrame {
+pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
     let order_side = Series::new(KEY::order_side, Vec::<f64>::new());    
     let open = Series::new(KEY::open, Vec::<f64>::new());
@@ -401,15 +500,11 @@ pub fn make_empty_ohlcv() -> DataFrame {
     let close = Series::new(KEY::close, Vec::<f64>::new());
     let vol = Series::new(KEY::vol, Vec::<f64>::new());
     let count = Series::new(KEY::count, Vec::<f64>::new());
-    //let sell_vol = Series::new(KEY::sell_vol, Vec::<f64>::new());
-    //let sell_count = Series::new(KEY::sell_count, Vec::<f64>::new());
-    //let buy_vol = Series::new(KEY::buy_vol, Vec::<f64>::new());
-    //let buy_count = Series::new(KEY::buy_count, Vec::<f64>::new());
     let start_time = Series::new(KEY::start_time, Vec::<MicroSec>::new());
     let end_time = Series::new(KEY::end_time, Vec::<MicroSec>::new());
 
     let df = DataFrame::new(vec![
-        time, order_side, open, high, low, close, vol, count,  // sell_vol, sell_count, buy_vol, buy_count,
+        time, order_side, open, high, low, close, vol, count,
         start_time, end_time,
     ])
     .unwrap();
@@ -417,25 +512,115 @@ pub fn make_empty_ohlcv() -> DataFrame {
     return df;
 }
 
+pub fn make_empty_ohlcv() -> DataFrame {
+    let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+    let open = Series::new(KEY::open, Vec::<f64>::new());
+    let high = Series::new(KEY::high, Vec::<f64>::new());
+    let low = Series::new(KEY::low, Vec::<f64>::new());
+    let close = Series::new(KEY::close, Vec::<f64>::new());
+    let vol = Series::new(KEY::vol, Vec::<f64>::new());
+    let count = Series::new(KEY::count, Vec::<f64>::new());
+
+    let df = DataFrame::new(vec![
+        time, open, high, low, close, vol, count
+    ])
+    .unwrap();
+
+    return df;
+}
+
+
 #[cfg(test)]
 mod test_df {
     use super::*;
     use super::TradeBuffer;
+    use polars::prelude::*;
+    use crate::common::time::DAYS;
+
+
+
+    fn make_ohlcv_df() -> DataFrame {
+        let df = 
+            df!(
+                KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3)],
+                KEY::order_side => &[0, 1, 0],
+                KEY::open => &[1.0, 2.0, 3.0],
+                KEY::high => &[1.0, 2.0, 3.0],                
+                KEY::low => &[1.0, 2.0, 3.0],                                                                
+                KEY::close => &[1.0, 2.0, 3.0],
+                KEY::vol => &[1.0, 2.0, 3.0],
+                KEY::count => &[1.0, 2.0, 3.0],
+                KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3)],
+                KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
+            );
+
+        return df.unwrap();
+    }
+
+    #[test]
+    fn test_make_ohlcv() {
+        let ohlc = make_ohlcv_df();
+
+        println!("{:?}", ohlc);
+    }
+
+    #[test]
+    fn test_make_ohlcv_from_ohclv() {
+        let ohlcv = make_ohlcv_df();
+
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        println!("{:?}", ohlcv2);
+    }
+
+    #[test]
+    fn test_make_ohlc_from_ohclv() {
+        let ohlcv = make_ohlcv_df();
+
+        let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        println!("{:?}", ohlcv2);
+    }
+
 
     #[test]
     fn test_make_empty_ohlcv() {
-        let r = make_empty_ohlcv();
+        let r = make_empty_ohlcvv();
 
         println!("{:?}", r);
+        assert_eq!(r.shape(), (0, 10));
     }
 
     #[test]
-    fn test_make_ohlcv_from_empty_ohlcv() {
+    fn test_make_empty_ohlc() {
         let r = make_empty_ohlcv();
-        let r2 = ohlcv_df(&r, 0, 0, 10);
-        println!("{:?}", r2);
+
+        println!("{:?}", r);
+        assert_eq!(r.shape(), (0, 7));
     }
 
 
+    #[test]
+    fn test_make_ohlcv_from_empty_ohlcv() {
+        let r = make_empty_ohlcvv();
+        let r2 = ohlcvv_df(&r, 0, 0, 10);
+        println!("{:?}", r2);
+        assert_eq!(r2.shape(), (0, 10));        
+    }
 
+    #[test]
+    fn test_make_ohlc_from_empty_ohlcv() {
+        let r = make_empty_ohlcvv();
+        let r2 = ohlcv_df(&r, 0, 0, 10);
+        println!("{:?}", r2);
+        assert_eq!(r2.shape(), (0, 7));
+    }
+
+    #[test]
+    fn test_make_ohlcv_from_ohlcv_empty_ohlcv() {
+        let r = make_empty_ohlcvv();
+        println!("{:?}", r);
+        let r2 = ohlcvv_df(&r, 0, 0, 10);
+        println!("{:?}", r2);
+        let r3 = ohlcv_from_ohlcvv_df(&r2, 0, 0, 10);
+        println!("{:?}", r3);
+    }
 }
