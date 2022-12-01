@@ -58,9 +58,25 @@ impl BinanceMarket {
                 }]
             }
             else {
-            self.db
-                .select_gap_chunks(NOW() - DAYS(ndays + 1), NOW() - DAYS(1), HHMM(12, 0)) 
+                let start_time = self.db.start_time().unwrap();
+                let end_time = self.db.end_time().unwrap();
+
+                let mut time_chunk:Vec<TimeChunk> = vec![];
+
+                
+                if from_time < start_time {
+                    log::debug!("download before {} {}", from_time, start_time);
+                    time_chunk.push(TimeChunk { start: from_time, end: start_time});
+                }
+
+                if end_time < to_time {
+                    log::debug!("download after {} {}", end_time, to_time);
+                    time_chunk.push(TimeChunk {start: end_time, end: to_time});
+                }
+
+                time_chunk
             };
+
         
         let days_gap = TradeTable::time_chunks_to_days(&time_gap);
         log::debug!("GAP TIME: {:?}", time_gap);        
