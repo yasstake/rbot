@@ -290,6 +290,8 @@ impl Position {
         order.open_home_size = order.order_home_size;
         order.open_foreign_size = order.order_foreign_size;
 
+        log::debug!("Open Position {:?}", order);
+
         return Ok(());
     }
 
@@ -309,17 +311,25 @@ impl Position {
         // オーダの全部クローズ（ポジションは残る）
         order.status = OrderStatus::ClosePosition;
 
+        order.open_price = self.price;
+        order.open_home_size = self.home_size;
+        order.open_foreign_size = 
+        OrderResult::calc_foreign_size(order.open_price, order.open_home_size, order.size_in_price_currency);
+
+        // TODO: calc foreing size
+        //order.open_foreign_size = 
+
         // order.open_price = self.price;
         order.close_price = order.order_price;
         order.close_home_size = order.order_home_size;
         order.close_foreign_size = order.order_foreign_size;
+        log::debug!("Close Position {:?}", order);
 
         match order.order_side {
             OrderSide::Buy => {
                 // order.profit = (order.open_price - order.close_price)/order.open_price * order.order_foreign_size;
                                // ex) Sell Price  80              Buy Price 100  = -20
                 order.profit = order.open_foreign_size - order.close_foreign_size;                
-
             }
             OrderSide::Sell => {
                 // order.profit = (order.close_price - order.open_price)/order.open_price * order.order_foreign_size;
@@ -459,8 +469,7 @@ impl Positions {
     // 残りのオーダを新たなオーダとして返却
     // クローズするためには、BuyのときにはShortの大きさが必要（逆になる）
     pub fn split_order(&self, order: &mut OrderResult) -> Result<OrderResult, OrderStatus> {
-        #[allow(unused_assignments)]
-        let mut size = 0.0;
+        let mut size: f64;
 
         match order.order_side {
             OrderSide::Buy => {
@@ -470,7 +479,7 @@ impl Positions {
                 size = self.long_position.home_size;
             }
             _ => {
-                // size = 0.0;
+                size = 0.0;
                 return Err(OrderStatus::Error);
             }
         }
@@ -495,6 +504,7 @@ fn test_build_orders() -> Vec<OrderResult> {
         200.0,
         200.0,
         "".to_string(),
+        false,
     );
 
     let sell_open00 = OrderResult::from_order(2, &sell_order01, OrderStatus::InOrder);
@@ -514,7 +524,9 @@ fn test_build_orders() -> Vec<OrderResult> {
         50.0,
         100.0,
         "".to_string(),
+        false,
     );
+
     let buy_close00 = OrderResult::from_order(2, &buy_order, OrderStatus::InOrder);
     let buy_close01 = buy_close00.clone();
     let buy_close02 = buy_close00.clone();
@@ -739,6 +751,7 @@ mod closed_order_test {
             100.1,
             101.0,
             "".to_string(),
+            true,
         );
 
         let mut close_order = OrderResult::from_order(100, &order, OrderStatus::OrderComplete);
@@ -753,6 +766,10 @@ mod closed_order_test {
             101.0 / 100.1,
             result.order_foreign_size + close_order.order_foreign_size
         );
+
+        println!("{:?}", order);
+        println!("{:?}", close_order);        
+        println!("{:?}", result);                
     }
 }
 
@@ -770,6 +787,7 @@ fn make_orders(buy_order: bool) -> OrderQueue {
         100.0,
         100.0,
         "".to_string(),
+        false
     );
     let o2 = Order::new(
         3,
@@ -780,6 +798,7 @@ fn make_orders(buy_order: bool) -> OrderQueue {
         100.0,
         50.0,
         "".to_string(),
+        false,
     );
     let o3 = Order::new(
         2,
@@ -790,6 +809,7 @@ fn make_orders(buy_order: bool) -> OrderQueue {
         200.0,
         200.0,
         "".to_string(),
+        false,
     );
     let o4 = Order::new(
         1,
@@ -800,6 +820,7 @@ fn make_orders(buy_order: bool) -> OrderQueue {
         200.0,
         50.0,
         "".to_string(),
+        false,
     );
 
     orders.queue_order(&o1);
