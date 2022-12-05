@@ -53,7 +53,6 @@ def ohlcv_to_df(array):
 
     return df
 
-
 def result_to_df(result_list):
     update_time = []
     order_id = []
@@ -101,13 +100,15 @@ def result_to_df(result_list):
     df = pd.DataFrame(
     data={"update_time": update_time, "order_id": order_id, "sub_id": order_sub_id,
           "order_side": order_side, "post_only": post_only, "create_time": create_time,
-          "status":  status, "open_price": open_price, "open_home_size": open_home_size, 
-          "open_foreign_size": open_foreign_size, "close_price": close_price,
+          "status":  status, 
+          "open_price": open_price, "open_home_size": open_home_size, "open_foreign_size": open_foreign_size, 
+          "close_price": close_price, "close_home_size": close_home_size, "close_foreign_size": close_foreign_size,
           "order_price": order_price, "order_home_size": order_home_size, "order_foreign_size": order_foreign_size,
           "profit": profit, "fee": fee,
           "total_profit": total_profit, "message": message},
-    columns=["update_time", "order_id", "sub_id", "order_type", "post_only",
-             "create_time", "status", "open_price", "close_price", 
+    columns=["update_time", "order_id", "sub_id", "order_side", "post_only",
+             "create_time", "status", "open_price", "open_home_size", "open_foreign_size", 
+             "close_price", "close_home_size", "close_foreign_size",             
              "order_price", "order_home_size", "order_foreign_size",
              "profit", "fee", "total_profit", "message"])
     df["update_time"] = pd.to_datetime((df["update_time"]), utc=True, unit="us")
@@ -117,6 +118,7 @@ def result_to_df(result_list):
     df = df.set_index("create_time", drop=True)
     
     return df
+
 
 
 

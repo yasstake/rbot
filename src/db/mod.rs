@@ -16,6 +16,7 @@ pub fn open_db(exchange_name: &str, market_name: &str) -> TradeTable {
         }
         */
         "BN" => {
+            // 参照用のみのため、order_in_homeは事実上ダミー。
             let binance = BinanceMarket::new(market_name, true);
 
             return binance.db;
