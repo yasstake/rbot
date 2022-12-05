@@ -67,13 +67,14 @@ pub struct DummySession {
     pub short_orders: OrderQueue,
     pub positions: Positions,
     pub wallet_balance: f64, // 入金額
+    pub size_in_price_currency: bool,
 }
 
 /// implement for Python export
 #[pymethods]
 impl DummySession {
     #[new]
-    pub fn new(exchange_name: &str, market_name: &str) -> Self {
+    pub fn new(exchange_name: &str, market_name: &str, size_in_price_currency: bool) -> Self {
         return DummySession {
             _order_index: 0,
             current_timestamp: 0,            
@@ -87,6 +88,7 @@ impl DummySession {
             short_orders: OrderQueue::new(false),
             positions: Positions::new(),
             wallet_balance: 0.0,
+            size_in_price_currency,
         };
     }
 
@@ -339,6 +341,7 @@ impl DummySession {
     }
 
 
+    // TODO: fix in size_in_price_currency
     fn calc_profit(&self, order: &mut OrderResult) {
         if order.status == OrderStatus::OpenPosition {
             order.fee = order.open_foreign_size * self.maker_fee;
@@ -431,6 +434,7 @@ impl DummySession {
             price,
             size,
             message,
+            self.size_in_price_currency,
         );
 
         // TODO: enqueue の段階でログに出力する。
@@ -490,14 +494,14 @@ mod test_session {
     use super::*;
     #[test]
     fn test_new() {
-        let _session = DummySession::new("FTX", "BTC-PERP");
+        let _session = DummySession::new("FTX", "BTC-PERP", false);
         assert_eq!(_session.exchange_name, "FTX");
         assert_eq!(_session.market_name, "BTC-PERP");
     }
 
     #[test]
     fn test_session_generate_id() {
-        let mut session = DummySession::new("FTX", "BTC-PERP");
+        let mut session = DummySession::new("FTX", "BTC-PERP", false);
 
         // IDの生成テスト
         // self.generate_id
@@ -510,7 +514,7 @@ mod test_session {
     #[test]
     /// CenterPriceは刻みより小さい値を許容する。
     fn test_session_calc_center_price() {
-        let mut session = DummySession::new("FTX", "BTC-PERP");        
+        let mut session = DummySession::new("FTX", "BTC-PERP", false);        
         // test center price
         session.buy_board_edge_price = 100.0;
         session.sell_board_edge_price = 100.5;
@@ -526,7 +530,7 @@ mod test_session {
     #[test]
 fn test_100_orders_open_close() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", true);
     let mut result_log = make_log_buffer();
 
     let _r = session._make_order(OrderSide::Buy, 100.0, 100.0, 100, "".to_string());
@@ -545,7 +549,7 @@ fn test_100_orders_open_close() {
 #[test]
 fn test_100_orders_open_expire() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", false);
     let mut result_log = make_log_buffer();
 
     for t in generate_trades_vec1(0) {
@@ -569,7 +573,7 @@ fn test_100_orders_open_expire() {
 #[test]
 fn test_100_orders_open_small_order() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", false);
     let mut result_log = make_log_buffer();
 
     for t in generate_trades_vec1(0) {
@@ -593,7 +597,7 @@ fn test_100_orders_open_small_order() {
 #[test]
 fn test_100_orders_open_big_order() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", false);
     let mut result_log = make_log_buffer();
 
     for t in generate_trades_vec1(0) {
@@ -624,7 +628,7 @@ fn test_100_orders_open_big_order() {
 #[test]
 fn test_100_orders_open_big_close_small_position() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", false);
     let mut result_log = make_log_buffer();
 
     for t in generate_trades_vec1(0) {
@@ -662,7 +666,7 @@ fn test_100_orders_open_big_close_small_position() {
 #[test]
 fn test_100_orders_open_small_close_big_position() {
 
-    let mut session = DummySession::new("FTX", "BTC-PERP");
+    let mut session = DummySession::new("FTX", "BTC-PERP", false);
     let mut result_log = make_log_buffer();
 
     for t in generate_trades_vec1(0) {
@@ -706,7 +710,7 @@ fn test_100_orders_open_small_close_big_position() {
 
 #[test]
     fn test_exec_event_execute_order0() {
-        let mut session = DummySession::new("FTX", "BTC-PERP");
+        let mut session = DummySession::new("FTX", "BTC-PERP", false);
 
         let mut result_log = make_log_buffer();
 
@@ -735,7 +739,7 @@ fn test_100_orders_open_small_close_big_position() {
 
     #[test]
     fn test_exec_event_execute_order() {
-        let mut session = DummySession::new("FTX", "BTC-PERP");
+        let mut session = DummySession::new("FTX", "BTC-PERP", false);
         assert_eq!(session.current_timestamp, 0); // 最初は０
 
         let mut tick_result: Vec<OrderResult> = vec![];

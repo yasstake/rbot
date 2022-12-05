@@ -17,18 +17,20 @@ pub struct BackTester {
     agent_on_tick: bool,
     agent_on_clock: bool,
     agent_on_update: bool,
+    size_in_price_currency: bool,
 }
 
 #[pymethods]
 impl BackTester {
     #[new]
-    pub fn new(exchange_name: &str, market_name: &str) -> Self {
+    pub fn new(exchange_name: &str, market_name: &str, size_in_price_currency: bool) -> Self {
         return BackTester {
             exchange_name: exchange_name.to_string(),
             market_name: market_name.to_string(),
             agent_on_tick: false,
             agent_on_clock: false,
             agent_on_update: false,
+            size_in_price_currency,
         };
     }
 
@@ -66,7 +68,7 @@ impl BackTester {
                 .unwrap();
 
             let mut session =
-                DummySession::new(self.exchange_name.as_str(), self.market_name.as_str());
+                DummySession::new(self.exchange_name.as_str(), self.market_name.as_str(), self.size_in_price_currency);
             let mut s = Py::new(py, session).unwrap();
             let mut last_clock: i64 = 0;
 
@@ -223,12 +225,12 @@ mod back_testr_test {
 
     #[test]
     fn test_create() {
-        let _b = BackTester::new("FTX", "BTC-PERP");
+        let _b = BackTester::new("FTX", "BTC-PERP", false);
     }
 
     #[test]
     fn test_run() {
-        let b = &mut BackTester::new("FTX", "BTC-PERP");
+        let b = &mut BackTester::new("FTX", "BTC-PERP", false);
 
         Python::with_gil(|py| {
             let agent_class = PyModule::from_code(
