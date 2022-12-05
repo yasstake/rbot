@@ -98,6 +98,7 @@ pub struct Order {
     pub size: f64,             // in foreign
     pub message: String,
     pub remain_size: f64, // ログから想定した未約定数。０になったら全部約定。
+    pub size_in_price_currency: bool,
 }
 
 #[pymethods]
@@ -112,6 +113,7 @@ impl Order {
         price: f64,
         size: f64, // in foreign currency.
         message: String,
+        size_in_price_currency: bool,
     ) -> Self {
         return Order {
             _order_index: 0,
@@ -124,11 +126,12 @@ impl Order {
             size,
             message,
             remain_size: size,
+            size_in_price_currency,
         };
     }
 
     pub fn __str__(&self) -> String {
-        return format!("{{order_index:{}, create_time:{}, order_id:{}, order_side:{:?}, post_only:{}, valid_until:{}, price:{}, size:{}, message:{}, remain_size:{}}}",
+        return format!("{{order_index:{}, create_time:{}, order_id:{}, order_side:{:?}, post_only:{}, valid_until:{}, price:{}, size:{}, message:{}, remain_size:{}, size_in_price_currency: {}}}",
         self._order_index,
         self.create_time,
         self.order_id,
@@ -139,6 +142,7 @@ impl Order {
         self.size,
         self.message,
         self.remain_size,
+        self.size_in_price_currency,
     );
     }
 
@@ -186,36 +190,36 @@ impl OrderStatus {
 pub struct OrderResult {
     #[pyo3(get)]
     pub update_time: MicroSec,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub order_id: String,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub order_sub_id: i32, // 分割された場合に利用
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub order_side: OrderSide,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub post_only: bool,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub create_time: MicroSec,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub status: OrderStatus,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub open_price: f64,
     #[pyo3(get)]
     pub open_home_size: f64,
     #[pyo3(get)]
-    pub open_foreign_size: f64,    
+    pub open_foreign_size: f64,
     #[pyo3(get)]
     pub close_price: f64,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub close_home_size: f64,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub close_foreign_size: f64,
     #[pyo3(get)]
     pub order_price: f64,
     #[pyo3(get)]
     pub order_home_size: f64,
     #[pyo3(get)]
-    pub order_foreign_size: f64,    
+    pub order_foreign_size: f64,
     #[pyo3(get)]
     pub profit: f64,
     #[pyo3(get)]
@@ -224,6 +228,8 @@ pub struct OrderResult {
     pub total_profit: f64,
     #[pyo3(get)]
     pub message: String,
+    #[pyo3(get)]
+    pub size_in_price_currency: bool,
 }
 
 impl OrderResult {
@@ -248,22 +254,33 @@ impl OrderResult {
             close_foreign_size: 0.0,
             order_price: order.price,
             order_home_size: order.size,
-            order_foreign_size: OrderResult::calc_foreign_size(order.price, order.size),
+            order_foreign_size: OrderResult::calc_foreign_size(
+                order.price,
+                order.size,
+                order.size_in_price_currency,
+            ),
             profit: 0.0,
             fee: 0.0,
             total_profit: 0.0,
             message: order.message.clone(),
+            size_in_price_currency: order.size_in_price_currency,
         };
 
         return result;
     }
 
-    fn calc_foreign_size(price: f64, home_size: f64) -> f64 {
+    // TODO: calc size in currency.
+    pub fn calc_foreign_size(price: f64, home_size: f64, size_in_price_currency: bool) -> f64 {
         if price == 0.0 {
-            print!("Div 0 in calc_foreign size {}/{}", price, home_size);            
+            print!("Div 0 in calc_foreign size {}/{}", price, home_size);
             panic!("Div 0");
         }
-        return home_size / price;
+
+        if size_in_price_currency {
+            return home_size / price;
+        } else {
+            return home_size * price;
+        }
     }
 
     /// オーダーを指定された大きさで２つに分ける。
@@ -283,15 +300,22 @@ impl OrderResult {
         if child.order_price == 0.0 {
             log::error!("Div 0 by child {:?}", child);
         }
-        child.order_foreign_size =
-            OrderResult::calc_foreign_size(child.order_price, child.order_home_size);
+        child.order_foreign_size = OrderResult::calc_foreign_size(
+            child.order_price,
+            child.order_home_size,
+            self.size_in_price_currency,
+        );
 
         self.order_home_size = size;
+        
         if self.order_price == 0.0 {
             log::error!("Div 0 by parent {:?}", self);
         }
-        self.order_foreign_size =
-            OrderResult::calc_foreign_size(self.order_price, self.order_home_size);
+        self.order_foreign_size = OrderResult::calc_foreign_size(
+            self.order_price,
+            self.order_home_size,
+            self.size_in_price_currency,
+        );
 
         return Ok(child);
     }
@@ -401,6 +425,7 @@ mod order_test {
             price,
             size,
             message.clone(),
+            false,
         );
 
         println!("{:?}", order);
@@ -413,6 +438,7 @@ mod order_test {
         assert_eq!(price, order.price);
         assert_eq!(message, order.message);
         assert_eq!(size, order.remain_size);
+        assert_eq!(false, order.size_in_price_currency);
     }
 }
 
@@ -434,7 +460,7 @@ mod order_result_test {
         let size = 12.0;
         let message = "message".to_string();
 
-        let order = Order::new(
+        let mut order = Order::new(
             create_time,
             order_id.clone(),
             order_side,
@@ -443,16 +469,29 @@ mod order_result_test {
             price,
             size,
             message.clone(),
+            true,
         );
 
+        // check size in home currency. e.g. USD
         let current_time: MicroSec = 100;
         let order_result = OrderResult::from_order(current_time, &order, OrderStatus::OpenPosition);
 
         assert_eq!(order_result.update_time, current_time);
+        assert_eq!(order_result.order_home_size, order.size);
+        assert_eq!(order_result.order_foreign_size, 12.0 / 10.0 /*order.size / order.price*/);
+
+        // check size in foreign currency e.g. BTC
+        order.size_in_price_currency = false;
+        let current_time: MicroSec = 100;
+        let order_result = OrderResult::from_order(current_time, &order, OrderStatus::OpenPosition);
+
+        assert_eq!(order_result.update_time, current_time);
+        assert_eq!(order_result.order_home_size, 12.0 /* order.size*/);
+        assert_eq!(order_result.order_foreign_size, 12.0 * 10.0 /* order.size * order.price*/ );
     }
 
     #[test]
-    fn test_split_order_small() {
+    fn test_split_order_small_in_usd() {
         let order = Order::new(
             1,
             "close".to_string(),
@@ -462,6 +501,7 @@ mod order_result_test {
             10.0,
             100.0,
             "msg".to_string(),
+            true,  // <- USD
         );
 
         let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
@@ -488,6 +528,44 @@ mod order_result_test {
     }
 
     #[test]
+    fn test_split_order_small_in_btc() {
+        let order = Order::new(
+            1,
+            "close".to_string(),
+            OrderSide::Buy,
+            true,
+            100,
+            10.0,
+            100.0,
+            "msg".to_string(),
+            false, // <-- BTC
+        );
+
+        let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
+        assert_eq!(closed_order.order_home_size, 100.0);
+        assert_eq!(closed_order.order_foreign_size, 100.0 * 10.0);
+
+        let result = &closed_order.split_child(10.0);
+
+        match result {
+            Ok(child) => {
+                assert_eq!(closed_order.order_price, 10.0);
+                assert_eq!(closed_order.order_home_size, 10.0);
+                assert_eq!(closed_order.order_foreign_size, 10.0 * 10.0);
+                assert_eq!(child.order_price, 10.0);
+                assert_eq!(child.order_home_size, 90.0);
+                assert_eq!(child.order_foreign_size, 90.0 * 10.0);
+
+                println!("{:?}", child);
+            }
+            Err(_) => {
+                assert!(false);
+            }
+        }
+    }
+
+
+    #[test]
     /// オーダは０と１００には分割できない（きっちりのサイズの場合はエラー）
     fn test_split_order_eq() {
         let order = Order::new(
@@ -499,6 +577,7 @@ mod order_result_test {
             10.0,
             100.0,
             "msg".to_string(),
+            false,
         );
 
         let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
@@ -537,6 +616,7 @@ mod order_result_test {
             10.0,
             100.0,
             "msg".to_string(),
+            false,
         );
 
         let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
