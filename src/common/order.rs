@@ -2,22 +2,40 @@ use super::time::MicroSec;
 use pyo3::pyclass;
 use pyo3::pymethods;
 
+use std::str::FromStr;
+use strum::EnumString;
+use strum::IntoEnumIterator;
 use strum_macros::Display;
 
 #[pyclass]
-#[derive(Debug, Clone, Copy, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString)]
 pub enum OrderSide {
+    #[strum(ascii_case_insensitive, serialize = "Buy", serialize = "B")]
     Buy,
+    #[strum(ascii_case_insensitive, serialize = "Sell", serialize = "S")]
     Sell,
     Unknown,
 }
 
 impl OrderSide {
+    /*
     pub fn from_str(order_type: &str) -> Self {
         match order_type.to_uppercase().as_str() {
             "B" | "BUY" => OrderSide::Buy,
             "S" | "SELL" | "SEL" => OrderSide::Sell,
             _ => OrderSide::Unknown,
+        }
+    }
+    */
+
+    pub fn from_str_default(side: &str) -> Self {
+        match OrderSide::from_str(side) {
+            Ok(side) => {
+                return side;
+            }
+            Err(_) => {
+                return OrderSide::Unknown;
+            }
         }
     }
 
@@ -33,6 +51,20 @@ impl OrderSide {
             OrderSide::Buy => true,
             _ => false,
         }
+    }
+}
+
+#[pymethods]
+impl OrderSide {
+    pub fn __str__(&self) -> String {
+        return self.to_string();
+    }
+
+    pub fn __repr__(&self) -> String {
+        return self.to_string();
+    }
+    pub fn _html_repr_(&self) -> String {
+        return self.to_string();
     }
 }
 
@@ -152,37 +184,60 @@ impl Order {
 }
 
 #[pyclass]
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Display, strum_macros::EnumString)]
 pub enum OrderStatus {
     NoAction,
     Wait,          // 処理中
     InOrder,       // オーダー中
     OrderComplete, // temporary status.
-    OpenPosition,  // ポジションオープン
+    #[strum(serialize = "Open")]
+    OpenPosition, // ポジションオープン
+    #[strum(serialize = "Close")]
     ClosePosition, // ポジションクローズ（このときだけ、損益計算する）
     OverPosition,  // ポジション以上の反対売買。別途分割して処理する。
-    ExpireOrder,   // 期限切れ
+    #[strum(serialize = "Expire")]
+    ExpireOrder, // 期限切れ
     Liquidation,   // 精算
     PostOnlyError, // 指値不成立。
-    NoMoney,       //　証拠金不足（オーダできず）
-    Cancel,        //  ユーザによるオーダーキャンセル
-    Error,         // その他エラー（基本的には発生させない）
+    ShortMoney,    //　証拠金不足（オーダできず）
+    #[strum(serialize = "Cancel")]
+    Cancel, //  ユーザによるオーダーキャンセル
+    #[strum(serialize = "Error")]
+    Error, // その他エラー（基本的には発生させない）
+}
+
+#[pymethods]
+impl OrderStatus {
+    pub fn __str__(&self) -> String {
+        return self.to_string();
+    }
+
+    pub fn __repr__(&self) -> String {
+        return self.to_string();
+    }
+
+    pub fn _html_repr_(&self) -> String {
+        return self.to_string();
+    }
 }
 
 #[test]
 fn test_print_order_status() {
     let s = OrderStatus::Wait;
-
     println!("{:#?}", s);
-
     println!("{}", s.to_string());
+
+    assert_eq!("Open", OrderStatus::OpenPosition.to_string());
 }
 
+/*
 impl OrderStatus {
     pub fn to_string(&self) -> String {
+        let name: &str = &self.try_into::<str>();
         return format!("{:#?}", self);
     }
 }
+*/
 
 // 約定結果
 #[pyclass]
@@ -307,7 +362,7 @@ impl OrderResult {
         );
 
         self.order_home_size = size;
-        
+
         if self.order_price == 0.0 {
             log::error!("Div 0 by parent {:?}", self);
         }
@@ -376,16 +431,24 @@ pub fn print_order_results(log_buffer: &LogBuffer) {
 
 #[cfg(test)]
 mod order_side_test {
+    use std::str::FromStr;
+
     use super::*;
     #[test]
     fn test_from_str() {
-        assert_eq!(OrderSide::from_str("B"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("Buy"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("BUY"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("S"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("Sell"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("SELL"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("BS"), OrderSide::Unknown);
+        assert_eq!(OrderSide::from_str("B").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("Buy").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("BUY").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("S").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("Sell").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("SELL").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str_default("BS"), OrderSide::Unknown);
+    }
+
+    #[test]
+    fn test_to_string() {
+        assert_eq!(OrderSide::Buy.to_string(), "Buy");
+        assert_eq!(OrderSide::Sell.to_string(), "Sell");
     }
 
     #[test]
@@ -478,7 +541,10 @@ mod order_result_test {
 
         assert_eq!(order_result.update_time, current_time);
         assert_eq!(order_result.order_home_size, order.size);
-        assert_eq!(order_result.order_foreign_size, 12.0 / 10.0 /*order.size / order.price*/);
+        assert_eq!(
+            order_result.order_foreign_size,
+            12.0 / 10.0 /*order.size / order.price*/
+        );
 
         // check size in foreign currency e.g. BTC
         order.size_in_price_currency = false;
@@ -487,7 +553,10 @@ mod order_result_test {
 
         assert_eq!(order_result.update_time, current_time);
         assert_eq!(order_result.order_home_size, 12.0 /* order.size*/);
-        assert_eq!(order_result.order_foreign_size, 12.0 * 10.0 /* order.size * order.price*/ );
+        assert_eq!(
+            order_result.order_foreign_size,
+            12.0 * 10.0 /* order.size * order.price*/
+        );
     }
 
     #[test]
@@ -501,7 +570,7 @@ mod order_result_test {
             10.0,
             100.0,
             "msg".to_string(),
-            true,  // <- USD
+            true, // <- USD
         );
 
         let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
@@ -563,7 +632,6 @@ mod order_result_test {
             }
         }
     }
-
 
     #[test]
     /// オーダは０と１００には分割できない（きっちりのサイズの場合はエラー）
