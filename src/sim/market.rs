@@ -715,21 +715,23 @@ OrderResult { timestamp: 8, order_id: "0000-000000000000-004", order_sub_id: 1, 
 
 #[cfg(test)]
 mod order_side_test {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
     fn test_from_str() {
-        assert_eq!(OrderSide::from_str("buy"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("Buy"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("B"), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("BUY"), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("buy").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("Buy").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("B").unwrap(), OrderSide::Buy);
+        assert_eq!(OrderSide::from_str("BUY").unwrap(), OrderSide::Buy);
 
         assert_eq!(OrderSide::Buy.to_string(), "Buy");
 
-        assert_eq!(OrderSide::from_str("Sell"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("S"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("SELL"), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("sell"), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("Sell").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("S").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("SELL").unwrap(), OrderSide::Sell);
+        assert_eq!(OrderSide::from_str("sell").unwrap(), OrderSide::Sell);
 
         assert_eq!(OrderSide::Sell.to_string(), "Sell");
     }

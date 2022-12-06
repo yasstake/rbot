@@ -13,29 +13,17 @@ class Agent(BaseAgent):
 
     def clock_interval(self):
         #//return 60*60*2
-        print("interval = 60")
-        return 60
+        interval = 60*60*2
+        return interval
     
     #def on_tick(self, time_us, session, price, side, size):
     #    print(time_us, price, side, size)
 
     def on_clock(self, time_us, session):
-        #print(time_us, session)
-        
-        print(time_string(time_us), session.buy_board_edge_price, session.sell_board_edge_price)        
-
         ohlcv_df = session.ohlcv(60*60*2, 6)       # ６本の足を取得。 最新は６番目。
-        print(ohlcv_df)
-
-        return 
 
         if len(ohlcv_df.index) < 6:                 # データが過去６本分そろっていない場合はなにもせずリターン
             return 
-
-        print(time_string(time_us), session.buy_edge_price, session.sell_edge_price)
-
-        if session.sell_edge_price < session.buy_edge_price:
-            print("Error?")
 
         ohlcv_df["range"] = ohlcv_df["high"] - ohlcv_df["low"]      # レンジを計算
 
@@ -52,39 +40,35 @@ class Agent(BaseAgent):
         if detect_long:
             #    print("position", session.long_pos_size, session.short_pos_size)            
             #        print("make long")
-            if not session.long_pos_size:
+            if not session.long_position_size:
             #    print("makeorder")                                    
-                if not session.short_pos_size:
+                if not session.short_position_size:
 
-                    return session.make_order("Buy", session.buy_edge_price, 100000, 600, "Open Long")    
+                    session.make_order("Buy", session.buy_board_edge_price, 0.01, 600, "Open Long")    
                 else:
 
-                    return session.make_order("Buy", session.buy_edge_price, 200000, 600, "doten Long")    
+                    session.make_order("Buy", session.buy_board_edge_price, 0.02, 600, "doten Long")    
             else:
                 pass
 
         if detect_short:
-            print("make short")            
-            if not session.short_pos_size:
-                print("makeorder")                                                      
-                if not session.long_pos_size:
-                    return session.make_order("Sell", session.sell_edge_price, 100000, 600, "Open Short") 
+            #print("make short")            
+            if not session.short_position_size:
+                #print("makeorder")                                                      
+                if not session.long_position_size:
+                    session.make_order("Sell", session.sell_board_edge_price, 0.01, 600, "Open Short") 
                 else:
-                    print("position", session.long_pos_size, session.short_pos_size)                    
-                    return session.make_order("Sell", session.sell_edge_price, 200000, 600, "Doten Short") 
+                    session.make_order("Sell", session.sell_board_edge_price, 0.02, 600, "Doten Short") 
             else:
                 pass
 
     def on_update(self, time, session, result):
-        print(result)
+        #print(result)
+        pass
 
 
 
-#bn = BinanceMarket("BTCBUSD")
-#bn.download(10)
-
-
-back_tester = BackTester("BN", "BTCBUSD")
+back_tester = BackTester("BN", "BTCBUSD", True)
 
 print("start")
 r = back_tester.run(Agent())

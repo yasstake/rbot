@@ -164,7 +164,7 @@ impl DummySession {
         duration_sec: i64,
         message: String,
     ) -> PyResult<OrderStatus> {
-        match self._make_order(OrderSide::from_str(side), price, size, duration_sec, message) {
+        match self._make_order(OrderSide::from_str_default(side), price, size, duration_sec, message) {
             Ok(result) => {
                 Ok(result)
             }
