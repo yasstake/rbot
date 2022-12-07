@@ -18,7 +18,7 @@ strum = { version = "0.24", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
 
-rusqlite = {version = "0.28.0", features=["rustqlite/bundled"]}
+rusqlite = {version = "0.28", features=["bundled"]}
 
 
 serde = {version="1.0"}
