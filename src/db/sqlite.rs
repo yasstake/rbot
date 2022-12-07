@@ -250,6 +250,10 @@ impl TradeTable {
         self.cache_df = self.select_df_from_db(from_time, to_time);
     }
 
+    pub fn update_cache_all(&mut self) {
+        self.update_cache_df(0, 0);
+    }
+
     pub fn update_cache_df(&mut self, from_time: MicroSec, to_time: MicroSec) {
         let df_start_time: i64;
 
@@ -533,53 +537,24 @@ impl TradeTable {
         let mut start_time = 0;
         let sql = "select count(*) from trades";
 
-        let r = self.connection.query_row(sql, [], |row| {
-            let count: i64 = row.get_unwrap(0);
-
-            start_time = min;
-
-            Ok(format!(
-                r#"
-                <table>
-                <caption>Trade Database info table</caption>
-                <tr><th>start</th><th>end</th></tr>
-                <tr><td>{:?}</td><td>{:?}</td></tr>
-                <tr><td>{:?}</td><td>{:?}</td></tr>
-                <tr><td><b>records=</b></td><td>{}</td></tr>
-                <tr><td><b>days=</b></td><td>{}</td></tr>                
-                <tr><td><b>path=</b>{}</td></tr>                
-                </table>                
-                "#,
-                min,
-                max,
-                time_string(min),
-                time_string(max),
-                count,
-                (max - min) / DAYS(1),
-                self.file_name,
-            ))
-        });
-
-        // gap info
-        let chunks = self.select_gap_chunks(start_time, 0, SEC(60));
-
-        let mut table:String = "<table><caption>Data Gap</caption><tr><th>start</th><th>end</th><th>days ago</th></tr>".to_string();
-        for c in chunks {
-            let days_ago = (NOW() - c.start) / DAYS(1);
-            table += &format!(
-                "<tr><td>{:?}</td><td>{:?}</td><td>{}</td></tr>",
-                time_string(c.start),
-                time_string(c.end),
-                days_ago
-            );
-        }
-        table += "</table>";
-
-        if r.is_ok() {
-            r.unwrap() + table.as_str()
-        } else {
-            "<H2>NO DATA INTABLE</H2>".to_string()
-        }
+        return format!(
+            r#"
+            <table>
+            <caption>Trade Database info table</caption>
+            <tr><th>start</th><th>end</th></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td><b>days=</b></td><td>{}</td></tr>                
+            <tr><td><b>path=</b>{}</td></tr>                
+            </table>                
+            "#,
+            min,
+            max,
+            time_string(min),
+            time_string(max),
+            (max - min) / DAYS(1),
+            self.file_name,
+        );
     }
 
     /*
