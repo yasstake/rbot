@@ -1,4 +1,4 @@
-use pyo3::{pyclass, pymethods, Py, PyAny, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyResult, Python};
 use rusqlite::params;
 
 use crate::{
@@ -34,7 +34,7 @@ impl BackTester {
         };
     }
 
-    pub fn run(&mut self, agent: &PyAny) -> Vec<OrderResult> {
+    pub fn run(&mut self, agent: &PyAny) -> PyResult<Vec<OrderResult>> {
         self.agent_on_tick = self.has_want_event(agent, "on_tick");
         self.agent_on_clock = self.has_want_event(agent, "on_clock");
         self.agent_on_update = self.has_want_event(agent, "on_update");
@@ -51,7 +51,7 @@ impl BackTester {
 
         let mut order_history: Vec<OrderResult> = make_log_buffer();
 
-        Python::with_gil(|py| {
+        let r = Python::with_gil(|py| {
             let iter = statement
                 .query_map(params![], |row| {
                     let bs_str: String = row.get_unwrap(1);
@@ -67,8 +67,11 @@ impl BackTester {
                 })
                 .unwrap();
 
-            let mut session =
-                DummySession::new(self.exchange_name.as_str(), self.market_name.as_str(), self.size_in_price_currency);
+            let mut session = DummySession::new(
+                self.exchange_name.as_str(),
+                self.market_name.as_str(),
+                self.size_in_price_currency,
+            );
             let mut s = Py::new(py, session).unwrap();
             let mut last_clock: i64 = 0;
 
@@ -82,13 +85,25 @@ impl BackTester {
                             if self.agent_on_clock {
                                 let current_clock = CEIL(t.time, clock_interval);
                                 if current_clock != last_clock {
-                                    s = self.clock(s, agent, current_clock);
+                                    match self.clock(s, agent, current_clock) {
+                                        Ok(session) => {
+                                            s = session;
+                                        }
+                                        Err(e) => {
+                                            let trace = e.traceback(py);
+
+                                            if trace.is_some() {
+                                                log::error!("{:?}", trace);
+                                            }
+    
+                                            return Err(e);
+                                        }
+                                    };
                                     last_clock = current_clock;
                                 }
                             }
-                        }
-                        else {
-                            skip_tick -= 1;                            
+                        } else {
+                            skip_tick -= 1;
                         }
 
                         session = s.extract::<DummySession>(py).unwrap();
@@ -97,26 +112,55 @@ impl BackTester {
 
                         session.process_trade(&t, &mut tick_result);
                         s = Py::new(py, session).unwrap();
-                        s = self.tick(s, agent, &t);
+                        
+                        match self.tick(s, agent, &t) {
+                            Ok(session) => {
+                                s = session;
+                            },
+                            Err(e) => {
+                                let trace = e.traceback(py);
+
+                                if trace.is_some() {
+                                    log::error!("{:?}", trace);
+                                }
+
+                                return Err(e);
+                            }
+                        }
 
                         for mut r in tick_result {
                             // TODO calc fee and profit
                             r = self.calc_profit(r);
 
                             if self.agent_on_update {
-                                s = self.update(s, agent, r.update_time, r.clone());
+                                match self.update(s, agent, r.update_time, r.clone()) {
+                                    Ok(session) => {
+                                        s = session;
+                                    },
+                                    Err(e) => {
+                                        let trace = e.traceback(py);
+
+                                        if trace.is_some() {
+                                            log::error!("{:?}", trace);
+                                        }
+
+                                        return Err(e);
+                                    }
+                                }
                             }
                             log_order_result(&mut order_history, r);
                         }
                     }
                     Err(e) => {
                         log::warn!("err {}", e);
+                        // return Err(e.to_string());
                     }
                 }
             }
+            Ok(order_history)
         });
 
-        return order_history;
+        return r;
     }
 }
 
@@ -126,7 +170,7 @@ impl BackTester {
         session: Py<DummySession>,
         agent: &PyAny,
         trade: &Trade,
-    ) -> Py<DummySession> {
+    ) -> Result<Py<DummySession>, PyErr> {
         if self.agent_on_tick {
             let result = agent.call_method1(
                 "_on_tick",
@@ -145,25 +189,32 @@ impl BackTester {
                 Err(e) => {
                     println!("call Agent.on_tick error {:?}", e);
                     log::error!("Call on_tick Error {:?}", e);
+                    return Err(e);
                 }
             }
         }
-        return session;
+        return Ok(session);
     }
 
-    fn clock(&mut self, session: Py<DummySession>, agent: &PyAny, clock: i64) -> Py<DummySession> {
+    fn clock(
+        &mut self,
+        session: Py<DummySession>,
+        agent: &PyAny,
+        clock: i64,
+    ) -> Result<Py<DummySession>, PyErr> {
         let result = agent.call_method1("_on_clock", (clock, &session));
         match result {
             Ok(_ok) => {
                 //
             }
             Err(e) => {
-                println!("call Agent.on_clock error {:?}", e);                
+                println!("call Agent.on_clock error {:?}", e);
                 log::error!("Call on_clock Error {:?}", e);
+                return Err(e);
             }
         }
 
-        return session;
+        return Ok(session);
     }
 
     fn update(
@@ -172,7 +223,7 @@ impl BackTester {
         agent: &PyAny,
         time: MicroSec,
         r: OrderResult,
-    ) -> Py<DummySession> {
+    ) -> Result<Py<DummySession>, PyErr> {
         let result = agent.call_method1("_on_update", (time, &session, r));
 
         match result {
@@ -180,12 +231,13 @@ impl BackTester {
                 //
             }
             Err(e) => {
-                println!("call Agent.on_update error {:?}", e);                                
+                println!("call Agent.on_update error {:?}", e);
                 log::error!("Call on_update Error {:?}", e);
+                return Err(e);
             }
         }
 
-        return session;
+        return Ok(session);
     }
 
     fn has_want_event(&self, agent: &PyAny, event_function_name: &str) -> bool {
