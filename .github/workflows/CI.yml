@@ -13,6 +13,7 @@ jobs:
       run: sudo apt-get update
     - name: get-open-ssl
       run: sudo apt-get install libssl-dev 
+      run: sudo apt-get install pkg-config
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
