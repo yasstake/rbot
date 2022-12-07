@@ -154,13 +154,11 @@ class Session:
             exchange_name = self.session.exchange_name
             market_name = self.session.market_name
         
-        market = Market.get(exchange_name, market_name)
+        market = Market.open(exchange_name, market_name)
 
         now = self.session.current_timestamp
 
         return market.ohlcvv(now - time_window * num_of_bars * 1_000_000, now, time_window)
-
-
 
 
 class Market:
@@ -174,16 +172,21 @@ class Market:
     @classmethod
     def open(cls, exchange: str, market):
         exchange = exchange.upper()
+        key = Market.key(exchange, market)                    
+        
+        if key in cls.MARKET:
+            return cls.MARKET[key]
+
         if exchange == "FTX":
             m = FtxMarket(market, cls.DUMMY_MODE)
-            key = Market.key(exchange, market)            
             cls.MARKET[key] = m
             return m
         elif exchange == "BN":
             m = BinanceMarket(market, cls.DUMMY_MODE)
-            key = Market.key(exchange, market)
             cls.MARKET[key] = m
             return m
+        else:
+            print("unknown market ", market)
 
     @classmethod
     def download(cls, ndays):
@@ -191,17 +194,16 @@ class Market:
             cls.MARKET[m].download(ndays)
     
     @classmethod
-    def get(cls, exchange, market):
-        key = Market.key(exchange, market)
-        
-        if key in cls.MARKET:
-            return cls.MARKET[key]
-        else:
-            return Market.open(exchange, market)
+    def cache_data(cls):
+        for m in cls.MARKET:
+            cls.MARKET[m].cache_all_data()
 
     @staticmethod
     def key(exchange, market):
         return exchange.upper() + "/" + market.upper()
+
+
+
 
 '''
 class FtxMarket:

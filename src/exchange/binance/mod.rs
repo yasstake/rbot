@@ -151,6 +151,10 @@ impl BinanceMarket {
         return insert_rec_no;
     }
 
+    pub fn cache_all_data(&mut self) {
+        self.db.update_cache_all();
+    }
+
     pub fn select_trades(
         &mut self,
         from_time: MicroSec,
