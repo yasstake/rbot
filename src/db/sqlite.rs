@@ -1,19 +1,20 @@
 use crate::common::order::{TimeChunk, Trade};
-use crate::common::time::{time_string, MicroSec, CEIL, DAYS, FLOOR, MICRO_SECOND, NOW, SEC, FLOOR_DAY};
+use crate::common::time::{
+    time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, MICRO_SECOND, NOW, SEC,
+};
 use crate::OrderSide;
-use numpy::PyArray2;
 use numpy::IntoPyArray;
+use numpy::PyArray2;
 use polars::prelude::DataFrame;
-use pyo3::{PyResult, Py, Python};
+use pyo3::{Py, PyResult, Python};
 use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement};
 
-
 use super::df::{merge_df, ohlcvv_from_ohlcvv_df};
-use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
 use crate::db::df::ohlcvv_df;
 use crate::db::df::select_df;
 use crate::db::df::start_time_df;
 use crate::db::df::TradeBuffer;
+use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
 
 use log::log_enabled;
 use log::Level::Debug;
@@ -232,8 +233,28 @@ impl TradeTable {
     }
 
     pub fn select_all_statement(&self) -> Statement {
-        let statement = self.connection.prepare("select time_stamp, action, price, size, id from trades order by time_stamp").unwrap();
+        let statement = self
+            .connection
+            .prepare("select time_stamp, action, price, size, id from trades order by time_stamp")
+            .unwrap();
         return statement;
+    }
+
+    pub fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
+        let sql: &str;
+        let param: Vec<i64>;
+
+        if 0 < to_time {
+            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
+            param = vec![from_time, to_time];            
+        } else {
+            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
+            param = vec![from_time];            
+        }
+
+        let statement = self.connection.prepare(sql).unwrap();
+
+        return (statement, param);
     }
 
     pub fn select_df_from_db(&mut self, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
@@ -329,10 +350,7 @@ impl TradeTable {
             let ohlcv2_start = TradeTable::ohlcv_start(from_time);
             //let ohlcv2_end = TradeTable::ohlcv_start(to_time);
 
-            log::debug!(
-                "cache update diff after {} ",
-                time_string(ohlcv2_start),
-            );
+            log::debug!("cache update diff after {} ", time_string(ohlcv2_start),);
             let ohlcv1 = select_df(&self.cache_ohlcvv, 0, ohlcv2_start);
             let ohlcv2 = ohlcvv_df(
                 &self.cache_df,
@@ -466,7 +484,6 @@ impl TradeTable {
         return Ok(r);
     }
 
-
     pub fn py_select_trades(
         &mut self,
         from_time: MicroSec,
@@ -489,12 +506,7 @@ impl TradeTable {
         let trades = self.select_df_from_db(from_time, to_time);
 
         let array: ndarray::Array2<f64> = trades
-            .select(&[
-                KEY::time_stamp,
-                KEY::price,
-                KEY::size,
-                KEY::order_side,
-            ])
+            .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
             .unwrap()
             .to_ndarray::<Float64Type>()
             .unwrap();
@@ -507,20 +519,20 @@ impl TradeTable {
         let max = self.end_time().unwrap_or_default();
 
         /*
-        let sql = "select count(ROWID) from trades";
+         let sql = "select count(ROWID) from trades";
 
-        let r = self.connection.query_row(sql, [], |row| {
-            let count: i64 = row.get_unwrap(0);
+         let r = self.connection.query_row(sql, [], |row| {
+             let count: i64 = row.get_unwrap(0);
 
-            Ok(format!(
-                "{{\"start\": {}, \"end\": {}, \"count\": {}}}",
-                time_string(min),
-                time_string(max),
-                count
-            ))
-        });
-       return r.unwrap();        
-        */
+             Ok(format!(
+                 "{{\"start\": {}, \"end\": {}, \"count\": {}}}",
+                 time_string(min),
+                 time_string(max),
+                 count
+             ))
+         });
+        return r.unwrap();
+         */
 
         return format!(
             "{{\"start\": {}, \"end\": {}}}",
@@ -530,7 +542,6 @@ impl TradeTable {
     }
 
     pub fn _repr_html_(&self) -> String {
-
         let min = self.start_time().unwrap_or_default();
         let max = self.end_time().unwrap_or_default();
 
@@ -582,11 +593,10 @@ impl TradeTable {
         return r;
     }
 
-
     /// select max(end) time_stamp in db
     pub fn end_time(&self) -> Result<MicroSec, Error> {
         // let sql = "select max(time_stamp) from trades";
-        let sql = "select time_stamp from trades order by time_stamp desc limit 1";        
+        let sql = "select time_stamp from trades order by time_stamp desc limit 1";
 
         let r = self.connection.query_row(sql, [], |row| {
             let max: i64 = row.get_unwrap(0);
@@ -733,7 +743,7 @@ impl TradeTable {
 
                 // skip first row.
                 if index != 0 {
-                    log::debug!("gap chunk: {}-{}", time_string(c.start), time_string(c.end)); 
+                    log::debug!("gap chunk: {}-{}", time_string(c.start), time_string(c.end));
                     chunks.push(c);
                 }
                 index += 1;
@@ -747,19 +757,23 @@ impl TradeTable {
     pub fn time_chunks_to_days(chunks: &Vec<TimeChunk>) -> Vec<MicroSec> {
         let mut days: Vec<MicroSec> = vec![];
 
-        let mut current_day:MicroSec = 0;
+        let mut current_day: MicroSec = 0;
 
         for chunk in chunks {
-            log::debug!("chunk: {} -> {}", time_string(chunk.start), time_string(chunk.end));
+            log::debug!(
+                "chunk: {} -> {}",
+                time_string(chunk.start),
+                time_string(chunk.end)
+            );
             let mut new_day = FLOOR_DAY(chunk.start);
-            if current_day != new_day  {
-                log::debug!("DAY: {}", time_string(new_day));                                
+            if current_day != new_day {
+                log::debug!("DAY: {}", time_string(new_day));
                 days.push(new_day);
-                current_day = new_day;                
+                current_day = new_day;
 
                 new_day += DAYS(1);
                 while new_day < chunk.end {
-                    log::debug!("DAY: {}", time_string(new_day));                                                        
+                    log::debug!("DAY: {}", time_string(new_day));
                     days.push(new_day);
                     current_day = new_day;
                     new_day += DAYS(1);
@@ -911,7 +925,6 @@ mod test_transaction_table {
         println!("{}({})", time_string(s), s);
     }
 
-
     #[test]
     fn test_select_gap_chunks() {
         let db_name = db_full_path("FTX", "BTC-PERP");
@@ -976,17 +989,22 @@ mod test_transaction_table {
 
     #[test]
     fn test_time_chunks_to_days() {
-        let chunks = vec![
-            TimeChunk{start:DAYS(1), end:DAYS(1)+100}
-        ];
+        let chunks = vec![TimeChunk {
+            start: DAYS(1),
+            end: DAYS(1) + 100,
+        }];
 
         assert_eq!(TradeTable::time_chunks_to_days(&chunks), vec![DAYS(1)]);
 
-        let chunks = vec![
-            TimeChunk{start:DAYS(1), end:DAYS(3)+100}
-        ];
+        let chunks = vec![TimeChunk {
+            start: DAYS(1),
+            end: DAYS(3) + 100,
+        }];
 
-        assert_eq!(TradeTable::time_chunks_to_days(&chunks), vec![DAYS(1), DAYS(2), DAYS(3)]);
+        assert_eq!(
+            TradeTable::time_chunks_to_days(&chunks),
+            vec![DAYS(1), DAYS(2), DAYS(3)]
+        );
     }
 
     #[test]

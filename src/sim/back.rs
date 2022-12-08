@@ -1,7 +1,7 @@
 use chrono::OutOfRangeError;
 use polars::export::arrow::bitmap::or;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyResult, Python};
-use rusqlite::params;
+use rusqlite::{params, params_from_iter};
 
 use crate::{
     common::{
@@ -20,6 +20,8 @@ pub struct BackTester {
     agent_on_clock: bool,
     agent_on_update: bool,
     size_in_price_currency: bool,
+    #[pyo3(get, set)]
+    maker_fee_rate: f64,
 }
 
 #[pymethods]
@@ -33,10 +35,12 @@ impl BackTester {
             agent_on_clock: false,
             agent_on_update: false,
             size_in_price_currency,
+            maker_fee_rate: 0.01 * 0.1,
         };
     }
 
-    pub fn run(&mut self, agent: &PyAny) -> PyResult<Vec<OrderResult>> {
+    #[args(from_time=0, to_time=0)]
+    pub fn run(&mut self, agent: &PyAny, from_time: MicroSec, to_time: MicroSec) -> PyResult<Vec<OrderResult>> {
         self.agent_on_tick = self.has_want_event(agent, "on_tick");
         self.agent_on_clock = self.has_want_event(agent, "on_clock");
         self.agent_on_update = self.has_want_event(agent, "on_update");
@@ -49,13 +53,15 @@ impl BackTester {
         log::debug!("clock interval {:?}", clock_interval);
 
         let db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
-        let mut statement = db.select_all_statement();
+
+        //let mut statement = db.select_all_statement();
+        let (mut statement, param) = db.select_statement(from_time, to_time);
 
         let mut order_history: Vec<OrderResult> = make_log_buffer();
 
         let r = Python::with_gil(|py| {
             let iter = statement
-                .query_map(params![], |row| {
+                .query_map(params_from_iter(param.iter()), |row| {
                     let bs_str: String = row.get_unwrap(1);
                     let bs = OrderSide::from_str_default(bs_str.as_str());
 
@@ -263,8 +269,7 @@ impl BackTester {
         if order_result.status == OrderStatus::OpenPosition
             || order_result.status == OrderStatus::ClosePosition
         {
-            let fee_rate = 0.0001;
-            order_result.fee = order_result.order_foreign_size * fee_rate;
+            order_result.fee = order_result.order_foreign_size * self.maker_fee_rate;
             order_result.total_profit = order_result.profit - order_result.fee;
 
             match order_result.order_side {
@@ -297,7 +302,7 @@ mod back_testr_test {
 
     #[test]
     fn test_run() {
-        let b = &mut BackTester::new("FTX", "BTC-PERP", false);
+        let b = &mut BackTester::new("BN", "BTCBUSD", false);
 
         Python::with_gil(|py| {
             let agent_class = PyModule::from_code(
@@ -319,7 +324,7 @@ class Agent:
 
             let agent = agent_class.call0().unwrap();
 
-            b.run(agent);
+            b.run(agent, 0, 0);
         });
     }
 }
