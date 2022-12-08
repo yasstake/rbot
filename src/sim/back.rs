@@ -1,3 +1,5 @@
+use chrono::OutOfRangeError;
+use polars::export::arrow::bitmap::or;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyResult, Python};
 use rusqlite::params;
 
@@ -264,7 +266,20 @@ impl BackTester {
             let fee_rate = 0.0001;
             order_result.fee = order_result.order_foreign_size * fee_rate;
             order_result.total_profit = order_result.profit - order_result.fee;
+
+            match order_result.order_side {
+                OrderSide::Buy => {
+                    order_result.position_change = order_result.order_home_size;
+                },
+                OrderSide::Sell => {
+                    order_result.position_change = - (order_result.order_home_size);
+                },
+                OrderSide::Unknown => {
+                    log::error!("unknown status {:?}", order_result);
+                }
+            }
         }
+
 
         order_result
     }
