@@ -9,7 +9,6 @@ name = "rbot"
 crate-type = ["cdylib"]
 
 [dependencies]
-#pyo3 = { version = "0.17.1", features="multiple-pymethods"}
 pyo3 = { version = "0.17"}
 chrono = {version= "*"}
 
