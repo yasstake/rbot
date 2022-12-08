@@ -282,6 +282,8 @@ pub struct OrderResult {
     #[pyo3(get)]
     pub total_profit: f64,
     #[pyo3(get)]
+    pub position_change: f64,
+    #[pyo3(get)]    
     pub message: String,
     #[pyo3(get)]
     pub size_in_price_currency: bool,
@@ -317,6 +319,7 @@ impl OrderResult {
             profit: 0.0,
             fee: 0.0,
             total_profit: 0.0,
+            position_change: 0.0,
             message: order.message.clone(),
             size_in_price_currency: order.size_in_price_currency,
         };
@@ -379,7 +382,7 @@ impl OrderResult {
 #[pymethods]
 impl OrderResult {
     pub fn __str__(&self) -> String {
-        return format!("update_time: {:?}, order_id: {:?}, order_sub_id: {:?}, order_side: {:?}, post_only: {:?}, create_time: {:?}, status: {:?}, open_price: {:?}, open_home_size: {:?}, open_foreign_size: {:?}, close_price: {:?}, close_home_size: {:?}, close_foreign_size: {:?}, order_price: {:?}, order_home_size: {:?}, order_foreign_size: {:?}, profit: {:?}, fee: {:?}, total_profit: {:?}, message: {:?}",
+        return format!("update_time: {:?}, order_id: {:?}, order_sub_id: {:?}, order_side: {:?}, post_only: {:?}, create_time: {:?}, status: {:?}, open_price: {:?}, open_home_size: {:?}, open_foreign_size: {:?}, close_price: {:?}, close_home_size: {:?}, close_foreign_size: {:?}, order_price: {:?}, order_home_size: {:?}, order_foreign_size: {:?}, profit: {:?}, fee: {:?}, total_profit: {:?}, position_change: {:?}, message: {:?}",
                        self.update_time,
                        self.order_id,
                        self.order_sub_id,
@@ -399,6 +402,7 @@ impl OrderResult {
                        self.profit,
                        self.fee,
                        self.total_profit,
+                       self.position_change,
                        self.message);
     }
 
