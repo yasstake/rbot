@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 #pyo3 = { version = "0.17.1", features="multiple-pymethods"}
-pyo3 = { version = "0.17"}
+#pyo3 = { version = "0.17"}
 chrono = {version= "*"}
 
 strum_macros = {version  = "0.24"}
@@ -18,7 +18,7 @@ strum = { version = "0.24", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
 
-rusqlite = {version = "0.28.0"}
+rusqlite = {version = "0.28.0", features=["bundled"]}
 
 
 serde = {version="1.0"}
@@ -49,9 +49,16 @@ zip = {version="0.6.3"}
 
 tempfile={version="3.3"}
 
-[tool.maturin]
-features = ["pyo3/extension-module"]
+openssl = { version = "0.10", features = ["vendored"] }
+
+#[tool.maturin]
+#features = ["pyo3/extension-module"]
 
 
+ [dependencies.pyo3]
+ version = "0.17.3"
+
+ [features]
+ extension-module = ["pyo3/extension-module"]
 
 

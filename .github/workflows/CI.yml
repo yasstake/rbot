@@ -16,6 +16,8 @@ jobs:
       run: sudo apt-get update
     - name: get-open-ssl
       run: sudo apt-get install libssl-dev 
+    - name: get-python
+      run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
@@ -25,7 +27,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter
+        args: --release -o dist --find-interpreter --features "extension-module"
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -35,6 +37,9 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
+    - name: SQLITE install
+       run: |
+         choco install sqlite -y    
     - uses: actions/checkout@v3
     - uses: messense/maturin-action@v1
       with:
