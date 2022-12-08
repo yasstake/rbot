@@ -20,7 +20,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter
+        args: --release -o dist --find-interpreter --features "extension-module"
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
