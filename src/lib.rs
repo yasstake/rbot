@@ -34,6 +34,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(NOW, m)?)?;    
     m.add_function(wrap_pyfunction!(DAYS, m)?)?;
     m.add_function(wrap_pyfunction!(HHMM, m)?)?;
+    m.add_function(wrap_pyfunction!(DAYS_BEFORE, m)?)?;    
 
     // classes
     m.add_class::<Order>()?;
