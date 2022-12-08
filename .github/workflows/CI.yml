@@ -38,8 +38,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: SQLITE install
-       run: |
-         choco install sqlite -y    
+      run:  choco install sqlite -y    
     - uses: actions/checkout@v3
     - uses: messense/maturin-action@v1
       with:
