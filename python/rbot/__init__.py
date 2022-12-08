@@ -73,6 +73,7 @@ def result_to_df(result_list):
     profit = []
     fee = []
     total_profit = []
+    position_change = []
     message = []
 
     for item in result_list:
@@ -95,25 +96,28 @@ def result_to_df(result_list):
         profit.append(item.profit)
         fee.append(item.fee)
         total_profit.append(item.total_profit)
+        position_change.append(item.position_change)
         message.append(item.message)
 
     df = pd.DataFrame(
     data={"update_time": update_time, "order_id": order_id, "sub_id": order_sub_id,
           "order_side": order_side, "post_only": post_only, "create_time": create_time,
           "status":  status, 
-          "open_price": open_price, "open_home_size": open_home_size, "open_foreign_size": open_foreign_size, 
-          "close_price": close_price, "close_home_size": close_home_size, "close_foreign_size": close_foreign_size,
-          "order_price": order_price, "order_home_size": order_home_size, "order_foreign_size": order_foreign_size,
+          "open_price": open_price, "open_size": open_home_size, "open_volume": open_foreign_size, 
+          "close_price": close_price, "close_size": close_home_size, "close_volume": close_foreign_size,
+          "order_price": order_price, "order_size": order_home_size, "order_volume": order_foreign_size,
           "profit": profit, "fee": fee,
-          "total_profit": total_profit, "message": message},
+          "total_profit": total_profit, "position_change": position_change, "message": message},
     columns=["update_time", "order_id", "sub_id", "order_side", "post_only",
-             "create_time", "status", "open_price", "open_home_size", "open_foreign_size", 
-             "close_price", "close_home_size", "close_foreign_size",             
-             "order_price", "order_home_size", "order_foreign_size",
-             "profit", "fee", "total_profit", "message"])
+             "create_time", "status", 
+             "open_price", "open_size", "open_volume", 
+             "close_price", "close_size", "close_volume",             
+             "order_price", "order_size", "order_volume",
+             "profit", "fee", "total_profit", "position_change","message"])
     df["update_time"] = pd.to_datetime((df["update_time"]), utc=True, unit="us")
     df["create_time"] = pd.to_datetime((df["create_time"]), utc=True, unit="us")
     df["sum_profit"] = df["total_profit"].cumsum()
+    df["position"] = df["position_change"].cumsum()
     # df["sum_pos"] = df["pos_change"].cumsum()
     df = df.set_index("create_time", drop=True)
     
