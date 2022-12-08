@@ -64,6 +64,14 @@ pub fn DAYS(days: i64) -> MicroSec {
 
 #[allow(non_snake_case)]
 #[pyfunction]
+pub fn DAYS_BEFORE(days: i64) -> MicroSec {
+    return NOW() - DAYS(days);
+}
+
+
+
+#[allow(non_snake_case)]
+#[pyfunction]
 pub fn HHMM(hh: i64, mm: i64) -> MicroSec {
     return ((hh * 60 * 60) * MICRO_SECOND + MIN(mm)) as MicroSec;
 }
