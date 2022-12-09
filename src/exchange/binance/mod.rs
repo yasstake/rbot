@@ -48,7 +48,7 @@ impl BinanceMarket {
 
         let mut download_rec: i64 = 0;
         let from_time = NOW() - DAYS(ndays+1);
-        let to_time = NOW() - DAYS(1);
+        let to_time = NOW() - DAYS(2);
 
         let time_gap =
             if force {
