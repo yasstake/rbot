@@ -198,7 +198,7 @@ class Market:
             cls.MARKET[m].download(ndays)
     
     @classmethod
-    def cache_data(cls):
+    def _cache_data(cls):
         for m in cls.MARKET:
             cls.MARKET[m].cache_all_data()
 
