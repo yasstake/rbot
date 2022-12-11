@@ -28,7 +28,7 @@ def trades_to_df(array):
 
 def ohlcvv_to_df(array):
     df = pd.DataFrame(
-        array, columns=["timestamp", "order_side", "open", "high", "low", "close", "vol", "count", "start_time", "end_time"])
+        array, columns=["timestamp", "side", "open", "high", "low", "close", "volume", "count", "start_time", "end_time"])
     df['timestamp'] = pd.to_datetime(
         (df["timestamp"]), utc=True, unit='us')
     df = df.set_index('timestamp')
@@ -39,13 +39,13 @@ def ohlcvv_to_df(array):
     df['end_time'] = pd.to_datetime(
         (df["end_time"]), utc=True, unit='us')
 
-    df['order_side'] = df['order_side'].map(decode_order_side)
+    df['side'] = df['side'].map(decode_order_side)
 
     return df
 
 def ohlcv_to_df(array):
     df = pd.DataFrame(
-        array, columns=["timestamp", "open", "high", "low", "close", "vol", "count"])
+        array, columns=["timestamp", "open", "high", "low", "close", "volume", "count"])
 
     df['timestamp'] = pd.to_datetime(
         (df["timestamp"]), utc=True, unit='us')
