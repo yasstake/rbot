@@ -93,6 +93,10 @@ impl BackTester {
                             if self.agent_on_clock {
                                 let current_clock = CEIL(t.time, clock_interval);
                                 if current_clock != last_clock {
+                                    session = s.extract::<DummySession>(py).unwrap();
+                                    session.current_timestamp = current_clock;
+                                    s = Py::new(py, session).unwrap();
+            
                                     match self.clock(s, agent, current_clock) {
                                         Ok(session) => {
                                             s = session;
