@@ -53,7 +53,8 @@ class Chart:
     def new_figure(self, name, height, title):
         p = figure(x_axis_type="datetime", width=self.width, height=height, tools="", toolbar_location=None,
             title=title, background_fill_color="#efefef", x_range=self.x_range)
-        self.figure[name] = p 
+        self.figure[name] = p
+        return p 
         
     def get_figure(self, name):
         return self.figure[name]

@@ -80,7 +80,7 @@ def result_to_df(result_list):
         update_time.append(item.update_time)
         order_id.append(item.order_id)
         order_sub_id.append(item.order_sub_id)
-        order_side.append(item.order_side)
+        order_side.append(str(item.order_side))
         post_only.append(item.post_only)
         create_time.append(item.create_time)
         status.append(item.status)
