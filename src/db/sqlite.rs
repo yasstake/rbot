@@ -449,7 +449,7 @@ impl TradeTable {
     ) -> ndarray::Array2<f64> {
         from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcvv_df(from_time, to_time, time_window_sec);
+        let df = self.ohlcv_df(from_time, to_time, time_window_sec);
 
         let array: ndarray::Array2<f64> = df
             .select(&[
