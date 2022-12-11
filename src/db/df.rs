@@ -217,7 +217,7 @@ pub fn ohlcv_from_ohlcvv_df(
     return df
         .lazy()
         .groupby_dynamic(
-            [col(KEY::order_side)],
+            [],
             DynamicGroupOptions {
                 index_column: KEY::time_stamp.into(),
                 every: Duration::new(SEC(time_window)), // グループ間隔
