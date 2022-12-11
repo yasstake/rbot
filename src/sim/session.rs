@@ -156,7 +156,7 @@ impl DummySession {
 
     /// オーダー作りオーダーリストへ追加する。
     /// 最初にオーダー可能かどうか確認する（余力の有無）
-    pub fn make_order(
+    pub fn place_order(
         &mut self,
         side: &str,
         price: f64,
@@ -164,7 +164,7 @@ impl DummySession {
         duration_sec: i64,
         message: String,
     ) -> PyResult<OrderStatus> {
-        match self._make_order(OrderSide::from_str_default(side), price, size, duration_sec, message) {
+        match self._place_order(OrderSide::from_str_default(side), price, size, duration_sec, message) {
             Ok(result) => {
                 Ok(result)
             }
@@ -400,7 +400,7 @@ impl DummySession {
     }
 
     /// make order with OrderSide (instead of string like, "BUY" and "SELL")
-    fn _make_order(
+    fn _place_order(
         &mut self,
         side: OrderSide,
         price: f64,
@@ -533,12 +533,12 @@ fn test_100_orders_open_close() {
     let mut session = DummySession::new("FTX", "BTC-PERP", true);
     let mut result_log = make_log_buffer();
 
-    let _r = session._make_order(OrderSide::Buy, 100.0, 100.0, 100, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 100.0, 100.0, 100, "".to_string());
     for t in generate_trades_vec1(0) {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Sell, 60.0, 100.0, 100, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 60.0, 100.0, 100, "".to_string());
     for t in generate_trades_vec1(100) {
         session.process_trade(&t, &mut result_log);
     }
@@ -556,8 +556,8 @@ fn test_100_orders_open_expire() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 0.9, 100.0, 10, "".to_string());
-    let _r = session._make_order(OrderSide::Sell, 100.1, 100.0, 10, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 0.9, 100.0, 10, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 100.1, 100.0, 10, "".to_string());
 
     for t in generate_trades_vec1(0) {
         session.process_trade(&t, &mut result_log);
@@ -580,12 +580,12 @@ fn test_100_orders_open_small_order() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 50.0, 0.1, 100, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 50.0, 0.1, 100, "".to_string());
 
     for t in generate_trades_vec1(0) {
         session.process_trade(&t, &mut result_log);
     }
-    let _r = session._make_order(OrderSide::Sell, 60.0, 0.1, 100, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 60.0, 0.1, 100, "".to_string());
     for t in generate_trades_vec1(100) {
         session.process_trade(&t, &mut result_log);
     }
@@ -604,7 +604,7 @@ fn test_100_orders_open_big_order() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
 
     for t in generate_trades_vec1(100) {
         session.process_trade(&t, &mut result_log);
@@ -613,7 +613,7 @@ fn test_100_orders_open_big_order() {
     println!("price={:?} size={:?}", session.get_long_position_size(), session.get_long_position_price());
 
 
-    let _r = session._make_order(OrderSide::Sell, 55.0, 500.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 55.0, 500.0, 300, "".to_string());
     for t in generate_trades_vec1(200) {
         session.process_trade(&t, &mut result_log);
     }
@@ -635,7 +635,7 @@ fn test_100_orders_open_big_close_small_position() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
 
     for t in generate_trades_vec1(100) {
         session.process_trade(&t, &mut result_log);
@@ -644,7 +644,7 @@ fn test_100_orders_open_big_close_small_position() {
     println!("price={:?} size={:?}", session.get_long_position_size(), session.get_long_position_price());
 
 
-    let _r = session._make_order(OrderSide::Sell, 55.0, 400.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 55.0, 400.0, 300, "".to_string());
     for t in generate_trades_vec1(200) {
         session.process_trade(&t, &mut result_log);
     }
@@ -652,7 +652,7 @@ fn test_100_orders_open_big_close_small_position() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Sell, 55.0, 100.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 55.0, 100.0, 300, "".to_string());
     for t in generate_trades_vec1(400) {
         session.process_trade(&t, &mut result_log);
     }
@@ -673,7 +673,7 @@ fn test_100_orders_open_small_close_big_position() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 50.0, 500.0, 300, "".to_string());
 
     for t in generate_trades_vec1(100) {
         session.process_trade(&t, &mut result_log);
@@ -682,7 +682,7 @@ fn test_100_orders_open_small_close_big_position() {
     println!("price={:?} size={:?}", session.get_long_position_size(), session.get_long_position_price());
 
 
-    let _r = session._make_order(OrderSide::Sell, 55.0, 600.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Sell, 55.0, 600.0, 300, "".to_string());
     for t in generate_trades_vec1(200) {
         session.process_trade(&t, &mut result_log);
     }
@@ -690,7 +690,7 @@ fn test_100_orders_open_small_close_big_position() {
         session.process_trade(&t, &mut result_log);
     }
 
-    let _r = session._make_order(OrderSide::Buy, 56.0, 100.0, 300, "".to_string());
+    let _r = session._place_order(OrderSide::Buy, 56.0, 100.0, 300, "".to_string());
     for t in generate_trades_vec1(400) {
         session.process_trade(&t, &mut result_log);
     }
@@ -714,7 +714,7 @@ fn test_100_orders_open_small_close_big_position() {
 
         let mut result_log = make_log_buffer();
 
-        let _r = session._make_order(OrderSide::Buy, 50.0, 10.0, 100, "".to_string());
+        let _r = session._place_order(OrderSide::Buy, 50.0, 10.0, 100, "".to_string());
         println!("{:?}", session.long_orders);
         assert_eq!(session.get_long_order_size(), 10.0);
         assert_eq!(session.get_short_order_size(), 0.0);
@@ -764,7 +764,7 @@ fn test_100_orders_open_small_close_big_position() {
         println!("--make long order--");
 
         // TODO: 書庫金不足を確認する必要がある.
-        let _r = session._make_order(OrderSide::Buy, 50.0, 10.0, 100, "".to_string());
+        let _r = session._place_order(OrderSide::Buy, 50.0, 10.0, 100, "".to_string());
         println!("{:?}", session.long_orders);
 
         // 売りよりも高い金額のオファーにはなにもしない。
@@ -814,12 +814,12 @@ fn test_100_orders_open_small_close_big_position() {
 
         // 決裁オーダーTODO: 書庫金不足を確認する必要がある.
 
-        let _r = session._make_order(OrderSide::Sell, 40.0, 12.0, 100, "".to_string());
+        let _r = session._place_order(OrderSide::Sell, 40.0, 12.0, 100, "".to_string());
         // println!("{:?}", session.order_history);
         println!("{:?}", session.short_orders);
         println!("{:?}", session.positions);
 
-        let _r = session._make_order(OrderSide::Sell, 41.0, 10.0, 100, "".to_string());
+        let _r = session._place_order(OrderSide::Sell, 41.0, 10.0, 100, "".to_string());
         // println!("{:?}", session.order_history);
         println!("{:?}", session.short_orders);
         println!("{:?}", session.positions);
@@ -855,7 +855,7 @@ fn test_100_orders_open_small_close_big_position() {
         println!("{:?}", tick_result);
 
         // 決裁オーダーTODO: 書庫金不足を確認する必要がある.
-        let _r = session._make_order(OrderSide::Buy, 80.0, 10.0, 100, "".to_string());
+        let _r = session._place_order(OrderSide::Buy, 80.0, 10.0, 100, "".to_string());
         // println!("{:?}", session.order_history);
         println!("{:?}", session.short_orders);
         println!("{:?}", session.positions);

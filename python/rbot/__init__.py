@@ -152,6 +152,14 @@ class Session:
 
     def __getattr__(self, func):
         return getattr(self.session, func)
+
+    @property
+    def best_sell_price(self):
+        return self.session.buy_board_edge_price
+    
+    @property
+    def best_buy_price(self):
+        return self.session.sell_board_edge_price
         
     def ohlcv(self, time_window, num_of_bars, exchange_name=None, market_name=None):
         if not exchange_name:
