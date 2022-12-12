@@ -1,3 +1,6 @@
+
+use std::collections::HashMap;
+
 use crate::common::order::LogBuffer;
 // use crate::common::order::MarketType;
 use crate::common::order::Order;
@@ -44,6 +47,12 @@ use pyo3::*;
 ///     オーダーIDをつくり、返却
 ///
 
+#[derive(Debug, Clone)]
+pub struct Indicator {
+    timestamp: MicroSec,
+    value: f64,
+}
+
 
 #[pyclass(name = "_DummySession")]
 #[derive(Clone, Debug)]
@@ -68,6 +77,7 @@ pub struct DummySession {
     pub positions: Positions,
     pub wallet_balance: f64, // 入金額
     pub size_in_price_currency: bool,
+    // pub indicators: HashMap<String, Vec<Indicator>>
 }
 
 /// implement for Python export
@@ -89,8 +99,41 @@ impl DummySession {
             positions: Positions::new(),
             wallet_balance: 0.0,
             size_in_price_currency,
+    //        indicators: HashMap::new()
         };
     }
+/*
+    pub fn get_indicators(&self) -> &HashMap<String, Vec<Indicator>> {
+        return &self.indicators;
+    }
+
+    #[getter]
+    pub fn get_indicator_keys(&mut self) -> Vec<String> {
+        let mut keys: Vec<String> = vec![];
+
+        for (k, _) in self.get_indicators().into_iter() {
+            keys.push(k.to_string());
+        }
+
+        return keys;
+    }
+
+    pub fn has_indicator_key(&mut self, key: String) -> bool {
+        return self.indicators.contains_key(&key);
+    }
+
+    pub fn set_indicator(&self, value: f64) {
+
+    }
+
+    pub fn get_indicator(&self) -> f64 {
+        return 0.0
+    }
+
+    pub fn get_indicator_values(&self) -> Vec<Indicator> {
+        return vec![];
+    }
+*/
 
     #[getter]
     pub fn get_center_price(&self) -> f64 {
