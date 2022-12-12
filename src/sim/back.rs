@@ -6,22 +6,34 @@ use rusqlite::{params, params_from_iter};
 use crate::{
     common::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
-        time::{MicroSec, CEIL},
+        time::{MicroSec, CEIL, time_string},
     },
     db::open_db,
     sim::session::DummySession,
 };
 
-#[pyclass]
+#[pyclass(name="_BackTester")]
 pub struct BackTester {
+    #[pyo3(get)]
     exchange_name: String,
+    #[pyo3(get)]
     market_name: String,
+    #[pyo3(get)]
     agent_on_tick: bool,
+    #[pyo3(get)]    
     agent_on_clock: bool,
+    #[pyo3(get)]    
     agent_on_update: bool,
+    #[pyo3(get)]    
     size_in_price_currency: bool,
     #[pyo3(get, set)]
     maker_fee_rate: f64,
+    #[pyo3(get)]
+    last_run_start: MicroSec,
+    #[pyo3(get)]    
+    last_run_end: MicroSec,
+    #[pyo3(get)]    
+    last_run_record: MicroSec,
 }
 
 #[pymethods]
@@ -36,6 +48,9 @@ impl BackTester {
             agent_on_update: false,
             size_in_price_currency,
             maker_fee_rate: 0.01 * 0.1,
+            last_run_start: 0,
+            last_run_end: 0,
+            last_run_record: 0,
         };
     }
 
@@ -86,10 +101,14 @@ impl BackTester {
             // TODO: change hardcording its time.
             let mut skip_tick = 100;
 
+            let mut loop_count = 0;
+
             for trade in iter {
                 match trade {
                     Ok(t) => {
                         if skip_tick == 0 {
+                            loop_count += 1;
+
                             if self.agent_on_clock {
                                 let current_clock = CEIL(t.time, clock_interval);
                                 if current_clock != last_clock {
@@ -115,6 +134,11 @@ impl BackTester {
                                 }
                             }
                         } else {
+                            log::debug!("skip {}/{}", time_string(t.time), skip_tick);
+                            if skip_tick == 1 {
+                                log::debug!("start {}/{}", time_string(t.time), t.time);
+                                self.last_run_start = t.time;
+                            }
                             skip_tick -= 1;
                         }
 
@@ -169,6 +193,11 @@ impl BackTester {
                     }
                 }
             }
+            session = s.extract::<DummySession>(py).unwrap();
+            self.last_run_end = session.current_timestamp;
+
+            self.last_run_record = loop_count;
+            
             Ok(order_history)
         });
 
