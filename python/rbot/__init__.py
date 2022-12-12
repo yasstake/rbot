@@ -1,5 +1,6 @@
 from .rbot import *
 import pandas as pd
+import numpy as np
 
 
 if hasattr(rbot, "__all__"):
@@ -124,15 +125,39 @@ def result_to_df(result_list):
     return df
 
 
-
-
 class BaseAgent:
     def __init__(self):
-        self.session = None
-    
-    def initialize(self, session):
-        self.session = session
-    
+        self._indicators = {}
+
+    def key_in_indicators(self, key):
+        if key in self._indicators:
+            return True
+        else:
+            return False
+
+    def get_indicator(self, key):
+        if not self.key_in_indicators(key):
+            return None
+
+        df = pd.DataFrame(np.array(self._indicators[key]), columns=["timestamp", 'value'])
+        df['timestamp'] = pd.to_datetime((df["timestamp"]), utc=True, unit='us')
+        df = df.set_index('timestamp')
+
+        return df
+        
+    def log_indicator(self, key, time, val):
+        if not self.key_in_indicators(key):
+            self._indicators[key] = []
+        
+        self._indicators[key].append([time, val])
+        
+    def get_indicator_names(self):
+        names = []
+        for k in self._indicators:
+            names.append(k)
+        return names
+        
+
     def clock_interval(self):
         return 60
 
