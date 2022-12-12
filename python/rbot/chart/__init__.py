@@ -8,9 +8,11 @@ from bokeh.layouts import column
 from bokeh.models import ColumnDataSource, RangeTool, HoverTool
 from bokeh.plotting import figure
 from bokeh.io import output_notebook, show
+import datetime
+
 
 class Chart:
-    def __init__(self, width, height, ohlc):
+    def __init__(self, width, height, ohlcv):
         output_notebook()        
         
         self.figure = OrderedDict()
@@ -18,27 +20,33 @@ class Chart:
         self.x_range = None
         self.select = None
 
+        ######### create main price figure ############
         TOOLS = "pan,wheel_zoom,box_zoom,reset,save"
 
         # setup main figure
-        dates = np.array(ohlc.index, dtype=np.datetime64)        
-        main = figure(x_axis_type="datetime", tools=TOOLS, width=self.width, height=height,
+        dates = np.array(ohlcv.index, dtype=datetime.datetime)        
+        price = figure(x_axis_type="datetime", tools=TOOLS, width=self.width, height=height,
            title="BTC chart", background_fill_color="#efefef", x_range=(dates[0], dates[-1]))
         
-        self.x_range = main.x_range
-        self.figure['main'] = main
+        self.x_range = price.x_range
+        self.figure['price'] = price
         
-        self.draw_ohlc(main, ohlc)
+        self.draw_ohlc(price, ohlcv)
 
-        # setup select figure
+        ########  create volume figure ################
+        volume = self.new_figure('volume', 100, 'volume')
+        self.draw_volume(volume, ohlcv)
+
+
+        ######### setup select figure #################
         select = figure(title="Drag the middle and edges of the selection box to change the range above",
-                height= int(height/4), width=self.width, y_range=main.y_range,
+                height= int(height/4), width=self.width, y_range=price.y_range,
                 x_axis_type="datetime", y_axis_type=None,
                 tools="", toolbar_location=None, background_fill_color="#efefef")            
 
         self.select = select
 
-        self.draw_price_line(select, ohlc)
+        self.line(select, ohlcv, 'close', 'price', '#1010ff')
         
         range_tool = RangeTool(x_range=self.x_range)
         range_tool.overlay.fill_color = "navy"
@@ -48,7 +56,6 @@ class Chart:
         select.add_tools(range_tool)
         select.toolbar.active_multi = range_tool
         
-
     
     def new_figure(self, name, height, title):
         p = figure(x_axis_type="datetime", width=self.width, height=height, tools="", toolbar_location=None,
@@ -78,9 +85,9 @@ class Chart:
         delta = (ohlc[1:2].index - ohlc[0:1].index)[0]
         w = delta.total_seconds() * 1_000 * 0.8
 
-        p.segment('timestamp', 'high', 'timestamp', 'low', source=ds, color="#eb3c40")
-        vbar_inc = p.vbar('timestamp', w, 'open', 'close', source=df_inc, fill_color="white", line_color="#49a3a3", line_width=2)
-        vbar_dec = p.vbar('timestamp', w, 'close', 'open', source=df_dec)
+        p.segment('timestamp', 'high', 'timestamp', 'low', source=ds, color="#080808")
+        vbar_dec = p.vbar('timestamp', w, 'close', 'open', source=df_dec, fill_color='#ff0000', line_color='#ff0000', line_width=1)        
+        vbar_inc = p.vbar('timestamp', w, 'open', 'close', source=df_inc, fill_color="#10ff80", line_color="#10ff80", line_width=1)
 
         hover_inc = HoverTool(
             renderers=[vbar_inc],
@@ -117,11 +124,12 @@ class Chart:
         p.add_tools(hover_inc)
         p.add_tools(hover_dec)
 
-    def draw_price_line(self, p, ohlc):
-        p.line(x=ohlc.index, y=ohlc['close'])
-        
-    def draw_volume_line(self, name, ohlcv):
-        p = self.figure[name]
-        p.line(x=ohlcv.index, y=ohlcv['volume'])    
-        
-        
+    def draw_volume(self, p, ohlcv):
+        self.line(p, ohlcv, 'volume', color='#00ffff', legend_label='volume')
+
+    def line(self, p, df, key, legend_label, color, **kwargs):
+        p.line(x=df.index, y=df[key], line_color=color, legend_label=legend_label, **kwargs)
+    
+    def step(self, p, df, key, legend_label, color, **kwargs):
+        p.step(x=df.index, y=df[key], line_color=colorm, legend_label=legend_label, **kwargs)
+
