@@ -1,7 +1,7 @@
 from .rbot import *
 import pandas as pd
 import numpy as np
-
+import time
 
 if hasattr(rbot, "__all__"):
     __all__ = rbot.__all__
@@ -240,7 +240,64 @@ class Market:
         return exchange.upper() + "/" + market.upper()
 
 
+class BackTester:
+    def __init__(self, exchange_name, market_name, size_in_price_currency):
+        self.backtester = _BackTester(exchange_name, market_name, size_in_price_currency)
+        self.agent_name = ""
+        self.last_exec_time = 0
+        self.clocl_interval = 0
+        self.result = None
 
+    def run(self, agent, start_time=0, end_time=0):
+        counter_s = time.perf_counter()
+        self.agent_name = agent.__class__.__name__
+        self.clock_interval = agent.clock_interval()
+
+        r = self.backtester.run(agent,start_time, end_time)
+
+        counter_e = time.perf_counter() 
+        self.last_exec_time = counter_e - counter_s       
+        
+        self.result = result_to_df(r)
+
+        return self.result
+    
+    @property
+    def last_run_duration(self):
+        return self.last_run_end - self.last_run_start
+
+    def __getattr__(self, func):
+        return getattr(self.backtester, func)
+    
+    def __str__(self):
+        return "start={}({}) end={}({}) {}[us] records={}".format(
+                rbot.time_string(self.last_run_start),                 
+                self.last_run_start, 
+                rbot.time_string(self.last_run_end),
+                self.last_run_end,
+                self.last_run_duration,
+                self.last_run_count,
+            )
+    
+    def _repr_html_(self):
+        table ="<table><caption>Backtest outline</caption>"
+        table += "<tr><td>Exchange name</td><td>{}</td></tr>".format(self.exchange_name) 
+        table += "<tr><td>Market name</td><td>{}</td></tr>".format(self.market_name) 
+        table += "<tr><td>Size in price currency</td><td>{}</td></tr>".format(self.size_in_price_currency)
+        table += "<tr><td>maker fee rate</td><td>{} [%]</td></tr>".format(self.maker_fee_rate*100)
+        table += "<tr><td>Agent class name</td><td>{}</td></tr>".format(self.agent_name)
+        table += "<tr><td> enable: on_tick</td><td>{}</td></tr>".format(self.agent_on_tick) 
+        table += "<tr><td> enable: on_clock</td><td>{}</td></tr>".format(self.agent_on_clock)
+        table += "<tr><td> enable: on_update</td><td>{}</td></tr>".format(self.agent_on_update)
+        table += "<tr><td> clock interval:  </td><td>{} [sec]</td>".format(self.clock_interval)
+        table += "<tr><td>start</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_start),self.last_run_start)
+        table += "<tr><td>end</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_end), self.last_run_end) 
+        table += "<tr><td>duration</td><td>{:,.0f} [sec] / {:.2f} [days]</td></tr>".format(self.last_run_duration/1_000_000,self.last_run_duration / rbot.DAYS(1)) 
+        table += "<tr><td># of records</td><td>{:,}</td></tr>".format(self.last_run_record)
+        table += "<tr><td>Simulation time</td><td>{:,.0f} [sec]</td></tr></table>".format(self.last_exec_time)        
+        
+        return table
+    
 
 '''
 class FtxMarket:
@@ -286,3 +343,4 @@ class BinanceMarket:
     def __getattr__(self, func):
         return getattr(self.market, func)
 
+    
