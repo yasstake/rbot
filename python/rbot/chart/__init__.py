@@ -35,7 +35,7 @@ class Chart:
 
         ########  create volume figure ################
         volume = self.new_figure('volume', 100, 'volume')
-        self.draw_volume(volume, ohlcv)
+        self.draw_volume('volume', ohlcv)
 
 
         ######### setup select figure #################
@@ -63,8 +63,14 @@ class Chart:
         self.figure[name] = p
         return p 
         
-    def get_figure(self, name):
-        return self.figure[name]
+    def get_figure(self, figure):
+        if isinstance(figure, str):
+            if figure in self.figure:
+                return self.figure[figure]
+        
+            return self.new_figure(figure, 100, figure)
+        else:
+            return figure
 
     def show(self):
         figure = []
@@ -86,8 +92,8 @@ class Chart:
         w = delta.total_seconds() * 1_000 * 0.8
 
         p.segment('timestamp', 'high', 'timestamp', 'low', source=ds, color="#080808")
-        vbar_dec = p.vbar('timestamp', w, 'close', 'open', source=df_dec, fill_color='#ff0000', line_color='#ff0000', line_width=1)        
-        vbar_inc = p.vbar('timestamp', w, 'open', 'close', source=df_inc, fill_color="#10ff80", line_color="#10ff80", line_width=1)
+        vbar_dec = p.vbar('timestamp', w, 'close', 'open', source=df_dec, fill_color='#ff66ff', line_color='#ff0000', line_width=0)        
+        vbar_inc = p.vbar('timestamp', w, 'open', 'close', source=df_inc, fill_color='#66ccff', line_color="#10ff80", line_width=0)
 
         hover_inc = HoverTool(
             renderers=[vbar_inc],
@@ -117,19 +123,21 @@ class Chart:
             formatters= {
                 "@timestamp": "datetime"
             },
-            mode="vline",
             show_arrow=False,
         )      
 
         p.add_tools(hover_inc)
         p.add_tools(hover_dec)
 
-    def draw_volume(self, p, ohlcv):
+    def draw_volume(self, figure, ohlcv):
+        p = self.get_figure(figure)
         self.line(p, ohlcv, 'volume', color='#00ffff', legend_label='volume')
 
-    def line(self, p, df, key, legend_label, color, **kwargs):
+    def line(self, figure, df, key, legend_label, color, **kwargs):
+        p = self.get_figure(figure)    
         p.line(x=df.index, y=df[key], line_color=color, legend_label=legend_label, **kwargs)
     
-    def step(self, p, df, key, legend_label, color, **kwargs):
-        p.step(x=df.index, y=df[key], line_color=colorm, legend_label=legend_label, **kwargs)
+    def step(self, figure, df, key, legend_label, color, **kwargs):
+        p = self.get_figure(figure)
+        p.step(x=df.index, y=df[key], line_color=color, legend_label=legend_label, **kwargs)
 
