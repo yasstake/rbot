@@ -84,7 +84,7 @@ def result_to_df(result_list):
         order_side.append(str(item.order_side))
         post_only.append(item.post_only)
         create_time.append(item.create_time)
-        status.append(item.status)
+        status.append(str(item.status))
         open_price.append(item.open_price)
         open_home_size.append(item.open_home_size)
         open_foreign_size.append(item.open_foreign_size)
@@ -135,7 +135,7 @@ class BaseAgent:
         else:
             return False
 
-    def get_indicator(self, key):
+    def indicator(self, key):
         if not self.key_in_indicators(key):
             return None
 
@@ -294,6 +294,7 @@ class BackTester:
         table += "<tr><td>end</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_end), self.last_run_end) 
         table += "<tr><td>duration</td><td>{:,.0f} [sec] / {:.2f} [days]</td></tr>".format(self.last_run_duration/1_000_000,self.last_run_duration / rbot.DAYS(1)) 
         table += "<tr><td># of records</td><td>{:,}</td></tr>".format(self.last_run_record)
+        table += "<tr><td># of result record</td><td>{:,.0f} [sec]</td></tr>".format(len(self.result))                        
         table += "<tr><td>Simulation time</td><td>{:,.0f} [sec]</td></tr></table>".format(self.last_exec_time)        
         
         return table
