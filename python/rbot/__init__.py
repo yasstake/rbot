@@ -135,7 +135,7 @@ class BaseAgent:
         else:
             return False
 
-    def get_indicator(self, key):
+    def indicator(self, key):
         if not self.key_in_indicators(key):
             return None
 

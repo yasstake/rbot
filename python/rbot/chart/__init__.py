@@ -3,12 +3,15 @@
 
 from collections import OrderedDict
 import numpy as np
+import pandas as pd
 
 from bokeh.layouts import column 
-from bokeh.models import ColumnDataSource, RangeTool, HoverTool
+from bokeh.models import ColumnDataSource, RangeTool, HoverTool, CrosshairTool, Span
 from bokeh.plotting import figure
 from bokeh.io import output_notebook, show
 import datetime
+
+
 
 
 class Chart:
@@ -18,7 +21,6 @@ class Chart:
         self.figure = OrderedDict()
         self.width = width
         self.x_range = None
-        self.select = None
 
         ######### create main price figure ############
         TOOLS = "pan,wheel_zoom,box_zoom,reset,save"
@@ -26,27 +28,31 @@ class Chart:
         # setup main figure
         dates = np.array(ohlcv.index, dtype=datetime.datetime)        
         price = figure(x_axis_type="datetime", tools=TOOLS, width=self.width, height=height,
-           title="BTC chart", background_fill_color="#efefef", x_range=(dates[0], dates[-1]))
+           title="Price", background_fill_color="#efefef", x_range=(dates[0], dates[-1]))
         
         self.x_range = price.x_range
         self.figure['price'] = price
         
         self.draw_ohlc(price, ohlcv)
 
+        span_height = Span(dimension="height", line_dash="dashed", line_width=1)
+        self.cross_hair = CrosshairTool(overlay=span_height)        
+        price.add_tools(self.cross_hair)
+
         ########  create volume figure ################
         volume = self.new_figure('volume', 100, 'volume')
         self.draw_volume('volume', ohlcv)
-
+        volume.add_tools(self.cross_hair)
 
         ######### setup select figure #################
-        select = figure(title="Drag the middle and edges of the selection box to change the range above",
+        select = figure(title="Price slide bar",
                 height= int(height/4), width=self.width, y_range=price.y_range,
                 x_axis_type="datetime", y_axis_type=None,
                 tools="", toolbar_location=None, background_fill_color="#efefef")            
 
         self.select = select
 
-        self.line(select, ohlcv, 'close', 'price', '#1010ff')
+        self.line(select, ohlcv, 'timestamp', 'close', 'price', '#1010ff')
         
         range_tool = RangeTool(x_range=self.x_range)
         range_tool.overlay.fill_color = "navy"
@@ -55,12 +61,15 @@ class Chart:
         select.ygrid.grid_line_color = None
         select.add_tools(range_tool)
         select.toolbar.active_multi = range_tool
+        select.add_tools(self.cross_hair)
         
     
     def new_figure(self, name, height, title):
         p = figure(x_axis_type="datetime", width=self.width, height=height, tools="", toolbar_location=None,
             title=title, background_fill_color="#efefef", x_range=self.x_range)
         self.figure[name] = p
+        p.add_tools(self.cross_hair)
+
         return p 
         
     def get_figure(self, figure):
@@ -75,12 +84,30 @@ class Chart:
     def show(self):
         figure = []
         for key in self.figure:
-            print(key)
             figure.append(self.figure[key])
 
         figure.append(self.select)
             
         show(column(figure))
+
+    def draw_result(self, df):
+        buy_df = df[(df['order_side'] == "Buy") & (df['status'] != 'Expire')]
+        buy_df_e = df[(df['order_side'] == "Buy") & (df['status'] == 'Expire')]
+        sell_df = df[(df['order_side'] == "Sell") & (df['status'] != 'Expire')]
+        sell_df_e = df[(df['order_side'] == "Sell") & (df['status'] == 'Expire')]
+
+        p = self.new_figure('profit', 150, 'profit')
+        self.step(p, df, 'update_time', 'sum_profit', legend_label='profit', color="#ff8080")
+
+        p = self.new_figure('position', 100, 'position')
+        self.step(p, df, 'update_time', 'position', legend_label='position', color="#ff8080")
+
+        p = self.get_figure('price')
+        self.draw_order_maker(p, buy_df, 'triangle', fill_color="#00ff00", line_color="#00ff00", legend_name='Buy')
+        self.draw_order_maker(p, sell_df, 'inverted_triangle', fill_color="#ff0000", line_color="#ff0000", legend_name='Sell')
+        self.draw_order_maker(p, buy_df_e, 'triangle', fill_color="#00000000", line_color="#00ff00", legend_name='Buy Expire')
+        self.draw_order_maker(p, sell_df_e, 'inverted_triangle', fill_color="#00000000", line_color="#ff0000", legend_name='Sell Expire')
+
 
     def draw_ohlc(self, p, ohlc):
         ds = ColumnDataSource(ohlc)
@@ -129,15 +156,39 @@ class Chart:
         p.add_tools(hover_inc)
         p.add_tools(hover_dec)
 
-    def draw_volume(self, figure, ohlcv):
-        p = self.get_figure(figure)
-        self.line(p, ohlcv, 'volume', color='#00ffff', legend_label='volume')
 
-    def line(self, figure, df, key, legend_label, color, **kwargs):
-        p = self.get_figure(figure)    
-        p.line(x=df.index, y=df[key], line_color=color, legend_label=legend_label, **kwargs)
-    
-    def step(self, figure, df, key, legend_label, color, **kwargs):
+    def draw_order_maker(self, p, df, marker, fill_color, line_color, legend_name, **kwargs):
+        df = ColumnDataSource(df)
+        scatter = p.scatter(x='update_time', y='order_price', source=df, marker=marker, size=12, fill_color=fill_color, line_color=line_color, line_width=1, legend_label=legend_name, **kwargs)
+
+        hover = HoverTool(
+            renderers=[scatter],
+            tooltips = [
+                (legend_name,""),
+                ("timestamp", "@update_time{%F %R.%S}"),
+                ("Price", "@order_price{0.0}")
+            ],
+            formatters={
+                "@update_time": "datetime"
+            }
+        )
+        p.add_tools(hover)    
+
+    def draw_volume(self, figure, ohlcv):
+        p = self.get_figure(figure)        
+        self.line(p, ohlcv, 'timestamp', 'volume', color='#00ffff', legend_label='volume')
+
+    def line(self, figure, df, x_key, y_key, legend_label, color, **kwargs):
         p = self.get_figure(figure)
-        p.step(x=df.index, y=df[key], line_color=color, legend_label=legend_label, **kwargs)
+        #df = df[~df[x_key].duplicated(keep='last')]
+        df = df[~df.index.duplicated(keep='last')]        
+        df = ColumnDataSource(df)
+        p.line(x=x_key, y=y_key, source=df, line_color=color, legend_label=legend_label, **kwargs)
+    
+    def step(self, figure, df, x_key, y_key, legend_label, color, **kwargs):
+        p = self.get_figure(figure)
+        df = df[~df[x_key].duplicated(keep='last')]                
+        #df = Chart.create_step(df, x_key, y_key)
+        df = ColumnDataSource(df)
+        p.step(x=x_key, y=y_key, source=df, line_color=color, mode='after', legend_label=legend_label, **kwargs)
 
