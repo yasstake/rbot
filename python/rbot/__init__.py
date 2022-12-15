@@ -102,14 +102,17 @@ def result_to_df(result_list):
 
     df = pd.DataFrame(
     data={"update_time": update_time, "order_id": order_id, "sub_id": order_sub_id,
-          "order_side": order_side, "post_only": post_only, "create_time": create_time,
+          "order_side": order_side, 
+          #"post_only": post_only, 
+          "create_time": create_time,
           "status":  status, 
           "open_price": open_price, "open_size": open_home_size, "open_volume": open_foreign_size, 
           "close_price": close_price, "close_size": close_home_size, "close_volume": close_foreign_size,
           "order_price": order_price, "order_size": order_home_size, "order_volume": order_foreign_size,
           "profit": profit, "fee": fee,
           "total_profit": total_profit, "position_change": position_change, "message": message},
-    columns=["update_time", "order_id", "sub_id", "order_side", "post_only",
+    columns=["update_time", "order_id", "sub_id", "order_side", 
+             #"post_only",
              "create_time", "status", 
              "open_price", "open_size", "open_volume", 
              "close_price", "close_size", "close_volume",             
@@ -226,9 +229,9 @@ class Market:
             print("unknown market ", market)
 
     @classmethod
-    def download(cls, ndays):
+    def download(cls, ndays, force=False):
         for m in cls.MARKET:
-            cls.MARKET[m].download(ndays)
+            cls.MARKET[m].download(ndays, force)
     
     @classmethod
     def _cache_data(cls):
@@ -240,7 +243,7 @@ class Market:
         return exchange.upper() + "/" + market.upper()
 
 
-class BackTester:
+class BackRunner:
     def __init__(self, exchange_name, market_name, size_in_price_currency):
         self.backtester = _BackTester(exchange_name, market_name, size_in_price_currency)
         self.agent_name = ""
@@ -293,8 +296,8 @@ class BackTester:
         table += "<tr><td>start</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_start),self.last_run_start)
         table += "<tr><td>end</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_end), self.last_run_end) 
         table += "<tr><td>duration</td><td>{:,.0f} [sec] / {:.2f} [days]</td></tr>".format(self.last_run_duration/1_000_000,self.last_run_duration / rbot.DAYS(1)) 
-        table += "<tr><td># of records</td><td>{:,}</td></tr>".format(self.last_run_record)
-        table += "<tr><td># of result record</td><td>{:,.0f} [sec]</td></tr>".format(len(self.result))                        
+        table += "<tr><td># of records</td><td>{:,} [rec]</td></tr>".format(self.last_run_record)
+        table += "<tr><td># of result record</td><td>{:,.0f} [rec]</td></tr>".format(len(self.result))                        
         table += "<tr><td>Simulation time</td><td>{:,.0f} [sec]</td></tr></table>".format(self.last_exec_time)        
         
         return table

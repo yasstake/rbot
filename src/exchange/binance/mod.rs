@@ -185,6 +185,15 @@ impl BinanceMarket {
         return self.db.info();
     }
 
+    #[getter]
+    fn get_file_name(&self) -> String {
+        return self.db.get_file_name();
+    }
+
+    fn vaccum(&self) {
+        self.db.vaccum();
+    }
+
     pub fn _repr_html_(&self) -> String {
         return self.db._repr_html_();
     }
