@@ -46,7 +46,9 @@ def ohlcvv_to_df(array):
 
 def ohlcv_to_df(array):
     df = pd.DataFrame(
-        array, columns=["timestamp", "open", "high", "low", "close", "volume", "count"])
+        array, columns=["timestamp", "open", "high", "low", "close", "volume", 
+        #                "count"
+        ])
 
     df['timestamp'] = pd.to_datetime(
         (df["timestamp"]), utc=True, unit='us')
