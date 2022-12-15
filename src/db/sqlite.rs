@@ -177,6 +177,10 @@ impl TradeTable {
         let _r = self.connection.execute("drop table trades", ());
     }
 
+    pub fn vaccum(&self) {
+        let _r = self.connection.execute("VACCUM", ());
+    }
+
     pub fn recreate_table(&self) {
         self.create_table_if_not_exists();
         self.drop_table();
@@ -542,6 +546,10 @@ impl TradeTable {
         );
     }
 
+    pub fn get_file_name(&self) -> String {
+        return self.file_name.clone();
+    }
+
     pub fn _repr_html_(&self) -> String {
         let min = self.start_time().unwrap_or_default();
         let max = self.end_time().unwrap_or_default();
@@ -568,6 +576,7 @@ impl TradeTable {
             self.file_name,
         );
     }
+
 
     /*
     /// select min(start) time_stamp in db
@@ -1011,33 +1020,33 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() {
         init_log();
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start_timer = NOW();
         let now = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), now, 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), now, 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(50), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(50), NOW(), 120);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(5), NOW(), 120);
         println!("{:?}", ohlcv2);
         println!("{} [us]", NOW() - start_timer);
 
@@ -1051,82 +1060,23 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
-        let ohlcv = db.select(0, 0, |_trade| {});
+        let ohlcv = db.select(NOW()-DAYS(2), NOW(), |_trade| {});
 
         println!("{:?} / {} microsec", ohlcv, NOW() - start);
     }
 
-    #[test]
-    fn test_send_channel() {
-        let (tx, rx): (Sender<Trade>, Receiver<Trade>) = mpsc::channel();
 
-        let th = thread::Builder::new().name("FTX".to_string());
-
-        let handle = th
-            .spawn(move || {
-                for i in 0..100 {
-                    let trade = Trade::new(i, OrderSide::Buy, 0.0, 10.0, "abc1".to_string());
-                    println!("<{:?}", trade);
-                    let _ = tx.send(trade);
-                }
-            })
-            .unwrap();
-
-        for recv_rec in rx {
-            println!(">{:?}", recv_rec);
-        }
-
-        handle.join().unwrap();
-    }
-
-    #[test]
-    fn test_send_channel_02() {
-        let (tx, rx): (Sender<Trade>, Receiver<Trade>) = mpsc::channel();
-
-        let _handle = thread::spawn(move || {
-            for recv_rec in rx {
-                println!(">{:?}", recv_rec);
-            }
-        });
-
-        for i in 0..100 {
-            let trade = Trade::new(i, OrderSide::Buy, 10.0, 10.0, "abc1".to_string());
-            println!("<{:?}", trade);
-            let _result = tx.send(trade);
-        }
-
-        // handle.join().unwrap();　// 送信側がスレッドだとjoinがうまくいかない。
-        thread::sleep(std::time::Duration::from_secs(5));
-    }
-
-    #[test]
-    fn test_find_gap() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
-
-        let mut last_time = 0;
-        db.select(0, 0, |trade| {
-            if last_time != 0 {
-                let gap = trade.time - last_time;
-                if 5 * MICRO_SECOND < gap {
-                    println!("MISS {} {} {}", trade.time, time_string(trade.time), gap);
-                }
-            }
-
-            last_time = trade.time;
-        });
-    }
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
-        let df = db.select_df_from_db(0, 0);
+        let df = db.select_df_from_db(NOW()-DAYS(2), NOW());
 
         println!("{:?}", df);
     }
@@ -1134,9 +1084,9 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() {
         init_log();
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("BN", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
-        db.update_cache_df(NOW() - DAYS(1), NOW());
+        db.update_cache_df(NOW() - DAYS(2), NOW());
     }
 }
