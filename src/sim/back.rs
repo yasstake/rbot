@@ -1,3 +1,5 @@
+use std::io::{stdout, Write};
+
 use chrono::OutOfRangeError;
 use polars::export::arrow::bitmap::or;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyResult, Python};
@@ -6,13 +8,13 @@ use rusqlite::{params, params_from_iter};
 use crate::{
     common::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
-        time::{MicroSec, CEIL, time_string},
+        time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND},
     },
     db::open_db,
     sim::session::DummySession,
 };
 
-#[pyclass(name="_BackTester")]
+#[pyclass(name = "_BackTester")]
 pub struct BackTester {
     #[pyo3(get)]
     exchange_name: String,
@@ -20,19 +22,19 @@ pub struct BackTester {
     market_name: String,
     #[pyo3(get)]
     agent_on_tick: bool,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     agent_on_clock: bool,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     agent_on_update: bool,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     size_in_price_currency: bool,
     #[pyo3(get, set)]
     maker_fee_rate: f64,
     #[pyo3(get)]
     last_run_start: MicroSec,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     last_run_end: MicroSec,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     last_run_record: MicroSec,
 }
 
@@ -54,8 +56,13 @@ impl BackTester {
         };
     }
 
-    #[args(from_time=0, to_time=0)]
-    pub fn run(&mut self, agent: &PyAny, from_time: MicroSec, to_time: MicroSec) -> PyResult<Vec<OrderResult>> {
+    #[args(from_time = 0, to_time = 0)]
+    pub fn run(
+        &mut self,
+        agent: &PyAny,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<Vec<OrderResult>> {
         self.agent_on_tick = self.has_want_event(agent, "on_tick");
         self.agent_on_clock = self.has_want_event(agent, "on_clock");
         self.agent_on_update = self.has_want_event(agent, "on_update");
@@ -102,6 +109,11 @@ impl BackTester {
             let mut skip_tick = 100;
 
             let mut loop_count = 0;
+            let mut on_tick_count = 0;
+            let mut on_clock_count = 0;
+            let mut on_update_count = 0;
+
+            let mut last_print_hour = 0;
 
             for trade in iter {
                 match trade {
@@ -115,9 +127,10 @@ impl BackTester {
                                     session = s.extract::<DummySession>(py).unwrap();
                                     session.current_timestamp = current_clock;
                                     s = Py::new(py, session).unwrap();
-            
+
                                     match self.clock(s, agent, current_clock) {
                                         Ok(session) => {
+                                            on_clock_count += 1;
                                             s = session;
                                         }
                                         Err(e) => {
@@ -126,7 +139,7 @@ impl BackTester {
                                             if trace.is_some() {
                                                 log::error!("{:?}", trace);
                                             }
-    
+
                                             return Err(e);
                                         }
                                     };
@@ -148,19 +161,22 @@ impl BackTester {
 
                         session.process_trade(&t, &mut tick_result);
                         s = Py::new(py, session).unwrap();
-                        
-                        match self.tick(s, agent, &t) {
-                            Ok(session) => {
-                                s = session;
-                            },
-                            Err(e) => {
-                                let trace = e.traceback(py);
 
-                                if trace.is_some() {
-                                    log::error!("{:?}", trace);
+                        if self.agent_on_tick {
+                            match self.tick(s, agent, &t) {
+                                Ok(session) => {
+                                    on_tick_count += 1;
+                                    s = session;
                                 }
+                                Err(e) => {
+                                    let trace = e.traceback(py);
 
-                                return Err(e);
+                                    if trace.is_some() {
+                                        log::error!("{:?}", trace);
+                                    }
+
+                                    return Err(e);
+                                }
                             }
                         }
 
@@ -171,8 +187,9 @@ impl BackTester {
                             if self.agent_on_update {
                                 match self.update(s, agent, r.update_time, r.clone()) {
                                     Ok(session) => {
+                                        on_update_count += 1;
                                         s = session;
-                                    },
+                                    }
                                     Err(e) => {
                                         let trace = e.traceback(py);
 
@@ -186,6 +203,15 @@ impl BackTester {
                             }
                             log_order_result(&mut order_history, r);
                         }
+
+                        let current_hour = FLOOR(t.time, 60 * 60);
+                        if last_print_hour != current_hour {
+                            print!("\rBack testing... {:<.16} / rec={:>8} / on_tick={:>6} / on_clock={:>4} / on_update={:>4}", 
+                                    time_string(t.time), loop_count,
+                                    on_tick_count, on_clock_count, on_update_count);
+                            let _ = stdout().flush();
+                            last_print_hour = current_hour;
+                        }
                     }
                     Err(e) => {
                         log::warn!("err {}", e);
@@ -197,7 +223,7 @@ impl BackTester {
             self.last_run_end = session.current_timestamp;
 
             self.last_run_record = loop_count;
-            
+
             Ok(order_history)
         });
 
@@ -212,28 +238,27 @@ impl BackTester {
         agent: &PyAny,
         trade: &Trade,
     ) -> Result<Py<DummySession>, PyErr> {
-        if self.agent_on_tick {
-            let result = agent.call_method1(
-                "_on_tick",
-                (
-                    trade.time,
-                    &session,
-                    trade.order_side.to_string(),
-                    trade.price,
-                    trade.size,
-                ),
-            );
-            match result {
-                Ok(_ok) => {
-                    //
-                }
-                Err(e) => {
-                    println!("call Agent.on_tick error {:?}", e);
-                    log::error!("Call on_tick Error {:?}", e);
-                    return Err(e);
-                }
+        let result = agent.call_method1(
+            "_on_tick",
+            (
+                trade.time,
+                &session,
+                trade.order_side.to_string(),
+                trade.price,
+                trade.size,
+            ),
+        );
+        match result {
+            Ok(_ok) => {
+                //
+            }
+            Err(e) => {
+                println!("call Agent.on_tick error {:?}", e);
+                log::error!("Call on_tick Error {:?}", e);
+                return Err(e);
             }
         }
+
         return Ok(session);
     }
 
@@ -308,16 +333,15 @@ impl BackTester {
             match order_result.order_side {
                 OrderSide::Buy => {
                     order_result.position_change = order_result.order_home_size;
-                },
+                }
                 OrderSide::Sell => {
-                    order_result.position_change = - (order_result.order_home_size);
-                },
+                    order_result.position_change = -(order_result.order_home_size);
+                }
                 OrderSide::Unknown => {
                     log::error!("unknown status {:?}", order_result);
                 }
             }
         }
-
 
         order_result
     }
