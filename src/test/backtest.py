@@ -13,8 +13,8 @@ from rbot import NOW
 from rbot import DAYS
 from rbot import OrderSide
 
-#rbot.init_log()
-#rbot.init_debug_log()
+rbot.init_log()
+rbot.init_debug_log()
 
 class Agent(BaseAgent):   
     def clock_interval(self):
@@ -24,8 +24,8 @@ class Agent(BaseAgent):
     #    print(session.current_timestamp)
     #    session.make_order(0, OrderSide.Buy, session.current_timestamp, 10.0, 100, "")
 
-    def on_tick(self, time, session, price, side, size):
-        pass
+    #def on_tick(self, time, session, price, side, size):
+    #    pass
 
     def on_clock(self, time, session):
         pass
