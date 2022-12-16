@@ -402,7 +402,7 @@ impl TradeTable {
                 KEY::low,
                 KEY::close,
                 KEY::vol,
-                KEY::count,
+                // KEY::count,
                 KEY::start_time,
                 KEY::end_time,
             ])
@@ -463,7 +463,7 @@ impl TradeTable {
                 KEY::low,
                 KEY::close,
                 KEY::vol,
-                KEY::count,
+                // KEY::count,
             ])
             .unwrap()
             .to_ndarray::<Float64Type>()
@@ -565,7 +565,6 @@ impl TradeTable {
             <tr><td>{:?}</td><td>{:?}</td></tr>
             <tr><td>{:?}</td><td>{:?}</td></tr>
             <tr><td><b>days=</b></td><td>{}</td></tr>                
-            <tr><td><b>path=</b>{}</td></tr>                
             </table>                
             "#,
             min,
@@ -573,7 +572,6 @@ impl TradeTable {
             time_string(min),
             time_string(max),
             (max - min) / DAYS(1),
-            self.file_name,
         );
     }
 

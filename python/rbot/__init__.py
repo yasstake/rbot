@@ -29,7 +29,9 @@ def trades_to_df(array):
 
 def ohlcvv_to_df(array):
     df = pd.DataFrame(
-        array, columns=["timestamp", "side", "open", "high", "low", "close", "volume", "count", "start_time", "end_time"])
+        array, columns=["timestamp", "side", "open", "high", "low", "close", "volume", 
+#                        "count", 
+                        "start_time", "end_time"])
     df['timestamp'] = pd.to_datetime(
         (df["timestamp"]), utc=True, unit='us')
     df = df.set_index('timestamp')
@@ -234,6 +236,12 @@ class Market:
     def download(cls, ndays, force=False):
         for m in cls.MARKET:
             cls.MARKET[m].download(ndays, force)
+            cls.MARKET[m].vaccum()
+
+    @classmethod
+    def vaccum():
+        for m in cls.MARKET:
+            cls.MARKET[m].vaccum()
     
     @classmethod
     def _cache_data(cls):

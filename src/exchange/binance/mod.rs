@@ -195,7 +195,7 @@ impl BinanceMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return self.db._repr_html_();
+        return format!("<b>Binance DB ({})</b>{}",self.name, self.db._repr_html_());
     }
 }
 
