@@ -8,7 +8,7 @@ use rusqlite::{params, params_from_iter};
 use crate::{
     common::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
-        time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND},
+        time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND, NOW},
     },
     db::open_db,
     sim::session::DummySession,
@@ -74,7 +74,8 @@ impl BackTester {
         let clock_interval = self.clock_interval(agent);
         log::debug!("clock interval {:?}", clock_interval);
 
-        let db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
+        let mut db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
+        db.reset_cache_duration();
 
         //let mut statement = db.select_all_statement();
         let (mut statement, param) = db.select_statement(from_time, to_time);
@@ -114,6 +115,8 @@ impl BackTester {
             let mut on_update_count = 0;
 
             let mut last_print_hour = 0;
+            let mut last_print_time = NOW();
+            let mut average_speed = 0;
 
             for trade in iter {
                 match trade {
@@ -204,12 +207,19 @@ impl BackTester {
                             log_order_result(&mut order_history, r);
                         }
 
-                        let current_hour = FLOOR(t.time, 60 * 60);
+                        const PRINT_INTERVAL:i64 = 60*60*6;
+                        let current_hour = FLOOR(t.time, PRINT_INTERVAL);  // print every 6 hour
                         if last_print_hour != current_hour {
-                            print!("\rBack testing... {:<.16} / rec={:>8} / on_tick={:>6} / on_clock={:>4} / on_update={:>4}", 
+                            let duration = NOW() - last_print_time;
+
+                            average_speed = ((PRINT_INTERVAL * MICRO_SECOND)/duration + average_speed * 4)/ 5;
+
+                            print!("\rBack testing... {:<.16} / rec={:>10} / on_tick={:>6} / on_clock={:>6} / on_update={:>4} /{:>8} xSpeed", 
                                     time_string(t.time), loop_count,
-                                    on_tick_count, on_clock_count, on_update_count);
+                                    on_tick_count, on_clock_count, on_update_count, average_speed);
                             let _ = stdout().flush();
+
+                            last_print_time = NOW();                            
                             last_print_hour = current_hour;
                         }
                     }
