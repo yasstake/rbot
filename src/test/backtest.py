@@ -28,14 +28,15 @@ class Agent(BaseAgent):
         pass
 
     def on_clock(self, time, session):
+        pass
         #print(time)
         #
         # print(session.current_timestamp)
-        ohlcv = session.ohlcv(60, 100)
+        #ohlcv = session.ohlcv(60, 100)
         
-        if session.long_order_size == 0 and session.long_position_size == 0:
-            print(ohlcv)
-            session.place_order("BUY", session.best_buy_price, 0.01, 600, "MyOrder")
+        #if session.long_order_size == 0 and session.long_position_size == 0:
+        #    print(ohlcv)
+        #    session.place_order("BUY", session.best_buy_price, 0.01, 600, "MyOrder")
 
 
     def on_update(self, time, session, result):
