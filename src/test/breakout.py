@@ -76,7 +76,7 @@ class BreakOutAgent(BaseAgent):
 
 
 binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
-Market.download(10)             # １０日前より最新のログデータをダウンロード（差分）
+Market.download(200)             # １０日前より最新のログデータをダウンロード（差分）
 #Market.download(5, True)       # 再ダウンロード
 
 
@@ -92,13 +92,16 @@ back_runner.maker_fee_rate = 0.1 * 0.01  # maker_feeを指定（0.1%）. taker�
 
 agent = BreakOutAgent()         # Agentのインスタンスを作ります（あとで利用するので変数に保存しておきます）。
 
+#rbot.init_debug_log()
+
 # 10日前から最新までバックテストする例。手元の環境で１日あたり10秒＋かかります。
 back_runner.run(
     agent,                      # backtest するagentインスタンスを指定します。
-    #rbot.DAYS_BEFORE(10),       # 開始時刻を指定します(us)。0だとDBにある最初のデータから処理。DAYS_BEFOREはN日まえのtimestampを返すユーティリティ関数です。
-    0,
+    rbot.DAYS_BEFORE(10),       # 開始時刻を指定します(us)。0だとDBにある最初のデータから処理。DAYS_BEFOREはN日まえのtimestampを返すユーティリティ関数です。
+#    0,
     0                           # 終了時刻を指定します(us). 0だとDBにある最後のデータまで処理。
 )     
 
+pd.options.display.max_rows=30
 print(back_runner.result)                     # back testの結果概要が表示されます
 

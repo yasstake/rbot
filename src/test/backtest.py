@@ -8,13 +8,13 @@ from rbot import init_log;
 from rbot import Market
 from rbot import Session
 from rbot import BaseAgent
-from rbot import BackTester
+from rbot import BackRunner
 from rbot import NOW
 from rbot import DAYS
 from rbot import OrderSide
 
 #rbot.init_log()
-rbot.init_debug_log()
+#rbot.init_debug_log()
 
 class Agent(BaseAgent):   
     def clock_interval(self):
@@ -28,13 +28,15 @@ class Agent(BaseAgent):
         pass
 
     def on_clock(self, time, session):
+        pass
         #print(time)
         #
         # print(session.current_timestamp)
-        if session.long_order_size == 0 and session.long_position_size == 0:
-            ohlcv = session.ohlcv(60, 100)
-            print(ohlcv)
-            session.make_order("BUY", session.sell_board_edge_price, 10.0, 1000, "MyOrder")
+        #ohlcv = session.ohlcv(60, 100)
+        
+        #if session.long_order_size == 0 and session.long_position_size == 0:
+        #    print(ohlcv)
+        #    session.place_order("BUY", session.best_buy_price, 0.01, 600, "MyOrder")
 
 
     def on_update(self, time, session, result):
@@ -43,10 +45,11 @@ class Agent(BaseAgent):
 
     
 
-bt = BackTester("BN", "BTCBUSD")
+back_runner = BackRunner("BN", "BTCBUSD", False)
 
-r = bt.run(Agent())
+r = back_runner.run(Agent())
 
+pd.options.display.max_rows=30
 print(r)
 
 
