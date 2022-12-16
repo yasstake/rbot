@@ -22,73 +22,6 @@ use log::Level::Debug;
 use crate::db::df::KEY;
 use polars::prelude::Float64Type;
 
-/*
-// TODO: データベースがない（０件）場合のエラー処理。
-#[derive(Debug, Clone, Copy)]
-pub struct Ohlcvv {
-    pub time: f64,
-    pub open: f64,
-    pub high: f64,
-    pub low: f64,
-    pub close: f64,
-    pub vol: f64,
-    pub sell_vol: f64,
-    pub sell_count: f64,
-    pub buy_vol: f64,
-    pub buy_count: f64,
-    pub start_time: f64,
-    pub end_time: f64,
-}
-
-impl Ohlcvv {
-    pub fn new() -> Self {
-        Ohlcvv {
-            time: 0.0,
-            open: 0.0,
-            high: 0.0,
-            low: 0.0,
-            close: 0.0,
-            vol: 0.0,
-            sell_vol: 0.0,
-            sell_count: 0.0,
-            buy_vol: 0.0,
-            buy_count: 0.0,
-            start_time: 0.0,
-            end_time: 0.0,
-        }
-    }
-
-    pub fn append(&mut self, trade: &Trade) {
-        if self.start_time == 0.0 || (trade.time as f64) < self.start_time {
-            self.start_time = trade.time as f64;
-            self.open = trade.price;
-        }
-
-        if self.end_time == 0.0 || self.end_time < trade.time as f64 {
-            self.end_time = trade.time as f64;
-            self.close = trade.price;
-        }
-
-        if self.high < trade.price {
-            self.high = trade.price;
-        }
-
-        if trade.price < self.low || self.low == 0.0 {
-            self.low = trade.price;
-        }
-
-        self.vol += trade.size;
-
-        if trade.order_side == OrderSide::Sell {
-            self.sell_vol += trade.size;
-            self.sell_count += 1.0;
-        } else if trade.order_side == OrderSide::Buy {
-            self.buy_vol += trade.size;
-            self.buy_count += 1.0;
-        }
-    }
-}
-*/
 
 fn check_skip_time(trades: &Vec<Trade>) {
     if log_enabled!(Debug) {
@@ -118,6 +51,7 @@ pub struct TradeTable {
     connection: Connection,
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
+    cache_duration: MicroSec,
 }
 
 impl TradeTable {
@@ -146,6 +80,7 @@ impl TradeTable {
                     connection: conn,
                     cache_df: df,
                     cache_ohlcvv: ohlcv,
+                    cache_duration: 0,
                 })
             }
             Err(e) => {
@@ -153,6 +88,10 @@ impl TradeTable {
                 return Err(e);
             }
         }
+    }
+
+    pub fn reset_cache_duration(&mut self) {
+        self.cache_duration = 0;
     }
 
     pub fn create_table_if_not_exists(&self) {
@@ -279,8 +218,19 @@ impl TradeTable {
         self.update_cache_df(0, 0);
     }
 
+    pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
+        let cache_timing = TradeTable::ohlcv_start(forget_before);
+        self.cache_df = select_df(&self.cache_df, cache_timing, 0);
+        self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
+    }
+
     pub fn update_cache_df(&mut self, from_time: MicroSec, to_time: MicroSec) {
         let df_start_time: i64;
+
+        let cache_time = to_time - from_time;
+        if self.cache_duration < cache_time {
+            self.cache_duration = cache_time;
+        }
 
         match start_time_df(&self.cache_df) {
             Some(t) => {
@@ -337,6 +287,12 @@ impl TradeTable {
             if ohlcv1.shape().0 == 0 {
                 let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
                 self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+            }
+        }
+        else {
+            // expire cache ducarion * 2
+            if df_start_time < to_time - self.cache_duration * 2 {
+                self.expire_cache_df(to_time - self.cache_duration);
             }
         }
 
