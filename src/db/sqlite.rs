@@ -341,8 +341,8 @@ impl TradeTable {
         }
 
         if df_end_time < to_time {
-            // １日先までキャッシュを先読み
-            let df2 = &self.select_df_from_db(df_end_time, to_time + DAYS(1));
+            // 2日先までキャッシュを先読み
+            let df2 = &self.select_df_from_db(df_end_time, to_time + DAYS(2));
 
             log::debug!(
                 "load data AFTER cache df1={:?} df2={:?}",
