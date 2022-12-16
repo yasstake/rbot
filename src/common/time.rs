@@ -20,6 +20,7 @@ pub fn to_naive_datetime(microsecond: MicroSec) -> NaiveDateTime {
 }
 
 #[allow(non_snake_case)]
+#[pyfunction]
 pub fn FLOOR(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     let unit_sec_micro = SEC(unit_sec);
 

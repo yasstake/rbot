@@ -1,3 +1,4 @@
+use std::io::{stdout, Write};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -48,6 +49,10 @@ impl BinanceMarket {
 
         let mut download_rec: i64 = 0;
         let from_time = NOW() - DAYS(ndays+1);
+
+        println!("Start download from {}", time_string(from_time));
+        let _ = stdout().flush();
+
         let to_time = NOW() - DAYS(2);
 
         let time_gap =
@@ -127,6 +132,7 @@ impl BinanceMarket {
         let mut insert_rec_no = 0;
 
         // TODO: sqlite クラスへ移動させて共通にする。
+        let mut last_print_rec = 0;
         loop {
             match rx.recv() {
                 Ok(trades) => {
@@ -134,6 +140,12 @@ impl BinanceMarket {
                     match result {
                         Ok(rec_no) => {
                             insert_rec_no += rec_no;
+
+                            if 1_000_000 < (insert_rec_no - last_print_rec) {
+                                print!("\rDownloading... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
+                                let _ = stdout().flush();
+                                last_print_rec = insert_rec_no;
+                            }
                         }
                         Err(e) => {
                             log::warn!("insert error {:?}", e);
@@ -185,8 +197,17 @@ impl BinanceMarket {
         return self.db.info();
     }
 
+    #[getter]
+    fn get_file_name(&self) -> String {
+        return self.db.get_file_name();
+    }
+
+    fn vaccum(&self) {
+        self.db.vaccum();
+    }
+
     pub fn _repr_html_(&self) -> String {
-        return self.db._repr_html_();
+        return format!("<b>Binance DB ({})</b>{}",self.name, self.db._repr_html_());
     }
 }
 

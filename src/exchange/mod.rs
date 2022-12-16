@@ -30,10 +30,7 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, Strin
         .and_then(|name| if name.is_empty() { None } else { Some(name) })
         .unwrap_or("tmp.bin");
 
-    println!("file to download: '{}'", fname);
-
     let fname = tmp_dir.join(fname);
-    println!("will be located under: '{:?}'", fname);
 
     let mut target = match File::create(&fname) {
         Ok(t) => t,
