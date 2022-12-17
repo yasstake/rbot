@@ -255,13 +255,17 @@ class Market:
 
 class BackRunner:
     def __init__(self, exchange_name, market_name, size_in_price_currency):
-        self.backtester = _BackTester(exchange_name, market_name, size_in_price_currency)
+        self.exchange_name = exchange_name
+        self.market_name = market_name
+        self.backtester = _BackTester(self.exchange_name, self.market_name, size_in_price_currency)
         self.agent_name = ""
         self.last_exec_time = 0
         self.clocl_interval = 0
         self.result = None
 
     def run(self, agent, start_time=0, end_time=0):
+        Market.open(self.exchange_name, self.market_name).reset_cache_duration()
+
         counter_s = time.perf_counter()
         self.agent_name = agent.__class__.__name__
         self.clock_interval = agent.clock_interval()

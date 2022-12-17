@@ -57,6 +57,10 @@ pub struct TradeTable {
 impl TradeTable {
     const OHLCV_WINDOW_SEC: i64 = 60; // min
 
+    pub fn get_cache_duration(&self) -> MicroSec {
+        return self.cache_duration;
+    }
+
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
         return FLOOR(t, TradeTable::OHLCV_WINDOW_SEC);
     }
@@ -219,16 +223,24 @@ impl TradeTable {
     }
 
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
+        log::debug!("Expire cache {}", time_string(forget_before));
         let cache_timing = TradeTable::ohlcv_start(forget_before);
         self.cache_df = select_df(&self.cache_df, cache_timing, 0);
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
 
-    pub fn update_cache_df(&mut self, from_time: MicroSec, to_time: MicroSec) {
+    pub fn update_cache_df(&mut self, from_time: MicroSec, mut to_time: MicroSec) {
+        log::debug!("update_cache_df {} -> {}", from_time, to_time);
+
         let df_start_time: i64;
 
+        if to_time == 0 {
+            to_time = NOW();
+        }
+        
         let cache_time = to_time - from_time;
         if self.cache_duration < cache_time {
+            log::debug!("update cache duration {}", self.cache_duration);
             self.cache_duration = cache_time;
         }
 
@@ -284,15 +296,15 @@ impl TradeTable {
                 TradeTable::OHLCV_WINDOW_SEC,
             );
 
-            if ohlcv1.shape().0 == 0 {
+            if ohlcv1.shape().0 != 0 {
                 let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
                 self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
             }
         }
         else {
             // expire cache ducarion * 2
-            if df_start_time < to_time - self.cache_duration * 2 {
-                self.expire_cache_df(to_time - self.cache_duration);
+            if df_start_time < from_time - self.cache_duration * 2 {
+                self.expire_cache_df(from_time - self.cache_duration);
             }
         }
 
