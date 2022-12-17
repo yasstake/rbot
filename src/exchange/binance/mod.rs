@@ -44,6 +44,15 @@ impl BinanceMarket {
         };
     }
 
+    #[getter]
+    pub fn get_cache_duration(&self) -> MicroSec {
+        return self.db.get_cache_duration();
+    }
+
+    pub fn reset_cache_duration(&mut self) {
+        self.db.reset_cache_duration();
+    }
+
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
         let (tx, rx): (Sender<Vec<Trade>>, Receiver<Vec<Trade>>) = mpsc::channel();
 
