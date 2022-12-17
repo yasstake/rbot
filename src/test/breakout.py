@@ -97,7 +97,7 @@ agent = BreakOutAgent()         # Agentのインスタンスを作ります（�
 # 10日前から最新までバックテストする例。手元の環境で１日あたり10秒＋かかります。
 back_runner.run(
     agent,                      # backtest するagentインスタンスを指定します。
-    rbot.DAYS_BEFORE(10),       # 開始時刻を指定します(us)。0だとDBにある最初のデータから処理。DAYS_BEFOREはN日まえのtimestampを返すユーティリティ関数です。
+    rbot.DAYS_BEFORE(100),       # 開始時刻を指定します(us)。0だとDBにある最初のデータから処理。DAYS_BEFOREはN日まえのtimestampを返すユーティリティ関数です。
 #    0,
     0                           # 終了時刻を指定します(us). 0だとDBにある最後のデータまで処理。
 )     
