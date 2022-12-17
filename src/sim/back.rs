@@ -40,13 +40,12 @@ pub struct BackTester {
     last_run_record: MicroSec,
     last_clock: MicroSec,
     skip_tick: i64,
-    loop_count: i64,
+    #[pyo3(get)]    
     on_tick_count: i64,
+    #[pyo3(get)]    
     on_clock_count: i64,
+    #[pyo3(get)]    
     on_update_count: i64,
-    last_print_hour: i64,
-    last_print_time: i64,
-    average_speed: i64,
 }
 
 #[pymethods]
@@ -67,13 +66,9 @@ impl BackTester {
             last_run_record: 0,
             last_clock: 0,
             skip_tick: 100,
-            loop_count: 0,
             on_tick_count: 0,
             on_clock_count: 0,
             on_update_count: 0,
-            last_print_hour: 0,
-            last_print_time: 0,
-            average_speed: 0,
         };
     }
 
@@ -142,20 +137,23 @@ impl BackTester {
 
         return Python::with_gil(|py| {
             let py_session = Py::new(py, session).unwrap();
+            let mut current_time: MicroSec = 0;
 
             for trade in iter {
                 match trade {
                     Ok(t) => {
+                        current_time = t.time;
                         // TODO: Implement skip first 100 ticks
 
                         // TODO: error handling
                         let result = self.process_trade(&py, agent, &t, &py_session, &mut order_history);
 
                         loop_count += 1;
-                        let current_hour = FLOOR(t.time, PRINT_INTERVAL); // print every 6 hour
+                        let current_hour = FLOOR(current_time, PRINT_INTERVAL); // print every 6 hour
                         if last_print_hour != current_hour {
                             if loop_start_hour == 0 {
                                 loop_start_hour = current_hour;
+                                self.last_run_start = current_time;
                             }
                             let duration = NOW() - last_print_time;
 
@@ -184,6 +182,7 @@ impl BackTester {
 
             // self.last_run_end = session.current_timestamp;
             self.last_run_record = loop_count;
+            self.last_run_end = current_time;
 
             return Ok(order_history);
         });
