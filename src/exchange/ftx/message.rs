@@ -1,4 +1,4 @@
-
+// Copyright(c) 2022. yasstake. All rights reserved.
 
 // https://docs.rs/serde_json/latest/serde_json/
 // serde_json = {version = "1.0.87"}

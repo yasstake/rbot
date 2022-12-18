@@ -1,3 +1,5 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 mod message;
 mod rest;
 
