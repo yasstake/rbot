@@ -167,6 +167,7 @@ impl BinanceMarket {
             }
         }
 
+        println!("download {}[rec]", insert_rec_no);
         log::debug!("insert rec={}", insert_rec_no);
 
         return insert_rec_no;

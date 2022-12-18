@@ -270,7 +270,7 @@ class BackRunner:
         self.agent_name = agent.__class__.__name__
         self.clock_interval = agent.clock_interval()
 
-        r = self.backtester.run(agent,start_time, end_time)
+        r = self.backtester.run(agent, start_time, end_time)
 
         counter_e = time.perf_counter() 
         self.last_exec_time = counter_e - counter_s       

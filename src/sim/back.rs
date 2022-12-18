@@ -1,4 +1,4 @@
-use std::io::{stdout, Write};
+use std::{io::{stdout, Write}, borrow::BorrowMut};
 
 use chrono::OutOfRangeError;
 use polars::export::arrow::bitmap::or;
@@ -73,6 +73,52 @@ impl BackTester {
     }
 
     #[args(from_time = 0, to_time = 0)]
+    pub fn run_session(
+        &mut self,
+        agent: &PyAny,
+        mut py_session: &PyAny,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<()>
+    {
+        for i in 0..1000 {
+
+//            let mut session = py_session.borrow_mut();
+            let mut session2 = py_session.extract::<DummySession>();
+
+            match session2 {
+                Ok(mut s) => {
+                    s.current_timestamp += 1;
+                },
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+
+
+            let result = agent.call_method1(
+                "_on_tick",
+                (
+                    i,  // time
+                    py_session, // session
+                    "Buy",
+                    i,
+                    i,
+                ),
+            );
+
+            match result {
+                Ok(_) => {},
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
+    #[args(from_time = 0, to_time = 0)]
     pub fn run(
         &mut self,
         agent: &PyAny,
@@ -134,19 +180,33 @@ impl BackTester {
         let mut last_record_no: i64 = 0;
         let mut rec_per_sec = 0;
         const PRINT_INTERVAL: i64 = 60 * 60 * 6;
+        let mut current_time: MicroSec = 0;
 
         return Python::with_gil(|py| {
             let py_session = Py::new(py, session).unwrap();
-            let mut current_time: MicroSec = 0;
 
             for trade in iter {
                 match trade {
                     Ok(t) => {
+                        // use of unsafe block
+                        // see. https://pyo3.rs/main/memory.html
+                        let pool = unsafe {py.new_pool()};
+                        let py = pool.python();
+
                         current_time = t.time;
                         // TODO: Implement skip first 100 ticks
 
                         // TODO: error handling
-                        let result = self.process_trade(&py, agent, &t, &py_session, &mut order_history);
+                        let result = self.process_trade(py, &agent, &t, &py_session, &mut order_history);
+
+                        match result {
+                            Ok(_) => {
+
+                            },
+                            Err(e) => {
+                                return Err(e);
+                            }
+                        }
 
                         loop_count += 1;
                         let current_hour = FLOOR(current_time, PRINT_INTERVAL); // print every 6 hour
@@ -175,7 +235,9 @@ impl BackTester {
                     }
                     Err(e) => {
                         log::warn!("err {}", e);
-                        // return Err(e.to_string());
+                        // TODO: Error handling
+                        // return Err(e);
+                        // return Err(PyError::from(e.to_string()));
                     }
                 }
             }
@@ -187,35 +249,161 @@ impl BackTester {
             return Ok(order_history);
         });
     }
+
+    #[args(from_time = 0, to_time = 0)]
+    pub fn run2(
+        &mut self,
+        agent: &PyAny,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<Vec<OrderResult>> {
+        self.agent_on_tick = self.has_want_event(agent, "on_tick");
+        self.agent_on_clock = self.has_want_event(agent, "on_clock");
+        self.agent_on_update = self.has_want_event(agent, "on_update");
+
+        log::debug!("want on tick  {:?}", self.agent_on_tick);
+        log::debug!("want on clock {:?}", self.agent_on_clock);
+        log::debug!("want on event {:?}", self.agent_on_update);
+
+        self.clock_interval = self.agent_clock_interval(agent);
+        log::debug!("clock interval {:?}", self.clock_interval);
+
+        let mut db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
+        db.reset_cache_duration();
+
+        //let mut statement = db.select_all_statement();
+        let (mut statement, param) = db.select_statement(from_time, to_time);
+
+        let mut order_history: Vec<OrderResult> = make_log_buffer();
+
+        let iter = statement
+            .query_map(params_from_iter(param.iter()), |row| {
+                let bs_str: String = row.get_unwrap(1);
+                let bs = OrderSide::from_str_default(bs_str.as_str());
+
+                Ok(Trade {
+                    time: row.get_unwrap(0),
+                    price: row.get_unwrap(2),
+                    size: row.get_unwrap(3),
+                    order_side: bs,
+                    id: row.get_unwrap(4),
+                })
+            })
+            .unwrap();
+
+        let mut session = DummySession::new(
+            self.exchange_name.as_str(),
+            self.market_name.as_str(),
+            self.size_in_price_currency,
+        );
+
+        //let py_session = Py::new(session);
+
+        let mut loop_start_hour = 0;
+        let mut last_clock: i64 = 0;
+
+        // TODO: change hardcording its time.
+        let mut skip_tick = 100;
+
+        let mut loop_count = 0;
+
+        let mut last_print_hour = 0;
+        let mut last_print_time = NOW();
+        let mut average_speed = 0;
+        let mut last_record_no: i64 = 0;
+        let mut rec_per_sec = 0;
+        const PRINT_INTERVAL: i64 = 60 * 60 * 6;
+        let mut current_time: MicroSec = 0;
+
+
+            for trade in iter {
+                match trade {
+                    Ok(t) => {
+                        current_time = t.time;
+                        // TODO: Implement skip first 100 ticks
+
+                        // TODO: error handling
+                        // TODO: avoid cloning
+                        let result = self.process_trade2(&agent, &t, session, &mut order_history);
+
+                        match result {
+                            Ok(s) => {
+                                session = s;
+                            },
+                            Err(e) => {
+                                return Err(e);
+                            }
+                        }
+
+                        loop_count += 1;
+                        let current_hour = FLOOR(current_time, PRINT_INTERVAL); // print every 6 hour
+                        if last_print_hour != current_hour {
+                            if loop_start_hour == 0 {
+                                loop_start_hour = current_hour;
+                                self.last_run_start = current_time;
+                            }
+                            let duration = NOW() - last_print_time;
+
+                            average_speed =
+                                ((PRINT_INTERVAL * MICRO_SECOND) / duration + average_speed * 4) / 5;
+
+                            rec_per_sec = ((loop_count - last_record_no) * MICRO_SECOND / duration + rec_per_sec * 4) / 5;
+
+                            print!("\rBack testing... {:<.16} /{:>4}[days] / rec={:>10} / on_tick={:>6} / on_clock={:>6} / on_update={:>4} /{:>8} xSpeed / {:>8}[rec/sec]", 
+                                        time_string(t.time), (current_hour - loop_start_hour)/ HHMM(24, 0), 
+                                        loop_count,
+                                        self.on_tick_count, self.on_clock_count, self.on_update_count, average_speed, rec_per_sec);
+                            let _ = stdout().flush();
+
+                            last_print_time = NOW();
+                            last_print_hour = current_hour;
+                            last_record_no = loop_count;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("err {}", e);
+                        // TODO: Error handling
+                        // return Err(e);
+                        // return Err(PyError::from(e.to_string()));
+                    }
+                }
+    }
+            // self.last_run_end = session.current_timestamp;
+            self.last_run_record = loop_count;
+            self.last_run_end = current_time;
+
+            return Ok(order_history);
+
+    }
 }
+
+
+
 
 impl BackTester {
     fn process_trade(
         &mut self,
-        py: &Python,
+        py: Python,
         agent: &PyAny,
         trade: &Trade,
         py_session: &Py<DummySession>,
         order_history: &mut Vec<OrderResult>,
     ) -> Result<(), PyErr> {
-//        return Python::with_gil(|py| {
+        //return Python::with_gil(|py| {
             if self.agent_on_clock {
                 let current_clock = CEIL(trade.time, self.clock_interval);
                 if current_clock != self.last_clock {
-                    let mut session = py_session.borrow_mut(*py);
+                    let mut session = py_session.borrow_mut(py);
                     session.current_timestamp = current_clock;
                     drop(session);
 
-                    //let ps = py_session.clone_ref(*py);
                     let result = self.clock(&py_session, agent, current_clock);
-                    //drop(ps);
-
                     match result {
                         Ok(_) => {
                             self.on_clock_count += 1;
                         }
                         Err(e) => {
-                            let trace = e.traceback(*py);
+                            let trace = e.traceback(py);
 
                             if trace.is_some() {
                                 log::error!("{:?}", trace);
@@ -230,21 +418,19 @@ impl BackTester {
 
             let mut tick_result: Vec<OrderResult> = vec![];
 
-            let mut session = py_session.borrow_mut(*py);
+            let mut session = py_session.borrow_mut(py);
             session.process_trade(trade, &mut tick_result);
             drop(session);
 
             if self.agent_on_tick {
-                //let ps = py_session.clone_ref(*py);
                 let result = self.tick(&py_session, agent, trade);
-                //drop(ps);
 
                 match result {
                     Ok(_) => {
                         self.on_tick_count += 1;
                     }
                     Err(e) => {
-                        let trace = e.traceback(*py);
+                        let trace = e.traceback(py);
 
                         if trace.is_some() {
                             log::error!("{:?}", trace);
@@ -258,16 +444,14 @@ impl BackTester {
                 r = self.calc_profit(r);
 
                 if self.agent_on_update {
-                    //let ps = py_session.clone_ref(*py);
-                    let result = self.update(&py_session, agent, r.update_time, r.clone());
-                    //drop(ps);
+                    let result = self.update(&py_session, agent, r.update_time, &r);
 
                     match result {
                         Ok(_) => {
                             self.on_update_count += 1;
                         }
                         Err(e) => {
-                            let trace = e.traceback(*py);
+                            let trace = e.traceback(py);
 
                             if trace.is_some() {
                                 log::error!("{:?}", trace);
@@ -317,8 +501,136 @@ impl BackTester {
                         }
             */
             return Ok(());
-//        });
+        //});
     }
+
+    fn process_trade2(
+        &mut self,
+        agent: &PyAny,
+        trade: &Trade,
+        session: DummySession,
+        order_history: &mut Vec<OrderResult>,
+    ) -> Result<DummySession, PyErr> {
+        return Python::with_gil(|py| {
+            let py_session = Py::new(py, session).unwrap();            
+
+            if self.agent_on_clock {
+                let current_clock = CEIL(trade.time, self.clock_interval);
+                if current_clock != self.last_clock {
+                    let mut session = py_session.borrow_mut(py);
+                    session.current_timestamp = current_clock;
+                    drop(session);
+
+                    let result = self.clock(&py_session, agent, current_clock);
+                    match result {
+                        Ok(_) => {
+                            self.on_clock_count += 1;
+                        }
+                        Err(e) => {
+                            let trace = e.traceback(py);
+
+                            if trace.is_some() {
+                                log::error!("{:?}", trace);
+                            }
+
+                            return Err(e);
+                        }
+                    };
+                    self.last_clock = current_clock;
+                }
+            }
+
+            let mut tick_result: Vec<OrderResult> = vec![];
+
+            let mut session = py_session.borrow_mut(py);
+            session.process_trade(trade, &mut tick_result);
+            drop(session);
+
+            if self.agent_on_tick {
+                let result = self.tick(&py_session, agent, trade);
+
+                match result {
+                    Ok(_) => {
+                        self.on_tick_count += 1;
+                    }
+                    Err(e) => {
+                        let trace = e.traceback(py);
+
+                        if trace.is_some() {
+                            log::error!("{:?}", trace);
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+
+            for mut r in tick_result {
+                r = self.calc_profit(r);
+
+                if self.agent_on_update {
+                    let result = self.update(&py_session, agent, r.update_time, &r);
+
+                    match result {
+                        Ok(_) => {
+                            self.on_update_count += 1;
+                        }
+                        Err(e) => {
+                            let trace = e.traceback(py);
+
+                            if trace.is_some() {
+                                log::error!("{:?}", trace);
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
+                log_order_result(order_history, r);
+            }
+
+            /*
+                match result {
+                    Err(e) => {
+                        let trace = e.traceback(py);
+                        if trace.is_some() {
+                            log::error!("{:?}", trace);
+                        }
+
+                        return Err(e);
+                    },
+                    _ => {}
+                }
+            */
+            //            }
+            /*
+                        for mut r in tick_result {
+                            // TODO calc fee and profit
+                            r = self.calc_profit(r);
+
+                            if self.agent_on_update {
+                                match self.update(py_session, agent, r.update_time, r.clone()) {
+                                    Ok(_) => {
+                                        on_update_count += 1;
+                                    }
+                                    Err(e) => {
+                                        let trace = e.traceback(py);
+
+                                        if trace.is_some() {
+                                            log::error!("{:?}", trace);
+                                        }
+                                     //   return Err(e);
+                                    }
+                                }
+                            }
+                            log_order_result(&mut order_history, r);
+                        }
+            */
+            let session = py_session.extract::<DummySession>(py).unwrap();
+
+            return Ok(session);
+        });
+    }
+
+
 
     fn tick(
         &mut self,
@@ -326,6 +638,7 @@ impl BackTester {
         agent: &PyAny,
         trade: &Trade,
     ) -> Result<(), PyErr> {
+
         let result = agent.call_method1(
             "_on_tick",
             (
@@ -336,9 +649,10 @@ impl BackTester {
                 trade.size,
             ),
         );
+
         match result {
             Ok(_ok) => {
-                //
+
             }
             Err(e) => {
                 println!("call Agent.on_tick error {:?}", e);
@@ -347,6 +661,8 @@ impl BackTester {
             }
         }
 
+        drop(trade);
+        drop(agent);
         drop(session);
 
         return Ok(());
@@ -369,9 +685,7 @@ impl BackTester {
                 return Err(e);
             }
         }
-
-        drop(session);
-
+        
         return Ok(());
     }
 
@@ -380,9 +694,9 @@ impl BackTester {
         session: &Py<DummySession>,
         agent: &PyAny,
         time: MicroSec,
-        r: OrderResult,
+        r: &OrderResult,
     ) -> Result<(), PyErr> {
-        let result = agent.call_method1("_on_update", (time, session, r));
+        let result = agent.call_method1("_on_update", (time, session, r.clone()));
 
         match result {
             Ok(_ok) => {
@@ -394,8 +708,6 @@ impl BackTester {
                 return Err(e);
             }
         }
-
-        drop(session);
 
         return Ok(());
     }
@@ -460,29 +772,37 @@ mod back_testr_test {
         #[pyclass]
         struct S {
             pub a: i64,
+            pub b: i64,
+            pub c: i64,
+            pub d: i64,                                    
         }
+        
+        let session = S { a: 1, b:2, c:3, d:4};
 
         Python::with_gil(|py| {
-            let session = S { a: 1 };
             println!("{:?}", session);
             let py_session = Py::new(py, session).unwrap();
 
-            println!("{:?}", py_session);
-
+            for i in 1..100000000 {
+            // println!("{:?}", py_session);
             let mut session = py_session.borrow_mut(py);
             //let mut session = py_session.extract::<S>(py).unwrap();
-            session.a = 2;
+            session.a += 1;
 
             drop(session);
 
             let py_session2 = py_session.borrow(py);
-            println!("{:?}", py_session2);
+            if i % 1000 == 0 {
+                println!("{:?}", py_session2);
+            }
             //            let session2 = py_session.extract::<S>(py).unwrap();
             //println!("{:?}", session2);
 
             //drop(py_session);
 
             //            println!("{:?}", session2);
+            }
         });
+
     }
 }
