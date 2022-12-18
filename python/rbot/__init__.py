@@ -270,7 +270,7 @@ class BackRunner:
         self.agent_name = agent.__class__.__name__
         self.clock_interval = agent.clock_interval()
 
-        r = self.backtester.run(agent,start_time, end_time)
+        r = self.backtester.run(agent, start_time, end_time)
 
         counter_e = time.perf_counter() 
         self.last_exec_time = counter_e - counter_s       
@@ -303,9 +303,9 @@ class BackRunner:
         table += "<tr><td>Size in price currency</td><td>{}</td></tr>".format(self.size_in_price_currency)
         table += "<tr><td>maker fee rate</td><td>{} [%]</td></tr>".format(self.maker_fee_rate*100)
         table += "<tr><td>Agent class name</td><td>{}</td></tr>".format(self.agent_name)
-        table += "<tr><td> enable: on_tick</td><td>{}</td></tr>".format(self.agent_on_tick) 
-        table += "<tr><td> enable: on_clock</td><td>{}</td></tr>".format(self.agent_on_clock)
-        table += "<tr><td> enable: on_update</td><td>{}</td></tr>".format(self.agent_on_update)
+        table += "<tr><td> enable: on_tick</td><td>{}</td><td>{:,}</td></tr>".format(self.agent_on_tick, self.on_tick_count) 
+        table += "<tr><td> enable: on_clock</td><td>{}</td><td>{:,}</td></tr>".format(self.agent_on_clock, self.on_clock_count)
+        table += "<tr><td> enable: on_update</td><td>{}</td><td>{:,}</td></tr>".format(self.agent_on_update, self.on_update_count)
         table += "<tr><td> clock interval:  </td><td>{} [sec]</td>".format(self.clock_interval)
         table += "<tr><td>start</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_start),self.last_run_start)
         table += "<tr><td>end</td><td>{} ({:,})</td></tr>".format(rbot.time_string(self.last_run_end), self.last_run_end) 
