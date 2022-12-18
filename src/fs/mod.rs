@@ -1,3 +1,5 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use std::fs;
 use std::path::{PathBuf};
 use directories::ProjectDirs;
@@ -23,19 +25,22 @@ pub fn db_full_path(exchange_name: &str, market_type: &str) -> PathBuf {
 }
 
 
+#[cfg(test)]
+mod test_fs {
+    use super::*;
+    #[test]
+    fn test_project_dir() {
+        let path = project_dir();
 
-#[test]
-fn test_project_dir() {
-    let path = project_dir();
+        let db_name = path.join(".db");
 
-    let db_name = path.join(".db");
+        println!("{:?}", db_name);
+    }
 
-    println!("{:?}", db_name);
-}
+    #[test]
+    fn test_db_full_path() {
+        let db = db_full_path("FTX", "BTC-PERP");
 
-#[test]
-fn test_db_full_path() {
-    let db = db_full_path("FTX", "BTC-PERP");
-
-    println!("{:?}", db);
+        println!("{:?}", db);
+    }
 }

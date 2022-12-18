@@ -1,6 +1,8 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use crate::common::order::{TimeChunk, Trade};
 use crate::common::time::{
-    time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, MICRO_SECOND, NOW, SEC,
+    time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, NOW,
 };
 use crate::OrderSide;
 use numpy::IntoPyArray;
@@ -16,34 +18,8 @@ use crate::db::df::start_time_df;
 use crate::db::df::TradeBuffer;
 use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
 
-use log::log_enabled;
-use log::Level::Debug;
-
 use crate::db::df::KEY;
 use polars::prelude::Float64Type;
-
-
-fn check_skip_time(trades: &Vec<Trade>) {
-    if log_enabled!(Debug) {
-        let mut last_time: MicroSec = 0;
-        let mut last_id: String = "".to_string();
-
-        for t in trades {
-            if last_time != 0 {
-                if 1 * MICRO_SECOND < t.time - last_time {
-                    log::debug!("GAP {} / {:?}", t.time - last_time, t);
-                }
-            }
-
-            if last_id == t.id {
-                log::debug!("DUPE {:?}", t);
-            }
-
-            last_time = t.time;
-            last_id = t.id.clone();
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct TradeTable {
@@ -491,22 +467,6 @@ impl TradeTable {
         let min = self.start_time().unwrap_or_default();
         let max = self.end_time().unwrap_or_default();
 
-        /*
-         let sql = "select count(ROWID) from trades";
-
-         let r = self.connection.query_row(sql, [], |row| {
-             let count: i64 = row.get_unwrap(0);
-
-             Ok(format!(
-                 "{{\"start\": {}, \"end\": {}, \"count\": {}}}",
-                 time_string(min),
-                 time_string(max),
-                 count
-             ))
-         });
-        return r.unwrap();
-         */
-
         return format!(
             "{{\"start\": {}, \"end\": {}}}",
             time_string(min),
@@ -521,9 +481,6 @@ impl TradeTable {
     pub fn _repr_html_(&self) -> String {
         let min = self.start_time().unwrap_or_default();
         let max = self.end_time().unwrap_or_default();
-
-        let mut start_time = 0;
-        let sql = "select count(*) from trades";
 
         return format!(
             r#"
@@ -809,14 +766,9 @@ impl TradeTable {
 
 #[cfg(test)]
 mod test_transaction_table {
-    use std::sync::mpsc;
-    use std::sync::mpsc::{Receiver, Sender};
-    use std::thread;
-
     use crate::common::init_log;
     use crate::common::time::time_string;
     use crate::common::time::DAYS;
-    use crate::common::time::MICRO_SECOND;
     use crate::common::time::NOW;
     use crate::db::df::ohlcvv_from_ohlcvv_df;
     use crate::fs::db_full_path;

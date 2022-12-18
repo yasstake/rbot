@@ -1,10 +1,12 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use pyo3::prelude::*;
 
 pub const MICRO_SECOND: i64 = 1_000_000;
 pub const NANO_SECOND: i64 = 1_000_000_000;
 
-// Timestamp scale for system wide.(Nano Sec is default)
+// Timestamp scale for system wide.(Micro Sec(10^-6 is default)
 pub type MicroSec = i64;
 
 pub fn to_seconds(microsecond: MicroSec) -> f64 {
@@ -14,9 +16,9 @@ pub fn to_seconds(microsecond: MicroSec) -> f64 {
 pub fn to_naive_datetime(microsecond: MicroSec) -> NaiveDateTime {
     let sec = microsecond / MICRO_SECOND;
     let nano = ((microsecond % MICRO_SECOND) * 1_000) as u32;
-    let datetime = NaiveDateTime::from_timestamp(sec, nano);
+    let datetime = NaiveDateTime::from_timestamp_opt(sec, nano);
 
-    return datetime;
+    return datetime.unwrap();
 }
 
 #[allow(non_snake_case)]
@@ -29,6 +31,7 @@ pub fn FLOOR(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     return floor;
 }
 
+#[allow(non_snake_case)]
 pub fn FLOOR_DAY(timestamp: MicroSec) -> MicroSec {
     return FLOOR(timestamp, 24 * 60 * 60);
 }
