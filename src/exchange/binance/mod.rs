@@ -307,13 +307,10 @@ mod binance_test {
     fn test_download() {
         init_debug_log();
         let mut market = BinanceMarket::new("BTCBUSD", true);
-        println!("{}", time_string(market.db.start_time().unwrap()));
-        println!("{}", time_string(market.db.end_time().unwrap()));        
+        println!("{}", time_string(market.db.start_time().unwrap_or(0)));
+        println!("{}", time_string(market.db.end_time().unwrap_or(0)));        
         println!("Let's donwload");
-        market.download(4, false);
-
-        println!("force download");
-        market.download(1, true);        
+        market.download(2, false);
     }
 
     #[test]
