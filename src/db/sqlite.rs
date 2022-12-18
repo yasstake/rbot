@@ -836,7 +836,7 @@ mod test_transaction_table {
 
         let start_time = db.start_time();
 
-        let s = start_time.unwrap();
+        let s = start_time.unwrap_or(NOW());
 
         println!("{}({})", time_string(s), s);
     }
