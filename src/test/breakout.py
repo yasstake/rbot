@@ -21,8 +21,11 @@ class BreakOutAgent(BaseAgent):
             self.param_K = param_K  # パラメターKを設定する。
 
     def clock_interval(self):
-        """ on_clockが呼び出される間隔を秒で返す。今回は10分毎にする"""
+        """ on_clockが呼び出される間隔を秒で返す。今回は10分毎(600秒)にする"""
         return 60 * 10
+    
+    def on_tick(self, time_us, session, side, price, size):
+        pass
     
     def on_clock(self, time_us, session):
         """ Botのメインロジック。on_clockで設定した秒数毎に呼ばれる """
@@ -76,7 +79,7 @@ class BreakOutAgent(BaseAgent):
 
 
 binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
-Market.download(200)             # １０日前より最新のログデータをダウンロード（差分）
+Market.download(10)             # １０日前より最新のログデータをダウンロード（差分）
 #Market.download(5, True)       # 再ダウンロード
 
 
