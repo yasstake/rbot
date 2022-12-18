@@ -73,8 +73,8 @@ impl BinanceMarket {
                 }]
             }
             else {
-                let start_time = self.db.start_time().unwrap();
-                let end_time = self.db.end_time().unwrap();
+                let start_time = self.db.start_time().unwrap_or(NOW());
+                let end_time = self.db.end_time().unwrap_or(NOW());
 
                 let mut time_chunk:Vec<TimeChunk> = vec![];
 
