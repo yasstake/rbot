@@ -1,24 +1,25 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use std::io::{stdout, Write};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use chrono::{DateTime, Datelike, NaiveDateTime, NaiveTime};
+use chrono::{Datelike, };
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 //use pyo3::prelude::pymethods;
 
-use crate::common::init_debug_log;
+
 use crate::common::order::{OrderSide, Trade, TimeChunk};
-use crate::common::time::SEC;
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
-use crate::common::time::{HHMM, NOW};
+use crate::common::time::{NOW};
 use crate::db::sqlite::TradeTable;
 use crate::fs::db_full_path;
 
-use super::{gzip_log_download, log_download};
+use super::{log_download};
 
 #[derive(Debug)]
 #[pyclass(name = "_BinanceMarket")]
@@ -272,90 +273,6 @@ impl BinanceMarket {
         return trade;
     }
 
-    /*
-    pub async fn async_download(&mut self, ndays: i32, force: bool) -> i64 {
-        let market = self.name.to_string();
-        let (tx, rx): (Sender<Vec<Trade>>, Receiver<Vec<Trade>>) = mpsc::channel();
-
-
-        let url = self.make_historical_data_url_timestamp(NOW()-DAYS(1));
-
-        let handle = tokio::spawn(async move {
-            log::debug!("download log url = {}", url);
-            let _result = gziped_log_download(url.as_str(), |rec| {
-                // id, price, qty, quoteQty, time, isBuyerMaker, isBestMatch
-
-                let id = rec.get(0).unwrap_or_default();
-                let price = rec.get(1).unwrap_or_default().parse::<f64>().unwrap_or_default();
-                let size = rec.get(2).unwrap_or_default().parse::<f64>().unwrap_or_default();
-                let time = rec.get(4).unwrap_or_default().parse::<MicroSec>().unwrap_or_default();
-                let is_buy = rec.get(5).unwrap_or_default().parse::<bool>().unwrap_or_default();
-                let order_side = if is_buy {OrderSide::Buy} else {OrderSide::Sell};
-
-                let trade = Trade::new(time, order_side, price, size, false, id.to_string());
-                println!("{:?} / {:?}", rec, trade);
-                //tx.send(vec![trade]);
-                // tx.send(vec![trade]);
-            }).await;
-
-            return _result.unwrap();
-        });
-
-        /*
-        if force {
-            log::debug!("Force donwload for {} days", ndays);
-            let _handle = thread::spawn(move || {
-                /*
-                download_trade_callback_ndays(market.as_str(), ndays, |trade| {
-                    let _ = tx.send(trade);
-                });
-                */
-            });
-        } else {
-            log::debug!("Diff donwload for {} days", ndays);
-            let chunks = self
-                .db
-                .select_gap_chunks(NOW() - DAYS(ndays as i64), 0, SEC(20));
-
-            log::debug!("{:?}", chunks);
-
-            let _handle = thread::spawn(move || {
-                /*
-                download_trade_chunks_callback(market.as_str(), &chunks, |trade| {
-                    let _ = tx.send(trade);
-                });
-                */
-            });
-        }
-        */
-
-        let log_rec_no: i64 = handle.await.unwrap();
-        let mut insert_rec_no = 0;
-
-        loop {
-            match rx.recv() {
-                Ok(trades) => {
-                    let result = &self.db.insert_records(&trades);
-                    match result {
-                        Ok(rec_no) => {
-                            insert_rec_no += rec_no;
-                        }
-                        Err(e) => {
-                            log::warn!("insert error {:?}", e);
-                        }
-                    }
-                }
-                Err(_e) => {
-                    break;
-                }
-            }
-        }
-
-        log::debug!("log rec={} / db rec={}",log_rec_no, insert_rec_no);
-
-        return insert_rec_no;
-    }
-    */
 }
 
 #[cfg(test)]
@@ -385,25 +302,6 @@ mod binance_test {
             "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip"                        
         );
     }
-
-    /*
-    #[tokio::test]
-    async fn test_download_async_function() {
-        init_debug_log();
-        let mut market = BinanceMarket::new("BTCUSD", true);
-        let url = market.make_historical_data_url_timestamp(NOW()-DAYS(1));
-        log::debug!("download log url = {}", url);
-
-        let _handle = tokio::spawn(async move {
-            let _r = gziped_log_download(url.as_str(), |rec| {
-                let time = rec.get(0).unwrap();
-                println!("{}", time);
-            }).await;
-        });
-
-        _handle.await;
-    }
-    */
 
     #[test]
     fn test_download() {

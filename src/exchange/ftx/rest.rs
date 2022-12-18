@@ -1,3 +1,5 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use crate::common::order::{Trade, TimeChunk};
 use crate::common::time::{time_string, to_seconds, MicroSec, DAYS, HHMM, NOW, MICRO_SECOND};
 use log;
@@ -10,103 +12,6 @@ const FTX_REST_ENDPOINT: &str = "https://ftx.com/api";
 
 // TODO: RESTAPIのエラー処理（取引所エラー）対応。
 
-/*
-pub fn download_trade_ndays_channel(
-    market_name: &str,
-    ndays: i64,
-    force: bool,
-    tx: &mut Sender<Vec<Trade>>,
-) {
-    log::debug!("download_trade_ndays {}", ndays);
-    let start_time = NOW() - DAYS(ndays) - HHMM(0, 10);
-    let mut end_time = NOW() + HHMM(0, 5); // 5分後を指定し最新を取得。
-
-    loop {
-        let timer_start = NOW();
-
-        log::debug!("download trade to: {}", time_string(end_time));
-
-        let trades = download_trade(market_name, start_time, end_time);
-        let trade_len = trades.len();
-        end_time = trades[trade_len - 1].time;
-
-        tx.send(trades);
-
-        let lap_time = NOW() - timer_start;
-        log::debug!("{} trades / {} [us]", trade_len, lap_time);
-
-        if trade_len <= 100 || end_time <= start_time + 2 {
-            break;
-        }
-
-        sleep(Duration::from_millis(10));
-    }
-}
-
-pub fn download_trade_ndays(market_name: &str, ndays: i64, db: &mut TradeTable) {
-    log::debug!("download_trade_ndays {}", ndays);
-    let start_time = NOW() - DAYS(ndays) - HHMM(0, 10);
-    let mut end_time = NOW() + HHMM(0, 5); // 5分後を指定し最新を取得。
-
-    loop {
-        let timer_start = NOW();
-
-        log::debug!("download trade to: {}", time_string(end_time));
-
-        let trades = download_trade(market_name, start_time, end_time);
-        let trade_len = trades.len();
-        end_time = trades[trade_len - 1].time;
-
-        db.insert_records(&trades);
-
-        let lap_time = NOW() - timer_start;
-        log::debug!("{} trades / {} [us]", trade_len, lap_time);
-
-        if trade_len <= 100 || end_time <= start_time + 2 {
-            break;
-        }
-
-        sleep(Duration::from_millis(10));
-    }
-}
-
-pub fn download_trade_call<F>(market_name: &str, ndays: i32, mut f: F)
-where
-    F: FnMut(Vec<Trade>),
-{
-    log::debug!("download_trade_ndays {}", ndays);
-    let start_time = NOW() - DAYS(ndays as i64) - HHMM(0, 10);
-    let mut end_time = NOW() + HHMM(0, 5); // 5分後を指定し最新を取得。
-
-    loop {
-        let timer_start = NOW();
-
-        log::debug!(
-            "download trade to: {}-{}({})",
-            time_string(start_time),
-            time_string(end_time),
-            end_time
-        );
-
-        let mut trades = download_trade(market_name, start_time, end_time);
-        let trade_len = trades.len();
-        end_time = trades[trade_len - 1].time;
-
-        log::debug!("downloaed from {}  / to {}", trades[0].time, end_time);
-
-        f(trades);
-
-        let lap_time = NOW() - timer_start;
-        log::debug!("{} trades / {} [us]", trade_len, lap_time);
-
-        if trade_len <= 100 || end_time <= start_time + 2 {
-            break;
-        }
-
-        sleep(Duration::from_millis(10));
-    }
-}
-*/
 
 
 
@@ -336,57 +241,5 @@ mod test_ftx_client {
         log::debug!("FIRST= {:?}/{:?}", trades[0], time_string(trades[0].time));
         log::debug!("LAST = {:?}{:?}", trades[trades.len() - 1], time_string(trades[trades.len() - 1].time));
     }
-
-/*
-
-    #[test]
-    fn store_db() {
-        init_log();
-
-        let db_name = db_full_path("FTX", "BTC-PERP");
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
-        db.create_table_if_not_exists();
-
-        download_trade_ndays(BTCMARKET, 1, &mut db);
-    }
-
-    #[test]
-    fn call_back() {
-        init_log();
-
-        download_trade_call(BTCMARKET, 0, |trade| println!("{:?}", trade));
-    }
-
-
-    #[test]
-    fn call_back_db_thread() {
-        init_log();
-
-        let (tx, rx): (Sender<Vec<Trade>>, Receiver<Vec<Trade>>) = mpsc::channel();
-
-        // Txがあるかぎり、rxはエラーを出さない。
-        //let tx2 = tx.clone();
-
-        let handle = thread::spawn(move || {
-            download_trade_call(BTCMARKET, 1, |trade| {
-                tx.send(trade);
-            });
-        });
-
-        let db_name = db_full_path("FTX", "BTC-PERP");
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
-        db.create_table_if_not_exists();
-
-        loop {
-            match rx.recv() {
-                Ok(trades) => db.insert_records(&trades).unwrap(),
-                Err(e) => {
-                    println!("{:?}", e);
-                    break;
-                }
-            }
-        }
-    }
-    */
 }
 

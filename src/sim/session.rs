@@ -1,8 +1,8 @@
 
-use std::collections::HashMap;
+// Copyright(c) 2022. yasstake. All rights reserved.
 
 use crate::common::order::LogBuffer;
-// use crate::common::order::MarketType;
+
 use crate::common::order::Order;
 use crate::common::order::OrderResult;
 use crate::common::order::OrderSide;
@@ -13,7 +13,6 @@ use crate::common::order::log_order_result;
 use crate::common::time::MicroSec;
 use crate::sim::market::OrderQueue;
 
-// use crate::sim::market::Position;
 use crate::sim::market::Positions;
 
 use pyo3::exceptions::PyTypeError;
@@ -46,12 +45,6 @@ use pyo3::*;
 ///     ＜戻り値＞
 ///     オーダーIDをつくり、返却
 ///
-
-#[derive(Debug, Clone)]
-pub struct Indicator {
-    timestamp: MicroSec,
-    value: f64,
-}
 
 
 #[pyclass(name = "_DummySession")]
@@ -102,38 +95,6 @@ impl DummySession {
     //        indicators: HashMap::new()
         };
     }
-/*
-    pub fn get_indicators(&self) -> &HashMap<String, Vec<Indicator>> {
-        return &self.indicators;
-    }
-
-    #[getter]
-    pub fn get_indicator_keys(&mut self) -> Vec<String> {
-        let mut keys: Vec<String> = vec![];
-
-        for (k, _) in self.get_indicators().into_iter() {
-            keys.push(k.to_string());
-        }
-
-        return keys;
-    }
-
-    pub fn has_indicator_key(&mut self, key: String) -> bool {
-        return self.indicators.contains_key(&key);
-    }
-
-    pub fn set_indicator(&self, value: f64) {
-
-    }
-
-    pub fn get_indicator(&self) -> f64 {
-        return 0.0
-    }
-
-    pub fn get_indicator_values(&self) -> Vec<Indicator> {
-        return vec![];
-    }
-*/
 
     #[getter]
     pub fn get_center_price(&self) -> f64 {

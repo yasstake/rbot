@@ -1,10 +1,11 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use super::time::MicroSec;
 use pyo3::pyclass;
 use pyo3::pymethods;
 
 use std::str::FromStr;
 use strum::EnumString;
-use strum::IntoEnumIterator;
 use strum_macros::Display;
 
 #[pyclass]
@@ -31,10 +32,10 @@ impl OrderSide {
     pub fn from_str_default(side: &str) -> Self {
         match OrderSide::from_str(side) {
             Ok(side) => {
-                return side;
+                side
             }
             Err(_) => {
-                return OrderSide::Unknown;
+                OrderSide::Unknown
             }
         }
     }
