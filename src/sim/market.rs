@@ -1,3 +1,5 @@
+// Copyright(c) 2022. yasstake. All rights reserved.
+
 use crate::common::{
     order::Order, order::OrderResult, order::OrderSide, order::OrderStatus, time::MicroSec,
 };
@@ -230,6 +232,7 @@ impl OrderQueue {
         return Err(OrderStatus::NoAction);
     }
 
+    #[allow(unused)]
     /// ID で指定されたオーダをキャンセルする。
     fn cancel_order(&mut self, current_time: MicroSec, order_id: String) -> Result<OrderResult, OrderStatus> {
         let l = self.q.len();
@@ -469,7 +472,7 @@ impl Positions {
     // 残りのオーダを新たなオーダとして返却
     // クローズするためには、BuyのときにはShortの大きさが必要（逆になる）
     pub fn split_order(&self, order: &mut OrderResult) -> Result<OrderResult, OrderStatus> {
-        let mut size: f64;
+        let size: f64;
 
         match order.order_side {
             OrderSide::Buy => {
@@ -479,7 +482,7 @@ impl Positions {
                 size = self.long_position.home_size;
             }
             _ => {
-                size = 0.0;
+                // size = 0.0;
                 return Err(OrderStatus::Error);
             }
         }
@@ -571,7 +574,7 @@ mod test_order_positon {
         // ポジションを作る。
         assert_eq!(orders[1].order_price, 200.0);
         assert_eq!(orders[1].order_home_size, 200.0);
-        assert_eq!(orders[1].order_foreign_size, 1.0);
+        assert_eq!(orders[1].order_foreign_size, 200.0*200.0);
         let _r = position.open_position(&mut orders[1]); // price 200.0, size 200.0
         println!("{:?}  {:?}", position, _r);
         assert_eq!(position.price, 200.0);
@@ -617,7 +620,7 @@ mod test_order_positon {
         // 収益の計算はforeinサイズの差で求められる。
         assert_eq!(
             orders[6].profit,
-            (last_price - 50.0)/last_price * (orders[6].order_foreign_size)
+            (orders[6].open_foreign_size - orders[6].close_foreign_size)
         );
 
         //ポジションクローズのテスト（大きいオーダーのクローズではエラーがかえってくる）
@@ -889,6 +892,7 @@ mod test_orders {
 
         let mut orders = make_orders(false);
 
+        // 売りオーダーにQが並ぶ。
         assert_eq!(orders.q[0].price, 100.0);
         assert_eq!(orders.q[0].size, 100.0);
         assert_eq!(orders.q[1].price, 100.0);
@@ -900,9 +904,9 @@ mod test_orders {
 
         assert_eq!(orders.q[0].remain_size, 100.0);
         assert_eq!(orders.q[1].remain_size, 50.0);
-        // 高い値段で売られても買いは約定しない。
-        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Sell, price: 1000.0, size:125.0, id: "".to_string() }, 0), false);
-        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Sell, price: 1000.0, size:125.0, id: "".to_string() }, 0), false);
+        // 安い値段で買われても約定しない。OrderSideはQorderQueueではチェックしない
+        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Buy, price: 99.9, size:125.0, id: "".to_string() }, 0), false);
+        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Buy, price: 100.0, size:125.0, id: "".to_string() }, 0), false);
 
         // まだ約定していない。
         match orders.pop_closed_order(1000) {
@@ -915,13 +919,13 @@ mod test_orders {
             }
         }
 
-        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Sell, price: 100.1, size:125.0, id: "".to_string() }, 0), true);
+        assert_eq!(orders.execute_remain_size(&Trade{ time: 200, order_side: OrderSide::Buy, price: 100.1, size:125.0, id: "".to_string() }, 0), true);
         println!("--after--");
         assert_eq!(orders.q[0].remain_size, 0.0);
         assert_eq!(orders.q[1].remain_size, 25.0);
 
         // １件約定した。
-        match orders.pop_closed_order(1000) {
+        match orders.pop_closed_order(1000) { // 時間はみていない
             Ok(order) => {
                 assert_eq!(order.order_id, "low price");
                 assert_eq!(orders.q.len(), 3);
@@ -943,7 +947,7 @@ mod test_orders {
         }
 
         // ログをおくったら約定する。
-        assert_eq!(orders.execute_remain_size(&Trade{ time: 0, order_side: OrderSide::Buy, price: 100.1, size:125.0, id: "".to_string() }, 0), true);
+        assert_eq!(orders.execute_remain_size(&Trade{ time: 201, order_side: OrderSide::Buy, price: 100.1, size:125.0, id: "".to_string() }, 0), true);
         match orders.pop_closed_order(1001) {
             Ok(order) => {
                 assert_eq!(order.order_id, "low price but later");

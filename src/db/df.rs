@@ -12,6 +12,7 @@ use polars_core::prelude::SortOptions;
 use polars_lazy::prelude::col;
 use polars_lazy::prelude::IntoLazy;
 use polars_time::ClosedWindow;
+// Copyright(c) 2022. yasstake. All rights reserved.
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -437,7 +438,6 @@ pub fn make_empty_ohlcv() -> DataFrame {
 
 #[cfg(test)]
 mod test_df {
-    use super::TradeBuffer;
     use super::*;
     use crate::common::time::DAYS;
     use polars::prelude::*;
