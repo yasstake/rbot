@@ -519,7 +519,7 @@ impl TradeTable {
         let sql = "select time_stamp from trades order by time_stamp asc limit 1";
 
         let r = self.connection.query_row(sql, [], |row| {
-            let min: i64 = row.get_unwrap(0);
+            let min: i64 = row.get(0)?;
             Ok(min)
         });
 
@@ -532,7 +532,7 @@ impl TradeTable {
         let sql = "select time_stamp from trades order by time_stamp desc limit 1";
 
         let r = self.connection.query_row(sql, [], |row| {
-            let max: i64 = row.get_unwrap(0);
+            let max: i64 = row.get(0)?;
             Ok(max)
         });
 
