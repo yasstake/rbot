@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,8 +9,7 @@ name = "rbot"
 crate-type = ["cdylib"]
 
 [dependencies]
-#pyo3 = { version = "0.17.1", features="multiple-pymethods"}
-#pyo3 = { version = "0.17"}
+
 chrono = {version= "*"}
 
 strum_macros = {version  = "0.24"}
@@ -42,17 +41,13 @@ numpy = {version="0.17"}
 reqwest = {version = "0.11", features=["blocking", "gzip"]}
 futures = {version="0.3"}
 flate2 = {version="1.0.24"}
-#async-compression = { version = "0.3", features = ["futures-io", "gzip"] }
+
 csv = {version="1.1.6"}
-#csv-async = {version="1.2.4"}
 zip = {version="0.6.3"}
 
 tempfile={version="3.3"}
 
 openssl = { version = "0.10", features = ["vendored"] }
-
-#[tool.maturin]
-#features = ["pyo3/extension-module"]
 
 
  [dependencies.pyo3]

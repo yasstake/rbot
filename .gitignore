@@ -72,7 +72,7 @@ docs/_build/
 .python-version
 /Cargo.lock
 
-
 src/test/.ipynb_checkpoints/*
+src/test/manual/.ipynb_checkpoints/*
 
 test.db

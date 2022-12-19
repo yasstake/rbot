@@ -82,8 +82,8 @@ pub fn HHMM(hh: i64, mm: i64) -> MicroSec {
 
 #[pyfunction]
 #[allow(non_snake_case)]
-pub fn MIN(sec: i64) -> MicroSec {
-    return sec * MICRO_SECOND * 60;
+pub fn MIN(min: i64) -> MicroSec {
+    return min * MICRO_SECOND * 60;
 }
 
 #[pyfunction]

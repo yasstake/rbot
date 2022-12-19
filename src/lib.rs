@@ -32,9 +32,12 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // time util
     m.add_function(wrap_pyfunction!(time_string, m)?)?;
     m.add_function(wrap_pyfunction!(NOW, m)?)?;    
+    m.add_function(wrap_pyfunction!(DAYS_BEFORE, m)?)?;        
     m.add_function(wrap_pyfunction!(DAYS, m)?)?;
     m.add_function(wrap_pyfunction!(HHMM, m)?)?;
-    m.add_function(wrap_pyfunction!(DAYS_BEFORE, m)?)?;    
+    m.add_function(wrap_pyfunction!(MIN, m)?)?;    
+    m.add_function(wrap_pyfunction!(SEC, m)?)?;        
+    
     m.add_function(wrap_pyfunction!(FLOOR, m)?)?;        
 
     // classes
