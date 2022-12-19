@@ -19,16 +19,6 @@ pub enum OrderSide {
 }
 
 impl OrderSide {
-    /*
-    pub fn from_str(order_type: &str) -> Self {
-        match order_type.to_uppercase().as_str() {
-            "B" | "BUY" => OrderSide::Buy,
-            "S" | "SELL" | "SEL" => OrderSide::Sell,
-            _ => OrderSide::Unknown,
-        }
-    }
-    */
-
     pub fn from_str_default(side: &str) -> Self {
         match OrderSide::from_str(side) {
             Ok(side) => {

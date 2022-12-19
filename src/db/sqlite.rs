@@ -812,7 +812,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_array() {
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -823,7 +823,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_info() {
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
         println!("{}", db.info());
@@ -831,7 +831,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_start_time() {
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start_time = db.start_time();
@@ -843,7 +843,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_end_time() {
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let end_time = db.end_time();
@@ -855,7 +855,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13);
@@ -875,7 +875,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -889,7 +889,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -903,7 +903,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunks() {
-        let db_name = db_full_path("FTX", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -938,7 +938,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() {
         init_log();
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -978,7 +978,7 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
@@ -991,7 +991,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW()-DAYS(2), NOW());
@@ -1002,7 +1002,7 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() {
         init_log();
-        let db_name = db_full_path("BN", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW());
