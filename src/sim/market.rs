@@ -116,8 +116,8 @@ impl OrderQueue {
     }
 
     /// Queueの数
-    pub fn len(&self) -> usize {
-        return self.q.len();
+    pub fn len(&self) -> i64 {
+        return self.q.len() as i64;
     }
 
     ///　全件なめる処理になるので数秒ごとに１回でOKとする。

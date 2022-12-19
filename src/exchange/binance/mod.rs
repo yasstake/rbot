@@ -33,7 +33,8 @@ pub struct BinanceMarket {
 impl BinanceMarket {
     #[new]
     pub fn new(market_name: &str, dummy: bool) -> Self {
-        let db_name = db_full_path("BN", &market_name);
+        // TODO: SPOTにのみ対応しているのを変更する。
+        let db_name = db_full_path("BN", "SPOT", &market_name);
 
         let db = TradeTable::open(db_name.to_str().unwrap()).expect("cannot open db");
         db.create_table_if_not_exists();
@@ -114,24 +115,40 @@ impl BinanceMarket {
                     buffer.push(trade);
 
                     if 2000 < buffer.len() {
-                        let _result = tx.send(buffer.to_vec());
+                        let result = tx.send(buffer.to_vec());
+
+                        match result {
+                            Ok(_) => {
+                            },
+                            Err(e) => {
+                                log::error!("{:?}", e);
+                            }
+                        }
                         buffer.clear();
                     }
-                    // TODO: check send error
                 });
 
                 if buffer.len() != 0 {
-                    let _result = tx.send(buffer.to_vec());
+                    let result = tx.send(buffer.to_vec());
+                    match result {
+                        Ok(_) => {
+                        },
+                        Err(e) => {
+                            log::error!("{:?}", e);
+                        }
+                    }
+
                     buffer.clear();
                 }
 
                 match result {
                     Ok(count) => {
                         log::debug!("Downloaded rec = {} ", count);
+                        println!("Downloaded rec = {} ", count);                        
                         download_rec += count;
-                    }
+                    },
                     Err(e) => {
-                        log::error!("extract err = {}", e);
+                        log::error!("extract err = {}", e.as_str());
                     }
                 }
             }

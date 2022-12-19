@@ -65,6 +65,7 @@ where
     F: FnMut(&StringRecord),
 {
     log::debug!("Downloading ...[{}]", url);
+    println!("Downloading ...[{}]", url);    
 
     let rt = match Runtime::new() {
         Ok(r) => r,
