@@ -40,9 +40,10 @@ class Chart:
         price.add_tools(self.cross_hair)
 
         ########  create volume figure ################
-        volume = self.new_figure('volume', 100, 'volume')
-        self.draw_volume('volume', ohlcv)
-        volume.add_tools(self.cross_hair)
+        if 'volume' in ohlcv.column:
+            volume = self.new_figure('Volume', 100, 'Volume')
+            self.draw_volume('Volume', ohlcv)
+            volume.add_tools(self.cross_hair)
 
         ######### setup select figure #################
         select = figure(title="Price slide bar",
@@ -52,8 +53,7 @@ class Chart:
 
         self.select = select
 
-        self.line(select, ohlcv, 'timestamp', 'close', 'price', '#1010ff')
-        
+        self.line(select, ohlcv, x_key='timestamp', y_key='close', legend_label='price', color='#1010ff')
         range_tool = RangeTool(x_range=self.x_range)
         range_tool.overlay.fill_color = "navy"
         range_tool.overlay.fill_alpha = 0.2
@@ -176,19 +176,55 @@ class Chart:
 
     def draw_volume(self, figure, ohlcv):
         p = self.get_figure(figure)        
-        self.line(p, ohlcv, 'timestamp', 'volume', color='#00ffff', legend_label='volume')
+        self.line(p, ohlcv, x_key='timestamp', y_key='volume', color='#00ffff', legend_label='volume')
 
-    def line(self, figure, df, x_key, y_key, legend_label, color, **kwargs):
-        p = self.get_figure(figure)
-        #df = df[~df[x_key].duplicated(keep='last')]
-        df = df[~df.index.duplicated(keep='last')]        
-        df = ColumnDataSource(df)
-        p.line(x=x_key, y=y_key, source=df, line_color=color, legend_label=legend_label, **kwargs)
     
-    def step(self, figure, df, x_key, y_key, legend_label, color, **kwargs):
+    def line2(self, figure, df, x_key, y_key, legend_label, color, **kwargs):
         p = self.get_figure(figure)
-        df = df[~df[x_key].duplicated(keep='last')]                
-        #df = Chart.create_step(df, x_key, y_key)
-        df = ColumnDataSource(df)
-        p.step(x=x_key, y=y_key, source=df, line_color=color, mode='after', legend_label=legend_label, **kwargs)
+        df = self.make_df_from_series(df)        
+
+        p.line(x=x_key, y=y_key, source=df, line_color=color, legend_label=legend_label, **kwargs)
+
+    def line(self, figure, df, x_key= None, y_key=None, **kwargs):
+        p = self.get_figure(figure)
+        df = self.make_df_from_series(df)        
+        
+        if not x_key:
+            x_key = 'timestamp'
+        
+        if not y_key:
+            y_key = 'value'
+
+        p.line(x=x_key, y=y_key, source=df, **kwargs)
+
+    
+    def step(self, figure, df, x_key=None, y_key=None, **kwargs):
+        p = self.get_figure(figure)
+        df = self.make_df_from_series(df)
+
+        if not x_key:
+            x_key = 'timestamp'
+        
+        if not y_key:
+            y_key = 'value'
+
+        p.step(x=x_key, y=y_key, source=df, mode='after', **kwargs)
+
+    def make_df_from_series(self, df):
+        return ColumnDataSource(self.make_df(df))
+    
+    def make_df(self, df):
+        if isinstance(df, pd.DataFrame):
+            df = df
+        elif isinstance(df, pd.Series):
+            df = df.rename('value')
+            df = pd.DataFrame(df)
+            df.index.name = 'timestamp'
+
+            df.index = pd.to_datetime(df.index, utc=True, unit='us')
+            df = df.dropna()
+    
+        df = df[~df.index.duplicated(keep='last')]
+        
+        return df
 
