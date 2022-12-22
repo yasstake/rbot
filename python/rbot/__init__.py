@@ -151,13 +151,10 @@ class BaseAgent:
         if not self.key_in_indicators(key):
             return None
 
-        df = pd.DataFrame(np.array(self._indicators[key]), columns=[
-                          "timestamp", 'value'])
-        df['timestamp'] = pd.to_datetime(
-            (df["timestamp"]), utc=True, unit='us')
-        df = df.set_index('timestamp')
-
-        return df
+        indicator_array = np.array(self._indicators[key]).T
+        s = pd.Series(data=indicator_array[1], index=indicator_array[0])
+        
+        return s
 
     def log_indicator(self, key, time, val):
         if not self.key_in_indicators(key):
