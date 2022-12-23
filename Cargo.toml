@@ -17,7 +17,7 @@ strum = { version = "0.24", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
 
-rusqlite = {version = "0.28.0", features=["bundled"]}
+rusqlite = {version = "0.28", features=["bundled"]}
 
 
 serde = {version="1.0"}
@@ -30,10 +30,10 @@ simple_logger = {version = "4.0.0"}
 directories= "4.0.1"
 
 
-polars = {version="0.25.1"}
-polars-core = {version = "0.25.1", features=["ndarray", "temporal", "dtype-time", "object"]}
-polars-lazy = {version="0.25.1", features=["dynamic_groupby"]}
-polars-time = {version="0.25.1"}
+polars = {version="0.26"}
+polars-core = {version = "0.26", features=["ndarray", "temporal", "dtype-time", "object"]}
+polars-lazy = {version="0.26", features=["dynamic_groupby"]}
+polars-time = {version="0.26"}
 
 ndarray = {version="0.15"}
 numpy = {version="0.17"}
@@ -49,9 +49,18 @@ tempfile={version="3.3"}
 
 openssl = { version = "0.10", features = ["vendored"] }
 
+envy={version='0.4'}
+
+futures-util = "0.3"
+
+url = {version="2.3"}
+tungstenite = {version="0.18"}
+tokio-tungstenite = { version = "0.18", features = ["native-tls", "stream"] }
+
+
 
  [dependencies.pyo3]
- version = "0.17.3"
+ version = "0.17"
 
  [features]
  extension-module = ["pyo3/extension-module"]

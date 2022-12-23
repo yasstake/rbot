@@ -1,6 +1,7 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 pub mod binance;
+pub mod rest;
 
 // pub mod ftx;
 

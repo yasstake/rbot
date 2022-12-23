@@ -6,6 +6,7 @@ pub mod sim;
 mod db;
 mod exchange;
 mod fs;
+mod env;
 
 use pyo3::prelude::*;
 use common::{
@@ -21,6 +22,7 @@ use common::time::*;
 use sim::session::DummySession;
 use sim::back::BackTester;
 
+use exchange::rest::rest_get;
 
 
 /// A Python module implemented in Rust.
@@ -37,8 +39,9 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(HHMM, m)?)?;
     m.add_function(wrap_pyfunction!(MIN, m)?)?;    
     m.add_function(wrap_pyfunction!(SEC, m)?)?;        
-    
     m.add_function(wrap_pyfunction!(FLOOR, m)?)?;        
+    
+    m.add_function(wrap_pyfunction!(rest_get, m)?)?;            
 
     // classes
     m.add_class::<Order>()?;

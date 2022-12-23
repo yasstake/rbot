@@ -1,6 +1,6 @@
 use crate::common::order::Trade;
 use crate::common::time::{time_string, MicroSec, SEC};
-use polars::prelude::BooleanType;
+use polars::prelude::{BooleanType, StartBy};
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
 use polars::prelude::DataFrame;
@@ -139,6 +139,7 @@ pub fn ohlcv_df(
                 truncate: true,            // タイムスタンプを切り下げてまとめる。
                 include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
                 closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+                start_by: StartBy::WindowBound,
             },
         )
         .agg([
@@ -198,6 +199,7 @@ pub fn ohlcvv_df(
                 truncate: true,            // タイムスタンプを切り下げてまとめる。
                 include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
                 closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+                start_by: StartBy::WindowBound,
             },
         )
         .agg([
@@ -259,6 +261,7 @@ pub fn ohlcv_from_ohlcvv_df(
                 truncate: true,            // タイムスタンプを切り下げてまとめる。
                 include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
                 closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+                start_by: StartBy::WindowBound,
             },
         )
         .agg([
@@ -319,6 +322,7 @@ pub fn ohlcvv_from_ohlcvv_df(
                 truncate: true,            // タイムスタンプを切り下げてまとめる。
                 include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
                 closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+                start_by: StartBy::WindowBound,
             },
         )
         .agg([
