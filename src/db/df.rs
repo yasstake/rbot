@@ -1,5 +1,5 @@
 use crate::common::order::Trade;
-use crate::common::time::{time_string, MicroSec, SEC};
+use crate::common::time::{time_string, MicroSec, SEC, DAYS};
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -109,6 +109,8 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
     }
 }
 
+
+
 pub fn ohlcv_df(
     df: &DataFrame,
     start_time: MicroSec,
@@ -127,19 +129,25 @@ pub fn ohlcv_df(
         return make_empty_ohlcv();
     }
 
+    let option = DynamicGroupOptions {
+        index_column: KEY::time_stamp.into(),
+        every: Duration::new(SEC(time_window)), // グループ間隔
+        period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+        offset: Duration::parse("0m"),
+        truncate: true,            // タイムスタンプを切り下げてまとめる。
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+        start_by: StartBy::DataPoint,
+        check_sorted: false,
+        ..Default::default()
+    };
+
     let result = df
         .lazy()
         .groupby_dynamic(
+            col(KEY::time_stamp),
             [],
-            DynamicGroupOptions {
-                index_column: KEY::time_stamp.into(),
-                every: Duration::new(SEC(time_window)), // グループ間隔
-                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
-                offset: Duration::parse("0m"),
-                truncate: true,            // タイムスタンプを切り下げてまとめる。
-                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
-                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-            },
+            option
         )
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -154,9 +162,12 @@ pub fn ohlcv_df(
             SortOptions {
                 descending: false,
                 nulls_last: false,
+                maintain_order: true,
+                multithreaded: true
             },
         )
         .collect();
+
         match result {
             Ok(dataframe) => return dataframe,
             Err(e) => {
@@ -186,19 +197,25 @@ pub fn ohlcvv_df(
         return make_empty_ohlcvv();
     }
 
+    let option = DynamicGroupOptions {
+        index_column: KEY::time_stamp.into(),
+        every: Duration::new(SEC(time_window)), // グループ間隔
+        period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+        offset: Duration::parse("0m"),
+        truncate: true,            // タイムスタンプを切り下げてまとめる。
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+        ..Default::default()
+    };
+
     let result = df
         .lazy()
         .groupby_dynamic(
-            [col(KEY::order_side)],
-            DynamicGroupOptions {
-                index_column: KEY::time_stamp.into(),
-                every: Duration::new(SEC(time_window)), // グループ間隔
-                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
-                offset: Duration::parse("0m"),
-                truncate: true,            // タイムスタンプを切り下げてまとめる。
-                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
-                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-            },
+            col(KEY::time_stamp),
+            [
+                col(KEY::order_side),
+            ],
+            option
         )
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -215,6 +232,8 @@ pub fn ohlcvv_df(
             SortOptions {
                 descending: false,
                 nulls_last: false,
+                maintain_order: true,
+                multithreaded: true
             },
         )
         .collect();
@@ -247,19 +266,23 @@ pub fn ohlcv_from_ohlcvv_df(
         return make_empty_ohlcv();
     }
 
+    let option = DynamicGroupOptions {
+        index_column: KEY::time_stamp.into(),
+        every: Duration::new(SEC(time_window)), // グループ間隔
+        period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+        offset: Duration::parse("0m"),
+        truncate: true,            // タイムスタンプを切り下げてまとめる。
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+        ..Default::default()
+    };
+
     let result = df
         .lazy()
         .groupby_dynamic(
+            col(KEY::time_stamp),
             [],
-            DynamicGroupOptions {
-                index_column: KEY::time_stamp.into(),
-                every: Duration::new(SEC(time_window)), // グループ間隔
-                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
-                offset: Duration::parse("0m"),
-                truncate: true,            // タイムスタンプを切り下げてまとめる。
-                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
-                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-            },
+            option
         )
         .agg([
             col(KEY::open)
@@ -280,6 +303,8 @@ pub fn ohlcv_from_ohlcvv_df(
             SortOptions {
                 descending: false,
                 nulls_last: false,
+                maintain_order: true,
+                multithreaded: true
             },
         )
         .collect();
@@ -307,19 +332,23 @@ pub fn ohlcvv_from_ohlcvv_df(
     );
     let df = select_df(df, start_time, end_time);
 
+    let option = DynamicGroupOptions {
+        index_column: KEY::time_stamp.into(),
+        every: Duration::new(SEC(time_window)), // グループ間隔
+        period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+        offset: Duration::parse("0m"),
+        truncate: true,            // タイムスタンプを切り下げてまとめる。
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+        ..Default::default()
+    };
+
     let result = df
         .lazy()
         .groupby_dynamic(
+            col(KEY::time_stamp),
             [col(KEY::order_side)],
-            DynamicGroupOptions {
-                index_column: KEY::time_stamp.into(),
-                every: Duration::new(SEC(time_window)), // グループ間隔
-                period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
-                offset: Duration::parse("0m"),
-                truncate: true,            // タイムスタンプを切り下げてまとめる。
-                include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
-                closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-            },
+            option
         )
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -336,6 +365,8 @@ pub fn ohlcvv_from_ohlcvv_df(
             SortOptions {
                 descending: false,
                 nulls_last: false,
+                maintain_order: true,
+                multithreaded: true
             },
         )
         .collect();
@@ -436,11 +467,74 @@ pub fn make_empty_ohlcv() -> DataFrame {
     return df;
 }
 
+
+pub trait AsDynamicGroupOptions {
+    fn as_dynamic_group_options(&self) -> &DynamicGroupOptions;
+}
+
+impl AsDynamicGroupOptions for DynamicGroupOptions {
+    fn as_dynamic_group_options(&self) -> &DynamicGroupOptions {
+        self
+    }
+}
+
+
+use polars::prelude::*;
+
+#[test]
+fn test_simple_dynamic_group() {
+
+    let option = DynamicGroupOptions {
+        every: Duration::new(DAYS(1)),
+        index_column: "date".into(),
+        check_sorted: true,
+        start_by: StartBy::DataPoint,
+        period: Duration::new(DAYS(1)), // データ取得の幅（グループ間隔と同じでOK)
+        offset: Duration::parse("0m"),
+        truncate: true,            // タイムスタンプを切り下げてまとめる。
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+
+        ..Default::default()
+    };
+
+    // Make example of lazy group by
+    let df = df!(
+        "date" => [DAYS(100), DAYS(100), DAYS(101), DAYS(101), DAYS(102),DAYS(103)],
+        "category" => ["A", "B", "A", "B", "A", "B"],
+        "value" => [1, 2, 3, 4, 5, 6]
+    )
+    .unwrap();
+
+    println!("{:?}", df);
+
+    let groupby = df.lazy()
+        .sort("date", SortOptions { descending: false, nulls_last: false, multithreaded: true, maintain_order: false })
+        .groupby_dynamic(
+            col("date"),
+            //[col("category")],
+            [],
+            option,
+        )
+        .agg([
+            col("value").mean().alias("mean"), 
+            col("value").sum().alias("sum")            
+        ])
+        .collect()
+        .unwrap();
+
+    println!("{:?}", groupby);
+    let df = make_empty_ohlcv();
+    assert_eq!(df.height(), 0);
+    assert_eq!(df.width(), 7);
+}
+
+
+
 #[cfg(test)]
 mod test_df {
     use super::*;
     use crate::common::time::DAYS;
-    use polars::prelude::*;
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(
@@ -465,6 +559,48 @@ mod test_df {
 
         println!("{:?}", ohlc);
     }
+
+    /*
+    #[test]
+    fn test_group_by() {
+        let time_window = 1 * 60 * 60; // 1 hour
+
+        let ohlc = make_ohlcv_df();
+
+        let option = DynamicGroupOptions {
+            start_by: StartBy::DataPoint,
+            check_sorted: false,
+            index_column: KEY::time_stamp.into(),
+            every: Duration::new(SEC(time_window)), // グループ間隔
+            period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
+            offset: Duration::parse("0m"),
+            truncate: true,            // タイムスタンプを切り下げてまとめる。
+            include_boundaries: false, // データの下限と上限を結果に含めるかどうか
+            closed_window: ClosedWindow::Right,
+            ..Default::default()
+        };
+
+        let ohlc2 = ohlc.lazy().groupby_dynamic(
+            col(KEY::time_stamp),
+            [],
+            option,
+        )
+        .agg([
+            col(KEY::price).first().alias(KEY::open),
+            col(KEY::price).max().alias(KEY::high),
+            col(KEY::price).min().alias(KEY::low),
+            col(KEY::price).last().alias(KEY::close),
+            col(KEY::size).sum().alias(KEY::vol),
+            col(KEY::price).count().alias(KEY::count),
+            col(KEY::time_stamp).min().alias(KEY::start_time),
+            col(KEY::time_stamp).max().alias(KEY::end_time),
+        ])
+        .collect().unwrap();        
+
+        println!("{:?}", ohlc2);
+
+    }
+    */
 
     #[test]
     fn test_make_ohlcv_from_ohclv() {
