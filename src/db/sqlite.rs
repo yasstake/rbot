@@ -7,7 +7,9 @@ use crate::common::time::{
 use crate::OrderSide;
 use numpy::IntoPyArray;
 use numpy::PyArray2;
+use openssl::ex_data::Index;
 use polars::prelude::DataFrame;
+use polars_core::prelude::IndexOrder;
 use pyo3::{Py, PyResult, Python};
 use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement};
 
@@ -351,7 +353,7 @@ impl TradeTable {
                 KEY::end_time,
             ])
             .unwrap()
-            .to_ndarray::<Float64Type>()
+            .to_ndarray::<Float64Type>(IndexOrder::C)
             .unwrap();
 
         array
@@ -410,7 +412,7 @@ impl TradeTable {
                 // KEY::count,
             ])
             .unwrap()
-            .to_ndarray::<Float64Type>()
+            .to_ndarray::<Float64Type>(IndexOrder::C)
             .unwrap();
 
         array
@@ -457,7 +459,7 @@ impl TradeTable {
         let array: ndarray::Array2<f64> = trades
             .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
             .unwrap()
-            .to_ndarray::<Float64Type>()
+            .to_ndarray::<Float64Type>(IndexOrder::C)
             .unwrap();
 
         array
