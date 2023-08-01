@@ -16,7 +16,7 @@ use crate::common::order::{OrderSide, Trade, TimeChunk};
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::common::time::{NOW};
-use crate::db::sqlite::TradeTable;
+use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::fs::db_full_path;
 
 use super::{log_download};
