@@ -550,7 +550,7 @@ mod test_df {
             KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
         );
 
-        return df.unwrap();
+        return df.unwrap().sort([KEY::time_stamp], false, true).unwrap();
     }
 
     #[test]
