@@ -1,70 +1,124 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
-use crate::common::order::{TimeChunk, Trade};
-use crate::common::time::{
-    time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, NOW,
-};
-use crate::OrderSide;
 use numpy::IntoPyArray;
 use numpy::PyArray2;
-use openssl::ex_data::Index;
 use polars::prelude::DataFrame;
 use polars_core::prelude::IndexOrder;
 use pyo3::{Py, PyResult, Python};
-use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement};
+use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement, Transaction};
 
-use super::df::{merge_df, ohlcvv_from_ohlcvv_df};
+use crate::common::order::{TimeChunk, Trade};
+use crate::common::time::{time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, NOW};
+use crate::db::df::merge_df;
 use crate::db::df::ohlcvv_df;
+use crate::db::df::ohlcvv_from_ohlcvv_df;
 use crate::db::df::select_df;
 use crate::db::df::start_time_df;
 use crate::db::df::TradeBuffer;
 use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
+use crate::OrderSide;
 
 use crate::db::df::KEY;
 use polars::prelude::Float64Type;
 
-#[derive(Debug)]
-pub struct TradeTable {
-    file_name: String,
-    connection: Connection,
-    cache_df: DataFrame,
-    cache_ohlcvv: DataFrame,
-    cache_duration: MicroSec,
+use std::io::Stdout;
+use std::rc::Rc;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, RwLock};
+use std::thread;
+use std::thread::JoinHandle;
+
+pub trait TradeTableQuery {
+    fn open(name: &str) -> Result<Self, Error>
+    where
+        Self: Sized;
+    fn create_table_if_not_exists(&self);
+    fn drop_table(&self);
+    fn vaccum(&self);
+    fn recreate_table(&self);
+    /*
+        fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, mut f: F)
+            where F: FnMut(&Trade);
+    */
+    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: F)
+    where
+        F: FnMut(&Trade);
+
+    // fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
+    fn select_all_statement(&self) -> Statement;
+    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>);
+    fn start_time(&self) -> Result<MicroSec, Error>;
+    fn end_time(&self) -> Result<MicroSec, Error>;
 }
 
-impl TradeTable {
-    const OHLCV_WINDOW_SEC: i64 = 60; // min
+#[derive(Debug)]
+pub struct TradeTableDb {
+    file_name: String,
+    connection: Connection,
+}
 
-    pub fn get_cache_duration(&self) -> MicroSec {
-        return self.cache_duration;
+impl TradeTableDb {
+    // insert records with param transaction and trades
+    pub fn insert_transaction(tx: &Transaction, trades: &Vec<Trade>) -> Result<i64, Error> {
+        let mut insert_len = 0;
+
+        let sql = r#"insert or replace into trades (time_stamp, action, price, size, id)
+                                values (?1, ?2, ?3, ?4, ?5) "#;
+
+        for rec in trades {
+            let result = tx.execute(
+                sql,
+                params![
+                    rec.time,
+                    rec.order_side.to_string(),
+                    rec.price,
+                    rec.size,
+                    rec.id
+                ],
+            );
+
+            match result {
+                Ok(size) => {
+                    insert_len += size;
+                }
+                Err(e) => {
+                    println!("insert error {}", e);
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(insert_len as i64)
     }
 
-    pub fn ohlcv_start(t: MicroSec) -> MicroSec {
-        return FLOOR(t, TradeTable::OHLCV_WINDOW_SEC);
-    }
+    pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
+        // create transaction with immidate mode
+        let tx = self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Deferred).unwrap();
 
-    pub fn ohlcv_end(t: MicroSec) -> MicroSec {
-        return CEIL(t, TradeTable::OHLCV_WINDOW_SEC);
-    }
+        let insert_len = Self::insert_transaction(&tx, trades)?;
 
-    pub fn open(name: &str) -> Result<Self, Error> {
+        let result = tx.commit();
+
+        match result {
+            Ok(_) => Ok(insert_len as i64),
+            Err(e) => return Err(e),
+        }
+
+
+    }
+}
+
+impl TradeTableQuery for TradeTableDb {
+    fn open(name: &str) -> Result<Self, Error> {
         let result = Connection::open(name);
         log::debug!("Database open path = {}", name);
 
         match result {
-            Ok(conn) => {
-                let df = TradeBuffer::new().to_dataframe();
-                // let ohlcv = ohlcv_df(&df, 0, 0, TradeTable::OHLCV_WINDOW_SEC);
-                let ohlcv = make_empty_ohlcvv();
-
-                Ok(TradeTable {
-                    file_name: name.to_string(),
-                    connection: conn,
-                    cache_df: df,
-                    cache_ohlcvv: ohlcv,
-                    cache_duration: 0,
-                })
-            }
+            Ok(conn) => Ok(TradeTableDb {
+                file_name: name.to_string(),
+                connection: conn,
+            }),
             Err(e) => {
                 log::debug!("{:?}", e);
                 return Err(e);
@@ -72,19 +126,16 @@ impl TradeTable {
         }
     }
 
-    pub fn reset_cache_duration(&mut self) {
-        self.cache_duration = 0;
-    }
 
-    pub fn create_table_if_not_exists(&self) {
+    fn create_table_if_not_exists(&self) {
         let _r = self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
-                time_stamp    INTEGER,
-                action  TEXT,
-                price   NUMBER,
-                size    NUMBER,
-                id      TEXT primary key
-            )",
+            time_stamp    INTEGER,
+            action  TEXT,
+            price   NUMBER,
+            size    NUMBER,
+            id      TEXT primary key
+        )",
             (),
         );
 
@@ -94,15 +145,15 @@ impl TradeTable {
         );
     }
 
-    pub fn drop_table(&self) {
+    fn drop_table(&self) {
         let _r = self.connection.execute("drop table trades", ());
     }
 
-    pub fn vaccum(&self) {
+    fn vaccum(&self) {
         let _r = self.connection.execute("VACCUM", ());
     }
 
-    pub fn recreate_table(&self) {
+    fn recreate_table(&self) {
         self.create_table_if_not_exists();
         self.drop_table();
         self.create_table_if_not_exists();
@@ -110,7 +161,7 @@ impl TradeTable {
 
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
-    pub fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, mut f: F)
+    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, mut f: F)
     where
         F: FnMut(&Trade),
     {
@@ -157,7 +208,7 @@ impl TradeTable {
         }
     }
 
-    pub fn select_all_statement(&self) -> Statement {
+    fn select_all_statement(&self) -> Statement {
         let statement = self
             .connection
             .prepare("select time_stamp, action, price, size, id from trades order by time_stamp")
@@ -165,21 +216,212 @@ impl TradeTable {
         return statement;
     }
 
-    pub fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
+    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
         let sql: &str;
         let param: Vec<i64>;
 
         if 0 < to_time {
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
-            param = vec![from_time, to_time];            
+            param = vec![from_time, to_time];
         } else {
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
-            param = vec![from_time];            
+            param = vec![from_time];
         }
 
         let statement = self.connection.prepare(sql).unwrap();
 
         return (statement, param);
+    }
+
+    fn start_time(&self) -> Result<MicroSec, Error> {
+        let sql = "select time_stamp from trades order by time_stamp asc limit 1";
+
+        let r = self.connection.query_row(sql, [], |row| {
+            let min: i64 = row.get(0)?;
+            Ok(min)
+        });
+
+        return r;
+    }
+
+    /// select max(end) time_stamp in db
+    fn end_time(&self) -> Result<MicroSec, Error> {
+        // let sql = "select max(time_stamp) from trades";
+        let sql = "select time_stamp from trades order by time_stamp desc limit 1";
+
+        let r = self.connection.query_row(sql, [], |row| {
+            let max: i64 = row.get(0)?;
+            Ok(max)
+        });
+
+        return r;
+    }
+}
+
+#[derive(Debug)]
+pub struct TradeTable {
+    file_name: String,
+    connection: TradeTableDb,
+    cache_df: DataFrame,
+    cache_ohlcvv: DataFrame,
+    cache_duration: MicroSec,
+    tx: Option<Sender<Vec<Trade>>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl TradeTable {
+    const OHLCV_WINDOW_SEC: i64 = 60; // min
+
+    pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
+        // check if the thread is already started
+        if self.handle.is_some() {
+            let handle = self.handle.take().unwrap();
+
+            if handle.is_finished() == false {
+                println!("thread is already started");
+
+                // check self.tx is valid and return clone of self.tx
+                if self.tx.is_some() {
+                    return self.tx.clone().unwrap();
+                }
+            }
+        }
+
+        let (tx, rx) = channel::<Vec<Trade>>();
+
+        let file_name = self.file_name.clone();
+
+        self.tx = Some(tx);
+
+        let handle = thread::spawn(move || {
+            // let mut db = self.connection.clone();
+            loop {
+                match rx.recv() {
+                    Ok(trades) => {
+                        // let result = &self.insert_records(&trades);
+                        let mut db = TradeTableDb::open(file_name.as_str()).unwrap();                                        
+                        let _result = db.insert_records(&trades);
+                        println!("recv trades: {}", trades.len());
+                    }
+                    Err(e) => {
+                        log::error!("recv error {:?}", e);
+                        break;
+                    }
+                }
+            }
+            print!("thread end");
+        });
+
+        self.handle = Some(handle);
+
+        return self.tx.clone().unwrap();
+    }
+
+
+    pub fn get_cache_duration(&self) -> MicroSec {
+        return self.cache_duration;
+    }
+
+    pub fn ohlcv_start(t: MicroSec) -> MicroSec {
+        return FLOOR(t, TradeTable::OHLCV_WINDOW_SEC);
+    }
+
+    pub fn ohlcv_end(t: MicroSec) -> MicroSec {
+        return CEIL(t, TradeTable::OHLCV_WINDOW_SEC);
+    }
+
+    fn receive_loop(&mut self) {
+        let mut insert_rec_no = 0;
+        let mut last_print_rec = 0;
+        /*
+                loop {
+                    match self.rx.recv() {
+                        Ok(trades) => {
+                            let result = &self.insert_records(&trades);
+                            match result {
+                                Ok(rec_no) => {
+                                    insert_rec_no += rec_no;
+
+                                    if 1_000_000 < (insert_rec_no - last_print_rec) {
+                                        print!("\rdb insert... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
+                                        last_print_rec = insert_rec_no;
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("insert error {:?}", e);
+                                }
+                            }
+                        }
+                        Err(_e) => {
+                            break;
+                        }
+                    }
+                }
+        */
+    }
+
+    fn start_receiving(&self) {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<Trade>>();
+        //        let mut transaction = self.get_transaction().unwrap();
+
+        let mut db_path = self.file_name.clone();
+
+        thread::spawn(move || {
+            match rx.recv() {
+                Ok(trades) => {
+                    println!("start_receiving{:?}", db_path);
+                    //                    let result = Self::insert_transaction(&transaction, &trades);
+                }
+                Err(e) => {
+                    log::warn!("insert error {:?}", e);
+                }
+            }
+        });
+
+        /*
+        self.rcv_thread = Some(thread::spawn(move || {
+            let mut insert_rec_no = 0;
+            let mut last_print_rec = 0;
+
+            loop {
+                match rx.recv() {
+                    Ok(trades) => {
+                        let result = &self.insert_records(&trades);
+                        match result {
+                            Ok(rec_no) => {
+                                insert_rec_no += rec_no;
+
+                                if 1_000_000 < (insert_rec_no - last_print_rec) {
+                                    print!("\rdb insert... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
+                                    last_print_rec = insert_rec_no;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("insert error {:?}", e);
+                            }
+                        }
+                    }
+                    Err(_e) => {
+                        break;
+                    }
+                }
+
+
+
+            }
+        }));
+        */
+    }
+    /*
+        fn stop_receiving(&mut self) {
+            if let Some(handle) = self.rcv_thread.take() {
+                handle.join().unwrap();
+            }
+        }
+    */
+
+    pub fn reset_cache_duration(&mut self) {
+        self.cache_duration = 0;
     }
 
     pub fn select_df_from_db(&mut self, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
@@ -215,7 +457,7 @@ impl TradeTable {
         if to_time == 0 {
             to_time = NOW();
         }
-        
+
         let cache_time = to_time - from_time;
         if self.cache_duration < cache_time {
             log::debug!("update cache duration {}", self.cache_duration);
@@ -278,8 +520,7 @@ impl TradeTable {
                 let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
                 self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
             }
-        }
-        else {
+        } else {
             // expire cache ducarion * 2
             if df_start_time < from_time - self.cache_duration * 2 {
                 self.expire_cache_df(from_time - self.cache_duration);
@@ -502,7 +743,6 @@ impl TradeTable {
         );
     }
 
-
     /*
     /// select min(start) time_stamp in db
     pub fn start_time(&self) -> Result<MicroSec, Error> {
@@ -520,7 +760,7 @@ impl TradeTable {
     pub fn start_time(&self) -> Result<MicroSec, Error> {
         let sql = "select time_stamp from trades order by time_stamp asc limit 1";
 
-        let r = self.connection.query_row(sql, [], |row| {
+        let r = self.connection.connection.query_row(sql, [], |row| {
             let min: i64 = row.get(0)?;
             Ok(min)
         });
@@ -533,7 +773,7 @@ impl TradeTable {
         // let sql = "select max(time_stamp) from trades";
         let sql = "select time_stamp from trades order by time_stamp desc limit 1";
 
-        let r = self.connection.query_row(sql, [], |row| {
+        let r = self.connection.connection.query_row(sql, [], |row| {
             let max: i64 = row.get(0)?;
             Ok(max)
         });
@@ -655,7 +895,7 @@ impl TradeTable {
             where $2 < sub_time order by time_stamp
         "#;
 
-        let mut statement = self.connection.prepare(sql).unwrap();
+        let mut statement = self.connection.connection.prepare(sql).unwrap();
         let param = vec![from_time, allow_size];
 
         let chunk_iter = statement
@@ -720,45 +960,72 @@ impl TradeTable {
     }
 
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
-        let tx = self.connection.transaction()?;
+        return self.connection.insert_records(trades);
+    }
+}
 
-        // let trades_len = trades.len();
-        let mut insert_len = 0;
-
-        // check_skip_time(trades);
-
-        let sql = r#"insert or replace into trades (time_stamp, action, price, size, id)
-                                values (?1, ?2, ?3, ?4, ?5) "#;
-
-        for rec in trades {
-            let result = tx.execute(
-                sql,
-                params![
-                    rec.time,
-                    rec.order_side.to_string(),
-                    rec.price,
-                    rec.size,
-                    rec.id
-                ],
-            );
-
-            match result {
-                Ok(size) => {
-                    insert_len += size;
-                }
-                Err(e) => {
-                    println!("insert error {}", e);
-                    return Err(e);
-                }
-            }
-        }
-
-        let result = tx.commit();
+impl TradeTableQuery for TradeTable {
+    fn open(name: &str) -> Result<Self, Error> {
+        let result = TradeTableDb::open(name);
+        log::debug!("Database open path = {}", name);
 
         match result {
-            Ok(_) => Ok(insert_len as i64),
-            Err(e) => return Err(e),
+            Ok(conn) => {
+                let df = TradeBuffer::new().to_dataframe();
+                // let ohlcv = ohlcv_df(&df, 0, 0, TradeTable::OHLCV_WINDOW_SEC);
+                let ohlcv = make_empty_ohlcvv();
+
+                Ok(TradeTable {
+                    file_name: name.to_string(),
+                    connection: conn,
+                    cache_df: df,
+                    cache_ohlcvv: ohlcv,
+                    cache_duration: 0,
+                    tx: None,
+                    handle: None,
+                })
+            }
+            Err(e) => {
+                log::debug!("{:?}", e);
+                return Err(e);
+            }
         }
+    }
+
+    fn create_table_if_not_exists(&self) {
+        self.connection.create_table_if_not_exists();
+    }
+    fn drop_table(&self) {
+        self.connection.drop_table();
+    }
+    fn vaccum(&self) {
+        self.connection.vaccum();
+    }
+    fn recreate_table(&self) {
+        self.connection.recreate_table();
+    }
+    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: F)
+    where
+        F: FnMut(&Trade),
+    {
+        self.connection.select(from_time, to_time, f);
+    }
+
+    // fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
+    fn select_all_statement(&self) -> Statement {
+        return self.connection.select_all_statement();
+    }
+    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
+        return self.connection.select_statement(from_time, to_time);
+    }
+
+    fn start_time(&self) -> Result<MicroSec, Error> {
+        self.connection.start_time()
+    }
+
+    /// select max(end) time_stamp in db
+    fn end_time(&self) -> Result<MicroSec, Error> {
+        self.connection.end_time()
     }
 }
 
@@ -768,6 +1035,9 @@ impl TradeTable {
 
 #[cfg(test)]
 mod test_transaction_table {
+    use std::thread::sleep;
+    use std::time::Duration;
+
     use crate::common::init_log;
     use crate::common::time::time_string;
     use crate::common::time::DAYS;
@@ -984,19 +1254,17 @@ mod test_transaction_table {
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
-        let ohlcv = db.select(NOW()-DAYS(2), NOW(), |_trade| {});
+        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| {});
 
         println!("{:?} / {} microsec", ohlcv, NOW() - start);
     }
-
-
 
     #[test]
     fn test_select_df() {
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
-        let df = db.select_df_from_db(NOW()-DAYS(2), NOW());
+        let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
 
         println!("{:?}", df);
     }
@@ -1009,4 +1277,26 @@ mod test_transaction_table {
 
         db.update_cache_df(NOW() - DAYS(2), NOW());
     }
+
+    #[test]
+    fn test_start_thread() {
+        let mut table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
+        let mut tx = table.start_thread();
+
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "I".to_string()}];
+        tx.send(v).unwrap();
+
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "I".to_string()}];
+        tx.send(v).unwrap();
+
+        let mut tx = table.start_thread();  
+
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "B".to_string()}];
+        tx.send(v).unwrap();
+
+//        sleep(Duration::from_millis(5000));      
+    }
+
 }
+
+

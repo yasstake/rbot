@@ -10,7 +10,7 @@ use crate::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
         time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND, NOW, HHMM},
     },
-    db::open_db,
+    db::{open_db, sqlite::TradeTableQuery},
     sim::session::DummySession,
 };
 
