@@ -5,21 +5,20 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use chrono::{Datelike, };
+use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 //use pyo3::prelude::pymethods;
 
-
-use crate::common::order::{OrderSide, Trade, TimeChunk};
+use crate::common::order::{OrderSide, TimeChunk, Trade};
+use crate::common::time::NOW;
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
-use crate::common::time::{NOW};
 use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::fs::db_full_path;
 
-use super::{log_download};
+use super::log_download;
 
 #[derive(Debug)]
 #[pyclass(name = "_BinanceMarket")]
@@ -56,139 +55,105 @@ impl BinanceMarket {
     }
 
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
-        let (tx, rx): (Sender<Vec<Trade>>, Receiver<Vec<Trade>>) = mpsc::channel();
-
         let mut download_rec: i64 = 0;
-        let from_time = NOW() - DAYS(ndays+1);
+        let from_time = NOW() - DAYS(ndays + 1);
 
         println!("Start download from {}", time_string(from_time));
         let _ = stdout().flush();
 
         let to_time = NOW() - DAYS(2);
 
-        let time_gap =
-            if force {
-                vec![TimeChunk{
+        let time_gap = if force {
+            vec![TimeChunk {
+                start: from_time,
+                end: to_time,
+            }]
+        } else {
+            let start_time = self.db.start_time().unwrap_or(NOW());
+            let end_time = self.db.end_time().unwrap_or(NOW());
+
+            let mut time_chunk: Vec<TimeChunk> = vec![];
+
+            if from_time < start_time {
+                log::debug!("download before {} {}", from_time, start_time);
+                time_chunk.push(TimeChunk {
                     start: from_time,
-                    end: to_time
-                }]
+                    end: start_time,
+                });
             }
-            else {
-                let start_time = self.db.start_time().unwrap_or(NOW());
-                let end_time = self.db.end_time().unwrap_or(NOW());
 
-                let mut time_chunk:Vec<TimeChunk> = vec![];
+            if end_time < to_time {
+                log::debug!("download after {} {}", end_time, to_time);
+                time_chunk.push(TimeChunk {
+                    start: end_time,
+                    end: to_time,
+                });
+            }
 
-                
-                if from_time < start_time {
-                    log::debug!("download before {} {}", from_time, start_time);
-                    time_chunk.push(TimeChunk { start: from_time, end: start_time});
-                }
+            time_chunk
+        };
 
-                if end_time < to_time {
-                    log::debug!("download after {} {}", end_time, to_time);
-                    time_chunk.push(TimeChunk {start: end_time, end: to_time});
-                }
-
-                time_chunk
-            };
-
-        
         let days_gap = TradeTable::time_chunks_to_days(&time_gap);
-        log::debug!("GAP TIME: {:?}", time_gap);        
-        log::debug!("GAP DAYS: {:?}", days_gap);                
+        log::debug!("GAP TIME: {:?}", time_gap);
+        log::debug!("GAP DAYS: {:?}", days_gap);
 
         let mut urls: Vec<String> = vec![];
         for day in days_gap {
             urls.push(self.make_historical_data_url_timestamp(day));
         }
 
-        let _handle = thread::spawn(move || {
-            for url in urls {
-                log::debug!("download url = {}", url);
+        let tx = self.db.start_thread();
 
-                let mut buffer: Vec<Trade> = vec![];
+        for url in urls {
+            log::debug!("download url = {}", url);
 
-                let result = log_download(url.as_str(), false, |rec| {
-                    let trade = BinanceMarket::rec_to_trade(&rec);
+            let mut buffer: Vec<Trade> = vec![];
 
-                    buffer.push(trade);
+            let result = log_download(url.as_str(), false, |rec| {
+                let trade = BinanceMarket::rec_to_trade(&rec);
 
-                    if 2000 < buffer.len() {
-                        let result = tx.send(buffer.to_vec());
+                buffer.push(trade);
 
-                        match result {
-                            Ok(_) => {
-                            },
-                            Err(e) => {
-                                log::error!("{:?}", e);
-                            }
-                        }
-                        buffer.clear();
-                    }
-                });
-
-                if buffer.len() != 0 {
+                if 2000 < buffer.len() {
                     let result = tx.send(buffer.to_vec());
+
                     match result {
-                        Ok(_) => {
-                        },
+                        Ok(_) => {}
                         Err(e) => {
                             log::error!("{:?}", e);
                         }
                     }
-
                     buffer.clear();
                 }
+            });
 
+            if buffer.len() != 0 {
+                let result = tx.send(buffer.to_vec());
                 match result {
-                    Ok(count) => {
-                        log::debug!("Downloaded rec = {} ", count);
-                        println!("Downloaded rec = {} ", count);                        
-                        download_rec += count;
-                    },
+                    Ok(_) => {}
                     Err(e) => {
-                        log::error!("extract err = {}", e.as_str());
+                        log::error!("{:?}", e);
                     }
                 }
+
+                buffer.clear();
             }
 
-            log::debug!("download rec = {}", download_rec);
-        });
-
-        let mut insert_rec_no = 0;
-
-        // TODO: sqlite クラスへ移動させて共通にする。
-        let mut last_print_rec = 0;
-        loop {
-            match rx.recv() {
-                Ok(trades) => {
-                    let result = &self.db.insert_records(&trades);
-                    match result {
-                        Ok(rec_no) => {
-                            insert_rec_no += rec_no;
-
-                            if 1_000_000 < (insert_rec_no - last_print_rec) {
-                                print!("\rDownloading... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
-                                let _ = stdout().flush();
-                                last_print_rec = insert_rec_no;
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("insert error {:?}", e);
-                        }
-                    }
+            match result {
+                Ok(count) => {
+                    log::debug!("Downloaded rec = {} ", count);
+                    println!("Downloaded rec = {} ", count);
+                    download_rec += count;
                 }
-                Err(_e) => {
-                    break;
+                Err(e) => {
+                    log::error!("extract err = {}", e.as_str());
                 }
             }
         }
 
-        println!("download {}[rec]", insert_rec_no);
-        log::debug!("insert rec={}", insert_rec_no);
+        log::debug!("download rec = {}", download_rec);
 
-        return insert_rec_no;
+        return download_rec;
     }
 
     pub fn cache_all_data(&mut self) {
@@ -235,10 +200,9 @@ impl BinanceMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return format!("<b>Binance DB ({})</b>{}",self.name, self.db._repr_html_());
+        return format!("<b>Binance DB ({})</b>{}", self.name, self.db._repr_html_());
     }
 }
-
 
 const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trades";
 impl BinanceMarket {
@@ -289,7 +253,6 @@ impl BinanceMarket {
 
         return trade;
     }
-
 }
 
 #[cfg(test)]
@@ -325,7 +288,7 @@ mod binance_test {
         init_debug_log();
         let mut market = BinanceMarket::new("BTCBUSD", true);
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
-        println!("{}", time_string(market.db.end_time().unwrap_or(0)));        
+        println!("{}", time_string(market.db.end_time().unwrap_or(0)));
         println!("Let's donwload");
         market.download(2, false);
     }

@@ -79,9 +79,7 @@ class BreakOutAgent(BaseAgent):
 
 
 binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
-Market.download(12)             # １０日前より最新のログデータをダウンロード（差分）
-#Market.download(5, True)       # 再ダウンロード
-
+Market.download(5, True)       # 再ダウンロード
 
 
 back_runner = BackRunner(
