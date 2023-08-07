@@ -5,6 +5,8 @@ use numpy::PyArray2;
 use polars::prelude::DataFrame;
 use polars_core::prelude::IndexOrder;
 use pyo3::{Py, PyResult, Python};
+use rusqlite::DatabaseName;
+use rusqlite::OpenFlags;
 use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement, Transaction};
 
 use crate::common::order::{TimeChunk, Trade};
@@ -107,18 +109,79 @@ impl TradeTableDb {
 
 
     }
+
+
+    pub fn is_wal_mode(name: &str) -> bool {
+        let conn = Connection::open(name.to_string()).unwrap();
+
+        let result = conn.pragma_query_value(None, "journal_mode", |row| {
+            let value: String = row.get(0)?;
+            println!("journal_mode = {}", value);
+            Ok(value)
+        });
+
+        match result {
+            Ok(mode) => {
+                if mode == "wal" {
+                    println!("wal mode already set");
+                    return true;
+                }
+                else {
+                    return false;
+                }
+                println!("get wal mode result success");
+            }
+            Err(e) => {
+                println!("get wal mode error = {}", e);
+                return false;
+            }
+        }
+    }
+
+    // set wal mode, if already set, return false. if not set, set and return true
+    pub fn set_wal_mode(name: &str) -> bool {
+        if Self::is_wal_mode(name) {
+            return false;
+        }
+
+        let conn = Connection::open(name.to_string()).unwrap();
+        let result = conn.pragma_update(None, "journal_mode", "wal");
+
+        match result {
+            Ok(_result) => {
+                println!("set wal mode result success");
+
+            }
+            Err(e) => {
+                println!("set wal mode error = {}", e);
+            }
+        }
+
+        println!("set wal mode end");
+        
+        let _ = conn.close();
+        return true;        
+    }
 }
 
 impl TradeTableQuery for TradeTableDb {
     fn open(name: &str) -> Result<Self, Error> {
+        println!("open database {}", name);
+        Self::set_wal_mode(name);
+        println!("set as wal mode");
+
         let result = Connection::open(name);
         log::debug!("Database open path = {}", name);
 
         match result {
-            Ok(conn) => Ok(TradeTableDb {
+            Ok(conn) => {
+                let db = TradeTableDb {
                 file_name: name.to_string(),
                 connection: conn,
-            }),
+                };
+
+                Ok(db)
+            },
             Err(e) => {
                 log::debug!("{:?}", e);
                 return Err(e);
@@ -141,6 +204,11 @@ impl TradeTableQuery for TradeTableDb {
 
         let _r = self.connection.execute(
             "CREATE index if not exists time_index on trades(time_stamp)",
+            (),
+        );
+
+        let _r = self.connection.execute(
+            "PRAGMA  journal_mode=wal",
             (),
         );
     }
@@ -294,14 +362,12 @@ impl TradeTable {
         self.tx = Some(tx);
 
         let handle = thread::spawn(move || {
-            // let mut db = self.connection.clone();
+            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();                                                    
             loop {
                 match rx.recv() {
                     Ok(trades) => {
-                        // let result = &self.insert_records(&trades);
-                        let mut db = TradeTableDb::open(file_name.as_str()).unwrap();                                        
                         let _result = db.insert_records(&trades);
-                        println!("recv trades: {}", trades.len());
+                        log::info!("recv trades: {}", trades.len());
                     }
                     Err(e) => {
                         log::error!("recv error {:?}", e);
@@ -330,88 +396,6 @@ impl TradeTable {
         return CEIL(t, TradeTable::OHLCV_WINDOW_SEC);
     }
 
-    fn receive_loop(&mut self) {
-        let mut insert_rec_no = 0;
-        let mut last_print_rec = 0;
-        /*
-                loop {
-                    match self.rx.recv() {
-                        Ok(trades) => {
-                            let result = &self.insert_records(&trades);
-                            match result {
-                                Ok(rec_no) => {
-                                    insert_rec_no += rec_no;
-
-                                    if 1_000_000 < (insert_rec_no - last_print_rec) {
-                                        print!("\rdb insert... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
-                                        last_print_rec = insert_rec_no;
-                                    }
-                                }
-                                Err(e) => {
-                                    log::warn!("insert error {:?}", e);
-                                }
-                            }
-                        }
-                        Err(_e) => {
-                            break;
-                        }
-                    }
-                }
-        */
-    }
-
-    fn start_receiving(&self) {
-        let (tx, rx) = std::sync::mpsc::channel::<Vec<Trade>>();
-        //        let mut transaction = self.get_transaction().unwrap();
-
-        let mut db_path = self.file_name.clone();
-
-        thread::spawn(move || {
-            match rx.recv() {
-                Ok(trades) => {
-                    println!("start_receiving{:?}", db_path);
-                    //                    let result = Self::insert_transaction(&transaction, &trades);
-                }
-                Err(e) => {
-                    log::warn!("insert error {:?}", e);
-                }
-            }
-        });
-
-        /*
-        self.rcv_thread = Some(thread::spawn(move || {
-            let mut insert_rec_no = 0;
-            let mut last_print_rec = 0;
-
-            loop {
-                match rx.recv() {
-                    Ok(trades) => {
-                        let result = &self.insert_records(&trades);
-                        match result {
-                            Ok(rec_no) => {
-                                insert_rec_no += rec_no;
-
-                                if 1_000_000 < (insert_rec_no - last_print_rec) {
-                                    print!("\rdb insert... {:.16} / rec={:>10}", time_string(trades[0].time), insert_rec_no);
-                                    last_print_rec = insert_rec_no;
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!("insert error {:?}", e);
-                            }
-                        }
-                    }
-                    Err(_e) => {
-                        break;
-                    }
-                }
-
-
-
-            }
-        }));
-        */
-    }
     /*
         fn stop_receiving(&mut self) {
             if let Some(handle) = self.rcv_thread.take() {
@@ -1295,6 +1279,13 @@ mod test_transaction_table {
         tx.send(v).unwrap();
 
 //        sleep(Duration::from_millis(5000));      
+    }
+
+    #[test]
+    fn test_wal_mode() {
+        //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
+
+        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap());
     }
 
 }
