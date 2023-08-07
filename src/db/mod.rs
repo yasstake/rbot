@@ -5,6 +5,7 @@ use self::sqlite::TradeTable;
 
 pub mod sqlite;
 pub mod df;
+pub mod hdf;
 
 pub fn open_db(exchange_name: &str, market_name: &str) -> TradeTable {
     match exchange_name.to_uppercase().as_str() {

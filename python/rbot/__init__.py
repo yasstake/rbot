@@ -412,5 +412,9 @@ class BinanceMarket:
     def download(self, ndays, force=False):
         return self.market.download(ndays, force)
 
+    @staticmethod
+    def initialize(name):
+        _BinanceMarket.initialize(name)
+
     def __getattr__(self, func):
         return getattr(self.market, func)

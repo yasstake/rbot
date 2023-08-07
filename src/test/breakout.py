@@ -7,6 +7,7 @@ from rbot import BinanceMarket
 from rbot import BackRunner
 from rbot import Market
 from rbot import time_string
+from rbot import _BinanceMarket
 
 
 class BreakOutAgent(BaseAgent):

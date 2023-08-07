@@ -2,25 +2,23 @@
 // All rights reserved. Absolutely NO warranty.
 
 pub mod common;
-pub mod sim;
 mod db;
 mod exchange;
 mod fs;
+pub mod sim;
 
-use pyo3::prelude::*;
 use common::{
+    init_debug_log, init_log,
     order::{Order, OrderSide},
     time::time_string,
-    init_log,
-    init_debug_log,
 };
+use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::BinanceMarket;
 
 use common::time::*;
-use sim::session::DummySession;
 use sim::back::BackTester;
-
+use sim::session::DummySession;
 
 
 /// A Python module implemented in Rust.
@@ -31,23 +29,22 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // time util
     m.add_function(wrap_pyfunction!(time_string, m)?)?;
-    m.add_function(wrap_pyfunction!(NOW, m)?)?;    
-    m.add_function(wrap_pyfunction!(DAYS_BEFORE, m)?)?;        
+    m.add_function(wrap_pyfunction!(NOW, m)?)?;
+    m.add_function(wrap_pyfunction!(DAYS_BEFORE, m)?)?;
     m.add_function(wrap_pyfunction!(DAYS, m)?)?;
     m.add_function(wrap_pyfunction!(HHMM, m)?)?;
-    m.add_function(wrap_pyfunction!(MIN, m)?)?;    
-    m.add_function(wrap_pyfunction!(SEC, m)?)?;        
-    
-    m.add_function(wrap_pyfunction!(FLOOR, m)?)?;        
+    m.add_function(wrap_pyfunction!(MIN, m)?)?;
+    m.add_function(wrap_pyfunction!(SEC, m)?)?;
+
+    m.add_function(wrap_pyfunction!(FLOOR, m)?)?;
 
     // classes
     m.add_class::<Order>()?;
     m.add_class::<OrderSide>()?;
     //m.add_class::<FtxMarket>()?;
     m.add_class::<BinanceMarket>()?;
-    m.add_class::<DummySession>()?; 
-    m.add_class::<BackTester>()?; 
+    m.add_class::<DummySession>()?;
+    m.add_class::<BackTester>()?;
 
     Ok(())
 }
-
