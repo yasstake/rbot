@@ -49,6 +49,8 @@ tempfile={version="3.3"}
 
 openssl = { version = "0.10", features = ["vendored"] }
 
+#hdf5 = {version="0.8.1"}
+#hdf5-sys = {version="0.8.1"}
 
  [dependencies.pyo3]
  version = "0.19.1"
