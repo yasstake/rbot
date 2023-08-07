@@ -15,7 +15,7 @@ use crate::common::order::{OrderSide, TimeChunk, Trade};
 use crate::common::time::NOW;
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
-use crate::db::sqlite::{TradeTable, TradeTableQuery};
+use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::fs::db_full_path;
 
 use super::log_download;
@@ -33,9 +33,12 @@ impl BinanceMarket {
     #[new]
     pub fn new(market_name: &str, dummy: bool) -> Self {
         // TODO: SPOTにのみ対応しているのを変更する。
-        let db_name = db_full_path("BN", "SPOT", &market_name);
+        let db_name = Self::db_path(&market_name).unwrap();
 
-        let db = TradeTable::open(db_name.to_str().unwrap()).expect("cannot open db");
+        println!("create TradeTable: {}", db_name);
+
+        let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
+
         db.create_table_if_not_exists();
 
         return BinanceMarket {
@@ -45,9 +48,24 @@ impl BinanceMarket {
         };
     }
 
+    #[staticmethod]
+    pub fn db_path(market_name: &str) -> PyResult<String> {
+        let db_name = db_full_path("BN", "SPOT", market_name);
+
+        return Ok(db_name.as_os_str().to_str().unwrap().to_string());
+    }
+
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.db.get_cache_duration();
+    }
+
+    pub fn wal_mode(&mut self) {
+        let market_name = self.name.as_str();
+
+        let db_name = Self::db_path(&market_name).unwrap();
+
+        TradeTableDb::set_wal_mode(db_name.as_str());
     }
 
     pub fn reset_cache_duration(&mut self) {
