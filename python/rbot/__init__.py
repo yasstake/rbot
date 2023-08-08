@@ -401,13 +401,23 @@ class BinanceMarket:
         self.market_name = name
 
     def select_trades(self, from_time, to_time):
-        return trades_to_df(self.market.select_trades(from_time, to_time))
+        return self.market.select_trades(from_time, to_time)
 
     def ohlcvv(self, from_time, to_time, window_sec):
-        return ohlcvv_to_df(self.market.ohlcvv(from_time, to_time, window_sec))
+        return self.market.ohlcvv(from_time, to_time, window_sec)
 
     def ohlcv(self, from_time, to_time, window_sec):
-        return ohlcv_to_df(self.market.ohlcv(from_time, to_time, window_sec))
+        return self.market.ohlcv(from_time, to_time, window_sec)
+
+    def select_trades_a(self, from_time, to_time):
+        return trades_to_df(self.market.select_trades_a(from_time, to_time))
+
+    def ohlcvv_a(self, from_time, to_time, window_sec):
+        return ohlcvv_to_df(self.market.ohlcvv_a(from_time, to_time, window_sec))
+
+    def ohlcv_a(self, from_time, to_time, window_sec):
+        return ohlcv_to_df(self.market.ohlcv_a(from_time, to_time, window_sec))
+
 
     def download(self, ndays, force=False):
         return self.market.download(ndays, force)

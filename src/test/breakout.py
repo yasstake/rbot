@@ -1,5 +1,6 @@
-
-import pandas as pd
+#
+#import pandas as pd
+import polars as pl
 
 import rbot
 from rbot import BaseAgent
@@ -8,6 +9,7 @@ from rbot import BackRunner
 from rbot import Market
 from rbot import time_string
 from rbot import _BinanceMarket
+
 
 
 class BreakOutAgent(BaseAgent):
@@ -36,7 +38,7 @@ class BreakOutAgent(BaseAgent):
         
         ############   メインロジック  ###################### 
         ohlcv_df = session.ohlcv(60*60*2, 6)  # 2時間足(60*60*2sec)を６本取得。 最新は６番目。ただし未確定足
-        if len(ohlcv_df.index) < 6:           # データが過去６本分そろっていない場合はなにもせずリターン
+        if len(ohlcv_df) < 6:           # データが過去６本分そろっていない場合はなにもせずリターン
             return 
 
         ohlcv5 = ohlcv_df[:-2]       # 過去５本足（確定）
@@ -80,7 +82,7 @@ class BreakOutAgent(BaseAgent):
 
 
 binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
-Market.download(5, True)       # 再ダウンロード
+Market.download(5, False)       # 再ダウンロード
 
 
 back_runner = BackRunner(
@@ -104,6 +106,5 @@ back_runner.run(
     0                           # 終了時刻を指定します(us). 0だとDBにある最後のデータまで処理。
 )     
 
-pd.options.display.max_rows=30
 print(back_runner.result)                     # back testの結果概要が表示されます
 

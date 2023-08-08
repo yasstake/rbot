@@ -4,7 +4,9 @@ use numpy::IntoPyArray;
 use numpy::PyArray2;
 use polars::prelude::DataFrame;
 use polars_core::prelude::IndexOrder;
+use polars_lazy::prelude::IntoLazy;
 use pyo3::{Py, PyResult, Python};
+use pyo3_polars::PyDataFrame;
 use rusqlite::DatabaseName;
 use rusqlite::OpenFlags;
 use rusqlite::{params, params_from_iter, Connection, Error, Result, Statement, Transaction};
@@ -601,6 +603,21 @@ impl TradeTable {
         return Ok(r);
     }
 
+
+    pub fn py_ohlcvv_polars(
+        &mut self,
+        mut from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<PyDataFrame> {
+        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+
+        let df = self.ohlcvv_df(from_time, to_time, window_sec);
+        
+        return Ok(PyDataFrame(df));
+    }
+
+
     pub fn ohlcv_df(
         &mut self,
         from_time: MicroSec,
@@ -659,6 +676,35 @@ impl TradeTable {
 
         return Ok(r);
     }
+
+
+    pub fn py_ohlcv_polars(
+        &mut self,
+        mut from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<PyDataFrame> {
+        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+
+        let df = self.ohlcv_df(from_time, to_time, window_sec);
+        let df = PyDataFrame(df);
+
+        return Ok(df);
+    }
+
+
+    pub fn py_select_trades_polars(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<PyDataFrame> {
+        let trades = self.select_df_from_db(from_time, to_time);
+
+        let df = PyDataFrame(trades);
+
+        return Ok(df);
+    }
+
 
     pub fn py_select_trades(
         &mut self,
