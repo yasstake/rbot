@@ -46,6 +46,11 @@ pub mod KEY {
     pub const count: &str = "count";
 }
 
+fn future_date() -> MicroSec {
+    let now = crate::common::time::NOW();
+    now + DAYS(10000)
+}
+
 /// Cutoff from_time to to_time(not include)
 pub fn select_df(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
     log::debug!(
@@ -122,6 +127,7 @@ pub fn ohlcv_df(
         time_string(start_time),
         time_string(end_time)
     );
+
     let df = select_df(df, start_time, end_time);
 
     if df.shape().0 == 0 {
@@ -144,6 +150,7 @@ pub fn ohlcv_df(
 
     let result = df
         .lazy()
+        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))
         .groupby_dynamic(
             col(KEY::time_stamp),
             [],
@@ -210,6 +217,7 @@ pub fn ohlcvv_df(
 
     let result = df
         .lazy()
+        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [
@@ -279,6 +287,7 @@ pub fn ohlcv_from_ohlcvv_df(
 
     let result = df
         .lazy()
+        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [],
@@ -345,6 +354,7 @@ pub fn ohlcvv_from_ohlcvv_df(
 
     let result = df
         .lazy()
+        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [col(KEY::order_side)],
@@ -380,7 +390,6 @@ pub fn ohlcvv_from_ohlcvv_df(
         }
     }
 }
-
 
 pub struct TradeBuffer {
     pub time_stamp: Vec<MicroSec>,
