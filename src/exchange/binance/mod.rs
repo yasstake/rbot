@@ -9,6 +9,7 @@ use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
+use pyo3_polars::PyDataFrame;
 //use pyo3::prelude::pymethods;
 
 use crate::common::order::{OrderSide, TimeChunk, Trade};
@@ -178,7 +179,7 @@ impl BinanceMarket {
         self.db.update_cache_all();
     }
 
-    pub fn select_trades(
+    pub fn select_trades_a(
         &mut self,
         from_time: MicroSec,
         to_time: MicroSec,
@@ -186,7 +187,7 @@ impl BinanceMarket {
         return self.db.py_select_trades(from_time, to_time);
     }
 
-    pub fn ohlcvv(
+    pub fn ohlcvv_a(
         &mut self,
         from_time: MicroSec,
         to_time: MicroSec,
@@ -195,7 +196,7 @@ impl BinanceMarket {
         return self.db.py_ohlcvv(from_time, to_time, window_sec);
     }
 
-    pub fn ohlcv(
+    pub fn ohlcv_a(
         &mut self,
         from_time: MicroSec,
         to_time: MicroSec,
@@ -203,6 +204,34 @@ impl BinanceMarket {
     ) -> PyResult<Py<PyArray2<f64>>> {
         return self.db.py_ohlcv(from_time, to_time, window_sec);
     }
+
+
+    pub fn select_trades(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<PyDataFrame> {
+        return self.db.py_select_trades_polars(from_time, to_time);
+    }
+
+    pub fn ohlcvv(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<PyDataFrame> {
+        return self.db.py_ohlcvv_polars(from_time, to_time, window_sec);
+    }
+
+    pub fn ohlcv(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        window_sec: i64,
+    ) -> PyResult<PyDataFrame> {
+        return self.db.py_ohlcv_polars(from_time, to_time, window_sec);
+    }
+
 
     pub fn info(&mut self) -> String {
         return self.db.info();
