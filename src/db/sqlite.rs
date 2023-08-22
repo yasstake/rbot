@@ -989,6 +989,51 @@ impl TradeTable {
         return days;
     }
 
+    pub fn make_time_days_chunk_from_days(
+        &self,
+        ndays: i64,
+        force: bool,
+    ) -> Vec<i64> {
+        let from_time = NOW() - DAYS(ndays + 1);
+        let to_time = NOW() - DAYS(2);        
+
+        let time_gap = if force {
+            vec![TimeChunk {
+                start: from_time,
+                end: to_time,
+            }]
+        } else {
+            let start_time = self.start_time().unwrap_or(NOW());
+            let end_time = self.end_time().unwrap_or(NOW());
+
+            let mut time_chunk: Vec<TimeChunk> = vec![];
+
+            if from_time < start_time {
+                log::debug!("download before {} {}", from_time, start_time);
+                time_chunk.push(TimeChunk {
+                    start: from_time,
+                    end: start_time,
+                });
+            }
+
+            if end_time < to_time {
+                log::debug!("download after {} {}", end_time, to_time);
+                time_chunk.push(TimeChunk {
+                    start: end_time,
+                    end: to_time,
+                });
+            }
+
+            time_chunk
+        };
+
+        let days_gap = TradeTable::time_chunks_to_days(&time_gap);
+        log::debug!("GAP TIME: {:?}", time_gap);
+        log::debug!("GAP DAYS: {:?}", days_gap);
+
+        return days_gap;
+    }
+
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         return self.connection.insert_records(trades);
     }

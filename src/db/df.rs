@@ -150,7 +150,7 @@ pub fn ohlcv_df(
 
     let result = df
         .lazy()
-        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))
+//         .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))
         .groupby_dynamic(
             col(KEY::time_stamp),
             [],
@@ -217,7 +217,7 @@ pub fn ohlcvv_df(
 
     let result = df
         .lazy()
-        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
+//         .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [
@@ -267,6 +267,7 @@ pub fn ohlcv_from_ohlcvv_df(
         time_string(start_time),
         time_string(end_time)
     );
+
     let df = select_df(df, start_time, end_time);
 
     if df.shape().0 == 0 {
@@ -287,7 +288,7 @@ pub fn ohlcv_from_ohlcvv_df(
 
     let result = df
         .lazy()
-        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
+//        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [],
@@ -354,7 +355,7 @@ pub fn ohlcvv_from_ohlcvv_df(
 
     let result = df
         .lazy()
-        .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
+        // .filter(col(KEY::time_stamp).gt_eq(start_time).and(col(KEY::time_stamp).lt(end_time)))        
         .groupby_dynamic(
             col(KEY::time_stamp),
             [col(KEY::order_side)],
@@ -569,47 +570,6 @@ mod test_df {
         println!("{:?}", ohlc);
     }
 
-    /*
-    #[test]
-    fn test_group_by() {
-        let time_window = 1 * 60 * 60; // 1 hour
-
-        let ohlc = make_ohlcv_df();
-
-        let option = DynamicGroupOptions {
-            start_by: StartBy::DataPoint,
-            check_sorted: false,
-            index_column: KEY::time_stamp.into(),
-            every: Duration::new(SEC(time_window)), // グループ間隔
-            period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
-            offset: Duration::parse("0m"),
-            truncate: true,            // タイムスタンプを切り下げてまとめる。
-            include_boundaries: false, // データの下限と上限を結果に含めるかどうか
-            closed_window: ClosedWindow::Right,
-            ..Default::default()
-        };
-
-        let ohlc2 = ohlc.lazy().groupby_dynamic(
-            col(KEY::time_stamp),
-            [],
-            option,
-        )
-        .agg([
-            col(KEY::price).first().alias(KEY::open),
-            col(KEY::price).max().alias(KEY::high),
-            col(KEY::price).min().alias(KEY::low),
-            col(KEY::price).last().alias(KEY::close),
-            col(KEY::size).sum().alias(KEY::vol),
-            col(KEY::price).count().alias(KEY::count),
-            col(KEY::time_stamp).min().alias(KEY::start_time),
-            col(KEY::time_stamp).max().alias(KEY::end_time),
-        ])
-        .collect().unwrap();        
-
-        println!("{:?}", ohlc2);
-
-    }
-    */
 
     #[test]
     fn test_make_ohlcv_from_ohclv() {

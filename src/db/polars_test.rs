@@ -8,6 +8,4 @@ mod polars_test {
     fn test_polars() {
         println!("test polars");
     }
-
-
 }

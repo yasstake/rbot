@@ -82,7 +82,7 @@ class BreakOutAgent(BaseAgent):
 
 
 binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
-Market.download(5, False)       # 再ダウンロード
+Market.download(50, False)       # 再ダウンロード
 
 
 back_runner = BackRunner(
