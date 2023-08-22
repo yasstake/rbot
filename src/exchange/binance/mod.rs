@@ -346,4 +346,13 @@ mod binance_test {
 
         println!("{:?}", market.db.info());
     }
+
+    #[test]
+    fn test_ohlcv() {
+        let mut market = BinanceMarket::new("BTCBUSD", true);
+
+        market.ohlcv(0, 0, 3600);
+
+        println!("{:?}", market.db.ohlcv_df(0, 0, 3600));
+    }
 }

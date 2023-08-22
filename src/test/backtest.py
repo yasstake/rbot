@@ -71,7 +71,7 @@ class Agent(BaseAgent):
 rbot.init_debug_log()
 binance = Market.open("BN", "BTCBUSD")
 print(binance.info())
-Market.download(10)
+Market.download(100)
 
 back_runner = BackRunner("BN", "BTCBUSD", False)
 
