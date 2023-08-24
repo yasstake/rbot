@@ -4,12 +4,11 @@ import polars as pl
 
 import rbot
 from rbot import BaseAgent
-from rbot import BinanceMarket
+from rbot import ByBitMarket
 from rbot import BackRunner
 from rbot import Market
 from rbot import time_string
 from rbot import _BinanceMarket
-
 
 
 class BreakOutAgent(BaseAgent):
@@ -81,18 +80,17 @@ class BreakOutAgent(BaseAgent):
                 session.place_order('Sell', session.best_sell_price, ORDER_SIZE, ORDER_LIFE, 'Open Short') 
 
 
-binance = Market.open('BN', 'BTCBUSD')  # binance marketはあとで利用するので保存しておく
+bb = Market.open('BB', 'BTCUSDT')  # binance marketはあとで利用するので保存しておく
 Market.download(50, False)       # 再ダウンロード
 
 
 back_runner = BackRunner(
-        'BN',           # Binance は BNと省略します。
-        'BTCBUSD',      # 通貨ペアーを選択します。
+        'BB',           # Binance は BNと省略します。
+        'BTCUSDT',      # 通貨ペアーを選択します。
         False           # 注文時に指定するサイズが通貨ペアーの右側通貨の場合True。BinanceのBTCBUSDはBTCでサイズを指定するのでFalse
 )
 
 back_runner.maker_fee_rate = 0.1 * 0.01  # maker_feeを指定（0.1%）. takerは未実装。現在は相手板にぶつける注文をしてもmaker_feeが適用される。
-
 
 agent = BreakOutAgent()         # Agentのインスタンスを作ります（あとで利用するので変数に保存しておきます）。
 

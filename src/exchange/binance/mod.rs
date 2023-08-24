@@ -1,16 +1,11 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use std::io::{stdout, Write};
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
-
 use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
-//use pyo3::prelude::pymethods;
 
 use crate::common::order::{OrderSide, TimeChunk, Trade};
 use crate::common::time::NOW;
@@ -19,7 +14,7 @@ use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::fs::db_full_path;
 
-use super::log_download;
+use super::{log_download, make_download_url_list, download_log};
 
 #[derive(Debug)]
 #[pyclass(name = "_BinanceMarket")]
@@ -61,18 +56,20 @@ impl BinanceMarket {
         return self.db.get_cache_duration();
     }
 
-    pub fn wal_mode(&mut self) {
-        let market_name = self.name.as_str();
-
-        let db_name = Self::db_path(&market_name).unwrap();
-
-        TradeTableDb::set_wal_mode(db_name.as_str());
-    }
-
     pub fn reset_cache_duration(&mut self) {
         self.db.reset_cache_duration();
     }
 
+    pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
+        let days_gap = self.db.make_time_days_chunk_from_days(ndays, force);
+        let urls: Vec<String> = make_download_url_list(self.name.as_str(), days_gap, Self::make_historical_data_url_timestamp);
+        let tx = self.db.start_thread();
+        let download_rec = download_log(urls, tx, false, BinanceMarket::rec_to_trade);
+
+        return download_rec;
+    }
+
+/*
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
         let mut download_rec: i64 = 0;
         let from_time = NOW() - DAYS(ndays + 1);
@@ -174,6 +171,7 @@ impl BinanceMarket {
 
         return download_rec;
     }
+    */
 
     pub fn cache_all_data(&mut self) {
         self.db.update_cache_all();
@@ -253,21 +251,17 @@ impl BinanceMarket {
 
 const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trades";
 impl BinanceMarket {
-    fn make_historical_data_url_timestamp(&self, t: MicroSec) -> String {
+    fn make_historical_data_url_timestamp(name: &str, t: MicroSec) -> String {
         let timestamp = to_naive_datetime(t);
 
         let yyyy = timestamp.year() as i64;
         let mm = timestamp.month() as i64;
         let dd = timestamp.day() as i64;
 
-        return self.make_historical_data_url(yyyy, mm, dd);
-    }
-
-    fn make_historical_data_url(&self, yyyy: i64, mm: i64, dd: i64) -> String {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         return format!(
             "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-            HISTORY_WEB_BASE, self.name, self.name, yyyy, mm, dd
+            HISTORY_WEB_BASE, name, name, yyyy, mm, dd
         );
     }
 
@@ -312,21 +306,10 @@ mod binance_test {
     fn test_make_historical_data_url_timestamp() {
         init_log();
         let market = BinanceMarket::new("BTCBUSD", true);
-        println!("{}", market.make_historical_data_url_timestamp(1));
+        println!("{}", BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 1));
         assert_eq!(
-            market.make_historical_data_url_timestamp(1),
+            BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 1),
             "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-1970-01-01.zip"            
-        );
-    }
-
-    #[test]
-    fn test_make_historical_data_url() {
-        init_log();
-        let market = BinanceMarket::new("BTCBUSD", true);
-        println!("{}", market.make_historical_data_url(2022, 10, 1));
-        assert_eq!(
-            market.make_historical_data_url(2022, 11, 19),
-            "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip"                        
         );
     }
 
@@ -346,4 +329,22 @@ mod binance_test {
 
         println!("{:?}", market.db.info());
     }
+
+    #[test]
+    fn test_ohlcv() {
+        let mut market = BinanceMarket::new("BTCBUSD", true);
+
+        market.ohlcv(0, 0, 3600);
+
+        println!("{:?}", market.db.ohlcv_df(0, 0, 3600));
+    }
+
+
+    #[test]
+    fn bench_ohlcv() {
+        let mut market = BinanceMarket::new("BTCBUSD", true);
+
+        market.ohlcv(0, 0, 3600);
+    }
+
 }
