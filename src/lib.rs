@@ -15,6 +15,7 @@ use common::{
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::BinanceMarket;
+use exchange::bb::BBMarket;
 
 use common::time::*;
 use sim::back::BackTester;
@@ -43,6 +44,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<OrderSide>()?;
     //m.add_class::<FtxMarket>()?;
     m.add_class::<BinanceMarket>()?;
+    m.add_class::<BBMarket>()?;    
     m.add_class::<DummySession>()?;
     m.add_class::<BackTester>()?;
 

@@ -1,6 +1,6 @@
 // use crate::exchange::ftx::FtxMarket;
 
-use crate::exchange::binance::BinanceMarket;
+use crate::exchange::{binance::BinanceMarket, bb::BBMarket};
 use self::sqlite::TradeTable;
 
 pub mod sqlite;
@@ -17,11 +17,17 @@ pub fn open_db(exchange_name: &str, market_name: &str) -> TradeTable {
         }
         */
         "BN" => {
-            // 参照用のみのため、order_in_homeは事実上ダミー。
+            log::debug!("open_db: Binance / {}", market_name);
             let binance = BinanceMarket::new(market_name, true);
 
             return binance.db;
-        }
+        },
+        "BB" => {
+            log::debug!("open_db: ByBit / {}", market_name);            
+            let bb = BBMarket::new(market_name, true);
+
+            return bb.db;
+        },
         _ => {
             panic!("Unknown exchange {}", exchange_name);
         }

@@ -70,7 +70,7 @@ impl BackTester {
         };
     }
 
-    #[args(from_time = 0, to_time = 0)]
+    #[pyo3(signature=(agent, from_time = 0, to_time = 0))]
     pub fn run(
         &mut self,
         agent: &PyAny,
@@ -89,6 +89,7 @@ impl BackTester {
         log::debug!("clock interval {:?}", self.clock_interval);
 
         let mut db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
+        
         db.reset_cache_duration();
 
         //let mut statement = db.select_all_statement();
