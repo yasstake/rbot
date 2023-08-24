@@ -1,5 +1,5 @@
-
-// Copyright(c) 2022. yasstake. All rights reserved.
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+// Abluotely no warranty.
 
 use std::io::{stdout, Write};
 use chrono::Datelike;
@@ -7,28 +7,26 @@ use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
-//use pyo3::prelude::pymethods;
 
 use crate::common::order::{OrderSide, TimeChunk, Trade};
 use crate::common::time::NOW;
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
-use crate::exchange::{make_download_url_list, download_log};
 use crate::fs::db_full_path;
 
-use super::log_download;
+use super::{log_download, download_log, make_download_url_list};
 
 #[derive(Debug)]
 #[pyclass(name = "_ByBitMarket")]
-pub struct ByBitMarket {
+pub struct BBMarket {
     name: String,
     pub dummy: bool,
     pub db: TradeTable,
 }
 
 #[pymethods]
-impl ByBitMarket {
+impl BBMarket {
     #[new]
     pub fn new(market_name: &str, dummy: bool) -> Self {
         // TODO: SPOTにのみ対応しているのを変更する。
@@ -40,7 +38,7 @@ impl ByBitMarket {
 
         db.create_table_if_not_exists();
 
-        return ByBitMarket {
+        return BBMarket {
             name: market_name.to_string(),
             dummy,
             db,
@@ -49,42 +47,33 @@ impl ByBitMarket {
 
     #[staticmethod]
     pub fn db_path(market_name: &str) -> PyResult<String> {
-        let db_name = db_full_path("BB", "SPOT", market_name);
+        let db_name = db_full_path("BB", "trade", market_name);
 
         return Ok(db_name.as_os_str().to_str().unwrap().to_string());
     }
+
+
 
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.db.get_cache_duration();
     }
 
-    pub fn wal_mode(&mut self) {
-        let market_name = self.name.as_str();
-
-        let db_name = Self::db_path(&market_name).unwrap();
-
-        TradeTableDb::set_wal_mode(db_name.as_str());
-    }
-
     pub fn reset_cache_duration(&mut self) {
         self.db.reset_cache_duration();
     }
 
-    pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
+    pub fn cache_all_data(&mut self) {
+        self.db.update_cache_all();
+    }
 
+    pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
         let days_gap = self.db.make_time_days_chunk_from_days(ndays, force);
         let urls: Vec<String> = make_download_url_list(self.name.as_str(), days_gap, Self::make_historical_data_url_timestamp);
         let tx = self.db.start_thread();
-        let download_rec = download_log(urls, tx, ByBitMarket::rec_to_trade);
-
-        log::debug!("download rec = {}", download_rec);
+        let download_rec = download_log(urls, tx, true, BBMarket::rec_to_trade);
 
         return download_rec;
-    }
-
-    pub fn cache_all_data(&mut self) {
-        self.db.update_cache_all();
     }
 
     pub fn select_trades_a(
@@ -159,62 +148,56 @@ impl ByBitMarket {
     }
 }
 
-impl ByBitMarket {
-    fn make_historical_data_url_timestamp(market_name: &str, t: MicroSec) -> String {
+const HISTORY_WEB_BASE: &str = "https://public.bybit.com";
+
+impl BBMarket {
+    fn make_historical_data_url_timestamp(name: &str, t: MicroSec) -> String {
         let timestamp = to_naive_datetime(t);
 
         let yyyy = timestamp.year() as i64;
         let mm = timestamp.month() as i64;
         let dd = timestamp.day() as i64;
 
-        return Self::make_historical_data_url(market_name, yyyy, mm, dd);
-    }
-
-    fn make_historical_data_url(market_name: &str, yyyy: i64, mm: i64, dd: i64) -> String {
-        let file_name = Self::log_file_name(market_name, yyyy, mm, dd);
-
         return format!(
-            "https://public.bybit.com/trading/{}/{}",
-            market_name,
-            file_name
+            "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
+            HISTORY_WEB_BASE, name, name, yyyy, mm, dd
         );
     }
 
-    fn log_file_name(market_name: &str, yyyy: i64, mm: i64, dd: i64) -> String {
-        return format!(
-            "{}{:04}-{:02}-{:02}.csv.gz",
-            market_name,
-            yyyy,
-            mm,
-            dd
-        );
-    }
-
-
+    /*
+        0         1      2    3    4     5             6          7          8            9                                    
+        timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional
+        1692748800.279,BTCUSD,Sell,641,26027.00,ZeroMinusTick,80253109-efbb-58ca-9adc-d458b66201e9,2.462827064202559e+06,641,0.02462827064202559        
+     */
     fn rec_to_trade(rec: &StringRecord) -> Trade {
-        let id = rec.get(0).unwrap_or_default().to_string();
-        let price = rec
-            .get(1)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-        let size = rec
-            .get(2)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
         let timestamp = rec
-            .get(4)
+            .get(0)
             .unwrap_or_default()
-            .parse::<MicroSec>()
+            .parse::<f64>()
             .unwrap_or_default()
-            * 1_000;
-        let is_buyer_make = rec.get(5).unwrap_or_default();
-        let order_side = match is_buyer_make {
-            "True" => OrderSide::Buy,
-            "False" => OrderSide::Sell,
+            * 1_000_000.0;
+        
+        let timestamp = timestamp as MicroSec;
+
+        let order_side = match rec.get(2).unwrap_or_default() {
+            "Buy" => OrderSide::Buy,
+            "Sell" => OrderSide::Sell,
             _ => OrderSide::Unknown,
         };
+
+        let id = rec.get(6).unwrap_or_default().to_string();
+
+        let price = rec
+            .get(4)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
+
+        let size = rec
+            .get(3)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
 
         let trade = Trade::new(timestamp, order_side, price, size, id);
 
@@ -222,33 +205,95 @@ impl ByBitMarket {
     }
 }
 
+
+
+/*
+*
+ByBitAPI：
+    https://bybit-exchange.github.io/docs/
+   
+
+Bybitのメッセージフォーマットについて
+
+約定履歴は、過去ログ、RESTAPI、WSの３つの方法で取得できるが
+それぞれ、取得可能時間、メッセージフォーマットが異なる。
+
+・過去ログ (昨日以前のものが取得可能)
+＜サンプル＞
+https://public.bybit.com
+
+https://public.bybit.com/trading/BTCUSDT/BTCUSDT2023-08-21.csv.gz
+
+timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional
+1651449601,BTCUSD,Sell,258,38458.00,MinusTick,a0dd4504-db3c-535f-b43b-4de38f581b79,670861.7192781736,258,0.006708617192781736
+
+
+・RESTAPI　（直近1000レコード分＝おおよそ３０分程度のログが取得できる）
+＜サンプル＞
+・リクエスト
+https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=BTCUSDT&limit=1000&start=1692828100000
+
+・レスポンス
+{"ret_code":0,"ret_msg":"OK","ext_code":"","ext_info":"","result":[{"id":66544931,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:53.165Z"},{"id":66544930,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:53.058Z"},{"id":66544929,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:52.954Z"},{"id":66544928,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:52.85Z"},{"id":66544927,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:52.747Z"},{"id":66544926,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:52.646Z"},{"id":66544925,"symbol":"BTCUSD","price":29558,"qty":100,"side":"Sell","time":"2022-06-03T13:45:52.536Z"},
+
+
+KLine形式で１分足ならばもっと長期間のログが取得可能。
+
+
+・WS（リアルタイム：過去は取得不可。タイムスタンプがMS単位）
+
+{"topic":"ParseTradeMessage.BTCUSD",
+ "data":[
+       {"trade_time_ms":1619398389868,"timestamp":"2021-04-26T00:53:09.000Z","symbol":"BTCUSD","side":"Sell","size":2000,"price":50703.5,"tick_direction":"ZeroMinusTick","trade_id":"8241a632-9f07-5fa0-a63d-06cefd570d75","cross_seq":6169452432},
+       {"trade_time_ms":1619398389947,"timestamp":"2021-04-26T00:53:09.000Z","symbol":"BTCUSD","side":"Sell","size":200,"price":50703.5,"tick_direction":"ZeroMinusTick","trade_id":"ff87be41-8014-5a33-b4b1-3252a6422a41","cross_seq":6169452432}]}
+]
+}
+
+*/
+
 #[cfg(test)]
-mod binance_test {
+mod BBMarketTest{
     use csv::StringRecord;
 
-    #[test]
-    fn test_make_historical_data_url() {
-        let url = super::ByBitMarket::make_historical_data_url("BTCUSD", 2021, 1, 1);
+    use crate::common::time::NOW;
 
+    #[test]
+    fn test_make_historical_data_url_timestamp() {
+        println!("{}", super::BBMarket::make_historical_data_url_timestamp("BTCUSD", 0));
+
+        println!("{}", NOW());
+
+        let url = super::BBMarket::make_historical_data_url_timestamp("BTCUSD", 1);
         assert_eq!(
             url,
-            "https://public.bybit.com/trading/BTCUSD/BTCUSD2021-01-01.csv.gz"
+            "https://public.bybit.com/trading/BTCUSD/BTCUSD1970-01-01.csv.gz"
+        );
+
+        let url = super::BBMarket::make_historical_data_url_timestamp("BTCUSD", 1692841687658323);
+        assert_eq!(
+            url,
+            "https://public.bybit.com/trading/BTCUSD/BTCUSD2023-08-24.csv.gz"
         );
     }
 
+
+    /*
+    timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional
+    1692748800.279,BTCUSD,Sell,641,26027.00,ZeroMinusTick,80253109-efbb-58ca-9adc-d458b66201e9,2.462827064202559e+06,641,0.02462827064202559
+    1692748800.279,BTCUSD,Sell,737,26027.00,ZeroMinusTick,7db24799-4be3-540a-bdad-5c51e7d027d7,2.831674799246936e+06,737,0.02831674799246936
+     */
     #[test]
     fn test_rec_to_trade() {
-        let rec = StringRecord::from(vec![
-        "1609545596.157273","BTCUSD","Buy","1","29395.0","ZeroMinusTick","c5a26570-e734-57e8-a2a2-a7d972046682","3401.0","1","3.401e-05"
-        ]);
+        let rec = "1692748800.279,BTCUSD,Sell,641,26027.00,ZeroMinusTick,80253109-efbb-58ca-9adc-d458b66201e9,2.462827064202559e+06,641,0.02462827064202559".to_string();
+        let rec = rec.split(',').collect::<Vec<&str>>();
+        let rec = StringRecord::from(rec);
+        let trade = super::BBMarket::rec_to_trade(&rec);
 
-        let trade = super::ByBitMarket::rec_to_trade(&rec);
-
-        assert_eq!(trade.time, 1609545596157273);
-        assert_eq!(trade.price, 2.0);
-        assert_eq!(trade.size, 3.0);
-        assert_eq!(trade.id, "1");
+        assert_eq!(trade.time, 1692748800279000);
         assert_eq!(trade.order_side, super::OrderSide::Sell);
+        assert_eq!(trade.price, 26027.0);
+        assert_eq!(trade.size, 641.0);
+        assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
     }
 
 }

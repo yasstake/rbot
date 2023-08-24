@@ -14,21 +14,26 @@ use std::{
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use tempfile::tempdir;
-use tokio::runtime::Runtime;
 use zip::ZipArchive;
 
 use crate::common::order::Trade;
 
 use std::sync::mpsc::Sender;
 
-pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
-    let response = match reqwest::get(url).await {
+pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
+    let client = reqwest::blocking::Client::new();
+
+    let response = match client.get(url)
+        .header("User-Agent", "Mozilla/5.0")
+        .header("Accept", "text/html").send() {
         Ok(r) => r,
         Err(e) => {
             log::error!("URL get error {}", e.to_string());
             return Err(e.to_string());
         }
     };
+
+    log::debug!("Response code = {} / download size {}", response.status().as_str(), response.content_length().unwrap());
 
     let fname = response
         .url()
@@ -45,7 +50,7 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, Strin
     };
 
     let file_name = fname.to_str().unwrap();
-    let content = match response.bytes().await {
+    let content = match response.bytes() {
         Ok(c) => c,
         Err(e) => {
             log::error!("{}", e.to_string());
@@ -70,15 +75,6 @@ where
     F: FnMut(&StringRecord),
 {
     log::debug!("Downloading ...[{}]", url);
-    println!("Downloading ...[{}]", url);    
-
-    let rt = match Runtime::new() {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("runtie create error {}", e.to_string());
-            return Err(e.to_string());
-        }
-    };
 
     let tmp_dir = match tempdir() {
         Ok(tmp) => tmp,
@@ -88,7 +84,7 @@ where
         }
     };
 
-    let result = rt.block_on(async { log_download_tmp(url, tmp_dir.path()).await });
+    let result = log_download_tmp(url, tmp_dir.path());
 
     let file_path: String;
     match result {
@@ -103,8 +99,10 @@ where
     log::debug!("let's extract = {}", file_path);
    
     if url.ends_with("gz") || url.ends_with("GZ") {
+        log::debug!("extract gzip = {}", file_path);
         return extract_gzip_log(&file_path, has_header, f);
     } else if url.ends_with("zip") || url.ends_with("ZIP") {
+        log::debug!("extract zip = {}", file_path);
         return extract_zip_log(&file_path, has_header, f);    
     } else {
         log::error!("unknown file suffix {}", url);
@@ -266,9 +264,11 @@ where
     let gzip_reader = std::io::BufReader::new(GzDecoder::new(bufreader));
 
     let mut csv_reader = csv::Reader::from_reader(gzip_reader);
+
     if has_header {
         csv_reader.has_headers();
     }
+
     for rec in csv_reader.records() {
         if let Ok(string_rec) = rec {
             f(&string_rec);
@@ -291,7 +291,7 @@ fn make_download_url_list<F>(name: &str, days: Vec<i64>, f: F) -> Vec<String>
 
 
 
-fn download_log<F>(urls: Vec<String>, tx: Sender<Vec<Trade>>, f: F) -> i64
+fn download_log<F>(urls: Vec<String>, tx: Sender<Vec<Trade>>, has_header:bool,  f: F) -> i64
     where F: Fn(&StringRecord) -> Trade
      {
     let mut download_rec = 0;
@@ -301,7 +301,7 @@ fn download_log<F>(urls: Vec<String>, tx: Sender<Vec<Trade>>, f: F) -> i64
 
         let mut buffer: Vec<Trade> = vec![];
 
-        let result = log_download(url.as_str(), false, |rec| {
+        let result = log_download(url.as_str(), has_header, |rec| {
             let trade = f(&rec);
 
             buffer.push(trade);
@@ -361,12 +361,27 @@ mod test_exchange {
         init_debug_log();
     }
 
-    #[tokio::test]
-    async fn log_download_temp_test() {
+    #[test]
+    fn log_download_temp_test() {
         init_debug_log();
         let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
         let tmp_dir = tempdir().unwrap();
-        let _r = log_download_tmp(url, tmp_dir.path()).await;
+        let _r = log_download_tmp(url, tmp_dir.path());
     }
+
+
+    #[test]
+    fn log_download_temp_test_bb() {
+        init_debug_log();
+        //let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
+
+        let url = "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2020-05-18.csv.gz";
+
+        let tmp_dir = tempdir().unwrap();
+        let _r = log_download_tmp(url, tmp_dir.path());
+    }
+
+
+
 
 }
