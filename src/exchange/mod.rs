@@ -16,21 +16,18 @@ use std::{
 
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
-use openssl::ssl::ConnectConfiguration;
-use polars_core::utils::rayon::prelude::IndexedParallelIterator;
 use serde::{de, Deserialize, Deserializer};
 use serde_json::{json, Value};
 use tempfile::tempdir;
 use url::Url;
 use zip::ZipArchive;
 
-use crate::common::{order::Trade, time::{MicroSec, NOW, HHMM, SEC, MICRO_SECOND}};
+use crate::common::{
+    order::Trade,
+    time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
+};
 
 use std::sync::mpsc::Sender;
-use std::thread::sleep;
-use std::thread::spawn;
-use std::thread::JoinHandle;
-use std::time::Duration;
 
 use tungstenite::protocol::WebSocket;
 use tungstenite::Message;
@@ -494,13 +491,17 @@ impl WebSocketClient {
     }
 
     pub fn send_ping(&mut self) {
+        println!(">PING>");
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Ping(vec![]));
+        self.flush();
     }
 
     pub fn send_pong(&mut self, message: Vec<u8>) {
+        println!(">PONG>: {:?}", message);
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Pong(message));
+        self.flush();
     }
 
     pub fn close(&mut self) {
@@ -532,11 +533,11 @@ impl WebSocketClient {
                 println!("BINARY: {:?}", b);
             }
             Message::Ping(p) => {
-                println!("PING: {:?}", p);
+                println!("<PING<: {:?}", p);
                 self.send_pong(p);
             }
             Message::Pong(p) => {
-                println!("PONG: {:?}", p);
+                println!("<PONG<: {:?}", p);
             }
             Message::Close(c) => {
                 println!("CLOSE: {:?}", c);
@@ -556,12 +557,14 @@ struct AutoConnectClient {
     subscribe_message: Value,
     last_message: String,
     last_connect_time: MicroSec,
+    last_ping_time: MicroSec,
     sync_interval: MicroSec,
     sync_records: i64,
 }
 
 const SYNC_RECORDS: i64 = 100;
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 600; // 600 sec (10 min)
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6H
+const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
     fn new(url: &str, subscribe_message: Value) -> Self {
@@ -572,7 +575,8 @@ impl AutoConnectClient {
             subscribe_message: subscribe_message,
             last_message: "".to_string(),
             last_connect_time: 0,
-            sync_interval: SEC(SYNC_INTERVAL), 
+            last_ping_time: NOW(),
+            sync_interval: SEC(SYNC_INTERVAL),
             sync_records: 0,
         }
     }
@@ -599,10 +603,14 @@ impl AutoConnectClient {
     }
 
     fn receive_message(&mut self) -> Result<String, String> {
-
         // if connection exceed sync interval, reconnect
         if self.last_connect_time + self.sync_interval < NOW() && self.next_client.is_none() {
             self.connect_next();
+        }
+
+        if self.last_ping_time + PING_INTERVAL < NOW() {
+            self.client.as_mut().unwrap().send_ping();
+            self.last_ping_time = NOW();
         }
 
         // if the connection_next is not None, receive message
@@ -615,8 +623,7 @@ impl AutoConnectClient {
                 self.last_message = m.clone();
 
                 return Ok(m);
-            }
-            else {
+            } else {
                 self.sync_records = 0;
                 self.switch();
 
@@ -625,7 +632,9 @@ impl AutoConnectClient {
 
                     println!("{} / {}", message, self.last_message);
 
-                    if (message == self.last_message) || (! self.client.as_ref().unwrap().has_message()) {
+                    if (message == self.last_message)
+                        || (!self.client.as_ref().unwrap().has_message())
+                    {
                         self.last_message = "".to_string();
                         break;
                     }
@@ -633,11 +642,10 @@ impl AutoConnectClient {
             }
         }
 
-        return self._receive_message();        
+        return self._receive_message();
     }
 
     fn _receive_message(&mut self) -> Result<String, String> {
-
         let result = self.client.as_mut().unwrap().receive_message();
 
         match result {
@@ -656,227 +664,14 @@ impl AutoConnectClient {
 }
 
 
-
-/*
-pub struct WebSocketClient {
-    connection: Option<Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>>,
-    url: String,
-    pub message_hander: Arc<dyn FnMut(String) -> Result<(), String>>,
-    recv_handler: Option<JoinHandle<()>>,
-    control_handler: Option<JoinHandle<()>>,
-}
-
-const PING_INTERVAL: u64 = 30;
-
-
-impl WebSocketClient {
-    pub fn new<F>(url: &str, f: F) -> Self
-        where
-            F: FnMut(String) -> Result<(), String> + 'static, {
-        WebSocketClient {
-            connection: None,
-            url: url.to_string(),
-            message_hander: Arc::new(f),
-            recv_handler: None,
-            control_handler: None,
-        }
-    }
-
-    pub fn connect(&mut self) -> Result<(), String> {
-        let (mut socket, response) =
-            connect(Url::parse(&self.url).unwrap()).expect("Can't connect");
-
-        println!("Connected to the server");
-
-        println!("Response HTTP code: {}", response.status());
-        println!("Response contains the following headers:");
-
-        for (ref header, _value) in response.headers() {
-            println!("* {}", header);
-        }
-
-        self.connection = Some(Arc::new(Mutex::new(socket)));
-
-        Ok(())
-    }
-
-    pub fn send_message(&mut self, message: &str) -> Result<(), String> {
-        let mut guard = self.connection.as_ref().unwrap().lock().unwrap();
-
-        let result = guard.write(Message::Text(message.to_string()));
-
-        match result {
-            Ok(_) => {
-                println!("Sent subscribe message");
-            }
-            Err(e) => {
-                println!("Error: {:?}", e.to_string());
-            }
-        }
-
-        guard.flush().unwrap();
-
-        Ok(())
-    }
-
-    /*
-    fn send_ping(&self) -> Result<(), tungstenite::error::Error> {
-        let mut guard = self.connection.as_ref().clone().unwrap().lock().unwrap();
-        guard.write(Message::Ping(vec![]))
-    }
-    */
-
-    fn send_ping(socket: &Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>) -> Result<(), tungstenite::error::Error> {
-        let mut guard = socket.lock().unwrap();
-        guard.write(Message::Ping(vec![]))
-    }
-
-    fn send_pong(socket: &Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>, message: Vec<u8>) -> Result<(), tungstenite::error::Error> {
-        let mut guard = socket.lock().unwrap();
-        guard.write(Message::Pong(message))
-    }
-
-    fn control_loop(socket: &Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>) {
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(PING_INTERVAL));
-            Self::send_ping(socket);
-        }
-    }
-
-    fn recv_loop(socket: Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>, message_handler: Arc<dyn FnMut(String) -> Result<(), String>>) -> Result<(), String> {
-        loop {
-            let mut guard = socket.lock().unwrap();
-            let msg = guard.read().unwrap();
-            drop(guard);
-
-            match msg {
-                Message::Text(s) => {
-                    let result = {
-                        let h = message_handler.clone();
-                        //let handler = h.as_ref();
-                        let message_handler = Arc::new(Mutex::new(h.clone()));
-                        let handler = message_handler.lock().unwrap();
-                        (handler)(s.to_string())
-                    };
-                    match result {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::error!("message handler error {}", e);
-                        }
-                    }
-                }
-                Message::Binary(_) => {}
-                Message::Ping(ping_message) => {
-                    log::debug!("PING: {:?}", ping_message);
-                    Self::send_pong(&socket, ping_message).unwrap();
-                }
-                Message::Pong(_) => {}
-                Message::Close(_) => {
-                    log::debug!("close message");
-                    break;
-                }
-                Message::Frame(_) => {}
-            }
-        }
-
-        log::debug!("recv loop end");
-        Ok(())
-    }
-
-    fn start(&mut self) {
-        let socket = self.connection.as_ref().unwrap().clone();
-        let message_handler = self.message_hander.clone();
-
-         //let message_handler: Box<dyn FnMut(std::string::String) -> Result<(), std::string::String> + 'static> =
- //       let mut message_handler = self.message_hander.as_ref().clone();
-
-        let handler = Some(thread::spawn(move || {
-            //Self::recv_loop(socket, message_handler);
-        }));
-    }
-}
-
-use std::sync::{Arc, Mutex};
-
-struct MyClass {
-    connection: Option<Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>>,
-    pub url: String,
-    counter: i32,
-    handle: Option<JoinHandle<()>>,
-}
-
-impl MyClass {
-    fn new(url: &str) -> Self {
-        MyClass {
-            connection: None,
-            url: url.to_string(),
-            counter: 0,
-            handle: None,
-        }
-    }
-
-    fn open(&mut self) -> Result<(), String> {
-        let (socket, response) = connect(Url::parse(&self.url).unwrap()).expect("Can't connect");
-
-        println!("Connected to the server");
-
-        println!("Response HTTP code: {}", response.status());
-        println!("Response contains the following headers:");
-
-        for (ref header, _value) in response.headers() {
-            println!("* {}", header);
-        }
-
-        self.connection = Some(Arc::new(Mutex::new(socket)));
-
-        Ok(())
-    }
-
-    fn do_something(&mut self) {
-        self.counter += 1;
-        println!("Doing something! Counter: {}", self.counter);
-    }
-
-    fn start(&mut self) {
-        let mut inner_counter = self.counter;
-
-        let socket = self.connection.as_ref().unwrap().clone();
-
-        self.handle = Some(thread::spawn(move || {
-            loop {
-                sleep(Duration::from_secs(60));
-                Self::send_ping(socket.clone()).unwrap();
-                /*
-                inner_counter += 1;
-                println!("Doing something in thread! Counter: {}", inner_counter);
-                thread::sleep(Duration::from_secs(2));
-                connection_b.unwrap();
-                connection_b.unwrap().write(Message::Ping(vec![]));
-                */
-            }
-        }));
-    }
-
-    fn send_ping(socket: Arc<Mutex<WebSocket<MaybeTlsStream<TcpStream>>>>) -> Result<(), tungstenite::error::Error> {
-        let mut guard = socket.lock().unwrap();
-        guard.write(Message::Ping(vec![]))
-    }
-
-
-    fn stop(self) {
-        if let Some(handle) = self.handle {
-            // Here you could send a signal to the thread to stop it gracefully
-            // but for the sake of this example, we will just join the thread.
-            handle.join().unwrap();
-        }
-    }
-}
-*/
-
 #[cfg(test)]
 mod test_exchange {
     use super::*;
     use crate::common::init_debug_log;
+    use std::thread::sleep;
+    use std::thread::spawn;
+    use std::time::Duration;
+
 
     #[test]
     fn ws_loop() {
