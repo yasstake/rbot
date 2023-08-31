@@ -1,5 +1,9 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
+pub mod message;
+pub mod rest;
+pub mod ws;
+
 use std::io::{stdout, Write};
 use chrono::Datelike;
 use csv::StringRecord;
