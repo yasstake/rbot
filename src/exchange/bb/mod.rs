@@ -1,6 +1,10 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 // Abluotely no warranty.
 
+pub mod message;
+pub mod rest;
+pub mod ws;
+
 use std::io::{stdout, Write};
 use chrono::Datelike;
 use csv::StringRecord;
@@ -228,7 +232,7 @@ timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotiona
 1651449601,BTCUSD,Sell,258,38458.00,MinusTick,a0dd4504-db3c-535f-b43b-4de38f581b79,670861.7192781736,258,0.006708617192781736
 
 
-・RESTAPI　（直近1000レコード分＝おおよそ３０分程度のログが取得できる）
+・RESTAPI　（直近1000レコード分＝おおよそ３分程度のログが取得できる）
 ＜サンプル＞
 ・リクエスト
 https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=BTCUSDT&limit=1000&start=1692828100000
@@ -255,7 +259,7 @@ KLine形式で１分足ならばもっと長期間のログが取得可能。
 mod BBMarketTest{
     use csv::StringRecord;
 
-    use crate::common::time::NOW;
+    use crate::common::time::{NOW, time_string};
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
@@ -294,6 +298,14 @@ mod BBMarketTest{
         assert_eq!(trade.price, 26027.0);
         assert_eq!(trade.size, 641.0);
         assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
+    }
+
+    #[test]
+    fn test_last_day() {
+        println!("{}", time_string(NOW()));        
+
+        println!("{}", time_string(1692920542792000));
+        println!("{}", time_string(1692920496811000));
     }
 
 }

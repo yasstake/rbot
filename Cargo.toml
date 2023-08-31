@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 chrono = {version= "*"}
 
-strum_macros = {version  = "0.25.1"}
+strum_macros = {version  = "0.25.2"}
 strum = { version = "0.25.0", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
@@ -25,7 +25,7 @@ serde_json = {version = "1.0"}
 serde_derive = {version = "1.0"}
 
 log = {version = "0.4"}
-simple_logger = {version = "4.0.0"}
+simple_logger = {version = "4.2.0"}
 
 directories= "5.0.1"
 
@@ -44,20 +44,24 @@ reqwest = {version = "0.11", features=["blocking", "gzip"]}
 futures = {version="0.3"}
 flate2 = {version="1.0.24"}
 
-csv = {version="1.1.6"}
-zip = {version="0.6.3"}
+csv = {version="1.2.2"}
+zip = {version="0.6.6"}
 
-tempfile={version="3.3"}
+tempfile={version="3.8.0"}
 
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10.56", features = ["vendored"] }
 
 pyo3-polars = {version="0.6.0"}
+
+url = {version="2.4.0"}
 
 #hdf5 = {version="0.8.1"}
 #hdf5-sys = {version="0.8.1"}
 
+tungstenite = {version="0.20.0", features=["native-tls"]}
+
  [dependencies.pyo3]
- version = "0.19.1"
+ version = "0.19.2"
 
  [features]
  extension-module = ["pyo3/extension-module"]

@@ -995,7 +995,7 @@ impl TradeTable {
         force: bool,
     ) -> Vec<i64> {
         let from_time = NOW() - DAYS(ndays + 1);
-        let to_time = NOW() - DAYS(2);        
+        let to_time = NOW() - DAYS(1);        
 
         let time_gap = if force {
             vec![TimeChunk {
