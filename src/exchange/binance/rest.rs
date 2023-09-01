@@ -1,4 +1,7 @@
-use crate::{exchange::rest_get, common::{order::Trade, time::MicroSec}};
+use crate::exchange::rest_get;
+use crate::common::order::Trade;
+use crate::common::time::MicroSec;
+use super::message::BinanceRestBoard;
 use super::message::BinanceTradeMessage;
 
 const SERVER: &str ="https://api.binance.com";
@@ -101,6 +104,25 @@ fn get_old_trade_until(symbol: &str, until: MicroSec) {
     }
 }
 
+fn get_board_snapshot() -> Result<BinanceRestBoard, String> {
+    let path = format!("/api/v3/depth?symbol=BTCUSDT&limit=1000");
+
+    let result = rest_get(SERVER, path.as_str());
+
+    match result {
+        Ok(message)=> {
+            let v: BinanceRestBoard = serde_json::from_str(message.as_str()).unwrap();
+    
+            println!("result: {:?}", v);
+            Ok(v)
+        },
+        Err(e) => {
+            println!("Error: {:?}", e);
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod binance_rest_tests {
     use crate::common::time::{NOW, HHMM};
@@ -129,4 +151,13 @@ mod binance_rest_tests {
         let until = NOW() - HHMM(24, 5);
         let result = get_old_trade_until("BTCUSDT", until);
     }    
+
+    #[test]
+    fn test_get_board() {
+        let result = get_board_snapshot();
+
+        println!("{:?}", result.unwrap());
+    }
+    
+        
 }
