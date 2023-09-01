@@ -10,6 +10,9 @@ use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal_macros::dec;
 
 use crate::common::order::{OrderSide, TimeChunk, Trade};
 use crate::common::time::NOW;
@@ -18,7 +21,7 @@ use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::fs::db_full_path;
 
-use super::{log_download, make_download_url_list, download_log};
+use super::{log_download, make_download_url_list, download_log, Board};
 
 #[derive(Debug)]
 #[pyclass(name = "_BinanceMarket")]
@@ -26,7 +29,12 @@ pub struct BinanceMarket {
     name: String,
     pub dummy: bool,
     pub db: TradeTable,
+    pub bit: Board,
+    pub ask: Board,
 }
+
+// TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
+const BOARD_PRICE_UNIT: f64 = 0.5;
 
 #[pymethods]
 impl BinanceMarket {
@@ -45,6 +53,8 @@ impl BinanceMarket {
             name: market_name.to_string(),
             dummy,
             db,
+            bit: Board::new(Decimal::from_f64(BOARD_PRICE_UNIT).unwrap(), true),
+            ask: Board::new(Decimal::from_f64(BOARD_PRICE_UNIT).unwrap(), false),            
         };
     }
 
@@ -72,110 +82,6 @@ impl BinanceMarket {
 
         return download_rec;
     }
-
-/*
-    pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
-        let mut download_rec: i64 = 0;
-        let from_time = NOW() - DAYS(ndays + 1);
-
-        println!("Start download from {}", time_string(from_time));
-        let _ = stdout().flush();
-
-        let to_time = NOW() - DAYS(2);
-
-        let time_gap = if force {
-            vec![TimeChunk {
-                start: from_time,
-                end: to_time,
-            }]
-        } else {
-            let start_time = self.db.start_time().unwrap_or(NOW());
-            let end_time = self.db.end_time().unwrap_or(NOW());
-
-            let mut time_chunk: Vec<TimeChunk> = vec![];
-
-            if from_time < start_time {
-                log::debug!("download before {} {}", from_time, start_time);
-                time_chunk.push(TimeChunk {
-                    start: from_time,
-                    end: start_time,
-                });
-            }
-
-            if end_time < to_time {
-                log::debug!("download after {} {}", end_time, to_time);
-                time_chunk.push(TimeChunk {
-                    start: end_time,
-                    end: to_time,
-                });
-            }
-
-            time_chunk
-        };
-
-        let days_gap = TradeTable::time_chunks_to_days(&time_gap);
-        log::debug!("GAP TIME: {:?}", time_gap);
-        log::debug!("GAP DAYS: {:?}", days_gap);
-
-        let mut urls: Vec<String> = vec![];
-        for day in days_gap {
-            urls.push(self.make_historical_data_url_timestamp(day));
-        }
-
-        let tx = self.db.start_thread();
-
-        for url in urls {
-            log::debug!("download url = {}", url);
-
-            let mut buffer: Vec<Trade> = vec![];
-
-            let result = log_download(url.as_str(), false, |rec| {
-                let trade = BinanceMarket::rec_to_trade(&rec);
-
-                buffer.push(trade);
-
-                if 2000 < buffer.len() {
-                    let result = tx.send(buffer.to_vec());
-
-                    match result {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::error!("{:?}", e);
-                        }
-                    }
-                    buffer.clear();
-                }
-            });
-
-            if buffer.len() != 0 {
-                let result = tx.send(buffer.to_vec());
-                match result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                    }
-                }
-
-                buffer.clear();
-            }
-
-            match result {
-                Ok(count) => {
-                    log::debug!("Downloaded rec = {} ", count);
-                    println!("Downloaded rec = {} ", count);
-                    download_rec += count;
-                }
-                Err(e) => {
-                    log::error!("extract err = {}", e.as_str());
-                }
-            }
-        }
-
-        log::debug!("download rec = {}", download_rec);
-
-        return download_rec;
-    }
-    */
 
     pub fn cache_all_data(&mut self) {
         self.db.update_cache_all();
@@ -237,6 +143,16 @@ impl BinanceMarket {
 
     pub fn info(&mut self) -> String {
         return self.db.info();
+    }
+
+    #[getter]
+    fn get_ask(&self) -> PyResult<Py<PyArray2<f64>>> {
+        return self.ask.to_pyarray();
+    }
+
+    #[getter]
+    fn get_bit(&self) -> PyResult<Py<PyArray2<f64>>> {
+        return self.bit.to_pyarray();
     }
 
     #[getter]

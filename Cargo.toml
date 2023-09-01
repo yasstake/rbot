@@ -35,8 +35,6 @@ polars-core = {version = "0.32.1", features=["ndarray", "temporal", "dtype-time"
 polars-lazy = {version="0.32.1", features=["dynamic_groupby"]}
 polars-time = {version="0.32.1"}
 
-
-
 ndarray = {version="0.15.6"}
 numpy = {version="0.19.0"}
 
@@ -54,6 +52,9 @@ openssl = { version = "0.10.56", features = ["vendored"] }
 pyo3-polars = {version="0.6.0"}
 
 url = {version="2.4.0"}
+
+rust_decimal = {version="1.32.0"}
+rust_decimal_macros = {version="1.32.0"}
 
 #hdf5 = {version="0.8.1"}
 #hdf5-sys = {version="0.8.1"}
