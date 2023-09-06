@@ -5,6 +5,7 @@ pub mod bb;
 pub mod binance;
 // pub mod ftx;
 
+use core::panic;
 use std::{
     collections::HashMap,
     fs::File,
@@ -28,16 +29,53 @@ use tempfile::tempdir;
 use url::Url;
 use zip::ZipArchive;
 
-use crate::common::{
+use crate::{common::{
     order::Trade,
     time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
-};
+}, exchange::binance::{BinanceConfig, BinanceMarket}, db::sqlite::TradeTable};
 
 use std::sync::mpsc::Sender;
 
 use tungstenite::protocol::WebSocket;
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
+
+
+pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> TradeTable {
+    match exchange_name.to_uppercase().as_str() {
+        "BN" => {
+            match trade_type.to_uppercase().as_str() {
+                "SPOT" => {
+                    log::debug!("open_db: Binance / {}", trade_symbol);
+                    let config = BinanceConfig::SPOT(trade_symbol.to_string());
+                    let binance = BinanceMarket::new(&config);
+
+                    return binance.db;
+                },
+                "MARGIN" => {
+                    log::debug!("open_db: Binance / {}", trade_symbol);
+                    panic!("Not implemented yet");
+                },
+                _ => {
+                    panic!("Unknown trade type {}", trade_type);
+                }
+            }
+        }
+        /*
+        "BB" => {
+            log::debug!("open_db: ByBit / {}", market_name);            
+            let bb = BBMarket::new(market_name, true);
+
+            return bb.db;
+        },
+        */
+        _ => {
+            panic!("Unknown exchange {}", exchange_name);
+        }
+    }
+}
+
+
 
 fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where

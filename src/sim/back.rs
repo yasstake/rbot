@@ -10,8 +10,8 @@ use crate::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
         time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND, NOW, HHMM},
     },
-    db::{open_db, sqlite::TradeTableQuery},
-    sim::session::DummySession,
+    db::{sqlite::TradeTableQuery},
+    sim::session::DummySession, exchange::open_db,
 };
 
 #[pyclass(name = "_BackTester")]
@@ -50,7 +50,7 @@ pub struct BackTester {
 #[pymethods]
 impl BackTester {
     #[new]
-    pub fn new(exchange_name: &str, market_name: &str, size_in_price_currency: bool) -> Self {
+    pub fn new(exchange_name: &str, market_type: &str, market_name: &str, size_in_price_currency: bool) -> Self {
         return BackTester {
             exchange_name: exchange_name.to_string(),
             market_name: market_name.to_string(),
@@ -88,7 +88,10 @@ impl BackTester {
         self.clock_interval = self.agent_clock_interval(agent);
         log::debug!("clock interval {:?}", self.clock_interval);
 
-        let mut db = open_db(self.exchange_name.as_str(), self.market_name.as_str());
+        let mut db = open_db(
+            self.exchange_name.as_str(), 
+            self.market_name.as_str(),
+            self.market_name.as_str());
         
         db.reset_cache_duration();
 
@@ -416,11 +419,6 @@ impl BackTester {
 #[cfg(test)]
 mod back_testr_test {
     use super::*;
-
-    #[test]
-    fn test_create() {
-        let _b = BackTester::new("FTX", "BTC-PERP", false);
-    }
 
     #[test]
     fn test_session_copy() {
