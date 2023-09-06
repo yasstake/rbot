@@ -72,7 +72,8 @@ impl BBMarket {
     }
 
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
-        let days_gap = self.db.make_time_days_chunk_from_days(ndays, force);
+        let latest_time = NOW() - DAYS(1);
+        let days_gap = self.db.make_time_days_chunk_from_days(ndays, latest_time, force);
         let urls: Vec<String> = make_download_url_list(self.name.as_str(), days_gap, Self::make_historical_data_url_timestamp);
         let tx = self.db.start_thread();
         let download_rec = download_log(urls, tx, true, BBMarket::rec_to_trade);
