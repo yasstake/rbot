@@ -1,5 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
-// Abluotely no warranty.
+// ABSOLUTELY NO WARRANTY
 
 pub mod message;
 pub mod rest;

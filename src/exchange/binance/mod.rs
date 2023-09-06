@@ -12,10 +12,11 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de;
 use serde_json::{json, Value};
 use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
-use std::thread::{JoinHandle, sleep};
+use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::order::{OrderSide, TimeChunk, Trade};
@@ -33,6 +34,74 @@ use super::{
     check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
     OrderBook,
 };
+
+#[pyclass]
+pub struct BinanceAccount {
+    pub api_key: String,
+    pub secret_key: String,
+    pub subaccount: String,
+}
+
+#[derive(Clone, Debug)]
+#[pyclass]
+pub struct BinanceConfig {
+    pub exchange_name: String,
+    pub rest_endpoint: String,
+    pub public_ws_endpoint: String,
+    pub private_ws_endpoint: String,
+    pub history_web_base: String,
+    pub trade_type: String,
+    pub trade_symbol: String,
+    pub new_order_path: String,
+    pub cancel_order_path: String,
+    pub public_subscribe_message: String,
+}
+
+#[pymethods]
+impl BinanceConfig {
+    #[staticmethod]
+    pub fn BTCBUSD() -> Self {
+        return BinanceConfig::SPOT("BTCUSDT".to_string());
+    }
+
+    #[staticmethod]
+    pub fn SPOT(symbol: String) -> Self {
+        let upper_symbol = symbol.to_uppercase();
+        let lower_symbol = symbol.to_lowercase();
+
+        return BinanceConfig {
+            exchange_name: "BN".to_string(),
+            trade_type: "SPOT".to_string(),
+            trade_symbol: upper_symbol,
+            rest_endpoint: "https://api.binance.com".to_string(),
+            public_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
+            private_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
+            history_web_base: "https://data.binance.vision/data/spot/daily/trades".to_string(),
+            new_order_path: "/api/v3/order".to_string(),
+            cancel_order_path: "/api/v3/order".to_string(),
+            public_subscribe_message: json!(
+                {
+                    "method": "SUBSCRIBE",
+                    "params": [
+                        format!("{}@trade", lower_symbol),
+                        format!("{}@depth@100ms", lower_symbol)
+                    ],
+                    "id": 1
+                }
+            )
+            .to_string(),
+        };
+    }
+}
+
+impl BinanceConfig {
+    fn to_string(&self) -> String {
+        return format!(
+            "{:?}-{:?}-{:?}",
+            self.exchange_name, self.trade_type, self.trade_symbol
+        );
+    }
+}
 
 // TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
 const BOARD_PRICE_UNIT: f64 = 0.01;
@@ -58,8 +127,11 @@ impl BinanceOrderBook {
 
     pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
         if self.last_update_id == 0 {
-            println!("reflesh board {} / {}->{}", self.last_update_id, update_data.u, update_data.U);
-            sleep(Duration::from_secs(3));    
+            println!(
+                "reflesh board {} / {}->{}",
+                self.last_update_id, update_data.u, update_data.U
+            );
+            sleep(Duration::from_millis(150));  // 100ms毎に更新されるので、150ms待つ。
             self.reflesh_board();
         }
 
@@ -80,7 +152,10 @@ impl BinanceOrderBook {
 
         // 5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
         if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
-            print!("lastupdate({}) / U({}) / u({})", self.last_update_id, update_data.U, update_data.u);
+            print!(
+                "lastupdate({}) / U({}) / u({})",
+                self.last_update_id, update_data.U, update_data.u
+            );
             self.board
                 .update(&update_data.bids, &update_data.asks, false);
         }
@@ -111,8 +186,8 @@ impl BinanceOrderBook {
 #[derive(Debug)]
 #[pyclass(name = "_BinanceMarket")]
 pub struct BinanceMarket {
+    pub config: BinanceConfig,
     name: String,
-    pub dummy: bool,
     pub db: TradeTable,
     pub board: Arc<Mutex<BinanceOrderBook>>,
     pub handler: Option<JoinHandle<()>>,
@@ -121,9 +196,9 @@ pub struct BinanceMarket {
 #[pymethods]
 impl BinanceMarket {
     #[new]
-    pub fn new(market_name: &str, dummy: bool) -> Self {
+    pub fn new(config: &BinanceConfig) -> Self {
         // TODO: SPOTにのみ対応しているのを変更する。
-        let db_name = Self::db_path(&market_name).unwrap();
+        let db_name = Self::db_path(&config).unwrap();
 
         println!("create TradeTable: {}", db_name);
 
@@ -131,20 +206,15 @@ impl BinanceMarket {
 
         db.create_table_if_not_exists();
 
+        let name = config.trade_symbol.clone();
+
         return BinanceMarket {
-            name: market_name.to_string(),
-            dummy,
+            config: config.clone(),
+            name: name.clone(),
             db,
-            board: Arc::new(Mutex::new(BinanceOrderBook::new(market_name.to_string()))),
+            board: Arc::new(Mutex::new(BinanceOrderBook::new(name))),
             handler: None,
         };
-    }
-
-    #[staticmethod]
-    pub fn db_path(market_name: &str) -> PyResult<String> {
-        let db_name = db_full_path("BN", "SPOT", market_name);
-
-        return Ok(db_name.as_os_str().to_str().unwrap().to_string());
     }
 
     #[getter]
@@ -227,11 +297,7 @@ impl BinanceMarket {
         return self.db.py_ohlcv(from_time, to_time, window_sec);
     }
 
-    pub fn select_trades(
-        &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
-    ) -> PyResult<PyDataFrame> {
+    pub fn select_trades(&mut self, from_time: MicroSec, to_time: MicroSec) -> PyResult<PyDataFrame> {
         return self.db.py_select_trades_polars(from_time, to_time);
     }
 
@@ -283,17 +349,8 @@ impl BinanceMarket {
     pub fn start_ws(&mut self) {
         // TODO: parameterize
         let mut websocket = AutoConnectClient::new(
-            "wss://stream.binance.com/ws",
-            json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
-                        "btcusdt@trade",
-                        "btcusdt@depth@100ms"
-                    ],
-                    "id": 1
-                }
-            ),
+            self.config.public_ws_endpoint.as_str(),
+            serde_json::from_str(self.config.public_subscribe_message.as_str()).unwrap()
         );
 
         websocket.connect();
@@ -337,7 +394,19 @@ impl BinanceMarket {
 use crate::exchange::binance::rest::get_board_snapshot;
 
 const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trades";
+
 impl BinanceMarket {
+    pub fn db_path(config: &BinanceConfig) -> PyResult<String> {
+        //let db_name = db_full_path("BN", "SPOT", market_name);
+        let db_name = db_full_path(
+            config.exchange_name.as_str(),
+            config.trade_type.as_str(),
+            config.trade_symbol.as_str(),
+        );
+
+        return Ok(db_name.as_os_str().to_str().unwrap().to_string());
+    }
+
     fn make_historical_data_url_timestamp(name: &str, t: MicroSec) -> String {
         let timestamp = to_naive_datetime(t);
 
@@ -477,7 +546,7 @@ mod binance_test {
     #[test]
     fn test_make_historical_data_url_timestamp() {
         init_log();
-        let market = BinanceMarket::new("BTCBUSD", true);
+        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
         println!(
             "{}",
             BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 1)
@@ -491,7 +560,8 @@ mod binance_test {
     #[test]
     fn test_download() {
         init_debug_log();
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
         println!("{}", time_string(market.db.end_time().unwrap_or(0)));
         println!("Let's donwload");
@@ -500,14 +570,16 @@ mod binance_test {
 
     #[test]
     fn test_db_info() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         println!("{:?}", market.db.info());
     }
 
     #[test]
     fn test_ohlcv() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.ohlcv(0, 0, 3600);
 
@@ -516,14 +588,16 @@ mod binance_test {
 
     #[test]
     fn bench_ohlcv() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.ohlcv(0, 0, 3600);
     }
 
     #[test]
     fn test_start_ws() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.start_ws();
         sleep(Duration::from_secs(20));
@@ -531,7 +605,8 @@ mod binance_test {
 
     #[test]
     fn test_reflesh_board() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         let update_data = get_board_snapshot("BTCBUSD").unwrap();
 
@@ -542,7 +617,8 @@ mod binance_test {
 
     #[test]
     fn test_ws_start() {
-        let mut market = BinanceMarket::new("BTCBUSD", true);
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.start_ws();
 
@@ -551,14 +627,16 @@ mod binance_test {
 
     #[test]
     fn test_latest_archive_date() {
-        let market = BinanceMarket::new("BTCBUSD", true);
+        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let market = BinanceMarket::new("BTCBUSD", true);
 
         println!("{}", time_string(market.get_latest_archive_date().unwrap()));
     }
 
     #[test]
     fn test_latest_archive_timestamp() {
-        let market = BinanceMarket::new("BTCBUSD", true);
+        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        //let market = BinanceMarket::new("BTCBUSD", true);
 
         println!(
             "{}",
