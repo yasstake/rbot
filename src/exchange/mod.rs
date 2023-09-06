@@ -6,19 +6,21 @@ pub mod binance;
 // pub mod ftx;
 
 use std::{
+    collections::HashMap,
     fs::File,
     io::{copy, BufReader, Cursor, Write},
+    iter::Map,
     net::TcpStream,
     path::Path,
     sync::{Arc, Mutex},
-    thread, iter::Map, collections::HashMap,
+    thread,
 };
 
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use ndarray::Array2;
-use numpy::{PyArray2, IntoPyArray};
-use pyo3::{PyResult, Py, Python};
+use numpy::{IntoPyArray, PyArray2};
+use pyo3::{Py, PyResult, Python};
 use serde::{de, Deserialize, Deserializer};
 use serde_derive::Serialize;
 use serde_json::{json, Value};
@@ -58,7 +60,6 @@ where
         Err(_) => Err(de::Error::custom("Failed to parse f64")),
     }
 }
-
 
 fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
@@ -389,7 +390,6 @@ where
         match result {
             Ok(count) => {
                 log::debug!("Downloaded rec = {} ", count);
-                println!("Downloaded rec = {} ", count);
                 download_rec += count;
             }
             Err(e) => {
@@ -403,9 +403,11 @@ where
     return download_rec;
 }
 
-fn rest_get(server: &str, path: &str) -> Result<String, String> {
+pub fn rest_get(server: &str, path: &str) -> Result<String, String> {
     let url = format!("{}{}", server, path);
     let client = reqwest::blocking::Client::new();
+
+    println!("URL = {}", url);
 
     let response = match client
         .get(url)
@@ -429,7 +431,7 @@ fn rest_get(server: &str, path: &str) -> Result<String, String> {
     Ok(response.text().unwrap())
 }
 
-fn restapi<F>(server: &str, path: &str, f: F) -> Result<(), String>
+pub fn restapi<F>(server: &str, path: &str, f: F) -> Result<(), String>
 where
     F: Fn(String) -> Result<(), String>,
 {
@@ -456,6 +458,35 @@ where
     );
 
     f(response.text().unwrap())
+}
+
+pub fn check_exist(url: &str) -> bool {
+    let client = reqwest::blocking::Client::new();
+
+    let response = match client
+        .head(url)
+        .header("User-Agent", "Mozilla/5.0")
+        .header("Accept", "text/html")
+        .send()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("URL get error {}", e.to_string());
+            return false;
+        }
+    };
+
+    log::debug!(
+        "Response code = {} / download size {}",
+        response.status().as_str(),
+        response.content_length().unwrap()
+    );
+
+    if response.status().as_str() == "200" {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 pub struct WebSocketClient {
@@ -493,6 +524,7 @@ impl WebSocketClient {
     }
 
     pub fn send_message(&mut self, message: &str) {
+        // TODO: check if connection is established.
         let connection = self.connection.as_mut().unwrap();
         let result = connection.write(Message::Text(message.to_string()));
 
@@ -507,14 +539,14 @@ impl WebSocketClient {
     }
 
     pub fn send_ping(&mut self) {
-        println!(">PING>");
+        log::debug!(">PING>");
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Ping(vec![]));
         self.flush();
     }
 
     pub fn send_pong(&mut self, message: Vec<u8>) {
-        println!(">PONG>: {:?}", message);
+        log::debug!(">PONG>: {:?}", message);
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Pong(message));
         self.flush();
@@ -542,21 +574,20 @@ impl WebSocketClient {
 
         match message {
             Message::Text(t) => {
-                println!("TEXT: {}", t);
                 return Ok(t);
             }
             Message::Binary(b) => {
-                println!("BINARY: {:?}", b);
+                log::debug!("BINARY: {:?}", b);
             }
             Message::Ping(p) => {
-                println!("<PING<: {:?}", p);
+                log::debug!(">PING>: {:?}", p);
                 self.send_pong(p);
             }
             Message::Pong(p) => {
-                println!("<PONG<: {:?}", p);
+                log::debug!(">PONG>: {:?}", p);
             }
             Message::Close(c) => {
-                println!("CLOSE: {:?}", c);
+                log::debug!("CLOSE: {:?}", c);
                 return Err("Closed".to_string());
             }
             Message::Frame(_) => {}
@@ -583,7 +614,7 @@ const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6H
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
-    fn new(url: &str, subscribe_message: Value) -> Self {
+    pub fn new(url: &str, subscribe_message: Value) -> Self {
         AutoConnectClient {
             client: Some(WebSocketClient::new(url, subscribe_message.clone())),
             next_client: None,
@@ -597,12 +628,12 @@ impl AutoConnectClient {
         }
     }
 
-    fn connect(&mut self) {
+    pub fn connect(&mut self) {
         self.client.as_mut().unwrap().connect();
         self.last_connect_time = NOW();
     }
 
-    fn connect_next(&mut self) {
+    pub fn connect_next(&mut self) {
         self.next_client = Some(WebSocketClient::new(
             self.url.as_str(),
             self.subscribe_message.clone(),
@@ -610,7 +641,7 @@ impl AutoConnectClient {
         self.next_client.as_mut().unwrap().connect();
     }
 
-    fn switch(&mut self) {
+    pub fn switch(&mut self) {
         self.client.as_mut().unwrap().close();
         self.client = self.next_client.take();
         self.next_client = None;
@@ -618,7 +649,7 @@ impl AutoConnectClient {
         println!("------switched------");
     }
 
-    fn receive_message(&mut self) -> Result<String, String> {
+    pub fn receive_message(&mut self) -> Result<String, String> {
         // if connection exceed sync interval, reconnect
         if self.last_connect_time + self.sync_interval < NOW() && self.next_client.is_none() {
             self.connect_next();
@@ -679,33 +710,15 @@ impl AutoConnectClient {
     }
 }
 
-
-
-
-/*
-Order book management.
-https://binance-docs.github.io/apidocs/spot/en/#diff-depth-stream
-
-1. Open a stream to wss://stream.binance.com:9443/ws/bnbbtc@depth.
-2. Buffer the events you receive from the stream.
-3. Get a depth snapshot from https://api.binance.com/api/v3/depth?symbol=BNBBTC&limit=1000 .
-4. Drop any event where u is <= lastUpdateId in the snapshot.
-5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
-6. While listening to the stream, each new event's U should be equal to the previous event's u+1.
-7. The data in each event is the absolute quantity for a price level.
-8. If the quantity is 0, remove the price level.
-9. Receiving an event that removes a price level that is not in your local order book can happen and is normal.
-*/
-
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoardItem {
     #[serde(deserialize_with = "string_to_decimal")]
-    pub  price: Decimal,
-    #[serde(deserialize_with = "string_to_decimal")]    
-    pub size: Decimal
+    pub price: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub size: Decimal,
 }
 
 impl BoardItem {
@@ -715,11 +728,18 @@ impl BoardItem {
             size: Decimal::from_f64(size).unwrap(),
         }
     }
+
+    pub fn from_decimal(price: Decimal, size: Decimal) -> Self {
+        BoardItem {
+            price: price,
+            size: size,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Board {
-    step: Decimal,    
+    step: Decimal,
     asc: bool,
     board: HashMap<Decimal, Decimal>,
 }
@@ -733,21 +753,20 @@ impl Board {
         }
     }
 
-    pub fn set(&mut self, price: &Decimal, size: &Decimal) {
-        if *size == dec!(0.0) {
-            self.board.remove(price);
+    pub fn set(&mut self, price: Decimal, size: Decimal) {
+        if size == dec!(0.0) {
+            self.board.remove(&price);
             return;
         }
 
-        self.board.insert(*price, *size);
+        self.board.insert(price, size);
     }
 
     fn step(&self) -> Decimal {
         if self.asc {
             self.step
-        }
-        else {
-            - self.step
+        } else {
+            -self.step
         }
     }
 
@@ -755,31 +774,38 @@ impl Board {
     // ascがtrueなら昇順、falseなら降順
     // stepサイズごとで0の値も含めて返す
     // stepサイズが０のときは、stepサイズを無視して返す
-    pub fn get(&self) -> Vec<(Decimal, Decimal)>{
-        let mut v: Vec<(Decimal, Decimal)> = vec![];
+    pub fn get(&self) -> Vec<BoardItem> {
+        let mut vec: Vec<BoardItem> = Vec::from_iter(
+            self.board
+                .iter()
+                .map(|(k, v)| BoardItem::from_decimal(*k, *v)),
+        );
 
-        let mut keys: Vec<_> = self.board.keys().collect();
         if self.asc {
-            keys.sort_by(|a, b| a.partial_cmp(&b).unwrap());
-        }
-        else {
-            keys.sort_by(|a, b| b.partial_cmp(&a).unwrap());
+            vec.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
+        } else {
+            vec.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
         }
 
-        let mut current_value = dec!(0.0);
+        vec
+    }
 
-        for k in keys {
-            if current_value == dec!(0.0) {
-                current_value = *k;
+    pub fn get_with_fill(&self) -> Vec<BoardItem> {
+        let mut v: Vec<BoardItem> = vec![];
+        let mut current_price = dec!(0.0);
+
+        for item in self.get() {
+            if current_price == dec!(0.0) {
+                current_price = item.price;
             }
 
-            while current_value != *k {
-                v.push((current_value, dec!(0.0)));
-                current_value += self.step();
+            while current_price != item.price {
+                v.push(BoardItem::from_decimal(current_price, dec!(0.0)));
+                current_price += self.step();
             }
-            
-            v.push((*k, self.board[k]));
-            current_value += self.step();            
+
+            v.push(BoardItem::from_decimal(item.price, item.size));
+            current_price += self.step();
         }
 
         v
@@ -794,13 +820,13 @@ impl Board {
     }
 
     // convert to ndarray
-    pub fn to_ndarray(board: &Vec<(Decimal, Decimal)>) -> Array2<f64>{
+    pub fn to_ndarray(board: &Vec<BoardItem>) -> Array2<f64> {
         let shape = (board.len(), 2);
-        let mut array_vec: Vec<f64>= Vec::with_capacity(shape.0 * shape.1);
+        let mut array_vec: Vec<f64> = Vec::with_capacity(shape.0 * shape.1);
 
-        for (a, b) in board.iter() {
-            array_vec.push(a.to_f64().unwrap());
-            array_vec.push(b.to_f64().unwrap());
+        for item in board {
+            array_vec.push(item.price.to_f64().unwrap());
+            array_vec.push(item.size.to_f64().unwrap());
         }
 
         let array: Array2<f64> = Array2::from_shape_vec(shape, array_vec).unwrap();
@@ -819,108 +845,109 @@ impl Board {
     }
 }
 
-
-struct OrderBook {
-    symbol: String,
-    last_update_id: i64,
+#[derive(Debug)]
+struct Depth {
     bids: Board,
     asks: Board,
+}
+
+impl Depth {
+    pub fn new(step: Decimal) -> Self {
+        Depth {
+            bids: Board::new(step, false),
+            asks: Board::new(step, true),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.bids.clear();
+        self.asks.clear();
+    }
+
+    pub fn get_asks(&self) -> Vec<BoardItem> {
+        self.asks.get()
+    }
+
+    pub fn get_asks_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
+        self.asks.to_pyarray()
+    }
+
+    pub fn get_bids(&self) -> Vec<BoardItem> {
+        self.bids.get()
+    }
+
+    pub fn get_bids_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
+        self.bids.to_pyarray()
+    }
+
+    pub fn set_bids(&mut self, price: Decimal, size: Decimal) {
+        self.bids.set(price, size);
+    }
+
+    pub fn set_asks(&mut self, price: Decimal, size: Decimal) {
+        self.asks.set(price, size);
+    }
+}
+
+#[derive(Debug)]
+pub struct OrderBook {
+    symbol: String,
+    depth: Depth,
 }
 
 impl OrderBook {
     pub fn new(symbol: String, step: Decimal) -> Self {
         OrderBook {
             symbol: symbol,
-            last_update_id: 0,
-            bids: Board::new(step, false),
-            asks: Board::new(step, true),
+            depth: Depth::new(step),
         }
     }
 
-    pub fn update(&mut self, update_id: i64, bids: Vec<(Decimal, Decimal)>, asks: Vec<(Decimal, Decimal)>) {
-        if self.last_update_id == 0 {
-            self.last_update_id = update_id;
+    pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
+        println!(
+            "update bids = {} / asks = {}",
+            bids_diff.len(),
+            asks_diff.len()
+        );
+
+        if force {
+            self.depth.clear();
         }
 
-        if self.last_update_id + 1 != update_id {
-            log::error!("update_id error {} / {}", self.last_update_id, update_id);
-            return;
+        for item in bids_diff {
+            self.depth.set_bids(item.price, item.size);
         }
 
-        self.last_update_id = update_id;
-
-        for (price, size) in bids {
-            self.bids.set(&price, &size);
-        }
-
-        for (price, size) in asks {
-            self.asks.set(&price, &size);
+        for item in asks_diff {
+            self.depth.set_asks(item.price, item.size);
         }
     }
 
+    pub fn get_bids(&self) -> Vec<BoardItem> {
+        self.depth.bids.get()
+    }
 
+    pub fn get_bids_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
+        self.depth.bids.to_pyarray()
+    }
 
-    // get all data from rest api
-    pub fn reflesh(&mut self) {
-        self.bids.clear();
-        self.asks.clear();
+    pub fn get_asks(&self) -> Vec<BoardItem> {
+        self.depth.asks.get()
+    }
 
-        let path = format!("/api/v3/depth?symbol={}&limit=1000", self.symbol);
-        let s = rest_get("https://api.binance.com", path.as_str());
-
-
-
-        match s {
-            Ok(s) => {
-
-                let v: Value = serde_json::from_str(s.as_str()).unwrap();
-                println!("{:?}", v.to_string());                
-
-                let update_id = v["lastUpdateId"].as_i64().unwrap();
-                let mut bids: Vec<(Decimal, Decimal)> = vec![];
-                let mut asks: Vec<(Decimal, Decimal)> = vec![];
-
-                for bid in v["bids"].as_array().unwrap() {
-                    let price = bid[0].as_str().unwrap().parse::<Decimal>().unwrap();
-                    let size = bid[1].as_str().unwrap().parse::<Decimal>().unwrap();
-                    bids.push((price, size));
-                }
-
-                for ask in v["asks"].as_array().unwrap() {
-                    let price = ask[0].as_str().unwrap().parse::<Decimal>().unwrap();
-                    let size = ask[1].as_str().unwrap().parse::<Decimal>().unwrap();
-                    asks.push((price, size));
-                }
-
-                self.update(update_id, bids, asks);
-            }
-            Err(e) => {
-                log::error!("{}", e);
-            }
-        }
+    pub fn get_asks_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
+        self.depth.asks.to_pyarray()
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[cfg(test)]
 mod test_exchange {
     use super::*;
     use crate::common::init_debug_log;
+    use crate::exchange::binance::BinanceMarket;
     use std::thread::sleep;
     use std::thread::spawn;
     use std::time::Duration;
-
 
     #[test]
     fn ws_loop() {
@@ -1040,60 +1067,51 @@ mod test_exchange {
         println!("{}", s);
     }
 
-
     #[test]
     fn test_board_set() {
         let mut b = Board::new(dec!(0.5), true);
 
-        b.set(&dec!(10.0), &dec!(1.0));
+        b.set(dec!(10.0), dec!(1.0));
         println!("{:?}", b.get());
 
-        b.set(&dec!(9.0), &dec!(1.5));
+        b.set(dec!(9.0), dec!(1.5));
         println!("{:?}", b.get());
 
-        b.set(&dec!(11.5), &dec!(2.0));
+        b.set(dec!(11.5), dec!(2.0));
         println!("{:?}", b.get());
 
-        b.set(&dec!(9.0), &dec!(0.0));
+        b.set(dec!(9.0), dec!(0.0));
         println!("{:?}", b.get());
 
         let mut b = Board::new(dec!(0.5), false);
 
         println!("---------desc----------");
 
-        b.set(&dec!(10.0), &dec!(1.0));
+        b.set(dec!(10.0), dec!(1.0));
         println!("{:?}", b.get());
 
-        b.set(&dec!(9.0), &dec!(1.5));
+        b.set(dec!(9.0), dec!(1.5));
         println!("{:?}", b.get());
 
-        b.set(&dec!(11.5), &dec!(2.0));
+        b.set(dec!(11.5), dec!(2.0));
         println!("{:?}", b.get());
 
-        b.set(&dec!(9.0), &dec!(0.0));
+        b.set(dec!(9.0), dec!(0.0));
         println!("{:?}", b.get());
 
         println!("---------clear----------");
         b.clear();
         println!("{:?}", b.get());
-
     }
 
     #[test]
     fn to_ndarray() {
         let mut b = Board::new(dec!(0.5), true);
-        b.set(&dec!(10.0), &dec!(1.0));
-        b.set(&dec!(12.5), &dec!(1.0));        
+        b.set(dec!(10.0), dec!(1.0));
+        b.set(dec!(12.5), dec!(1.0));
 
         let array = b.get_array();
         println!("{:?}", array);
     }
 
-    #[test]
-    fn update_data() {
-        let mut b = OrderBook::new("BTCBUSD".to_string(), dec!(0.5));
-        b.reflesh();
-        println!("{:?}", b.bids.get());
-        println!("{:?}", b.asks.get());
-    }
 }
