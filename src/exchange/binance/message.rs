@@ -487,6 +487,59 @@ pub struct BinanceAccountBalance {
 }
 
 
+
+/*
+BinanceOrderStatus is parse json as blow
+
+{
+  "symbol": "LTCBTC",
+  "orderId": 1,
+  "orderListId": -1, //Unless OCO, value will be -1
+  "clientOrderId": "myOrder1",
+  "price": "0.1",
+  "origQty": "1.0",
+  "executedQty": "0.0",
+  "cummulativeQuoteQty": "0.0",
+  "status": "NEW",
+  "timeInForce": "GTC",
+  "type": "LIMIT",
+  "side": "BUY",
+  "stopPrice": "0.0",
+  "icebergQty": "0.0",
+  "time": 1499827319559,
+  "updateTime": 1499827319559,
+  "isWorking": true,
+  "workingTime":1499827319559,
+  "origQuoteOrderQty": "0.000000",
+  "selfTradePreventionMode": "NONE"
+}
+*/
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BinanceOrderStatus {
+    symbol: String,
+    orderId: i64,
+    orderListId: i64,
+    clientOrderId: String,
+    price: Decimal,
+    origQty: Decimal,
+    executedQty: Decimal,
+    cummulativeQuoteQty: Decimal,
+    status: String,
+    timeInForce: String,
+    #[serde(rename = "type")]
+    order_type: String,
+    side: String,
+    stopPrice: Decimal,
+    icebergQty: Decimal,
+    time: u64,
+    updateTime: u64,
+    isWorking: bool,
+    workingTime: u64,
+    origQuoteOrderQty: Decimal,
+    selfTradePreventionMode: String,
+}
+
+
 #[cfg(test)]
 mod binance_message_test {
     use super::*;
@@ -571,5 +624,12 @@ mod binance_message_test {
         println!("{:?}", order_response);
     }
 
+    #[test]
+    fn test_binance_order_status() {
+        let order_response: BinanceOrderStatus = serde_json::from_str(
+            r#"{"symbol":"LTCBTC","orderId":1,"orderListId":-1,"clientOrderId":"myOrder1","price":"0.1","origQty":"1.0","executedQty":"0.0","cummulativeQuoteQty":"0.0","status":"NEW","timeInForce":"GTC","type":"LIMIT","side":"BUY","stopPrice":"0.0","icebergQty":"0.0","time":1499827319559,"updateTime":1499827319559,"isWorking":true,"workingTime":1499827319559,"origQuoteOrderQty":"0.000000","selfTradePreventionMode":"NONE"}"#).unwrap();
+
+        println!("{:?}", order_response);
+    }
 
 }

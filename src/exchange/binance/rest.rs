@@ -8,6 +8,7 @@ use super::message::BinanceAccountInformation;
 use super::message::BinanceCancelOrderResponse;
 use super::message::BinanceMessageId;
 use super::message::BinanceOrderResponse;
+use super::message::BinanceOrderStatus;
 use super::message::BinanceRestBoard;
 use super::message::BinanceTradeMessage;
 use crate::common::order::OrderSide;
@@ -595,7 +596,12 @@ pub fn extend_listen_key(config: &BinanceConfig, key: &str) -> Result<(), String
     }
 }
 
+pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
+    let path = "/api/v3/allOrders";    
+    let query = format!("symbol={}&limit=1000", config.trade_symbol);
 
+    parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
+}
 
 #[cfg(test)]
 mod tests {
@@ -838,4 +844,13 @@ mod tests {
         let result = extend_listen_key(&config, key.as_str());
         println!("result: {:?}", result);
     }
+
+    #[test]
+    fn test_order_status() {
+        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+
+        let message = order_status(&config).unwrap();
+        println!("message: {:?}", message);
+    }
+
 }

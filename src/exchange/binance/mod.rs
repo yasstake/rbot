@@ -26,7 +26,6 @@ use crate::common::time::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 use crate::fs::db_full_path;
-
 use self::message::BinanceWsBoardUpdate;
 use self::rest::insert_trade_db;
 
