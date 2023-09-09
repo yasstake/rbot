@@ -2,9 +2,9 @@
 // All rights reserved. Absolutely NO warranty.
 
 pub mod common;
-mod db;
-mod exchange;
-mod fs;
+pub mod db;
+pub mod exchange;
+pub mod fs;
 pub mod sim;
 
 use common::{

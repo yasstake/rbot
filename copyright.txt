@@ -1,1 +1,2 @@
-// Copyright(c) 2022. yasstake. All rights reserved.
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+// ABSOLUTELY NO WARRANTY

@@ -108,10 +108,7 @@ impl TradeTableDb {
             Ok(_) => Ok(insert_len as i64),
             Err(e) => return Err(e),
         }
-
-
     }
-
 
     pub fn is_wal_mode(name: &str) -> bool {
         let conn = Connection::open(name.to_string()).unwrap();
@@ -140,7 +137,16 @@ impl TradeTableDb {
         }
     }
 
-    // set wal mode, if already set, return false. if not set, set and return true
+    /// Sets the Write-Ahead Logging (WAL) mode for the SQLite database located at the given file path.
+    /// If the WAL mode is already set, returns false. If not set, sets the mode and returns true.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - A string slice that holds the file path of the SQLite database.
+    ///
+    /// # Returns
+    ///
+    /// A boolean value indicating whether the WAL mode was successfully set or not.
     pub fn set_wal_mode(name: &str) -> bool {
         if Self::is_wal_mode(name) {
             return false;
@@ -787,6 +793,8 @@ impl TradeTable {
     }
     */
 
+    /// Retrieves the earliest time stamp from the trades table in the SQLite database.
+    /// Returns a Result containing the earliest time stamp as a MicroSec value, or an Error if the query fails.
     pub fn start_time(&self) -> Result<MicroSec, Error> {
         let sql = "select time_stamp from trades order by time_stamp asc limit 1";
 
@@ -992,10 +1000,10 @@ impl TradeTable {
     pub fn make_time_days_chunk_from_days(
         &self,
         ndays: i64,
+        to_time: MicroSec,
         force: bool,
     ) -> Vec<i64> {
-        let from_time = NOW() - DAYS(ndays + 1);
-        let to_time = NOW() - DAYS(2);        
+        let from_time = FLOOR_DAY(NOW()) - DAYS(ndays);  
 
         let time_gap = if force {
             vec![TimeChunk {
