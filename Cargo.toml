@@ -56,8 +56,9 @@ url = {version="2.4.0"}
 rust_decimal = {version="1.32.0"}
 rust_decimal_macros = {version="1.32.0"}
 
-#hdf5 = {version="0.8.1"}
-#hdf5-sys = {version="0.8.1"}
+hmac = {version="0.12.1"}
+sha2 = {version="0.10.7"}
+hex = {version="0.4.3"}
 
 tungstenite = {version="0.20.0", features=["native-tls"]}
 

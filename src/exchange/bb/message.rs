@@ -36,6 +36,8 @@ impl BybitTradeMessage {
 }
 
 
+
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BybitTradeMessageResult {
     category: String,     // "category":""

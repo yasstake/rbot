@@ -17,11 +17,13 @@ use std::{
     thread,
 };
 
+use chrono::format;
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::{Py, PyResult, Python};
+use reqwest::Method;
 use serde::{de, Deserialize, Deserializer};
 use serde_derive::Serialize;
 use serde_json::{json, Value};
@@ -29,41 +31,42 @@ use tempfile::tempdir;
 use url::Url;
 use zip::ZipArchive;
 
-use crate::{common::{
-    order::Trade,
-    time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
-}, exchange::binance::{BinanceConfig, BinanceMarket}, db::sqlite::TradeTable};
+use crate::{
+    common::{
+        order::Trade,
+        time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
+    },
+    db::sqlite::TradeTable,
+    exchange::binance::{BinanceConfig, BinanceMarket},
+};
 
 use std::sync::mpsc::Sender;
 
-use tungstenite::protocol::WebSocket;
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
-
+use tungstenite::{http::request, protocol::WebSocket};
 
 pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> TradeTable {
     match exchange_name.to_uppercase().as_str() {
-        "BN" => {
-            match trade_type.to_uppercase().as_str() {
-                "SPOT" => {
-                    log::debug!("open_db: Binance / {}", trade_symbol);
-                    let config = BinanceConfig::SPOT(trade_symbol.to_string());
-                    let binance = BinanceMarket::new(&config);
+        "BN" => match trade_type.to_uppercase().as_str() {
+            "SPOT" => {
+                log::debug!("open_db: Binance / {}", trade_symbol);
+                let config = BinanceConfig::SPOT(trade_symbol.to_string());
+                let binance = BinanceMarket::new(&config);
 
-                    return binance.db;
-                },
-                "MARGIN" => {
-                    log::debug!("open_db: Binance / {}", trade_symbol);
-                    panic!("Not implemented yet");
-                },
-                _ => {
-                    panic!("Unknown trade type {}", trade_type);
-                }
+                return binance.db;
             }
-        }
+            "MARGIN" => {
+                log::debug!("open_db: Binance / {}", trade_symbol);
+                panic!("Not implemented yet");
+            }
+            _ => {
+                panic!("Unknown trade type {}", trade_type);
+            }
+        },
         /*
         "BB" => {
-            log::debug!("open_db: ByBit / {}", market_name);            
+            log::debug!("open_db: ByBit / {}", market_name);
             let bb = BBMarket::new(market_name, true);
 
             return bb.db;
@@ -74,8 +77,6 @@ pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> Tra
         }
     }
 }
-
-
 
 fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
@@ -441,18 +442,32 @@ where
     return download_rec;
 }
 
-pub fn rest_get(server: &str, path: &str) -> Result<String, String> {
-    let url = format!("{}{}", server, path);
+pub fn do_rest_request(
+    method: Method,
+    url: &str,
+    headers: Vec<(&str, &str)>,
+    body: &str
+) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
+    
+    println!("method({:?}) / URL = {} / path{}", method, url, body);
+    
+    let mut request_builder = client.request(method, url);
 
-    println!("URL = {}", url);
+    // make request builder as a common function.
+    for (key, value) in headers {
+        request_builder = request_builder.header(key, value);
+    }
 
-    let response = match client
-        .get(url)
+    if body !=  "" {
+        request_builder = request_builder.body(body.to_string());
+    }
+
+    request_builder = request_builder
         .header("User-Agent", "Mozilla/5.0")
-        .header("Accept", "text/html")
-        .send()
-    {
+        .header("Accept", "text/html");
+
+    let response = match request_builder.send() {
         Ok(r) => r,
         Err(e) => {
             log::error!("URL get error {}", e.to_string());
@@ -468,6 +483,60 @@ pub fn rest_get(server: &str, path: &str) -> Result<String, String> {
 
     Ok(response.text().unwrap())
 }
+
+pub fn rest_get(
+    server: &str,
+    path: &str,
+    headers: Vec<(&str, &str)>,
+    param: Option<&str>,
+    body: Option<&str>
+) -> Result<String, String> {
+    let mut url = format!("{}{}", server, path);
+    if param.is_some() {
+        url = format!("{}?{}", url, param.unwrap());
+    }
+
+    let body_string = match body {
+        Some(b) => b,
+        None => "",
+    };
+
+    do_rest_request(Method::GET, &url, headers, body_string)
+}
+
+pub fn rest_post(
+    server: &str,
+    path: &str,
+    headers: Vec<(&str, &str)>,
+    body: &str,
+) -> Result<String, String> {
+    let url = format!("{}{}", server, path);
+
+    do_rest_request(Method::POST, &url, headers, body)
+}
+
+pub fn rest_delete(
+    server: &str,
+    path: &str,
+    headers: Vec<(&str, &str)>,
+    body: &str,
+) -> Result<String, String> {
+    let url = format!("{}{}", server, path);
+
+    do_rest_request(Method::DELETE, &url, headers, body)
+}
+
+pub fn rest_put(
+    server: &str,
+    path: &str,
+    headers: Vec<(&str, &str)>,
+    body: &str,
+) -> Result<String, String> {
+    let url = format!("{}{}", server, path);
+
+    do_rest_request(Method::PUT, &url, headers, body)
+}
+
 
 pub fn restapi<F>(server: &str, path: &str, f: F) -> Result<(), String>
 where
@@ -530,11 +599,11 @@ pub fn check_exist(url: &str) -> bool {
 pub struct WebSocketClient {
     connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
     url: String,
-    subscribe_message: Value,
+    subscribe_message: Option<Value>,
 }
 
 impl WebSocketClient {
-    pub fn new(url: &str, subscribe_message: Value) -> Self {
+    pub fn new(url: &str, subscribe_message: Option<Value>) -> Self {
         WebSocketClient {
             connection: None,
             url: url.to_string(),
@@ -557,7 +626,9 @@ impl WebSocketClient {
 
         self.connection = Some(socket);
 
-        self.send_message(self.subscribe_message.to_string().as_str());
+        if self.subscribe_message.is_some() {
+            self.send_message(self.subscribe_message.clone().unwrap().to_string().as_str());
+        }
         self.flush();
     }
 
@@ -639,7 +710,7 @@ struct AutoConnectClient {
     client: Option<WebSocketClient>,
     next_client: Option<WebSocketClient>,
     url: String,
-    subscribe_message: Value,
+    subscribe_message: Option<Value>,
     last_message: String,
     last_connect_time: MicroSec,
     last_ping_time: MicroSec,
@@ -652,12 +723,19 @@ const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6H
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
-    pub fn new(url: &str, subscribe_message: Value) -> Self {
+    pub fn new(url: &str, subscribe_message: &str) -> Self {
+        let mut message:  Option<Value> = None;
+
+        if subscribe_message != "" {
+            let subscribe_message = serde_json::from_str(subscribe_message).unwrap();
+            message = Some(subscribe_message);
+        }
+
         AutoConnectClient {
-            client: Some(WebSocketClient::new(url, subscribe_message.clone())),
+            client: Some(WebSocketClient::new(url, message.clone())),
             next_client: None,
             url: url.to_string(),
-            subscribe_message: subscribe_message,
+            subscribe_message: message,
             last_message: "".to_string(),
             last_connect_time: 0,
             last_ping_time: NOW(),
@@ -991,7 +1069,7 @@ mod test_exchange {
     fn ws_loop() {
         let mut ws1 = WebSocketClient::new(
             "wss://stream.binance.com/ws",
-            json!(
+            std::option::Option::Some(json!(
                 {
                     "method": "SUBSCRIBE",
                     "params": [
@@ -1000,14 +1078,14 @@ mod test_exchange {
                     ],
                     "id": 1
                 }
-            ),
+            )),
         );
 
         ws1.connect();
 
         let mut ws2 = WebSocketClient::new(
             "wss://stream.binance.com/ws",
-            json!(
+            Some(json!(
                 {
                     "method": "SUBSCRIBE",
                     "params": [
@@ -1016,7 +1094,7 @@ mod test_exchange {
                     ],
                     "id": 1
                 }
-            ),
+            )),
         );
 
         ws2.connect();
@@ -1036,6 +1114,7 @@ mod test_exchange {
     fn reconnect() {
         let mut ws = AutoConnectClient::new(
             "wss://stream.binance.com/ws",
+
             json!(
                 {
                     "method": "SUBSCRIBE",
@@ -1045,7 +1124,7 @@ mod test_exchange {
                     ],
                     "id": 1
                 }
-            ),
+            ).as_str().unwrap()
         );
 
         ws.connect();
@@ -1100,6 +1179,9 @@ mod test_exchange {
         let s = rest_get(
             "https://api.binance.com",
             "/api/v3/trades?symbol=BTCBUSD&limit=5",
+            vec![],
+            None,
+            None,
         )
         .unwrap();
         println!("{}", s);
@@ -1151,5 +1233,4 @@ mod test_exchange {
         let array = b.get_array();
         println!("{:?}", array);
     }
-
 }
