@@ -1,5 +1,7 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
+use crate::common::time::time_string;
+
 use super::time::MicroSec;
 use pyo3::pyclass;
 use pyo3::pymethods;
@@ -98,13 +100,16 @@ impl Trade {
 
     pub fn __str__(&self) -> String {
         format!(
-            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
+            time_string(self.time), self.time, self.order_side, self.price, self.size, self.id
         )
     }
 
     pub fn __repr__(&self) -> String {
-        return self.__str__();
+        format!(
+            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
+            self.time, self.order_side, self.price, self.size, self.id
+        )
     }
 }
 
