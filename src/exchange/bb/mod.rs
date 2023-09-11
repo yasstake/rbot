@@ -19,15 +19,24 @@ use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::fs::db_full_path;
 
+
 use super::{log_download, download_log, make_download_url_list};
+
+// TODO: implement ByBit Config.
+#[pyclass]
+struct BybitConfig {
+    pub exchange_name: String,
+    pub market_name: String,
+}
+
 
 #[derive(Debug)]
 #[pyclass(name = "_ByBitMarket")]
 pub struct BBMarket {
     name: String,
-    pub dummy: bool,
     pub db: TradeTable,
 }
+
 
 #[pymethods]
 impl BBMarket {
@@ -44,7 +53,6 @@ impl BBMarket {
 
         return BBMarket {
             name: market_name.to_string(),
-            dummy,
             db,
         };
     }
