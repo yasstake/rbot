@@ -14,20 +14,23 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::de;
 use serde_json::{json, Value};
+use std::f32::consts::E;
+use std::fs;
 use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
+use crate::common::convert_pyresult;
 use crate::common::order::{OrderSide, TimeChunk, Trade};
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::common::time::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
-use crate::fs::db_full_path;
-use self::message::BinanceWsBoardUpdate;
-use self::rest::insert_trade_db;
+use crate::fs::{project_dir, db_full_path};
+use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse};
+use self::rest::{insert_trade_db, order_status, new_limit_order};
 
 use super::{
     check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
@@ -45,18 +48,25 @@ pub struct BinanceAccount {
 #[pyclass]
 pub struct BinanceConfig {
     pub exchange_name: String,
+    pub trade_category: String,
+    pub trade_symbol: String,
+    pub trade_in_fiat: bool,
+    pub testnet: bool,
+
+    // server config
     pub rest_endpoint: String,
     pub public_ws_endpoint: String,
     pub private_ws_endpoint: String,
     pub history_web_base: String,
-    pub trade_category: String,
-    pub trade_symbol: String,
     pub new_order_path: String,
     pub cancel_order_path: String,
     pub public_subscribe_message: String,
-    pub api_key: String,                    // TODO: 印刷時に表示しないようにする。
-    pub api_secret: String                  // TODO: 印刷時に表示しないようにする。
+
+    // key & secret
+    pub api_key: String,
+    pub api_secret: String
 }
+
 
 #[pymethods]
 impl BinanceConfig {
@@ -69,9 +79,11 @@ impl BinanceConfig {
     pub fn TESTSPOT(symbol: String) -> Self {
         let mut config = BinanceConfig::SPOT(symbol); 
 
+        config.trade_category = "TESTSPOT".to_string();
         config.rest_endpoint = "https://testnet.binance.vision".to_string();
         config.public_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
         config.private_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
+        config.testnet = true;
 
         return config;
     }
@@ -88,6 +100,8 @@ impl BinanceConfig {
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
+            trade_in_fiat: false,
+
             rest_endpoint: "https://api.binance.com".to_string(),
             public_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
             private_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
@@ -105,20 +119,35 @@ impl BinanceConfig {
                 }
             )
             .to_string(),
+            testnet: false,
             api_key,
             api_secret
         };
     }
-}
 
-impl BinanceConfig {
-    fn to_string(&self) -> String {
-        return format!(
-            "{:?}-{:?}-{:?}",
-            self.exchange_name, self.trade_category, self.trade_symbol
-        );
+    #[getter]
+    pub fn get_db_path(&self) -> String {
+        let mut exchange_name = self.exchange_name.clone();
+    
+        if self.testnet {
+            exchange_name = format!("{}-TESTNET", exchange_name);
+        }
+
+        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol);
+        
+        return db_path.to_str().unwrap().to_string();
+    }
+
+    pub fn __repr__(&self) -> String {
+        let mut printobj = self.clone();
+
+        printobj.api_key = "********".to_string();
+        printobj.api_secret = "********".to_string();
+
+        format!("{:?}", printobj)
     }
 }
+
 
 // TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
 const BOARD_PRICE_UNIT: f64 = 0.01;
@@ -144,7 +173,7 @@ impl BinanceOrderBook {
 
     pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
         if self.last_update_id == 0 {
-            println!(
+            log::debug!(
                 "reflesh board {} / {}->{}",
                 self.last_update_id, update_data.u, update_data.U
             );
@@ -159,17 +188,13 @@ impl BinanceOrderBook {
                 update_data.u,
                 self.last_update_id
             );
-            println!(
-                "Drop any event where u({}) is <= lastUpdateId({}) in the snapshot.",
-                update_data.u, self.last_update_id
-            );
 
             return;
         }
 
         // 5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
         if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
-            print!(
+            log::debug!(
                 "lastupdate({}) / U({}) / u({})",
                 self.last_update_id, update_data.U, update_data.u
             );
@@ -191,10 +216,7 @@ impl BinanceOrderBook {
 
     fn reflesh_board(&mut self) {
         let snapshot = get_board_snapshot(&self.config).unwrap();
-
         self.last_update_id = snapshot.last_update_id;
-
-        println!("REFLESH ID: {}", self.last_update_id);
 
         self.board.update(&snapshot.bids, &snapshot.asks, true);
     }
@@ -363,11 +385,16 @@ impl BinanceMarket {
         return format!("<b>Binance DB ({})</b>{}", self.name, self.db._repr_html_());
     }
 
-    pub fn listen_market_stream(&mut self) {
+    pub fn start_market_stream(&mut self) {
+        let endpoint = &self.config.public_ws_endpoint;
+        let subscribe_message: Value = 
+                serde_json::from_str(&self.config.public_subscribe_message).unwrap();
+
+
         // TODO: parameterize
         let mut websocket = AutoConnectClient::new(
-            self.config.public_ws_endpoint.as_str(),
-            serde_json::from_str(self.config.public_subscribe_message.as_str()).unwrap()
+            endpoint,
+            Some(subscribe_message)
         );
 
         websocket.connect();
@@ -406,6 +433,28 @@ impl BinanceMarket {
 
         self.handler = Some(handler);
     }
+
+    pub fn stop_market_stream(&mut self) {
+        match self.handler.take() {
+            Some(h) => {
+                h.join().unwrap();
+            }
+            None => {}
+        }
+    }
+
+    pub fn new_limit_order(&self, side: OrderSide, price: f64, size: f64) -> PyResult<BinanceOrderResponse> {
+        let response = new_limit_order(&self.config, side, Decimal::from_f64(price).unwrap(), Decimal::from_f64(size).unwrap());
+    
+        convert_pyresult(response)
+    }
+
+    #[getter]
+    pub fn get_order_status(&self) -> PyResult<Vec<BinanceOrderStatus>> {
+        let status = order_status(&self.config);
+
+        convert_pyresult(status)
+    }
 }
 
 use crate::exchange::binance::rest::get_board_snapshot;
@@ -414,14 +463,7 @@ const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trad
 
 impl BinanceMarket {
     pub fn db_path(config: &BinanceConfig) -> PyResult<String> {
-        //let db_name = db_full_path("BN", "SPOT", market_name);
-        let db_name = db_full_path(
-            config.exchange_name.as_str(),
-            config.trade_category.as_str(),
-            config.trade_symbol.as_str(),
-        );
-
-        return Ok(db_name.as_os_str().to_str().unwrap().to_string());
+        Ok(config.get_db_path())
     }
 
     fn make_historical_data_url_timestamp(name: &str, t: MicroSec) -> String {
@@ -504,7 +546,7 @@ impl BinanceMarket {
             let url = Self::make_historical_data_url_timestamp(self.name.as_str(), latest);
 
             if check_exist(url.as_str()) {
-                println!("{} exists", url);
+                log::debug!("{} exists", url);
                 return Ok(latest);
             } else {
                 println!("{} does not exist", url);
@@ -513,7 +555,6 @@ impl BinanceMarket {
 
             if i > 5 {
                 log::error!("{} does not exist", url);
-                println!("{} does not exist", url);
                 return Err(format!("{} does not exist", url));
             }
         }
@@ -585,7 +626,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.listen_market_stream();
+        market.start_market_stream();
         sleep(Duration::from_secs(20));
     }
 
@@ -607,7 +648,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.listen_market_stream();
+        market.start_market_stream();
 
         sleep(Duration::from_secs(10));
     }

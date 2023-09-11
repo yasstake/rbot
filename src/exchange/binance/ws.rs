@@ -29,7 +29,7 @@ pub fn listen_userdata_stream(config: &BinanceConfig) {
 
     let mut websocket = AutoConnectClient::new(
             url.as_str(),
-            "");
+            None);
     
     websocket.connect();
 

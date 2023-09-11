@@ -12,13 +12,13 @@ pub fn project_dir() -> PathBuf {
 }
 
 
-pub fn db_full_path(exchange_name: &str, spot_future_type: &str, market_type: &str) -> PathBuf {
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str) -> PathBuf {
     let project_dir = project_dir();
     let db_dir = project_dir.join("DB");
     let exchange_dir = db_dir.join(exchange_name);
     let _ = fs::create_dir_all(&exchange_dir);
 
-    let db_name = format!("{}-{}.db", spot_future_type, market_type);
+    let db_name = format!("{}-{}.db", category, symbol);
     let db_path = exchange_dir.join(db_name);
 
     return db_path;

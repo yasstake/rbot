@@ -1,3 +1,4 @@
+use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub struct BinanceSubscriptionReply {
     pub result: Option<String>,
     pub id: u64,
 }
+
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
@@ -199,6 +201,7 @@ struct BinanceOrderResponse will parse below json.
     ]
   }
 */
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderFill {
     price: Decimal,
@@ -208,6 +211,7 @@ pub struct BinanceOrderFill {
     tradeId: i64,
 }
 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderResponse {
     symbol: String,
@@ -227,6 +231,13 @@ pub struct BinanceOrderResponse {
     workingTime: Option<u64>,
     selfTradePreventionMode: Option<String>,
     fills: Option<Vec<BinanceOrderFill>>,
+}
+
+#[pymethods]
+impl BinanceOrderResponse {
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
 }
 
 /*
@@ -251,6 +262,7 @@ BinaceCanceOrderResponse will parse below json.
 }
 */
 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceCancelOrderResponse {
     symbol: String,
@@ -287,6 +299,7 @@ BinanceAccountUpdate is parse json as blow
   ]
 }
 */
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountUpdate {
     // e: String,
@@ -294,7 +307,7 @@ pub struct BinanceAccountUpdate {
     u: u64,
     B: Vec<BinanceBalance>,
 }
-
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceBalance {
     a: String,
@@ -312,6 +325,7 @@ pub struct BinanceBalance {
 ///  "d": "100.00000000",          //Balance Delta
 ///  "T": 1573200697068            //Clear Time
 ///  }
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceBalanceUpdate {
     // e: String,
@@ -360,6 +374,7 @@ pub struct BinanceBalanceUpdate {
 }
 
 */
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceExecutionReport {
     // e: String,
@@ -450,7 +465,7 @@ BinanceAccountInformation is parse json as blow
 }
 
 */
-
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountInformation {
     makerCommission: i64,
@@ -471,6 +486,14 @@ pub struct BinanceAccountInformation {
     uid: i64,
 }
 
+#[pymethods]
+impl BinanceAccountInformation {
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceCommissionRates {
     maker: Decimal,
@@ -479,6 +502,7 @@ pub struct BinanceCommissionRates {
     seller: Decimal,
 }
 
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountBalance {
     asset: String,
@@ -514,6 +538,7 @@ BinanceOrderStatus is parse json as blow
   "selfTradePreventionMode": "NONE"
 }
 */
+#[pyclass] 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderStatus {
     symbol: String,
@@ -539,6 +564,12 @@ pub struct BinanceOrderStatus {
     selfTradePreventionMode: String,
 }
 
+#[pymethods]
+impl BinanceOrderStatus {
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+}
 
 #[cfg(test)]
 mod binance_message_test {
