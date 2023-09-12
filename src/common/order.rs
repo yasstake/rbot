@@ -12,11 +12,15 @@ use strum_macros::Display;
 
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString)]
+/// Enum representing the side of an order, either Buy or Sell.
+/// Buy is represented by the value "Buy", "BUY", "buy", "B",
+/// Sell is represented by the value "Sell", "SELL", "sell", "b"
 pub enum OrderSide {
     #[strum(ascii_case_insensitive, serialize = "Buy", serialize = "B")]
     Buy,
     #[strum(ascii_case_insensitive, serialize = "Sell", serialize = "S")]
     Sell,
+    /// Represents an unknown order side.
     Unknown,
 }
 
@@ -49,10 +53,6 @@ impl OrderSide {
 
 #[pymethods]
 impl OrderSide {
-    pub fn __str__(&self) -> String {
-        return self.to_string();
-    }
-
     pub fn __repr__(&self) -> String {
         return self.to_string();
     }
@@ -64,11 +64,17 @@ impl OrderSide {
 // Represent one Trade execution.
 #[pyclass]
 #[derive(Debug, Clone)]
+/// Represents a trade made on an exchange.
 pub struct Trade {
+    /// The time the trade was executed, in microseconds since the epoch.
     pub time: MicroSec,
+    /// The side of the order that was filled.
     pub order_side: OrderSide,
+    /// The price at which the trade was executed.
     pub price: f64,
+    /// The size of the trade.
     pub size: f64,
+    /// The unique identifier for the trade.
     pub id: String,
 }
 
@@ -117,11 +123,11 @@ impl Trade {
 #[derive(Debug, Clone)]
 pub struct Order {
     _order_index: i64,
-    pub create_time: MicroSec, // in ns
+    pub create_time: MicroSec, // in us
     pub order_id: String,      // YYYY-MM-DD-SEQ
     pub order_side: OrderSide,
     pub post_only: bool,
-    pub valid_until: MicroSec, // in ns
+    pub valid_until: MicroSec, // in us
     pub price: f64,            // in
     pub size: f64,             // in foreign
     pub message: String,
@@ -133,11 +139,11 @@ pub struct Order {
 impl Order {
     #[new]
     pub fn new(
-        create_time: MicroSec, // in ns
+        create_time: MicroSec, // in us
         order_id: String,      // YYYY-MM-DD-SEQ
         order_side: OrderSide,
         post_only: bool,
-        valid_until: MicroSec, // in ns
+        valid_until: MicroSec, // in us
         price: f64,
         size: f64, // in foreign currency.
         message: String,
@@ -188,6 +194,7 @@ pub enum OrderStatus {
     OrderComplete, // temporary status.
     #[strum(serialize = "Open")]
     OpenPosition, // ポジションオープン
+    ClosePartial, // ポジションクローズ（一部）
     #[strum(serialize = "Close")]
     ClosePosition, // ポジションクローズ（このときだけ、損益計算する）
     OverPosition,  // ポジション以上の反対売買。別途分割して処理する。

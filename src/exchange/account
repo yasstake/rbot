@@ -1,0 +1,83 @@
+
+
+pub enum OrderStatus {
+    New,
+    PartiallyFilled,
+    Filled,
+    Canceled,
+    Rejected,
+    Expired,
+    Unknown,
+}
+
+
+
+
+pub struct AccoutSession {
+    pub is_margin_account: bool,
+    pub balance_in_home: Balance,
+    pub balance_in_foreign: Balance,
+    pub base_currency_in_home: bool,
+    pub category: String,
+    pub symbol: String,
+}
+
+
+
+
+pub struct SportSession {
+    pub balance_in_home: Balance,
+    pub balance_in_foreign: Balance,
+    pub base_currency_in_home: bool,
+    pub category: String,
+    pub symbol: String,
+}
+
+
+/*
+    SPOT session:
+        それぞれの通貨毎に、マージンがあれば売り、買いが可能。
+
+
+    Futures session:
+        マージンがあれば売り、買いが可能。
+        マージンがなければ、買いが可能。
+        マージンがなければ、売りが不可�
+
+*/
+
+
+
+/*
+
+impl From<&str> for OrderStatus {
+    fn from(s: &str) -> Self {
+        match s {
+            "new" => OrderStatus::New,
+            "partially_filled" => OrderStatus::PartiallyFilled,
+            "filled" => OrderStatus::Filled,
+            "canceled" => OrderStatus::Canceled,
+            "rejected" => OrderStatus::Rejected,
+            "expired" => OrderStatus::Expired,
+            _ => OrderStatus::Unknown,
+        }
+    }
+}
+
+
+(BinanceExecutionReport { E: 1694494557116, s: "BTCBUSD", c: "bCVbglN7vhl9oAbxJUBVmm", S: "BUY", o: "LIMIT", f: "GTC", q: 0.00100000, p: 25000.00000000, P: 0.00000000, F: 0.00000000, g: -1, C: "", x: "NEW", X: "NEW", r: "NONE", i: 1342450, l: 0.00000000, z: 0.00000000, L: 0.00000000, n: 0, N: None, T: 1694494557115, t: -1, I: 2874328, w: true, m: false, M: false, O: 1694494557115, Z: 0.00000000, Y: 0.00000000, Q: 0.00000000, W: 1694494557115, V: "NONE" })
+
+raw msg: {"e":"outboundAccountPosition","E":1694494557116,"u":1694494557115,"B":[{"a":"BTC","f":"1.17100000","l":"0.00000000"},{"a":"BUSD","f":"9349.07923000","l":"125.00000000"}]}
+outboundAccountPosition(BinanceAccountUpdate { E: 1694494557116, u: 1694494557115, B: [BinanceBalance { a: "BTC", f: 1.17100000, l: 0.00000000 }, BinanceBalance { a: "BUSD", f: 9349.07923000, l: 125.00000000 }] })
+
+
+
+pub struct AccountSession {
+    pub balance_in_home: Balance,
+    pub balance_in_foreign: Balance,
+    pub base_currency_in_home: bool,
+    pub category: String,
+    pub symbol: String,
+}
+
+*/

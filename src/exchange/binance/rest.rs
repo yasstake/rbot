@@ -23,9 +23,6 @@ use crate::exchange::rest_get;
 use crate::exchange::rest_post;
 use crate::exchange::rest_put;
 
-// const SERVER: &str = "https://api.binance.com";
-
-
 
 /// Processes recent trades for a given symbol and applies a function to the resulting vector of trades.
 ///
