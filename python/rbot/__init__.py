@@ -375,36 +375,9 @@ class BackRunner:
         return table
 
 
-'''
-class FtxMarket:
-    def __init__(self, name, dummy=True):
-        self.dummy = dummy
-        self.ftx = _FtxMarket(name, dummy)
-        self.exchange_name = "FTX"
-        self.market_name = name
-
-    def select_trades(self, from_time, to_time):
-        return trades_to_df(self.ftx.select_trades(from_time, to_time))
-
-    def ohlcvv(self, from_time, to_time, window_sec):
-        return ohlcvv_to_df(self.ftx.ohlcvv(from_time, to_time, window_sec))
-
-    def download(self, ndays, force=False):
-        return self.ftx.download(ndays, force)
-
-    def __getattr__(self, func):
-        return getattr(self.ftx, func)
-'''
-
-
-
-
 class BinanceMarket:
-    def __init__(self, name, dummy=True):
-        self.dummy = dummy
-        self.market = _BinanceMarket(name, dummy)
-        self.exchange_name = "BN"
-        self.market_name = name
+    def __init__(self, config):
+        self.market = _BinanceMarket(config)
 
     def select_trades_p(self, from_time, to_time):
         return self.market.select_trades(from_time, to_time)
@@ -424,9 +397,16 @@ class BinanceMarket:
     def ohlcv(self, from_time, to_time, window_sec):
         return ohlcv_to_df(self.market.ohlcv_a(from_time, to_time, window_sec))
 
-
     def download(self, ndays, force=False):
         return self.market.download(ndays, force)
+
+    @property
+    def bids(self):
+        return pd.DataFrame(columns=["price", "size"], data=self.market.bids)
+
+    @property
+    def asks(self):
+        return pd.DataFrame(columns=["price", "size"], data=self.market.asks)
 
     @staticmethod
     def initialize(name):

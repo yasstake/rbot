@@ -450,9 +450,7 @@ pub fn do_rest_request(
 ) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     
-    println!("method({:?}) / URL = {} / path{}", method, url, body);
-    
-    let mut request_builder = client.request(method, url);
+    let mut request_builder = client.request(method.clone(), url);
 
     // make request builder as a common function.
     for (key, value) in headers {
@@ -476,9 +474,12 @@ pub fn do_rest_request(
     };
 
     log::debug!(
-        "Response code = {} / download size {}",
+        "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
         response.status().as_str(),
-        response.content_length().unwrap()
+        response.content_length(),
+        method, 
+        url,
+        body
     );
 
     Ok(response.text().unwrap())
@@ -612,13 +613,20 @@ impl WebSocketClient {
     }
 
     pub fn connect(&mut self) {
-        let (mut socket, response) =
-            connect(Url::parse(&self.url).unwrap()).expect("Can't connect");
+        let url = Url::parse(&self.url).unwrap();
 
-        println!("Connected to the server");
+        let result = connect(url);
 
-        println!("Response HTTP code: {}", response.status());
-        println!("Response contains the following headers:");
+        if result.is_err() {
+            log::error!("Can't connect to {}", self.url);
+            panic!("Can't connect to {}", self.url);
+        }
+
+        let (mut socket, response) = result.unwrap();
+
+        log::debug!("Connected to the server");
+        log::debug!("Response HTTP code: {}", response.status());
+        log::debug!("Response contains the following headers:");
 
         for (ref header, _value) in response.headers() {
             println!("* {}", header);
@@ -639,23 +647,23 @@ impl WebSocketClient {
 
         match result {
             Ok(_) => {
-                println!("Sent message {}", message);
+                log::debug!("Sent message {}", message);
             }
             Err(e) => {
-                println!("Error: {:?}", e.to_string());
+                log::error!("Error: {:?}", e.to_string());
             }
         }
     }
 
     pub fn send_ping(&mut self) {
-        log::debug!(">PING>");
+        log::debug!("*>PING*>");
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Ping(vec![]));
         self.flush();
     }
 
     pub fn send_pong(&mut self, message: Vec<u8>) {
-        log::debug!(">PONG>: {:?}", message);
+        log::debug!("*>PONG*>: {:?}", message);
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Pong(message));
         self.flush();
@@ -689,11 +697,11 @@ impl WebSocketClient {
                 log::debug!("BINARY: {:?}", b);
             }
             Message::Ping(p) => {
-                log::debug!(">PING>: {:?}", p);
+                log::debug!("<PING<: {:?}", p);
                 self.send_pong(p);
             }
             Message::Pong(p) => {
-                log::debug!(">PONG>: {:?}", p);
+                log::debug!("<PONG<: {:?}", p);
             }
             Message::Close(c) => {
                 log::debug!("CLOSE: {:?}", c);
@@ -719,27 +727,20 @@ struct AutoConnectClient {
 }
 
 const SYNC_RECORDS: i64 = 100;
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6H
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 50; // every 50 min
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
-    pub fn new(url: &str, subscribe_message: &str) -> Self {
-        let mut message:  Option<Value> = None;
-
-        if subscribe_message != "" {
-            let subscribe_message = serde_json::from_str(subscribe_message).unwrap();
-            message = Some(subscribe_message);
-        }
-
+    pub fn new(url: &str, message: Option<Value>) -> Self {
         AutoConnectClient {
             client: Some(WebSocketClient::new(url, message.clone())),
             next_client: None,
             url: url.to_string(),
-            subscribe_message: message,
+            subscribe_message: message.clone(),
             last_message: "".to_string(),
             last_connect_time: 0,
             last_ping_time: NOW(),
-            sync_interval: SEC(SYNC_INTERVAL),
+            sync_interval: SYNC_INTERVAL,
             sync_records: 0,
         }
     }
@@ -749,38 +750,46 @@ impl AutoConnectClient {
         self.last_connect_time = NOW();
     }
 
-    pub fn connect_next(&mut self) {
+    pub fn connect_next(&mut self, url: Option<String>) {
+        if url.is_some() {
+            self.url = url.unwrap();
+        }
+
         self.next_client = Some(WebSocketClient::new(
             self.url.as_str(),
             self.subscribe_message.clone(),
         ));
         self.next_client.as_mut().unwrap().connect();
+        self.last_connect_time = NOW();        
     }
 
     pub fn switch(&mut self) {
         self.client.as_mut().unwrap().close();
         self.client = self.next_client.take();
         self.next_client = None;
-        self.last_connect_time = NOW();
-        println!("------switched------");
+
+        log::debug!("------WS switched------");
     }
 
     pub fn receive_message(&mut self) -> Result<String, String> {
+        let now = NOW();
+
         // if connection exceed sync interval, reconnect
-        if self.last_connect_time + self.sync_interval < NOW() && self.next_client.is_none() {
-            self.connect_next();
+        if (self.last_connect_time + self.sync_interval < now) && self.next_client.is_none() {
+            self.connect_next(None);
         }
 
-        if self.last_ping_time + PING_INTERVAL < NOW() {
+
+        if self.last_ping_time + PING_INTERVAL < now {
             self.client.as_mut().unwrap().send_ping();
-            self.last_ping_time = NOW();
+            self.last_ping_time = now;
         }
 
         // if the connection_next is not None, receive message
         if self.next_client.is_some() {
             if self.sync_records < SYNC_RECORDS {
                 self.sync_records += 1;
-                println!("SYNC {}", self.sync_records);
+                log::debug!("SYNC {}", self.sync_records);
                 let message = self._receive_message();
                 let m = message.unwrap();
                 self.last_message = m.clone();
@@ -793,7 +802,7 @@ impl AutoConnectClient {
                 loop {
                     let message = self._receive_message().unwrap();
 
-                    println!("{} / {}", message, self.last_message);
+                    log::debug!("{} / {}", message, self.last_message);
 
                     if (message == self.last_message)
                         || (!self.client.as_ref().unwrap().has_message())
@@ -816,13 +825,17 @@ impl AutoConnectClient {
                 return result;
             }
             Err(e) => {
-                println!("reconnect");
-                self.connect_next();
+                log::debug!("reconnect");
+                self.connect_next(None);
                 self.switch();
 
                 Err(e)
             }
         }
+    }
+
+    pub fn send_ping(&mut self) {
+        self.client.as_mut().unwrap().send_ping();
     }
 }
 
@@ -1020,12 +1033,6 @@ impl OrderBook {
     }
 
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
-        println!(
-            "update bids = {} / asks = {}",
-            bids_diff.len(),
-            asks_diff.len()
-        );
-
         if force {
             self.depth.clear();
         }
@@ -1111,11 +1118,11 @@ mod test_exchange {
     }
 
     #[test]
-    fn reconnect() {
+    fn test_reconnect() {
         let mut ws = AutoConnectClient::new(
             "wss://stream.binance.com/ws",
 
-            json!(
+            Some(json!(
                 {
                     "method": "SUBSCRIBE",
                     "params": [
@@ -1124,7 +1131,7 @@ mod test_exchange {
                     ],
                     "id": 1
                 }
-            ).as_str().unwrap()
+            ))
         );
 
         ws.connect();
