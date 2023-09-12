@@ -663,4 +663,12 @@ mod binance_message_test {
         println!("{:?}", order_response);
     }
 
+    #[test]
+    fn test_binance_execution_report() {
+        let execution: BinanceUserStreamMessage = serde_json::from_str(
+            r#"
+            {"e":"outboundAccountPosition","E":1694430911241,"u":1694430911240,"B":[{"a":"BTC","f":"1.16500000","l":"0.00000000"},{"a":"BUSD","f":"9599.07923000","l":"25.00000000"}]}
+            "#).unwrap();
+    }
+
 }

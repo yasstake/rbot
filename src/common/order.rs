@@ -194,7 +194,7 @@ pub enum OrderStatus {
     OrderComplete, // temporary status.
     #[strum(serialize = "Open")]
     OpenPosition, // ポジションオープン
-//    ClosePartial, // ポジションクローズ（一部）
+    ClosePartial, // ポジションクローズ（一部）
     #[strum(serialize = "Close")]
     ClosePosition, // ポジションクローズ（このときだけ、損益計算する）
     OverPosition,  // ポジション以上の反対売買。別途分割して処理する。
