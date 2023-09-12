@@ -450,9 +450,7 @@ pub fn do_rest_request(
 ) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     
-    log::debug!("method({:?}) / URL = {} / path{}", method, url, body);
-    
-    let mut request_builder = client.request(method, url);
+    let mut request_builder = client.request(method.clone(), url);
 
     // make request builder as a common function.
     for (key, value) in headers {
@@ -476,9 +474,12 @@ pub fn do_rest_request(
     };
 
     log::debug!(
-        "Response code = {} / download size {}",
+        "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
         response.status().as_str(),
-        response.content_length().unwrap()
+        response.content_length(),
+        method, 
+        url,
+        body
     );
 
     Ok(response.text().unwrap())
@@ -612,11 +613,18 @@ impl WebSocketClient {
     }
 
     pub fn connect(&mut self) {
-        let (mut socket, response) =
-            connect(Url::parse(&self.url).unwrap()).expect("Can't connect");
+        let url = Url::parse(&self.url).unwrap();
+
+        let result = connect(url);
+
+        if result.is_err() {
+            log::error!("Can't connect to {}", self.url);
+            panic!("Can't connect to {}", self.url);
+        }
+
+        let (mut socket, response) = result.unwrap();
 
         log::debug!("Connected to the server");
-
         log::debug!("Response HTTP code: {}", response.status());
         log::debug!("Response contains the following headers:");
 
@@ -648,14 +656,14 @@ impl WebSocketClient {
     }
 
     pub fn send_ping(&mut self) {
-        log::debug!(">PING>");
+        log::debug!("*>PING*>");
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Ping(vec![]));
         self.flush();
     }
 
     pub fn send_pong(&mut self, message: Vec<u8>) {
-        log::debug!(">PONG>: {:?}", message);
+        log::debug!("*>PONG*>: {:?}", message);
         let connection = self.connection.as_mut().unwrap();
         connection.write(Message::Pong(message));
         self.flush();
@@ -689,11 +697,11 @@ impl WebSocketClient {
                 log::debug!("BINARY: {:?}", b);
             }
             Message::Ping(p) => {
-                log::debug!(">PING>: {:?}", p);
+                log::debug!("<PING<: {:?}", p);
                 self.send_pong(p);
             }
             Message::Pong(p) => {
-                log::debug!(">PONG>: {:?}", p);
+                log::debug!("<PONG<: {:?}", p);
             }
             Message::Close(c) => {
                 log::debug!("CLOSE: {:?}", c);
@@ -719,9 +727,8 @@ struct AutoConnectClient {
 }
 
 const SYNC_RECORDS: i64 = 100;
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6H
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 50; // every 50 min
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
-
 
 impl AutoConnectClient {
     pub fn new(url: &str, message: Option<Value>) -> Self {
@@ -733,7 +740,7 @@ impl AutoConnectClient {
             last_message: "".to_string(),
             last_connect_time: 0,
             last_ping_time: NOW(),
-            sync_interval: SEC(SYNC_INTERVAL),
+            sync_interval: SYNC_INTERVAL,
             sync_records: 0,
         }
     }
@@ -743,32 +750,39 @@ impl AutoConnectClient {
         self.last_connect_time = NOW();
     }
 
-    pub fn connect_next(&mut self) {
+    pub fn connect_next(&mut self, url: Option<String>) {
+        if url.is_some() {
+            self.url = url.unwrap();
+        }
+
         self.next_client = Some(WebSocketClient::new(
             self.url.as_str(),
             self.subscribe_message.clone(),
         ));
         self.next_client.as_mut().unwrap().connect();
+        self.last_connect_time = NOW();        
     }
 
     pub fn switch(&mut self) {
         self.client.as_mut().unwrap().close();
         self.client = self.next_client.take();
         self.next_client = None;
-        self.last_connect_time = NOW();
 
-        log::debug!("------switched------");
+        log::debug!("------WS switched------");
     }
 
     pub fn receive_message(&mut self) -> Result<String, String> {
+        let now = NOW();
+
         // if connection exceed sync interval, reconnect
-        if self.last_connect_time + self.sync_interval < NOW() && self.next_client.is_none() {
-            self.connect_next();
+        if (self.last_connect_time + self.sync_interval < now) && self.next_client.is_none() {
+            self.connect_next(None);
         }
 
-        if self.last_ping_time + PING_INTERVAL < NOW() {
+
+        if self.last_ping_time + PING_INTERVAL < now {
             self.client.as_mut().unwrap().send_ping();
-            self.last_ping_time = NOW();
+            self.last_ping_time = now;
         }
 
         // if the connection_next is not None, receive message
@@ -788,7 +802,7 @@ impl AutoConnectClient {
                 loop {
                     let message = self._receive_message().unwrap();
 
-                    println!("{} / {}", message, self.last_message);
+                    log::debug!("{} / {}", message, self.last_message);
 
                     if (message == self.last_message)
                         || (!self.client.as_ref().unwrap().has_message())
@@ -812,12 +826,16 @@ impl AutoConnectClient {
             }
             Err(e) => {
                 log::debug!("reconnect");
-                self.connect_next();
+                self.connect_next(None);
                 self.switch();
 
                 Err(e)
             }
         }
+    }
+
+    pub fn send_ping(&mut self) {
+        self.client.as_mut().unwrap().send_ping();
     }
 }
 
@@ -1100,7 +1118,7 @@ mod test_exchange {
     }
 
     #[test]
-    fn reconnect() {
+    fn test_reconnect() {
         let mut ws = AutoConnectClient::new(
             "wss://stream.binance.com/ws",
 
