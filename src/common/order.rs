@@ -1,17 +1,58 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use crate::common::time::time_string;
+use crate::json_struct;
 
 use super::time::MicroSec;
 use pyo3::pyclass;
+use pyo3::pyfunction;
 use pyo3::pymethods;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 
 use std::str::FromStr;
 use strum::EnumString;
 use strum_macros::Display;
 
+#[derive(Debug, Clone)]
+pub struct TimeChunk {
+    pub start: MicroSec,
+    pub end: MicroSec,
+}
+
 #[pyclass]
-#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString)]
+#[derive(Debug, PartialEq, Clone, Copy, Display, strum_macros::EnumString)]
+pub enum OrderStatus {
+    New,          // 処理中
+    PartiallyFilled, // 一部約定
+    Filled, 
+    OrderComplete, // temporary status.
+    Canceled,     // キャンセル
+    Rejected,     // 拒否
+    Expired,      // 期限切れ
+    Error,        // その他エラー
+}
+
+#[pymethods]
+impl OrderStatus {
+    pub fn __str__(&self) -> String {
+        return self.to_string();
+    }
+
+    pub fn __repr__(&self) -> String {
+        return self.to_string();
+    }
+
+    pub fn _html_repr_(&self) -> String {
+        return self.to_string();
+    }
+}
+
+
+#[pyclass]
+#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 /// Enum representing the side of an order, either Buy or Sell.
 /// Buy is represented by the value "Buy", "BUY", "buy", "B",
 /// Sell is represented by the value "Sell", "SELL", "sell", "b"
@@ -51,6 +92,7 @@ impl OrderSide {
     }
 }
 
+
 #[pymethods]
 impl OrderSide {
     pub fn __repr__(&self) -> String {
@@ -61,9 +103,27 @@ impl OrderSide {
     }
 }
 
+#[pyclass]
+#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
+/// enum order type
+pub enum OrderType {
+    LIMIT,
+    MARKET,
+}
+#[pymethods]
+impl OrderType {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
 // Represent one Trade execution.
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// Represents a trade made on an exchange.
 pub struct Trade {
     /// The time the trade was executed, in microseconds since the epoch.
@@ -120,128 +180,80 @@ impl Trade {
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderFill {
+    pub transaction_id: Option<String>,
+    pub update_time: Option<MicroSec>,      // in us
+    pub filled_size: Option<Decimal>,      // 約定数
+    pub remain_size: Option<Decimal>,      // 残数
+    pub home_change: Option<Decimal>,      // in home
+    pub foreign_change: Option<Decimal>,   // in foreign
+    pub profit: Option<Decimal>,
+    pub maker: Option<bool>,           
+    pub fee: Option<Decimal>,              
+    pub message: Option<String>,
+}
+
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
-    _order_index: i64,
+    // オーダー作成時に必須のデータ。以後変化しない。
+    pub symbol: String,
+    pub size_in_foreign: bool,        
     pub create_time: MicroSec, // in us
     pub order_id: String,      // YYYY-MM-DD-SEQ
+    pub order_list_index: i64,    
+    pub client_order_id: String, 
     pub order_side: OrderSide,
-    pub post_only: bool,
-    pub valid_until: MicroSec, // in us
-    pub price: f64,            // in
-    pub size: f64,             // in foreign
-    pub message: String,
-    pub remain_size: f64, // ログから想定した未約定数。０になったら全部約定。
-    pub size_in_price_currency: bool,
+    pub order_type: OrderType,
+    pub price: Decimal,            // in Market order, price is 0.0
+    pub size: Decimal,             // in foreign
+    pub fills: Option<OrderFill>
 }
 
 #[pymethods]
 impl Order {
     #[new]
     pub fn new(
-        create_time: MicroSec, // in us
-        order_id: String,      // YYYY-MM-DD-SEQ
+        symbol: String,
+        size_in_foreign: bool,
+        create_time: MicroSec,
+        order_id: String,
+        order_list_index: i64,
+        client_order_id: String,
         order_side: OrderSide,
-        post_only: bool,
-        valid_until: MicroSec, // in us
-        price: f64,
-        size: f64, // in foreign currency.
-        message: String,
-        size_in_price_currency: bool,
+        order_type: OrderType,
+        price: Decimal,
+        size: Decimal,
     ) -> Self {
         return Order {
-            _order_index: 0,
+            symbol,
+            size_in_foreign,
             create_time,
             order_id,
+            order_list_index,
+            client_order_id,
             order_side,
-            post_only,
-            valid_until,
+            order_type,
             price,
             size,
-            message,
-            remain_size: size,
-            size_in_price_currency,
+            fills: None,
         };
     }
 
     pub fn __str__(&self) -> String {
-        return format!("{{order_index:{}, create_time:{}, order_id:{}, order_side:{:?}, post_only:{}, valid_until:{}, price:{}, size:{}, message:{}, remain_size:{}, size_in_price_currency: {}}}",
-        self._order_index,
-        self.create_time,
-        self.order_id,
-        self.order_side,
-        self.post_only,
-        self.valid_until,
-        self.price,
-        self.size,
-        self.message,
-        self.remain_size,
-        self.size_in_price_currency,
-    );
+        self.__repr__()
     }
 
     pub fn __repr__(&self) -> String {
-        return self.__str__();
+        serde_json::to_string(&self).unwrap()
     }
 }
 
-#[pyclass]
-#[derive(Debug, PartialEq, Clone, Copy, Display, strum_macros::EnumString)]
-pub enum OrderStatus {
-    NoAction,
-    Wait,          // 処理中
-    InOrder,       // オーダー中
-    OrderComplete, // temporary status.
-    #[strum(serialize = "Open")]
-    OpenPosition, // ポジションオープン
-    ClosePartial, // ポジションクローズ（一部）
-    #[strum(serialize = "Close")]
-    ClosePosition, // ポジションクローズ（このときだけ、損益計算する）
-    OverPosition,  // ポジション以上の反対売買。別途分割して処理する。
-    #[strum(serialize = "Expire")]
-    ExpireOrder, // 期限切れ
-    Liquidation,   // 精算
-    PostOnlyError, // 指値不成立。
-    ShortMoney,    //　証拠金不足（オーダできず）
-    #[strum(serialize = "Cancel")]
-    Cancel, //  ユーザによるオーダーキャンセル
-    #[strum(serialize = "Error")]
-    Error, // その他エラー（基本的には発生させない）
-}
 
-#[pymethods]
-impl OrderStatus {
-    pub fn __str__(&self) -> String {
-        return self.to_string();
-    }
-
-    pub fn __repr__(&self) -> String {
-        return self.to_string();
-    }
-
-    pub fn _html_repr_(&self) -> String {
-        return self.to_string();
-    }
-}
-
-#[test]
-fn test_print_order_status() {
-    let s = OrderStatus::Wait;
-    println!("{:#?}", s);
-    println!("{}", s.to_string());
-
-    assert_eq!("Open", OrderStatus::OpenPosition.to_string());
-}
 
 /*
-impl OrderStatus {
-    pub fn to_string(&self) -> String {
-        let name: &str = &self.try_into::<str>();
-        return format!("{:#?}", self);
-    }
-}
-*/
-
 // 約定結果
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -381,7 +393,8 @@ impl OrderResult {
         return Ok(child);
     }
 }
-
+*/
+/*
 #[pymethods]
 impl OrderResult {
     pub fn __str__(&self) -> String {
@@ -471,246 +484,5 @@ mod order_side_test {
     }
 }
 
-#[cfg(test)]
-mod order_test {
-    use super::*;
-    #[test]
-    fn test_new() {
-        let _order_index = 0;
-        let create_time = 1;
-        let order_id = "id".to_string();
-        let order_side = OrderSide::Buy;
-        let post_only = false;
-        let valid_until = 10;
-        let price = 10.0;
-        let size = 12.0;
-        let message = "message".to_string();
 
-        let order = Order::new(
-            create_time,
-            order_id.clone(),
-            order_side,
-            post_only,
-            valid_until,
-            price,
-            size,
-            message.clone(),
-            false,
-        );
-
-        println!("{:?}", order);
-        assert_eq!(0, order._order_index);
-        assert_eq!(create_time, order.create_time);
-        assert_eq!(order_id, order.order_id);
-        assert_eq!(order_side, order.order_side);
-        assert_eq!(post_only, order.post_only);
-        assert_eq!(valid_until, order.valid_until);
-        assert_eq!(price, order.price);
-        assert_eq!(message, order.message);
-        assert_eq!(size, order.remain_size);
-        assert_eq!(false, order.size_in_price_currency);
-    }
-}
-
-#[cfg(test)]
-#[allow(unused_results)]
-#[allow(unused_variables)]
-mod order_result_test {
-    use super::*;
-
-    #[test]
-    fn test_from_order() {
-        let _order_index = 0;
-        let create_time = 1;
-        let order_id = "id".to_string();
-        let order_side = OrderSide::Buy;
-        let post_only = false;
-        let valid_until = 10;
-        let price = 10.0;
-        let size = 12.0;
-        let message = "message".to_string();
-
-        let mut order = Order::new(
-            create_time,
-            order_id.clone(),
-            order_side,
-            post_only,
-            valid_until,
-            price,
-            size,
-            message.clone(),
-            true,
-        );
-
-        // check size in home currency. e.g. USD
-        let current_time: MicroSec = 100;
-        let order_result = OrderResult::from_order(current_time, &order, OrderStatus::OpenPosition);
-
-        assert_eq!(order_result.update_time, current_time);
-        assert_eq!(order_result.order_home_size, order.size);
-        assert_eq!(
-            order_result.order_foreign_size,
-            12.0 / 10.0 /*order.size / order.price*/
-        );
-
-        // check size in foreign currency e.g. BTC
-        order.size_in_price_currency = false;
-        let current_time: MicroSec = 100;
-        let order_result = OrderResult::from_order(current_time, &order, OrderStatus::OpenPosition);
-
-        assert_eq!(order_result.update_time, current_time);
-        assert_eq!(order_result.order_home_size, 12.0 /* order.size*/);
-        assert_eq!(
-            order_result.order_foreign_size,
-            12.0 * 10.0 /* order.size * order.price*/
-        );
-    }
-
-    #[test]
-    fn test_split_order_small_in_usd() {
-        let order = Order::new(
-            1,
-            "close".to_string(),
-            OrderSide::Buy,
-            true,
-            100,
-            10.0,
-            100.0,
-            "msg".to_string(),
-            true, // <- USD
-        );
-
-        let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
-        assert_eq!(closed_order.order_home_size, 100.0);
-        assert_eq!(closed_order.order_foreign_size, 100.0 / 10.0);
-
-        let result = &closed_order.split_child(10.0);
-
-        match result {
-            Ok(child) => {
-                assert_eq!(closed_order.order_price, 10.0);
-                assert_eq!(closed_order.order_home_size, 10.0);
-                assert_eq!(closed_order.order_foreign_size, 10.0 / 10.0);
-                assert_eq!(child.order_price, 10.0);
-                assert_eq!(child.order_home_size, 90.0);
-                assert_eq!(child.order_foreign_size, 90.0 / 10.0);
-
-                println!("{:?}", child);
-            }
-            Err(_) => {
-                assert!(false);
-            }
-        }
-    }
-
-    #[test]
-    fn test_split_order_small_in_btc() {
-        let order = Order::new(
-            1,
-            "close".to_string(),
-            OrderSide::Buy,
-            true,
-            100,
-            10.0,
-            100.0,
-            "msg".to_string(),
-            false, // <-- BTC
-        );
-
-        let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
-        assert_eq!(closed_order.order_home_size, 100.0);
-        assert_eq!(closed_order.order_foreign_size, 100.0 * 10.0);
-
-        let result = &closed_order.split_child(10.0);
-
-        match result {
-            Ok(child) => {
-                assert_eq!(closed_order.order_price, 10.0);
-                assert_eq!(closed_order.order_home_size, 10.0);
-                assert_eq!(closed_order.order_foreign_size, 10.0 * 10.0);
-                assert_eq!(child.order_price, 10.0);
-                assert_eq!(child.order_home_size, 90.0);
-                assert_eq!(child.order_foreign_size, 90.0 * 10.0);
-
-                println!("{:?}", child);
-            }
-            Err(_) => {
-                assert!(false);
-            }
-        }
-    }
-
-    #[test]
-    /// オーダは０と１００には分割できない（きっちりのサイズの場合はエラー）
-    fn test_split_order_eq() {
-        let order = Order::new(
-            1,
-            "close".to_string(),
-            OrderSide::Buy,
-            true,
-            100,
-            10.0,
-            100.0,
-            "msg".to_string(),
-            false,
-        );
-
-        let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
-
-        let result = &closed_order.split_child(100.0);
-
-        match result {
-            Ok(child) => {
-                /*
-                println!("{:?}", closed_order);
-                assert_eq!(closed_order.order_price, 10.0);
-                assert_eq!(closed_order.order_home_size, 100.0);
-                assert_eq!(closed_order.order_foreign_size, 100.0 / 10.0);
-                assert_eq!(child.order_price, 10.0);
-                assert_eq!(child.order_home_size, 0.0);
-                assert_eq!(child.order_foreign_size, 0.0);
-
-                println!("{:?}", child);
-                */
-                assert!(false);
-            }
-            Err(_) => {
-                assert!(true);
-            }
-        }
-    }
-
-    #[test]
-    fn test_split_order_big() {
-        let order = Order::new(
-            1,
-            "close".to_string(),
-            OrderSide::Buy,
-            true,
-            100,
-            10.0,
-            100.0,
-            "msg".to_string(),
-            false,
-        );
-
-        let mut closed_order = OrderResult::from_order(2, &order, OrderStatus::OrderComplete);
-
-        let result = &closed_order.split_child(100.1);
-
-        match result {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(_) => {
-                assert!(true);
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct TimeChunk {
-    pub start: MicroSec,
-    pub end: MicroSec,
-}
+*/

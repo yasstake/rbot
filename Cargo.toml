@@ -64,7 +64,7 @@ tungstenite = {version="0.20.0", features=["native-tls"]}
 
  [dependencies.pyo3]
  version = "0.19.2"
-  features = ["auto-initialize"]
+  features = ["auto-initialize", "rust_decimal"]
 
 
  [features]

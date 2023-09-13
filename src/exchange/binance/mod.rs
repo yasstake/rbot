@@ -13,6 +13,7 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::de;
+use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use std::f32::consts::E;
 use std::fs;
@@ -29,13 +30,17 @@ use crate::common::time::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 use crate::fs::{project_dir, db_full_path};
-use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse};
-use self::rest::{insert_trade_db, order_status, new_limit_order};
+use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage};
+use self::rest::{insert_trade_db, order_status, new_limit_order, new_market_order, trade_list};
 
 use super::{
     check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
     OrderBook,
 };
+
+pub fn binance_to_microsec(t: u64) -> MicroSec {
+    return (t as i64) * 1_000;
+}
 
 #[pyclass]
 pub struct BinanceAccount {
@@ -44,13 +49,13 @@ pub struct BinanceAccount {
     pub subaccount: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
 pub struct BinanceConfig {
     pub exchange_name: String,
     pub trade_category: String,
     pub trade_symbol: String,
-    pub trade_in_fiat: bool,
+    pub size_in_foreign: bool,
     pub testnet: bool,
 
     // server config
@@ -66,6 +71,7 @@ pub struct BinanceConfig {
     pub api_key: String,
     pub api_secret: String
 }
+
 
 
 #[pymethods]
@@ -100,7 +106,7 @@ impl BinanceConfig {
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
-            trade_in_fiat: false,
+            size_in_foreign: false,
 
             rest_endpoint: "https://api.binance.com".to_string(),
             public_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
@@ -141,10 +147,19 @@ impl BinanceConfig {
     pub fn __repr__(&self) -> String {
         let mut printobj = self.clone();
 
-        printobj.api_key = "********".to_string();
-        printobj.api_secret = "********".to_string();
+        if printobj.api_key.len() > 4 {
+            printobj.api_key = format!("{}*******************", printobj.api_key[0..4].to_string());
+        }else {
+            printobj.api_key = "!! NO KEY !!".to_string();
+        }
 
-        format!("{:?}", printobj)
+        if printobj.api_secret.len() > 4 {
+            printobj.api_secret = format!("{}*******************", printobj.api_secret[0..4].to_string());
+        } else {
+            printobj.api_secret = "!! NO SECRET !!".to_string();
+        }
+
+        serde_json::to_string(&printobj).unwrap()
     }
 }
 
@@ -239,7 +254,7 @@ impl BinanceMarket {
         // TODO: SPOTにのみ対応しているのを変更する。
         let db_name = Self::db_path(&config).unwrap();
 
-        println!("create TradeTable: {}", db_name);
+        log::debug!("create TradeTable: {}", db_name);
 
         let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
 
@@ -443,9 +458,15 @@ impl BinanceMarket {
         }
     }
 
-    pub fn new_limit_order(&self, side: OrderSide, price: f64, size: f64) -> PyResult<BinanceOrderResponse> {
-        let response = new_limit_order(&self.config, side, Decimal::from_f64(price).unwrap(), Decimal::from_f64(size).unwrap());
+    pub fn new_limit_order(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<BinanceOrderResponse> {
+        let response = new_limit_order(&self.config, side, price, size);
     
+        convert_pyresult(response)
+    }
+
+    pub fn new_market_order(&self, side: OrderSide, size: Decimal) -> PyResult<BinanceOrderResponse> {
+        let response = new_market_order(&self.config, side, size);
+
         convert_pyresult(response)
     }
 
@@ -455,6 +476,14 @@ impl BinanceMarket {
 
         convert_pyresult(status)
     }
+
+    #[getter]
+    pub fn get_trade_list(&self) -> PyResult<Vec<BinanceTradeMessage>> {
+        let status = trade_list(&self.config);
+
+        convert_pyresult(status)
+    }
+
 }
 
 use crate::exchange::binance::rest::get_board_snapshot;
@@ -549,7 +578,7 @@ impl BinanceMarket {
                 log::debug!("{} exists", url);
                 return Ok(latest);
             } else {
-                println!("{} does not exist", url);
+                log::debug!("{} does not exist", url);
             }
             i += 1;
 

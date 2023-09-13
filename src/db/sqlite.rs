@@ -115,23 +115,22 @@ impl TradeTableDb {
 
         let result = conn.pragma_query_value(None, "journal_mode", |row| {
             let value: String = row.get(0)?;
-            println!("journal_mode = {}", value);
+            log::debug!("journal_mode = {}", value);
             Ok(value)
         });
 
         match result {
             Ok(mode) => {
                 if mode == "wal" {
-                    println!("wal mode already set");
+                    log::debug!("wal mode already set");
                     return true;
                 }
                 else {
                     return false;
                 }
-                println!("get wal mode result success");
             }
             Err(e) => {
-                println!("get wal mode error = {}", e);
+                log::error!("get wal mode error = {}", e);
                 return false;
             }
         }
@@ -174,9 +173,8 @@ impl TradeTableDb {
 
 impl TradeTableQuery for TradeTableDb {
     fn open(name: &str) -> Result<Self, Error> {
-        println!("open database {}", name);
+        log::debug!("open database {}", name);
         Self::set_wal_mode(name);
-        println!("set as wal mode");
 
         let result = Connection::open(name);
         log::debug!("Database open path = {}", name);

@@ -232,8 +232,6 @@ where
 }
 
 
-
-
 fn _process_old_trade_from<F>(
     config: &BinanceConfig,
     from_time: MicroSec,
@@ -250,14 +248,14 @@ where
     loop {
         let mut start_timer = NOW();
 
-        println!("from_id: {}", from_id);
+        log::debug!("from_id: {}", from_id);
 
         let result = process_old_trade(&config, from_id, f);
 
         match result {
             Ok((trade_id, trade_time)) => {
                 if trade_time < from_time {
-                    println!(
+                    log::debug!(
                         "trade time {}({}) is exceed specified time {}({}).",
                         time_string(trade_time),
                         trade_time,
@@ -266,7 +264,7 @@ where
                     );
                     return Ok((trade_id, trade_time));
                 } else if (from_id != 0) && from_id != trade_id {
-                    println!("data end fromID={} / trade_id={}", from_id, trade_id);
+                    log::debug!("data end fromID={} / trade_id={}", from_id, trade_id);
                     return Ok((trade_id, trade_time));
                 }
 
@@ -374,7 +372,7 @@ pub fn binance_get_sign(config: &BinanceConfig, path: &str, query: Option<&str>)
     let query = sign_with_timestamp(&config.api_secret, &q);
     let result = rest_get(&config.rest_endpoint, path, headers, Some(&query), None);
 
-    println!("path{} / body: {} / {:?}", path, q, result);
+    log::debug!("path{} / body: {} / {:?}", path, q, result);
 
     return parse_binance_result(result);    
 }
@@ -408,7 +406,7 @@ pub fn binance_post_sign(config: &BinanceConfig, path: &str, body: &str) -> Resu
 
     let body = sign_with_timestamp(&config.api_secret, &body.to_string());
 
-    println!("path{} / body: {}", path, body);
+    log::debug!("path{} / body: {}", path, body);
     let result = rest_post(&config.rest_endpoint, path, headers, &body);
 
     return parse_binance_result(result);    
@@ -422,7 +420,7 @@ pub fn binance_delete_sign(config: &BinanceConfig, path: &str, body: &str) -> Re
 
     let body = sign_with_timestamp(&config.api_secret, &body.to_string());
 
-    println!("path{} / body: {}", path, body);
+    log::debug!("path{} / body: {}", path, body);
     let result = rest_delete(&config.rest_endpoint, path, headers, &body);
 
     return parse_binance_result(result);    
@@ -545,7 +543,6 @@ pub fn new_market_order(config: &BinanceConfig, side: OrderSide, size: Decimal) 
     let body = format!("symbol={}&side={}&type=MARKET&quantity={}", config.trade_symbol, side, size);
 
     parse_response::< BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))  
-   
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
@@ -600,7 +597,17 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
 
+pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceTradeMessage>, String> {
+    let path = "/api/v3/myTrades";    
+    let query = format!("symbol={}&limit=1000", config.trade_symbol);
+
+    parse_response::<Vec<BinanceTradeMessage>>(binance_get_sign(&config, path, Some(query.as_str())))
+}
+
 #[cfg(test)]
+
+
+
 mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
@@ -611,6 +618,14 @@ mod tests {
 
     use crate::common::init_log;
 
+
+    #[test]
+    fn test_trade_list() {
+        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let result = trade_list(&config);
+
+        println!("result: {:?}", result);
+    }
 
     #[test]
     fn test_process_binance_trade_message() {
@@ -787,7 +802,7 @@ mod tests {
     #[test]
     fn test_new_limit_order() {
 //        let config = BinanceConfig::BTCBUSD();     
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
 
         let result = new_limit_order(&config, OrderSide::Buy, Decimal::from_f64(25_000.0).unwrap(), 
             Decimal::from_f64(0.001).unwrap());
@@ -803,6 +818,7 @@ mod tests {
             Decimal::from_f64(0.001).unwrap());
         
         println!("result: {:?}", result.unwrap());
+        println!("");
     }
 
     #[test]
@@ -850,4 +866,29 @@ mod tests {
         println!("message: {:?}", message);
     }
 
+    #[test]
+    fn binance_order_respose_to_order() {
+        let s: &str = r#"
+        { "symbol": "BTCBUSD", "orderId": 1388907, "orderListId": -1,
+         "clientOrderId": "pSleG2tgc7KkxGQwSSU0ew", 
+         "transactTime": 1694508594346,
+         "price": 0.00000000, 
+         "origQty": 0.00100000, 
+         "executedQty": 0.00100000,
+        "cummulativeQuoteQty": 25.79811000,
+         "status": "FILLED", 
+         "timeInForce": "GTC", 
+         "order_type": "MARKET"
+         , "side": "BUY", 
+         "workingTime": 1694508594346,
+          "selfTradePreventionMode": "NONE",
+           "fills": [{ 
+            "price": 25798.11000000, "qty": 0.00100000, "commission": 0.00000000, "commissionAsset": "BTC", "tradeId": 205308 }
+            ]}
+        "#;
+
+        let result: BinanceOrderResponse = serde_json::from_str(s).unwrap();
+
+        println!("{:?}", result);
+    }
 }
