@@ -27,6 +27,45 @@ pub fn convert_pyresult<T>(T: Result<T, String>) -> Result<T, PyErr> {
     }
 }
 
+/*
+trait Representable {
+    fn __str__(&self) -> String
+    where 
+        Self: serde::Serialize,
+    {
+        serde_json::to_string(&self).unwrap()
+    }
+
+    fn __repr__(&self) -> String
+    where 
+        Self: serde::Serialize,
+    {
+        self.__str__()
+    }
+}
+*/
+
+/// implement macro for Representable
+/// 
+#[macro_export]
+macro_rules! json_struct {
+    ($name:ident { $($field:ident : $type:ty),* $(,)? }) => {
+        #[derive(Debug, Serialize)]
+        struct $name {
+            $($field : $type),*
+        }
+
+        impl $name {
+            fn __str__(&self) -> String {
+                serde_json::to_string(&self).unwrap()
+            }
+        }
+    };
+}
+
+
+
+
 #[cfg(test)]
 mod test_common_mod {
     use super::*;

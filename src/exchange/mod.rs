@@ -629,7 +629,7 @@ impl WebSocketClient {
         log::debug!("Response contains the following headers:");
 
         for (ref header, _value) in response.headers() {
-            println!("* {}", header);
+            log::debug!("* {}", header);
         }
 
         self.connection = Some(socket);
