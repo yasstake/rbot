@@ -8,7 +8,7 @@ use strum_macros::Display;
 
 use crate::{
     common::{
-        order::{Order, OrderSide, OrderStatus, OrderType, Trade},
+        order::{Order, OrderSide, OrderStatus, OrderType, Trade, OrderFill},
         time::MicroSec,
     },
     exchange::BoardItem,
@@ -271,21 +271,25 @@ impl From<BinanceOrderResponse> for Order {
         let order_type = OrderType::from_str(&order.order_type).unwrap();
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
-        Order::new(
-            order.symbol,
-            binance_to_microsec(order.transactTime),
-            order.orderId.to_string(),
-            order.orderListId,
-            order.clientOrderId,
-            order_side,
-            order_type,
-            order.price,
-            order.origQty,
-            //order_status
-            order_status,
-        )
+        Order {
+            symbol: order.symbol.clone(),
+            create_time: binance_to_microsec(order.transactTime),
+            order_id: order.orderId.to_string(),
+            order_list_index: order.orderListId,
+            client_order_id: order.clientOrderId.clone(),
+            order_side: order_side,
+            order_type: order_type,
+            price: order.price,
+            size: order.origQty,
+            status: order_status,
+            fills: None,
+            account_change: None,
+            profit: None,
+            message: "".to_string(),
+        }
     }
 }
+
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
@@ -312,31 +316,6 @@ pub struct BinanceOrderResponse {
 // TODO: returns Vec<Order>
 #[pymethods]
 impl BinanceOrderResponse {
-    pub fn to_order(&self) -> Vec<Order> {
-        let order_side = OrderSide::from_str(&self.side).unwrap();
-        let order_type = OrderType::from_str(&self.order_type).unwrap();
-        let order_status = OrderStatus::from_str(&self.status).unwrap();
-
-        let base = Order::new(
-            self.symbol.clone(),
-            binance_to_microsec(self.transactTime),
-            self.orderId.to_string(),
-            self.orderListId,
-            self.clientOrderId.clone(),
-            order_side,
-            order_type,
-            self.price,
-            self.origQty,
-            order_status,
-        );
-
-        let mut orders: Vec<Order> = vec![];
-
-        orders.push(base);
-
-        orders
-    }
-
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -582,6 +561,71 @@ pub struct BinanceExecutionReport {
     W: u64,
     V: String,
 }
+
+#[pymethods]
+impl BinanceExecutionReport {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
+impl From<BinanceExecutionReport> for Order {
+    fn from(order: BinanceExecutionReport) -> Self {
+        let order_side = OrderSide::from_str(&order.S).unwrap();
+        let order_type = OrderType::from_str(&order.o).unwrap();
+        let order_status = OrderStatus::from_str(&order.X).unwrap();
+
+        let r = Order {
+            symbol: order.s,
+            create_time: binance_to_microsec(order.T),
+            order_id: order.i.to_string(),
+            order_list_index: order.g,
+            client_order_id: order.c,
+            order_side: order_side,
+            order_type: order_type,
+            price: order.p,
+            size: order.q,
+            status: order_status,
+            fills: None,
+            account_change: None,
+            profit: None,
+            message: "".to_string(),
+        };
+
+        let trade_id = order.t.to_string();
+        //let create_time = binance_to_microsec(order.O);
+        let update_time = binance_to_microsec(order.E);
+        let execute_size = order.l;
+        let execute_price = order.L;
+        let execute_total = order.z;
+        let commition_asset = order.N.unwrap_or_default();
+        let ismaker = order.m;
+
+        let fill = OrderFill {
+            transaction_id: trade_id,
+            update_time: update_time,
+            price: execute_price,
+            filled_size: execute_size,
+            remain_size:
+                if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
+                    Decimal::from(0)
+                } else {
+                    order.q - execute_total
+                },
+            quote_vol: execute_price * execute_size,
+            commission: order.n,
+            commission_asset: commition_asset,
+            maker: ismaker,
+        };
+     
+        return r;
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
@@ -890,3 +934,12 @@ mod binance_message_test {
         let list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
     }
 }
+
+/*
+
+{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"PARTIALLY_FILLED","r":"NONE","i":4715241,"l":"0.00100000","z":"0.00100000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807168,"I":10227482,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"26.29190000","Y":"26.29190000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
+
+
+{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"FILLED","r":"NONE","i":4715241,"l":"0.00900000","z":"0.01000000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807169,"I":10227484,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"262.91900000","Y":"236.62710000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
+
+*/

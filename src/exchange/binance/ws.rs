@@ -1,3 +1,4 @@
+use futures::future::Join;
 use reqwest::Url;
 use rust_decimal_macros::dec;
 use serde_json::json;
@@ -35,7 +36,7 @@ fn make_user_stream_endpoint(config: &BinanceConfig, key: String) -> String {
     return url;
 }
 
-pub fn listen_userdata_stream(config: &BinanceConfig) {
+pub fn listen_userdata_stream(config: &BinanceConfig) -> JoinHandle<()>{
     let key = create_listen_key(&config).unwrap();
     let url = make_user_stream_endpoint(config, key.clone());
 
@@ -50,7 +51,7 @@ pub fn listen_userdata_stream(config: &BinanceConfig) {
 
     let cc = config.clone();
 
-    thread::spawn(move || {
+    let handle = thread::spawn(move || {
         let config = cc;
 
         loop {
@@ -78,9 +79,9 @@ pub fn listen_userdata_stream(config: &BinanceConfig) {
                 key_extend_timer = now;
             }
         }
+    });
 
-    }
-);
+    return handle;
 }
 
 #[test]
@@ -92,9 +93,9 @@ fn test_listen_userdata_stream() {
     init_debug_log();
     listen_userdata_stream(&config);
 
-    sleep(Duration::from_secs(1));
+//    sleep(Duration::from_secs(1));
 
-    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
+//    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
 
     sleep(Duration::from_secs(60*1));
 }
