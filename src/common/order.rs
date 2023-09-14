@@ -23,15 +23,21 @@ pub struct TimeChunk {
 }
 
 #[pyclass]
-#[derive(Debug, PartialEq, Clone, Copy, Display, strum_macros::EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
+    #[strum(ascii_case_insensitive)]
     New,          // 処理中
+    #[strum(ascii_case_insensitive)]    
     PartiallyFilled, // 一部約定
+    #[strum(ascii_case_insensitive)]    
     Filled, 
-    OrderComplete, // temporary status.
-    Canceled,     // キャンセル
-    Rejected,     // 拒否
+    #[strum(ascii_case_insensitive)]    
+    Canceled,     // ユーザによるキャンセル
+    #[strum(ascii_case_insensitive)]    
+    Rejected,     // システムからの拒否（指値範囲外、数量不足など）
+    #[strum(ascii_case_insensitive)]    
     Expired,      // 期限切れ
+    #[strum(ascii_case_insensitive)]    
     Error,        // その他エラー
 }
 
@@ -49,6 +55,22 @@ impl OrderStatus {
         return self.to_string();
     }
 }
+
+
+/*
+impl From<&str> for OrderStatus {
+    fn from(s: &str) -> Self {
+        match OrderStatus::from_str(s) {
+            Ok(status) => {
+                status
+            }
+            Err(_) => {
+                OrderStatus::Error
+            }
+        }
+    }
+}
+*/
 
 
 #[pyclass]
@@ -92,6 +114,20 @@ impl OrderSide {
     }
 }
 
+/*
+impl From<&str> for OrderSide {
+    fn from(s: &str) -> Self {
+        match OrderSide::from_str(s) {
+            Ok(side) => {
+                side
+            }
+            Err(_) => {
+                OrderSide::Unknown
+            }
+        }
+    }
+}
+*/
 
 #[pymethods]
 impl OrderSide {
@@ -120,6 +156,7 @@ impl OrderType {
         serde_json::to_string(&self).unwrap()
     }
 }
+
 
 // Represent one Trade execution.
 #[pyclass]
@@ -200,7 +237,6 @@ pub struct OrderFill {
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
     pub symbol: String,
-    pub size_in_foreign: bool,        
     pub create_time: MicroSec, // in us
     pub order_id: String,      // YYYY-MM-DD-SEQ
     pub order_list_index: i64,    
@@ -209,6 +245,7 @@ pub struct Order {
     pub order_type: OrderType,
     pub price: Decimal,            // in Market order, price is 0.0
     pub size: Decimal,             // in foreign
+    pub status: OrderStatus,
     pub fills: Option<OrderFill>
 }
 
@@ -217,7 +254,6 @@ impl Order {
     #[new]
     pub fn new(
         symbol: String,
-        size_in_foreign: bool,
         create_time: MicroSec,
         order_id: String,
         order_list_index: i64,
@@ -226,10 +262,10 @@ impl Order {
         order_type: OrderType,
         price: Decimal,
         size: Decimal,
+        status: OrderStatus
     ) -> Self {
         return Order {
             symbol,
-            size_in_foreign,
             create_time,
             order_id,
             order_list_index,
@@ -239,6 +275,7 @@ impl Order {
             price,
             size,
             fills: None,
+            status
         };
     }
 

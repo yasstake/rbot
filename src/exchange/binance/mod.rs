@@ -23,14 +23,14 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::convert_pyresult;
-use crate::common::order::{OrderSide, TimeChunk, Trade};
+use crate::common::order::{OrderSide, TimeChunk, Trade, Order};
 use crate::common::time::{time_string, DAYS};
 use crate::common::time::{to_naive_datetime, MicroSec};
 use crate::common::time::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 use crate::fs::{project_dir, db_full_path};
-use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage};
+use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage, BinanceListOrdersResponse};
 use self::rest::{insert_trade_db, order_status, new_limit_order, new_market_order, trade_list};
 
 use super::{
@@ -458,17 +458,31 @@ impl BinanceMarket {
         }
     }
 
-    pub fn new_limit_order(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<BinanceOrderResponse> {
+    pub fn new_limit_order_raw(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<BinanceOrderResponse> {
         let response = new_limit_order(&self.config, side, price, size);
     
         convert_pyresult(response)
     }
 
-    pub fn new_market_order(&self, side: OrderSide, size: Decimal) -> PyResult<BinanceOrderResponse> {
+    pub fn new_limit_order(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<Order> {
+        let response = new_limit_order(&self.config, side, price, size);
+        
+        convert_pyresult(response)
+    }
+
+
+    pub fn new_market_order_raw(&self, side: OrderSide, size: Decimal) -> PyResult<BinanceOrderResponse> {
         let response = new_market_order(&self.config, side, size);
 
         convert_pyresult(response)
     }
+
+    pub fn new_market_order(&self, side: OrderSide, size: Decimal) -> PyResult<Order> {
+        let response = new_market_order(&self.config, side, size);
+
+        convert_pyresult(response)
+    }
+
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BinanceOrderStatus>> {
@@ -478,7 +492,7 @@ impl BinanceMarket {
     }
 
     #[getter]
-    pub fn get_trade_list(&self) -> PyResult<Vec<BinanceTradeMessage>> {
+    pub fn get_trade_list(&self) -> PyResult<Vec<BinanceListOrdersResponse>> {
         let status = trade_list(&self.config);
 
         convert_pyresult(status)

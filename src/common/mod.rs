@@ -20,9 +20,14 @@ pub fn init_debug_log() {
 }
 
 /// Converts a `Result<T, String>` to a `Result<T, PyErr>` by mapping the `Err` variant to a `PyErr`.
-pub fn convert_pyresult<T>(T: Result<T, String>) -> Result<T, PyErr> {
-    match T {
-        Ok(t) => Ok(t),
+pub fn convert_pyresult<T1, T2>(r: Result<T1, String>) -> Result<T2, PyErr>
+    where T2: From<T1>
+{
+    match r {
+        Ok(t) => {
+            let r:T2 = t.into();            
+            Ok(r)
+        },
         Err(e) => Err(pyo3::exceptions::PyException::new_err(e)),
     }
 }

@@ -597,23 +597,22 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
 
-pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceTradeMessage>, String> {
+use crate::exchange::binance::message::BinanceListOrdersResponse;
+
+pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
     let path = "/api/v3/myTrades";    
     let query = format!("symbol={}&limit=1000", config.trade_symbol);
 
-    parse_response::<Vec<BinanceTradeMessage>>(binance_get_sign(&config, path, Some(query.as_str())))
+    parse_response::<Vec<BinanceListOrdersResponse>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
 
 #[cfg(test)]
-
-
-
 mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
     use crate::{
-        common::time::{time_string, HHMM},
+        common::{time::{time_string, HHMM}, init_debug_log},
     };
 
     use crate::common::init_log;
@@ -863,6 +862,15 @@ let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
         let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
 
         let message = order_status(&config).unwrap();
+        println!("message: {:?}", message);
+    }
+
+    #[test]
+    fn test_order_list() {
+        init_debug_log();
+        let config = BinanceConfig::TESTSPOT("BTCUSDT".to_string());
+
+        let message = trade_list(&config).unwrap();
         println!("message: {:?}", message);
     }
 
