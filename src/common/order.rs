@@ -27,7 +27,7 @@ pub struct TimeChunk {
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     New,          // 処理中
-    #[strum(ascii_case_insensitive)]    
+    #[strum(ascii_case_insensitive, serialize = "PartiallyFilled" , serialize = "PARTIALLY_FILLED")]    
     PartiallyFilled, // 一部約定
     #[strum(ascii_case_insensitive)]    
     Filled, 
@@ -143,8 +143,10 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    LIMIT,
-    MARKET,
+    #[strum(ascii_case_insensitive, serialize = "LIMIT")]    
+    Limit,
+    #[strum(ascii_case_insensitive, serialize = "MARKET")]        
+    Market,
 }
 #[pymethods]
 impl OrderType {
@@ -219,16 +221,41 @@ impl Trade {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderFill {
-    pub transaction_id: Option<String>,
-    pub update_time: Option<MicroSec>,      // in us
-    pub filled_size: Option<Decimal>,      // 約定数
-    pub remain_size: Option<Decimal>,      // 残数
-    pub home_change: Option<Decimal>,      // in home
-    pub foreign_change: Option<Decimal>,   // in foreign
-    pub profit: Option<Decimal>,
-    pub maker: Option<bool>,           
-    pub fee: Option<Decimal>,              
-    pub message: Option<String>,
+    // 約定時に確定するデータ
+    pub transaction_id: String,
+    pub update_time: MicroSec,      // in us
+    pub price: Decimal,
+    pub filled_size: Decimal,      // 約定数
+    pub remain_size: Decimal,      // 残数
+    pub quote_vol: Decimal,       // in opposite currency
+    pub commission: Decimal,       // 
+    pub commission_asset: String,  // 
+    pub maker: bool,           
+}
+
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountChange {
+    pub fee_home: Decimal,       // in home currency
+    pub fee_foreign: Decimal,    // in foreign currency
+    pub home_change: Decimal,
+    pub foreign_change: Decimal,
+    pub free_home_change: Decimal,
+    pub free_foreign_change: Decimal,
+    pub lock_home_change: Decimal,
+    pub lock_foreign_change: Decimal,
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountStatus {
+    pub home: Decimal,
+    pub foreign: Decimal,
+    pub free_home: Decimal,
+    pub free_foreign: Decimal,
+    pub lock_home: Decimal,
+    pub lock_foreign: Decimal,
 }
 
 
@@ -246,39 +273,14 @@ pub struct Order {
     pub price: Decimal,            // in Market order, price is 0.0
     pub size: Decimal,             // in foreign
     pub status: OrderStatus,
-    pub fills: Option<OrderFill>
+    pub fills: Option<OrderFill>,
+    pub account_change: Option<AccountChange>,
+    pub profit: Option<Decimal>,
+    pub message: String,
 }
 
 #[pymethods]
 impl Order {
-    #[new]
-    pub fn new(
-        symbol: String,
-        create_time: MicroSec,
-        order_id: String,
-        order_list_index: i64,
-        client_order_id: String,
-        order_side: OrderSide,
-        order_type: OrderType,
-        price: Decimal,
-        size: Decimal,
-        status: OrderStatus
-    ) -> Self {
-        return Order {
-            symbol,
-            create_time,
-            order_id,
-            order_list_index,
-            client_order_id,
-            order_side,
-            order_type,
-            price,
-            size,
-            fills: None,
-            status
-        };
-    }
-
     pub fn __str__(&self) -> String {
         self.__repr__()
     }

@@ -32,6 +32,7 @@ use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond
 use crate::fs::{project_dir, db_full_path};
 use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage, BinanceListOrdersResponse};
 use self::rest::{insert_trade_db, order_status, new_limit_order, new_market_order, trade_list};
+use self::ws::listen_userdata_stream;
 
 use super::{
     check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
@@ -244,7 +245,8 @@ pub struct BinanceMarket {
     name: String,
     pub db: TradeTable,
     pub board: Arc<Mutex<BinanceOrderBook>>,
-    pub handler: Option<JoinHandle<()>>,
+    pub public_handler: Option<JoinHandle<()>>,
+    pub user_handler: Option<JoinHandle<()>>,
 }
 
 #[pymethods]
@@ -267,7 +269,8 @@ impl BinanceMarket {
             name: name.clone(),
             db,
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
-            handler: None,
+            public_handler: None,
+            user_handler: None,
         };
     }
 
@@ -446,11 +449,24 @@ impl BinanceMarket {
             }
         });
 
-        self.handler = Some(handler);
+        self.public_handler = Some(handler);
     }
 
     pub fn stop_market_stream(&mut self) {
-        match self.handler.take() {
+        match self.public_handler.take() {
+            Some(h) => {
+                h.join().unwrap();
+            }
+            None => {}
+        }
+    }
+
+    pub fn start_user_stream(&mut self) {
+        self.user_handler = Some(listen_userdata_stream(&self.config));        
+    }
+
+    pub fn stop_user_stream(&mut self) {
+        match self.user_handler.take() {
             Some(h) => {
                 h.join().unwrap();
             }
