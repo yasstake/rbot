@@ -14,10 +14,10 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use crate::common::init_debug_log;
-use crate::common::order::OrderSide;
-use crate::common::time::MICRO_SECOND;
-use crate::common::time::MicroSec;
-use crate::common::time::NOW;
+use crate::common::OrderSide;
+use crate::common::MICRO_SECOND;
+use crate::common::MicroSec;
+use crate::common::NOW;
 use crate::exchange::AutoConnectClient;
 
 use crate::exchange::binance::message::BinanceUserStreamMessage;

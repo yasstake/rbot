@@ -5,19 +5,20 @@ pub mod common;
 pub mod db;
 pub mod exchange;
 pub mod fs;
+pub mod session;
 //pub mod sim;
 
 use common::{
     init_debug_log, init_log,
-    order::{Order, OrderSide},
-    time::time_string,
+    Order, OrderSide,
+    time_string,
 };
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::{BinanceMarket, BinanceConfig};
 use exchange::bb::BBMarket;
 
-use common::time::*;
+use common::*;
 //use sim::back::BackTester;
 //use sim::session::DummySession;
 

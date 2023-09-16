@@ -5,8 +5,8 @@ use serde_derive::Serialize;
 use serde_derive::Deserialize;
 use serde_json::Value;
 
-use crate::common::order::OrderSide;
-use crate::common::order::Trade;
+use crate::common::OrderSide;
+use crate::common::Trade;
 
 use super::super::string_to_f64;
 use super::super::string_to_i64;

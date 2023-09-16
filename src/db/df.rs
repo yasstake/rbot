@@ -1,5 +1,5 @@
-use crate::common::order::Trade;
-use crate::common::time::{time_string, MicroSec, DAYS, SEC};
+use crate::common::Trade;
+use crate::common::{time_string, MicroSec, DAYS, SEC, NOW};
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -47,7 +47,7 @@ pub mod KEY {
 }
 
 fn future_date() -> MicroSec {
-    let now = crate::common::time::NOW();
+    let now = NOW();
     now + DAYS(10000)
 }
 
@@ -551,7 +551,7 @@ fn test_simple_dynamic_group() {
 #[cfg(test)]
 mod test_df {
     use super::*;
-    use crate::common::time::DAYS;
+    use crate::common::DAYS;
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(

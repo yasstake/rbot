@@ -8,8 +8,8 @@ use strum_macros::Display;
 
 use crate::{
     common::{
-        order::{Order, OrderSide, OrderStatus, OrderType, Trade, OrderFill},
-        time::MicroSec,
+        {Order, OrderSide, OrderStatus, OrderType, Trade, OrderFill},
+        MicroSec, AccountChange,
     },
     exchange::BoardItem,
 };
@@ -281,9 +281,10 @@ impl From<BinanceOrderResponse> for Order {
             order_type: order_type,
             price: order.price,
             size: order.origQty,
+            remain_size: order.origQty,
             status: order_status,
+            account_change: AccountChange::new(),
             fills: None,
-            account_change: None,
             profit: None,
             message: "".to_string(),
         }
@@ -579,6 +580,35 @@ impl From<BinanceExecutionReport> for Order {
         let order_type = OrderType::from_str(&order.o).unwrap();
         let order_status = OrderStatus::from_str(&order.X).unwrap();
 
+        let trade_id = order.t.to_string();
+        //let create_time = binance_to_microsec(order.O);
+        let update_time = binance_to_microsec(order.E);
+        let execute_size = order.l;
+        let execute_price = order.L;
+        let execute_total = order.z;
+        let commition_asset = order.N.unwrap_or_default();
+        let ismaker = order.m;
+
+        let remain_size = if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
+            Decimal::from(0)
+        } else {
+            order.q - execute_total
+        };
+
+
+        let fill = OrderFill {
+            transaction_id: trade_id,
+            update_time: update_time,
+            price: execute_price,
+            filled_size: execute_size,
+            quote_vol: execute_price * execute_size,
+            commission: order.n,
+            commission_asset: commition_asset,
+            maker: ismaker,
+        };
+
+        let account_change = AccountChange::new(); 
+
         let r = Order {
             symbol: order.s,
             create_time: binance_to_microsec(order.T),
@@ -589,38 +619,14 @@ impl From<BinanceExecutionReport> for Order {
             order_type: order_type,
             price: order.p,
             size: order.q,
+            remain_size: remain_size,            
             status: order_status,
+            account_change: account_change,
+            message: "".to_string(),            
             fills: None,
-            account_change: None,
             profit: None,
-            message: "".to_string(),
         };
 
-        let trade_id = order.t.to_string();
-        //let create_time = binance_to_microsec(order.O);
-        let update_time = binance_to_microsec(order.E);
-        let execute_size = order.l;
-        let execute_price = order.L;
-        let execute_total = order.z;
-        let commition_asset = order.N.unwrap_or_default();
-        let ismaker = order.m;
-
-        let fill = OrderFill {
-            transaction_id: trade_id,
-            update_time: update_time,
-            price: execute_price,
-            filled_size: execute_size,
-            remain_size:
-                if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
-                    Decimal::from(0)
-                } else {
-                    order.q - execute_total
-                },
-            quote_vol: execute_price * execute_size,
-            commission: order.n,
-            commission_asset: commition_asset,
-            maker: ismaker,
-        };
      
         return r;
     }
