@@ -33,8 +33,8 @@ use zip::ZipArchive;
 
 use crate::{
     common::{
-        order::Trade,
-        time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
+        Trade,
+        {MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
     },
     db::sqlite::TradeTable,
     exchange::binance::{BinanceConfig, BinanceMarket},

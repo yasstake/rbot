@@ -21,15 +21,18 @@ use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
+use std::sync::mpsc::{Receiver, Sender};
 
 use crate::common::convert_pyresult;
-use crate::common::order::{OrderSide, TimeChunk, Trade, Order};
-use crate::common::time::{time_string, DAYS};
-use crate::common::time::{to_naive_datetime, MicroSec};
-use crate::common::time::{HHMM, NOW, TODAY};
+use crate::common::{OrderSide, TimeChunk, Trade, Order};
+use crate::common::{time_string, DAYS};
+use crate::common::{to_naive_datetime, MicroSec};
+use crate::common::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 use crate::fs::{project_dir, db_full_path};
+
+
 use self::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage, BinanceListOrdersResponse};
 use self::rest::{insert_trade_db, order_status, new_limit_order, new_market_order, trade_list};
 use self::ws::listen_userdata_stream;
@@ -248,6 +251,13 @@ pub struct BinanceMarket {
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
 }
+
+
+
+trait Market {
+    fn ohlcv() -> PyResult<Py<PyArray2<f64>>>;
+}
+
 
 #[pymethods]
 impl BinanceMarket {

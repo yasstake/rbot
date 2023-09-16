@@ -1,14 +1,12 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use crate::common::time::time_string;
-use crate::json_struct;
 
 use super::time::MicroSec;
 use pyo3::pyclass;
 use pyo3::pyfunction;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::FromPrimitive;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
@@ -226,7 +224,6 @@ pub struct OrderFill {
     pub update_time: MicroSec,      // in us
     pub price: Decimal,
     pub filled_size: Decimal,      // 約定数
-    pub remain_size: Decimal,      // 残数
     pub quote_vol: Decimal,       // in opposite currency
     pub commission: Decimal,       // 
     pub commission_asset: String,  // 
@@ -245,6 +242,21 @@ pub struct AccountChange {
     pub free_foreign_change: Decimal,
     pub lock_home_change: Decimal,
     pub lock_foreign_change: Decimal,
+}
+
+impl AccountChange {
+    pub fn new() -> Self {
+        return AccountChange {
+            fee_home: Decimal::new(0, 0),
+            fee_foreign: Decimal::new(0, 0),
+            home_change: Decimal::new(0, 0),
+            foreign_change: Decimal::new(0, 0),
+            free_home_change: Decimal::new(0, 0),
+            free_foreign_change: Decimal::new(0, 0),
+            lock_home_change: Decimal::new(0, 0),
+            lock_foreign_change: Decimal::new(0, 0),
+        };
+    }
 }
 
 #[pyclass]
@@ -272,11 +284,14 @@ pub struct Order {
     pub order_type: OrderType,
     pub price: Decimal,            // in Market order, price is 0.0
     pub size: Decimal,             // in foreign
+
+    // 以後オーダーの状況に応じてUpdateされる。
+    pub remain_size: Decimal,      // 残数
     pub status: OrderStatus,
-    pub fills: Option<OrderFill>,
-    pub account_change: Option<AccountChange>,
-    pub profit: Option<Decimal>,
+    pub account_change: AccountChange,
     pub message: String,
+    pub fills: Option<OrderFill>,
+    pub profit: Option<Decimal>,
 }
 
 #[pymethods]

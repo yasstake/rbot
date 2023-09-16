@@ -11,12 +11,12 @@ use super::message::BinanceOrderResponse;
 use super::message::BinanceOrderStatus;
 use super::message::BinanceRestBoard;
 use super::message::BinanceTradeMessage;
-use crate::common::order::OrderSide;
-use crate::common::order::Trade;
-use crate::common::time::HHMM;
-use crate::common::time::time_string;
-use crate::common::time::MicroSec;
-use crate::common::time::NOW;
+use crate::common::OrderSide;
+use crate::common::Trade;
+use crate::common::HHMM;
+use crate::common::time_string;
+use crate::common::MicroSec;
+use crate::common::NOW;
 use crate::db::df::KEY::id;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
@@ -612,7 +612,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::{time::{time_string, HHMM}, init_debug_log},
+        common::{time_string, HHMM, init_debug_log},
     };
 
     use crate::common::init_log;
