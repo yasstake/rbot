@@ -168,9 +168,9 @@ pub struct Trade {
     /// The side of the order that was filled.
     pub order_side: OrderSide,
     /// The price at which the trade was executed.
-    pub price: f64,
+    pub price: Decimal,
     /// The size of the trade.
-    pub size: f64,
+    pub size: Decimal,
     /// The unique identifier for the trade.
     pub id: String,
 }
@@ -181,8 +181,8 @@ impl Trade {
     pub fn new(
         time_microsecond: MicroSec,
         order_side: OrderSide,
-        price: f64,
-        size: f64,
+        price: Decimal,
+        size: Decimal,
         id: String,
     ) -> Self {
         return Trade {
@@ -259,6 +259,12 @@ impl AccountChange {
     }
 }
 
+impl Default for AccountChange {
+    fn default() -> Self {
+        return AccountChange::new();
+    }
+}
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountStatus {
@@ -270,6 +276,18 @@ pub struct AccountStatus {
     pub lock_foreign: Decimal,
 }
 
+impl Default for AccountStatus {
+    fn default() -> Self {
+        return AccountStatus {
+            home: Decimal::new(0, 0),
+            foreign: Decimal::new(0, 0),
+            free_home: Decimal::new(0, 0),
+            free_foreign: Decimal::new(0, 0),
+            lock_home: Decimal::new(0, 0),
+            lock_foreign: Decimal::new(0, 0),
+        };
+    }
+}
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]

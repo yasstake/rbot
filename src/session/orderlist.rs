@@ -1,4 +1,5 @@
-use crate::common::Order;
+use crate::common::{Order, OrderSide, OrderStatus, Trade};
+use polars_lazy::dsl::first;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -13,16 +14,16 @@ pub struct OrderList {
 #[pymethods]
 impl OrderList {
     #[new]
-    /// Creates a new `OrderList` instance with the specified sort order.
-    ///
-    /// # Arguments
-    ///
-    /// * `asc` - A boolean value indicating whether the list should be sorted in ascending order.
-    ///
-    /// # Returns
-    ///
-    /// A new `OrderList` instance with the specified sort order and an empty list.
-    pub fn new(asc: bool) -> Self {
+    pub fn new(order_side: OrderSide) -> Self {
+        let asc = match order_side {
+            OrderSide::Buy => false,
+            OrderSide::Sell => true,
+            _ => {
+                log::error!("OrderList.new: invalid order_side={:?}", order_side);
+                true
+            }
+        };
+
         return Self {
             asc,
             list: Vec::new(),
@@ -69,13 +70,19 @@ impl OrderList {
         }
     }
 
-    /// Sorts the order list in ascending or descending order based on the `asc` field.
+    /// Sorts the order list in ascending or descending order based on the `asc` field and create_time.
     pub fn sort(&mut self) {
-        if self.asc {
-            self.list.sort_by(|a, b| a.price.cmp(&b.price));
-        } else {
-            self.list.sort_by(|a, b| b.price.cmp(&a.price));
-        }
+        self.list.sort_by(|a, b| {
+            if a.price == b.price {
+                a.create_time.cmp(&b.create_time)
+            } else {
+                if self.asc {
+                    a.price.cmp(&b.price)
+                } else {
+                    b.price.cmp(&a.price)
+                }
+            }
+        });
     }
 
     /// Appends an order to the list and sorts it.
@@ -106,6 +113,73 @@ impl OrderList {
             .list
             .iter()
             .fold(dec![0.0], |acc, x| acc + x.remain_size);
+    }
+}
+
+impl OrderList {
+    /// Consumes a trade and returns a list of orders that were filled by the trade.
+    /// The orders in the list are updated to reflect the remaining size of the order after the trade.
+    /// For Buy Trade, it consumes the Sell order list which below the trade price only.
+    /// For Sell Trade, it consumes the Buy order list which above the trade price only.
+
+    pub fn consume_trade(&mut self, mut trade: Trade) -> Vec<Order> {
+        // first check if the order is in the list. If not return emply list.
+        let order_len = self.len();
+
+        if order_len == 0 {
+            return Vec::new();
+        }
+
+        let mut filled_orders: Vec<Order> = Vec::new();
+        let mut remain_size: Decimal = trade.size;
+
+        loop {
+            if self.len()== 0 {
+                break;
+            }
+
+            if trade.order_side == self.list[0].order_side {
+                log::error!("OrderList.consume_trade: trade and order side is same. trade={:?}, order={:?}", trade, self.list[0]);
+                break;
+            }
+
+            // Buy Order will sonsumme Sell Trade which below the trade price only.
+            //　買いオーダーは高い売りトレードがあっても影響を受けない
+            if (trade.price >= self.list[0].price) && (self.list[0].order_side == OrderSide::Buy) {
+                break;
+            }
+
+            // Sell Order will sonsumme Buy Trade which above the trade price only.
+            //　売りオーダーは安い買いトレードがあっても影響を受けない
+            if (trade.price <= self.list[0].price) && (self.list[0].order_side == OrderSide::Sell) {
+                break;
+            }
+
+            if remain_size < self.list[0].remain_size {
+                // consume all remain_size, order is not filled.
+                self.list[0].status = OrderStatus::PartiallyFilled;
+                self.list[0].remain_size -= remain_size;
+                remain_size = 0.into();
+                filled_orders.push(self.list[0].clone());
+
+                // TODO: calc fills and profit
+
+                break;
+            } else {
+                // Order is filled.
+                self.list[0].status = OrderStatus::Filled;
+                self.list[0].remain_size = 0.into();
+
+                remain_size -= self.list[0].remain_size;
+
+                filled_orders.push(self.list[0].clone());
+                // TODO: calc fills and profit
+
+                self.list.remove(0);                
+            }
+        }
+
+        filled_orders
     }
 }
 

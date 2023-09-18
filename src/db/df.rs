@@ -429,10 +429,12 @@ impl TradeBuffer {
 
     pub fn push_trade(&mut self, trade: &Trade) {
         self.time_stamp.push(trade.time);
-        self.price.push(trade.price);
-        self.size.push(trade.size);
+        self.price.push(trade.price.to_f64().unwrap());
+        self.size.push(trade.size.to_f64().unwrap());
         self.order_side.push(trade.order_side.is_buy_side());
     }
+
+
 
     pub fn to_dataframe(&self) -> DataFrame {
         let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
@@ -445,6 +447,7 @@ impl TradeBuffer {
         return df;
     }
 }
+
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
@@ -491,6 +494,8 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 }
 
 use polars::prelude::*;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 #[test]
 fn test_simple_dynamic_group() {

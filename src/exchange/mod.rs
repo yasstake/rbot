@@ -78,6 +78,7 @@ pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> Tra
     }
 }
 
+
 fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,

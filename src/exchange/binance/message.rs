@@ -11,7 +11,7 @@ use crate::{
         {Order, OrderSide, OrderStatus, OrderType, Trade, OrderFill},
         MicroSec, AccountChange,
     },
-    exchange::BoardItem,
+    exchange::{BoardItem, string_to_decimal},
 };
 
 use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
@@ -47,12 +47,12 @@ pub struct BinanceWsRespond {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceTradeMessage {
     pub id: BinanceMessageId,
-    #[serde(deserialize_with = "string_to_f64")]
-    pub price: f64,
-    #[serde(rename = "qty", deserialize_with = "string_to_f64")]
-    pub size: f64,
-    #[serde(rename = "quoteQty", deserialize_with = "string_to_f64")]
-    pub volume_in_foreign: f64,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub price: Decimal,
+    #[serde(rename = "qty", deserialize_with = "string_to_decimal")]
+    pub size: Decimal,
+    #[serde(rename = "quoteQty", deserialize_with = "string_to_decimal")]
+    pub volume_in_foreign: Decimal,
     pub time: u64,
     #[serde(rename = "isBuyerMaker")]
     pub is_buyer_maker: Option<bool>,
@@ -109,8 +109,8 @@ impl BinanceWsTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
             time: binance_to_microsec(self.time),
-            price: self.p.parse::<f64>().unwrap(),
-            size: self.q.parse::<f64>().unwrap(),
+            price: Decimal::from_str(&self.p).unwrap(),  // self.p.parse::<f64>().unwrap(),
+            size: Decimal::from_str(&self.q).unwrap(),  // parse::<f64>().unwrap(),
             order_side: if self.m {
                 OrderSide::Buy
             } else {

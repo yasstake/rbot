@@ -6,13 +6,13 @@ mod tests {
     use orderlist::OrderList;
     use rust_decimal_macros::dec;
 
-    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, AccountChange}};
+    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, AccountChange, Trade, init_debug_log}};
 
     use super::*;
 
     #[test]
     fn test_order_list() {
-        let mut order_list = OrderList::new(true);
+        let mut order_list = OrderList::new(OrderSide::Sell);
 
         let now = NOW();
 
@@ -105,4 +105,115 @@ mod tests {
         assert_eq!(order_list.remain_size(), dec![0.0]);
 
     }
+
+
+    #[test]
+    fn test_consume_trade() {
+        // Test consume_trade
+        // asc means buy order list
+        let mut order_list = OrderList::new(OrderSide::Buy);
+
+        let now = NOW();
+
+        let order1 = Order {
+            order_id: "1".to_string(),
+            price: dec![100.0],
+            size: dec![10.0],
+            remain_size: dec![10.0],
+            symbol: "BTCUSDT".to_string(),
+            create_time: now,
+            order_list_index: -1,
+            client_order_id: "MYORDER-1".to_string(),
+            order_side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            status: OrderStatus::New,
+            account_change: AccountChange::new(),
+            message: "".to_string(),
+            fills: None,
+            profit: None,
+        };
+        order_list.append(order1.clone());
+
+        let mut order2 = order1.clone();
+        order2.order_id =  "2".to_string();
+        order2.price= dec![200.0];
+        order2.size = dec![20.0];
+        order2.remain_size = dec![20.0];
+        order_list.append(order2);
+
+        let mut order3 = order1.clone();
+        order3.order_id =  "3".to_string();
+        order3.price= dec![150.0];
+        order3.size = dec![15.0];
+        order3.remain_size = dec![15.0];
+        order_list.append(order3);        
+
+        let mut order4 = order1.clone();
+        order4.order_id =  "4".to_string();
+        order4.price= dec![250.0];
+        order4.size = dec![25.0];
+        order4.remain_size = dec![25.0];
+        order_list.append(order4);
+
+        init_debug_log();
+
+        // if buy trades comes in the buy trades list, its araises error log, and returns empty list.
+        let trade = Trade::new(
+            NOW(), OrderSide::Buy,
+            dec![150.0], dec![10.0], "ordr1".to_string());
+
+            let filled_orders = order_list.consume_trade(trade.clone());
+
+            assert_eq!(filled_orders.len(), 0);
+
+        // if sell trades and equal to the highest buy order price, it will do nothing.
+        let trade2 = Trade::new(
+            NOW(), OrderSide::Sell,
+            dec![250.0], dec![250.0], "ordr2".to_string());
+
+
+        let filled_orders = order_list.consume_trade(trade2.clone());
+        assert_eq!(filled_orders.len(), 0);
+
+        // Partially filled.
+        let trade3 = Trade::new(
+            NOW(), OrderSide::Sell,
+            dec![249.9], dec![10.0], "ordr3".to_string());
+
+        let filled_orders = order_list.consume_trade(trade3.clone());
+        assert_eq!(filled_orders.len(), 1);
+        println!("filled_orders={:?}", filled_orders);
+        assert_eq!(filled_orders[0].status, OrderStatus::PartiallyFilled);
+        assert_eq!(filled_orders[0].remain_size, dec![15.0]);
+        assert_eq!(order_list.remain_size(), dec![60.0]);
+
+        // Filled filled.
+        let trade3 = Trade::new(
+            NOW(), OrderSide::Sell,
+            dec![199.0], dec![100.0], "ordr3".to_string());
+
+        let filled_orders = order_list.consume_trade(trade3.clone());
+        assert_eq!(filled_orders.len(), 2);
+        println!("filled_orders={:?}", filled_orders);
+        assert_eq!(filled_orders[0].status, OrderStatus::Filled);
+        assert_eq!(filled_orders[0].remain_size, dec![0.0]);
+
+        assert_eq!(filled_orders[1].status, OrderStatus::Filled);
+        assert_eq!(filled_orders[1].remain_size, dec![0.0]);
+
+        assert_eq!(order_list.remain_size(), dec![25.0]);
+
+
+
+
+
+/*
+
+        assert_eq!(filled_orders.len(), 2);
+        assert_eq!(filled_orders[0].remain_size, dec!(0));
+        assert_eq!(filled_orders[1].remain_size, dec!(1));
+        assert_eq!(order_list.remain_size(), dec!(2));
+        */
+    }
+
 }
