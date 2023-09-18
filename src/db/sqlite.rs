@@ -13,6 +13,9 @@ use rusqlite::DatabaseName;
 use rusqlite::OpenFlags;
 use rusqlite::params_from_iter;
 use rusqlite::{params, Connection, Error, Result, Statement, Transaction};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{TimeChunk, Trade};
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, NOW};
@@ -79,8 +82,8 @@ impl TradeTableDb {
                 params![
                     rec.time,
                     rec.order_side.to_string(),
-                    rec.price,
-                    rec.size,
+                    rec.price.to_f64().unwrap(),
+                    rec.size.to_f64().unwrap(),
                     rec.id
                 ],
             );
@@ -265,8 +268,8 @@ impl TradeTableQuery for TradeTableDb {
 
                 Ok(Trade {
                     time: row.get_unwrap(0),
-                    price: row.get_unwrap(2),
-                    size: row.get_unwrap(3),
+                    price: Decimal::from_f64(row.get_unwrap(2)).unwrap(),
+                    size: Decimal::from_f64(row.get_unwrap(3)).unwrap(),
                     order_side: bs,
                     id: row.get_unwrap(4),
                 })
@@ -1122,6 +1125,8 @@ mod test_transaction_table {
     use std::thread::sleep;
     use std::time::Duration;
 
+    use rust_decimal_macros::dec;
+
     use crate::common::init_log;
     use crate::common::time_string;
     use crate::common::DAYS;
@@ -1149,9 +1154,9 @@ mod test_transaction_table {
         let mut tr = TradeTable::open("test.db").unwrap();
         tr.recreate_table();
 
-        let rec1 = Trade::new(1, OrderSide::Buy, 10.0, 10.0, "abc1".to_string());
-        let rec2 = Trade::new(2, OrderSide::Buy, 10.1, 10.2, "abc2".to_string());
-        let rec3 = Trade::new(3, OrderSide::Buy, 10.2, 10.1, "abc3".to_string());
+        let rec1 = Trade::new(1, OrderSide::Buy, dec![10.0], dec![10.0], "abc1".to_string());
+        let rec2 = Trade::new(2, OrderSide::Buy, dec![10.1], dec![10.2], "abc2".to_string());
+        let rec3 = Trade::new(3, OrderSide::Buy, dec![10.2], dec![10.1], "abc3".to_string());
 
         let _r = tr.insert_records(&vec![rec1, rec2, rec3]);
     }
@@ -1367,15 +1372,15 @@ mod test_transaction_table {
         let mut table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
         let mut tx = table.start_thread();
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "I".to_string()}];
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
         tx.send(v).unwrap();
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "I".to_string()}];
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
         tx.send(v).unwrap();
 
         let mut tx = table.start_thread();  
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: 1.0, size: 1.0, id: "B".to_string()}];
+        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "B".to_string()}];
         tx.send(v).unwrap();
 
 //        sleep(Duration::from_millis(5000));      

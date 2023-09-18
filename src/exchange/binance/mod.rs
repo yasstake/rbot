@@ -556,18 +556,25 @@ impl BinanceMarket {
             .unwrap_or_default()
             .parse::<f64>()
             .unwrap_or_default();
+
+        let price = Decimal::from_f64(price).unwrap_or_default();
+
         let size = rec
             .get(2)
             .unwrap_or_default()
             .parse::<f64>()
             .unwrap_or_default();
+
+        let size = Decimal::from_f64(size).unwrap_or_default();
+
         let timestamp = rec
             .get(4)
             .unwrap_or_default()
             .parse::<MicroSec>()
             .unwrap_or_default()
             * 1_000;
-        let is_buyer_make = rec.get(5).unwrap_or_default();
+
+            let is_buyer_make = rec.get(5).unwrap_or_default();
         let order_side = match is_buyer_make {
             "True" => OrderSide::Buy,
             "False" => OrderSide::Sell,

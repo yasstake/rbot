@@ -1,6 +1,8 @@
 
 
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use serde_derive::Serialize;
 use serde_derive::Deserialize;
 use serde_json::Value;
@@ -64,8 +66,8 @@ impl BybitTrade {
     pub fn to_trade(&self) -> Trade {
         return Trade {
             time: self.time * 1_000,
-            price: self.price,
-            size: self.size,
+            price: Decimal::from_f64(self.price).unwrap(),
+            size: Decimal::from_f64(self.size).unwrap(),
             order_side: if self.side == "Buy" {
                 OrderSide::Buy
             } else {

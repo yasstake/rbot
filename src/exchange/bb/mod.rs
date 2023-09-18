@@ -11,6 +11,8 @@ use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 
 use crate::common::{OrderSide, TimeChunk, Trade};
 use crate::common::NOW;
@@ -206,11 +208,15 @@ impl BBMarket {
             .parse::<f64>()
             .unwrap_or_default();
 
+        let price: Decimal = Decimal::from_f64(price).unwrap();
+
         let size = rec
             .get(3)
             .unwrap_or_default()
             .parse::<f64>()
             .unwrap_or_default();
+
+        let size = Decimal::from_f64(size).unwrap();
 
         let trade = Trade::new(timestamp, order_side, price, size, id);
 
@@ -267,6 +273,7 @@ KLine形式で１分足ならばもっと長期間のログが取得可能。
 #[cfg(test)]
 mod BBMarketTest{
     use csv::StringRecord;
+    use rust_decimal_macros::dec;
 
     use crate::common::{NOW, time_string};
 
@@ -304,8 +311,8 @@ mod BBMarketTest{
 
         assert_eq!(trade.time, 1692748800279000);
         assert_eq!(trade.order_side, super::OrderSide::Sell);
-        assert_eq!(trade.price, 26027.0);
-        assert_eq!(trade.size, 641.0);
+        assert_eq!(trade.price, dec![26027.0]);
+        assert_eq!(trade.size, dec![641.0]);
         assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
     }
 
