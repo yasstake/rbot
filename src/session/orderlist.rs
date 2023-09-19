@@ -183,5 +183,3 @@ impl OrderList {
     }
 }
 
-#[pyclass(name = "_Session")]
-struct Session {}

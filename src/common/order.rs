@@ -11,6 +11,7 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 use std::str::FromStr;
+use std::sync::mpsc::Receiver;
 use strum::EnumString;
 use strum_macros::Display;
 
@@ -309,7 +310,7 @@ pub struct Order {
     pub account_change: AccountChange,
     pub message: String,
     pub fills: Option<OrderFill>,
-    pub profit: Option<Decimal>,
+    pub profit: Option<Decimal>,        
 }
 
 #[pymethods]
@@ -323,6 +324,19 @@ impl Order {
     }
 }
 
+
+pub enum MarketMessage {
+    Trade,
+    OrderBook,
+    Order,
+    Position,
+    Account,
+}
+
+#[pyclass]
+pub struct MarketStream {
+    pub reciver: Receiver<MarketMessage>,
+}
 
 
 /*
