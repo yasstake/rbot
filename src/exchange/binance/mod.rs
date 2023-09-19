@@ -21,7 +21,8 @@ use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
-use std::sync::mpsc::{Receiver, Sender};
+use crossbeam_channel::Sender;
+use crossbeam_channel::Receiver;
 
 use crate::common::convert_pyresult;
 use crate::common::{OrderSide, TimeChunk, Trade, Order};

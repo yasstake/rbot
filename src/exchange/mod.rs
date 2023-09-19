@@ -40,7 +40,8 @@ use crate::{
     exchange::binance::{BinanceConfig, BinanceMarket},
 };
 
-use std::sync::mpsc::Sender;
+use crossbeam_channel::Sender;
+use crossbeam_channel::Receiver;
 
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
