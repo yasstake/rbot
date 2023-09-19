@@ -4,55 +4,40 @@ use std::sync::mpsc;
 use crossbeam_channel::Sender;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::unbounded;
+use openssl::x509::AccessDescription;
 use pyo3::pyclass;
 use super::order::Order;
 use super::order::Trade;
-
 use anyhow::Result;
 
-pub enum ChannelMessage {
-    Order(Order),
+
+
+pub enum MarketMessage {
     Trade(Trade),
+    Order(Order),
+//    OrderBook(OrderBook),
+    /*
+    Position(Position),
+    Account(AccessDescription),
+    */
 }
-
-pub type ExchangeReceiver = Receiver<ChannelMessage>;
-pub type ExchangeSender = Sender<ChannelMessage>;
-
 
 #[pyclass]
-#[derive(Debug)]
-pub struct Channel {
-    rx: ExchangeReceiver
+pub struct MarketStream {
+    pub reciver: Receiver<MarketMessage>,
 }
 
-impl Channel {
-    pub fn create() -> (Self, ExchangeSender) {
-        let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = unbounded();
-
-        return (Self{rx}, tx);
+impl MarketStream {
+    pub fn open() -> (Sender<MarketMessage>, MarketStream) { 
+        let (sender, reciver) = unbounded();
+        (sender, Self {
+            reciver,
+        })
     }
 }
-
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    #[test]
-    fn test_send_message()  -> anyhow::Result<()>{
-//        let (tx, rx): (Sender<Order>, Receiver<Order>) = unbounded();
-//let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
-    let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = unbounded();
-
-    Ok(())
-    }
-
-    #[test]
-    fn test_create_channel() -> anyhow::Result<()> {
-        let (channel, tx) = Channel::create();
-
-        Ok(())
-    }
-
 
 
 }

@@ -1,6 +1,4 @@
 
-
-
 from collections import OrderedDict
 import numpy as np
 import pandas as pd
@@ -10,8 +8,6 @@ from bokeh.models import ColumnDataSource, RangeTool, HoverTool, CrosshairTool, 
 from bokeh.plotting import figure
 from bokeh.io import output_notebook, show
 import datetime
-
-
 
 
 class Chart:
@@ -40,12 +36,13 @@ class Chart:
         price.add_tools(self.cross_hair)
 
         ########  create volume figure ################
-        if 'volume' in ohlcv.column:
+        if 'volume' in ohlcv.columns:
             volume = self.new_figure('Volume', 100, 'Volume')
             self.draw_volume('Volume', ohlcv)
             volume.add_tools(self.cross_hair)
 
         ######### setup select figure #################
+        """ Disable range tools
         select = figure(title="Price slide bar",
                 height= int(height/4), width=self.width, y_range=price.y_range,
                 x_axis_type="datetime", y_axis_type=None,
@@ -54,15 +51,16 @@ class Chart:
         self.select = select
 
         self.line(select, ohlcv, x_key='timestamp', y_key='close', legend_label='price', color='#1010ff')
+        
         range_tool = RangeTool(x_range=self.x_range)
         range_tool.overlay.fill_color = "navy"
         range_tool.overlay.fill_alpha = 0.2
 
-        select.ygrid.grid_line_color = None
-        select.add_tools(range_tool)
-        select.toolbar.active_multi = range_tool
-        select.add_tools(self.cross_hair)
-        
+        #select.ygrid.grid_line_color = None
+        #select.add_tools(range_tool)
+        #select.toolbar.active_multi = range_tool
+        #select.add_tools(self.cross_hair)
+        """
     
     def new_figure(self, name, height, title):
         p = figure(x_axis_type="datetime", width=self.width, height=height, tools="", toolbar_location=None,
@@ -86,7 +84,8 @@ class Chart:
         for key in self.figure:
             figure.append(self.figure[key])
 
-        figure.append(self.select)
+        # remove select figure
+        #figure.append(self.select)
             
         show(column(figure))
 
