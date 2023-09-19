@@ -56,22 +56,6 @@ impl OrderStatus {
 }
 
 
-/*
-impl From<&str> for OrderStatus {
-    fn from(s: &str) -> Self {
-        match OrderStatus::from_str(s) {
-            Ok(status) => {
-                status
-            }
-            Err(_) => {
-                OrderStatus::Error
-            }
-        }
-    }
-}
-*/
-
-
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 /// Enum representing the side of an order, either Buy or Sell.
@@ -113,20 +97,6 @@ impl OrderSide {
     }
 }
 
-/*
-impl From<&str> for OrderSide {
-    fn from(s: &str) -> Self {
-        match OrderSide::from_str(s) {
-            Ok(side) => {
-                side
-            }
-            Err(_) => {
-                OrderSide::Unknown
-            }
-        }
-    }
-}
-*/
 
 #[pymethods]
 impl OrderSide {
@@ -324,19 +294,6 @@ impl Order {
     }
 }
 
-
-pub enum MarketMessage {
-    Trade,
-    OrderBook,
-    Order,
-    Position,
-    Account,
-}
-
-#[pyclass]
-pub struct MarketStream {
-    pub reciver: Receiver<MarketMessage>,
-}
 
 
 /*
