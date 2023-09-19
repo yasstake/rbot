@@ -254,8 +254,14 @@ pub struct BinanceMarket {
 
 
 
-trait Market {
-    fn ohlcv() -> PyResult<Py<PyArray2<f64>>>;
+pub trait Market {
+    fn limit_order(&self);
+}
+
+impl Market for BinanceMarket {
+    fn limit_order(&self) {
+        // todo!()
+    }
 }
 
 

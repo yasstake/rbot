@@ -596,7 +596,7 @@ impl From<BinanceExecutionReport> for Order {
         };
 
 
-        let fill = OrderFill {
+        let fills = OrderFill {
             transaction_id: trade_id,
             update_time: update_time,
             price: execute_price,
@@ -623,8 +623,8 @@ impl From<BinanceExecutionReport> for Order {
             status: order_status,
             account_change: account_change,
             message: "".to_string(),            
-            fills: None,
-            profit: None,
+            fills: Some(fills),    
+            profit: None,   // TODO                        
         };
 
      
