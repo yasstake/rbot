@@ -1,9 +1,9 @@
 use std::thread::sleep;
 use std::time::Duration;
 
-use std::sync::mpsc::Sender; 
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
 
-use super::BinanceConfig;
 use super::message::BinanceAccountInformation;
 use super::message::BinanceCancelOrderResponse;
 use super::message::BinanceMessageId;
@@ -11,18 +11,18 @@ use super::message::BinanceOrderResponse;
 use super::message::BinanceOrderStatus;
 use super::message::BinanceRestBoard;
 use super::message::BinanceTradeMessage;
+use super::BinanceConfig;
+use crate::common::time_string;
+use crate::common::MicroSec;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::HHMM;
-use crate::common::time_string;
-use crate::common::MicroSec;
 use crate::common::NOW;
 use crate::db::df::KEY::id;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
 use crate::exchange::rest_put;
-
 
 /// Processes recent trades for a given symbol and applies a function to the resulting vector of trades.
 ///
@@ -34,7 +34,10 @@ use crate::exchange::rest_put;
 /// # Returns
 ///
 /// Returns a `Result` containing a tuple of `BinanceMessageId` and `MicroSec` if the operation is successful, otherwise returns an error message as a `String`.
-fn process_recent_trade<F>(config: &BinanceConfig, f: &mut F) -> Result<(BinanceMessageId, MicroSec), String>
+fn process_recent_trade<F>(
+    config: &BinanceConfig,
+    f: &mut F,
+) -> Result<(BinanceMessageId, MicroSec), String>
 where
     F: FnMut(Vec<Trade>) -> Result<(), String>,
 {
@@ -167,7 +170,10 @@ where
     let mut path: String;
 
     if from_id == 0 {
-        path = format!("/api/v3/historicalTrades?symbol={}&limit=1000", config.trade_symbol);
+        path = format!(
+            "/api/v3/historicalTrades?symbol={}&limit=1000",
+            config.trade_symbol
+        );
     } else {
         path = format!(
             "/api/v3/historicalTrades?symbol={}&fromId={}&limit=1000",
@@ -191,9 +197,8 @@ const API_INTERVAL_LIMIT: i64 = 100 * 1000;
 pub fn insert_trade_db(
     config: &BinanceConfig,
     from_time: MicroSec,
-    tx: Sender<Vec<Trade>>
-) -> Result<(BinanceMessageId, MicroSec), String> 
-{
+    tx: Sender<Vec<Trade>>,
+) -> Result<(BinanceMessageId, MicroSec), String> {
     return process_old_trade_from(config, from_time, &mut |trades| {
         tx.send(trades).unwrap();
         Ok(())
@@ -204,33 +209,30 @@ pub fn process_old_trade_from<F>(
     config: &BinanceConfig,
     from_time: MicroSec,
     f: &mut F,
-) -> Result<(BinanceMessageId, MicroSec), String> 
+) -> Result<(BinanceMessageId, MicroSec), String>
 where
     F: FnMut(Vec<Trade>) -> Result<(), String>,
 {
     let now = server_time(config)?;
-    
+
     let result = _process_old_trade_from(&config, from_time, f);
 
     match result {
-        Ok((trade_id, trade_time)) => {
-            match _process_old_trade_from(&config, now - HHMM(0, 1), f) {
-                Ok(_) => {
-                    return Ok((trade_id, trade_time));
-                }
-                Err(e) => {
-                    println!("Error: {:?}", e);
-                    return Err(e);
-                }
+        Ok((trade_id, trade_time)) => match _process_old_trade_from(&config, now - HHMM(0, 1), f) {
+            Ok(_) => {
+                return Ok((trade_id, trade_time));
             }
-        }
+            Err(e) => {
+                println!("Error: {:?}", e);
+                return Err(e);
+            }
+        },
         Err(e) => {
             println!("Error: {:?}", e);
             return Err(e);
         }
     }
 }
-
 
 fn _process_old_trade_from<F>(
     config: &BinanceConfig,
@@ -332,7 +334,7 @@ pub fn parse_binance_result(result: Result<String, String>) -> Result<serde_json
     let v = serde_json::from_str::<Value>(message.as_str());
 
     if v.is_err() {
-        let err_message = format!("{}:\n{}", v.err().unwrap(), message);        
+        let err_message = format!("{}:\n{}", v.err().unwrap(), message);
         return Err(err_message);
     }
 
@@ -344,28 +346,35 @@ pub fn parse_binance_result(result: Result<String, String>) -> Result<serde_json
         let msg = v.get("msg").unwrap().as_str().unwrap();
 
         let err_message = format!("{}: {}\n{}", code, msg, message);
-        return Err(err_message)
+        return Err(err_message);
     }
 
     Ok(v)
 }
 
-pub fn binance_get_key(config: &BinanceConfig, path: &str, query: Option<&str>) -> Result<Value, String> {
+pub fn binance_get_key(
+    config: &BinanceConfig,
+    path: &str,
+    query: Option<&str>,
+) -> Result<Value, String> {
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
     let result = rest_get(&config.rest_endpoint, path, headers, query, None);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
 
-pub fn binance_get_sign(config: &BinanceConfig, path: &str, query: Option<&str>) -> Result<Value, String> {
+pub fn binance_get_sign(
+    config: &BinanceConfig,
+    path: &str,
+    query: Option<&str>,
+) -> Result<Value, String> {
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
 
     let q = if query.is_some() {
         query.unwrap().to_string()
-    }
-    else {
+    } else {
         "".to_string()
     };
 
@@ -374,18 +383,16 @@ pub fn binance_get_sign(config: &BinanceConfig, path: &str, query: Option<&str>)
 
     log::debug!("path{} / body: {} / {:?}", path, q, result);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
-
 
 pub fn binance_put_key(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
     let result = rest_put(&config.rest_endpoint, path, headers, body);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
-
 
 pub fn binance_post_key(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
     let url = format!("{}{}", config.rest_endpoint, path);
@@ -395,7 +402,7 @@ pub fn binance_post_key(config: &BinanceConfig, path: &str, body: &str) -> Resul
 
     let result = rest_post(&config.rest_endpoint, path, headers, body);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
 
 pub fn binance_post_sign(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
@@ -409,10 +416,14 @@ pub fn binance_post_sign(config: &BinanceConfig, path: &str, body: &str) -> Resu
     log::debug!("path{} / body: {}", path, body);
     let result = rest_post(&config.rest_endpoint, path, headers, &body);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
 
-pub fn binance_delete_sign(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
+pub fn binance_delete_sign(
+    config: &BinanceConfig,
+    path: &str,
+    body: &str,
+) -> Result<Value, String> {
     let url = format!("{}{}", config.rest_endpoint, path);
 
     let mut headers = vec![];
@@ -423,14 +434,13 @@ pub fn binance_delete_sign(config: &BinanceConfig, path: &str, body: &str) -> Re
     log::debug!("path{} / body: {}", path, body);
     let result = rest_delete(&config.rest_endpoint, path, headers, &body);
 
-    return parse_binance_result(result);    
+    return parse_binance_result(result);
 }
-
 
 use hex;
 
 fn sign_with_timestamp(secret_key: &String, mut message: &String) -> String {
-    let time = (NOW()/1_000) as u64;
+    let time = (NOW() / 1_000) as u64;
 
     let message = format!("{}&recvWindow={}&timestamp={}", message, 6000, time);
 
@@ -445,11 +455,10 @@ fn sign(secret_key: &String, message: &String) -> String {
     let mac = mac.finalize();
     let signature = hex::encode(mac.into_bytes());
 
-    let message = format!("{}&signature={}", message, signature);    
+    let message = format!("{}&signature={}", message, signature);
 
     message
 }
-
 
 /// Sends a REST request to Binance to get the server time and returns it in microseconds.
 ///
@@ -460,7 +469,7 @@ fn sign(secret_key: &String, message: &String) -> String {
 /// use rbot::exchange::binance::rest::server_time;
 /// init_debug_log();
 /// let config = rbot::exchange::binance::BinanceConfig::BTCBUSD();
-/// 
+///
 /// let time = server_time(&config);
 /// log::debug!("Server time: {}", time);
 /// ```
@@ -502,22 +511,20 @@ fn order_side_string(side: OrderSide) -> String {
     }
 }
 
-fn parse_response<T>(result: Result<Value, String>) -> Result<T, String> 
+fn parse_response<T>(result: Result<Value, String>) -> Result<T, String>
 where
     T: serde::de::DeserializeOwned,
 {
     match result {
-        Ok(v) => {
-            match serde_json::from_value::<T>(v) {
-                Ok(v) => {
-                    return Ok(v);
-                }
-                Err(e) => {
-                    println!("Error: {:?}", e);
-                    return Err(e.to_string());
-                }
+        Ok(v) => match serde_json::from_value::<T>(v) {
+            Ok(v) => {
+                return Ok(v);
             }
-        }
+            Err(e) => {
+                println!("Error: {:?}", e);
+                return Err(e.to_string());
+            }
+        },
         Err(e) => {
             println!("Error: {:?}", e);
             return Err(e);
@@ -527,43 +534,59 @@ where
 
 /// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
 
-pub fn new_limit_order(config: &BinanceConfig, side: OrderSide, price: Decimal, size: Decimal) -> Result<BinanceOrderResponse, String>{
-    let path = "/api/v3/order";    
+pub fn new_limit_order(
+    config: &BinanceConfig,
+    side: OrderSide,
+    price: Decimal,
+    size: Decimal,
+) -> Result<BinanceOrderResponse, String> {
+    let path = "/api/v3/order";
     let side = order_side_string(side);
-    let body = format!("symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}", config.trade_symbol, side, size, price);
+    let body = format!(
+        "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
+        config.trade_symbol, side, size, price
+    );
 
-    parse_response::< BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))  
-   
+    parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
-pub fn new_market_order(config: &BinanceConfig, side: OrderSide, size: Decimal) -> Result<BinanceOrderResponse, String>{
-    let path = "/api/v3/order";    
+pub fn new_market_order(
+    config: &BinanceConfig,
+    side: OrderSide,
+    size: Decimal,
+) -> Result<BinanceOrderResponse, String> {
+    let path = "/api/v3/order";
     let side = order_side_string(side);
-    let body = format!("symbol={}&side={}&type=MARKET&quantity={}", config.trade_symbol, side, size);
+    let body = format!(
+        "symbol={}&side={}&type=MARKET&quantity={}",
+        config.trade_symbol, side, size
+    );
 
-    parse_response::< BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))  
+    parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
-pub fn cancel_order(config: &BinanceConfig, order_id: String) -> Result<BinanceCancelOrderResponse, String> {
-    let path = "/api/v3/order";    
+pub fn cancel_order(
+    config: &BinanceConfig,
+    order_id: String,
+) -> Result<BinanceCancelOrderResponse, String> {
+    let path = "/api/v3/order";
     let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
 
     parse_response::<BinanceCancelOrderResponse>(binance_delete_sign(&config, path, body.as_str()))
 }
 
-
 /// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
 /// Get Balance from user account
 
 pub fn get_balance(config: &BinanceConfig) -> Result<BinanceAccountInformation, String> {
-    let path = "/api/v3/account";  
+    let path = "/api/v3/account";
 
     parse_response::<BinanceAccountInformation>(binance_get_sign(&config, path, None))
 }
 
-pub fn create_listen_key(config:& BinanceConfig) -> Result<String, String> {
+pub fn create_listen_key(config: &BinanceConfig) -> Result<String, String> {
     let message = binance_post_key(&config, "/api/v3/userDataStream", "").unwrap();
 
     if message.get("listenKey").is_some() {
@@ -591,7 +614,7 @@ pub fn extend_listen_key(config: &BinanceConfig, key: &str) -> Result<(), String
 }
 
 pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
-    let path = "/api/v3/allOrders";    
+    let path = "/api/v3/allOrders";
     let query = format!("symbol={}&limit=1000", config.trade_symbol);
 
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
@@ -600,10 +623,14 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
 use crate::exchange::binance::message::BinanceListOrdersResponse;
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
-    let path = "/api/v3/myTrades";    
+    let path = "/api/v3/myTrades";
     let query = format!("symbol={}&limit=1000", config.trade_symbol);
 
-    parse_response::<Vec<BinanceListOrdersResponse>>(binance_get_sign(&config, path, Some(query.as_str())))
+    parse_response::<Vec<BinanceListOrdersResponse>>(binance_get_sign(
+        &config,
+        path,
+        Some(query.as_str()),
+    ))
 }
 
 #[cfg(test)]
@@ -611,12 +638,9 @@ mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
-    use crate::{
-        common::{time_string, HHMM, init_debug_log},
-    };
+    use crate::common::{init_debug_log, time_string, HHMM};
 
     use crate::common::init_log;
-
 
     #[test]
     fn test_trade_list() {
@@ -652,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_process_recent_trade() {
-        let config = BinanceConfig::BTCBUSD();        
+        let config = BinanceConfig::BTCBUSD();
         let symbol = config.trade_symbol;
         let mut latest_time = 0;
         let config = BinanceConfig::BTCBUSD();
@@ -677,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_process_old_trade() {
-        let config = BinanceConfig::BTCBUSD();        
+        let config = BinanceConfig::BTCBUSD();
 
         let mut latest_time = 0;
 
@@ -701,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_timing_rest_api() {
-        let config = BinanceConfig::BTCBUSD();        
+        let config = BinanceConfig::BTCBUSD();
 
         let mut latest_time = 0;
 
@@ -745,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_process_old_trade_until() {
-        let config = BinanceConfig::BTCBUSD();        
+        let config = BinanceConfig::BTCBUSD();
 
         let mut latest_time = 0;
 
@@ -766,14 +790,12 @@ mod tests {
         println!("latest_time: {}", time_string(latest_time));
     }
 
-
     #[test]
     fn test_server_time() {
-        let config = BinanceConfig::BTCBUSD();        
+        let config = BinanceConfig::BTCBUSD();
         let time = server_time(&config).unwrap();
         println!("Server time: {} ({})", time_string(time), time);
     }
-
 
     /// https://binance-docs.github.io/apidocs/spot/en/#signed-trade-user_data-and-margin-endpoint-security
     /// test sample from above url
@@ -791,31 +813,40 @@ mod tests {
 
     #[test]
     fn test_clock_diff() {
-        let config = BinanceConfig::BTCBUSD();     
+        let config = BinanceConfig::BTCBUSD();
 
         let time = server_time(&config).unwrap();
         let local_time = NOW();
-        println!("Server time: {} ({})  / local time {} ({})", time_string(time), time, time_string(local_time), local_time);
+        println!(
+            "Server time: {} ({})  / local time {} ({})",
+            time_string(time),
+            time,
+            time_string(local_time),
+            local_time
+        );
     }
 
     #[test]
     fn test_new_limit_order() {
-//        let config = BinanceConfig::BTCBUSD();     
-let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        //        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
 
-        let result = new_limit_order(&config, OrderSide::Buy, Decimal::from_f64(25_000.0).unwrap(), 
-            Decimal::from_f64(0.001).unwrap());
-            println!("result: {:?}", result.unwrap());
+        let result = new_limit_order(
+            &config,
+            OrderSide::Buy,
+            Decimal::from_f64(25_000.0).unwrap(),
+            Decimal::from_f64(0.001).unwrap(),
+        );
+        println!("result: {:?}", result.unwrap());
     }
 
     #[test]
     fn test_new_market_order() {
-//        let config = BinanceConfig::BTCBUSD();     
+        //        let config = BinanceConfig::BTCBUSD();
         let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
 
-        let result = new_market_order(&config, OrderSide::Buy,
-            Decimal::from_f64(0.001).unwrap());
-        
+        let result = new_market_order(&config, OrderSide::Buy, Decimal::from_f64(0.001).unwrap());
+
         println!("result: {:?}", result.unwrap());
         println!("");
     }
@@ -827,9 +858,17 @@ let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
         let order_id = "444627";
 
         let result = cancel_order(&config, order_id.to_string());
-        println!("result: {:?}", result.unwrap());        
-    }
     
+        match result {
+            Ok(r) => {
+                println!("{:?}", r);
+            }
+            Err(e) => {
+                println!("{:?}", e);
+            }
+        }
+    }
+
     #[test]
     fn test_get_balance() {
         let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
@@ -872,31 +911,5 @@ let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
 
         let message = trade_list(&config).unwrap();
         println!("message: {:?}", message);
-    }
-
-    #[test]
-    fn binance_order_respose_to_order() {
-        let s: &str = r#"
-        { "symbol": "BTCBUSD", "orderId": 1388907, "orderListId": -1,
-         "clientOrderId": "pSleG2tgc7KkxGQwSSU0ew", 
-         "transactTime": 1694508594346,
-         "price": 0.00000000, 
-         "origQty": 0.00100000, 
-         "executedQty": 0.00100000,
-        "cummulativeQuoteQty": 25.79811000,
-         "status": "FILLED", 
-         "timeInForce": "GTC", 
-         "order_type": "MARKET"
-         , "side": "BUY", 
-         "workingTime": 1694508594346,
-          "selfTradePreventionMode": "NONE",
-           "fills": [{ 
-            "price": 25798.11000000, "qty": 0.00100000, "commission": 0.00000000, "commissionAsset": "BTC", "tradeId": 205308 }
-            ]}
-        "#;
-
-        let result: BinanceOrderResponse = serde_json::from_str(s).unwrap();
-
-        println!("{:?}", result);
     }
 }

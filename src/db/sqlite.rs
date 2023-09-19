@@ -1,5 +1,6 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
+use crossbeam_channel::unbounded;
 use numpy::IntoPyArray;
 use numpy::PyArray2;
 use polars::prelude::DataFrame;
@@ -34,10 +35,14 @@ use polars::prelude::Float64Type;
 use std::io::Stdout;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
-use std::sync::mpsc::{Receiver, Sender};
+
 use std::sync::{mpsc, Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
+
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
+
 
 pub trait TradeTableQuery {
     fn open(name: &str) -> Result<Self, Error>
@@ -367,7 +372,7 @@ impl TradeTable {
             }
         }
 
-        let (tx, rx) = channel::<Vec<Trade>>();
+        let (tx, rx) = unbounded::<Vec<Trade>>();
 
         let file_name = self.file_name.clone();
 

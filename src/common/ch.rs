@@ -1,7 +1,9 @@
 
 
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use crossbeam_channel::Sender;
+use crossbeam_channel::Receiver;
+use crossbeam_channel::unbounded;
 use pyo3::pyclass;
 use super::order::Order;
 use super::order::Trade;
@@ -25,7 +27,7 @@ pub struct Channel {
 
 impl Channel {
     pub fn create() -> (Self, ExchangeSender) {
-        let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = mpsc::channel();
+        let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = unbounded();
 
         return (Self{rx}, tx);
     }
@@ -39,7 +41,7 @@ mod test {
     fn test_send_message()  -> anyhow::Result<()>{
 //        let (tx, rx): (Sender<Order>, Receiver<Order>) = unbounded();
 //let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
-    let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = mpsc::channel();
+    let (tx, rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) = unbounded();
 
     Ok(())
     }
