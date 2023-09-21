@@ -13,7 +13,7 @@ use serde::de;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use std::f32::consts::E;
-use std::fs;
+use std::{fs, thread};
 use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
@@ -240,7 +240,7 @@ impl BinanceOrderBook {
 }
 
 #[derive(Debug)]
-#[pyclass(name = "_BinanceMarket")]
+#[pyclass(name = "BinanceMarket")]
 pub struct BinanceMarket {
     pub config: BinanceConfig,
     name: String,
@@ -493,8 +493,29 @@ impl BinanceMarket {
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
         let (sender, stream) = MarketStream::open();
+
+        self.channel = Some(sender.clone());
         
-        self.channel = Some(sender);
+        thread::spawn(move || {
+            loop {
+                let message = MarketMessage{
+                    trade: Some(Trade::new(
+                    NOW(),
+                    OrderSide::Buy,
+                    dec!(1.0),
+                    dec!(1.0),
+                    "test".to_string(),
+                )),
+                    order: None
+                };
+
+                log::debug!("Send message");
+
+                sender.send(message);
+
+                sleep(Duration::from_secs(1));
+            }
+        });
 
         return stream;
     }

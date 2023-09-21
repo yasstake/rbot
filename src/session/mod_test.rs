@@ -162,7 +162,7 @@ mod tests {
             NOW(), OrderSide::Buy,
             dec![150.0], dec![10.0], "ordr1".to_string());
 
-            let filled_orders = order_list.consume_trade(trade.clone());
+            let filled_orders = order_list.consume_trade(&trade);
 
             assert_eq!(filled_orders.len(), 0);
 
@@ -172,7 +172,7 @@ mod tests {
             dec![250.0], dec![250.0], "ordr2".to_string());
 
 
-        let filled_orders = order_list.consume_trade(trade2.clone());
+        let filled_orders = order_list.consume_trade(&trade2);
         assert_eq!(filled_orders.len(), 0);
 
         // Partially filled.
@@ -180,7 +180,7 @@ mod tests {
             NOW(), OrderSide::Sell,
             dec![249.9], dec![10.0], "ordr3".to_string());
 
-        let filled_orders = order_list.consume_trade(trade3.clone());
+        let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 1);
         println!("filled_orders={:?}", filled_orders);
         assert_eq!(filled_orders[0].status, OrderStatus::PartiallyFilled);
@@ -192,7 +192,7 @@ mod tests {
             NOW(), OrderSide::Sell,
             dec![199.0], dec![100.0], "ordr3".to_string());
 
-        let filled_orders = order_list.consume_trade(trade3.clone());
+        let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 2);
         println!("filled_orders={:?}", filled_orders);
         assert_eq!(filled_orders[0].status, OrderStatus::Filled);

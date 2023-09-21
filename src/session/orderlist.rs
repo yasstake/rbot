@@ -122,7 +122,7 @@ impl OrderList {
     /// For Buy Trade, it consumes the Sell order list which below the trade price only.
     /// For Sell Trade, it consumes the Buy order list which above the trade price only.
 
-    pub fn consume_trade(&mut self, mut trade: Trade) -> Vec<Order> {
+    pub fn consume_trade(&mut self, mut trade: &Trade) -> Vec<Order> {
         // first check if the order is in the list. If not return emply list.
         let order_len = self.len();
 

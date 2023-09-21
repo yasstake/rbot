@@ -1,48 +1,72 @@
-use pyo3::{pyclass, pymethods};
+use std::f32::consts::E;
 
-use crate::{exchange::binance::Market, common::OrderSide};
+use hmac::digest::typenum::Or;
+use pyo3::{pyclass, pymethods, PyObject, PyAny, Python, types::PyTuple};
 
-use super::OrderList;
+use crate::{exchange::binance::Market, common::{OrderSide, MarketStream, MicroSec}};
+
+use super::{OrderList, has_method};
 use pyo3::prelude::*;
 
+use crate::common::MarketMessage;
+use crate::common::Trade;
+use crate::common::Order;
 
-trait Session {
-    fn run(&mut self, market: &PyAny);
-}
 
 
-#[pyclass(name = "_LiveSession")]
-#[derive(Debug, Clone)]
-struct LiveSession {
+#[pyclass(name = "Session")]
+#[derive(Debug)]
+pub struct Session {
     buy_orders: OrderList,
     sell_orders: OrderList,
-
+    market: PyObject,
+    current_time: MicroSec,
+    dummy: bool
 }
 
 #[pymethods]
-impl LiveSession {
+impl Session {
     #[new]
-    pub fn new() -> Self {
+    pub fn new(market: PyObject, dummy: bool) -> Self {
         Self {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
+            market,            
+            current_time: 0,
+            dummy,
         }
     }
 
-    /*
-    pub fn run(&mut self, market: &PyAny) {
-        let market: Market = market.extract().unwrap();
-        println!("market={:?}", market);
+    pub fn on_tick(&mut self, tick: &Trade) {
+        self.current_time = tick.time;
+        println!("set currenttime to {}", self.current_time);
+
+        if self.dummy == false {
+            return; 
+        }
+
+        if tick.order_side == OrderSide::Buy {
+            self.sell_orders.consume_trade(tick);
+        }
+        else if tick.order_side == OrderSide::Sell {
+            self.buy_orders.consume_trade(tick);            
+        }            
+        else {
+            log::error!("Unknown order side: {:?}", tick.order_side)
+        }
     }
-    */
-        
+
+
+    pub fn on_message(&mut self, message: &MarketMessage) {
+        if let Some(trade) = &message.trade {
+            self.on_tick(trade);
+        }
+    }
+
+
+    #[getter]
+    pub fn get_current_time(&self) -> MicroSec {
+        self.current_time
+    }
 }
 
-
-#[pyclass(name = "_DummySession")]
-#[derive(Debug, Clone)]
-struct DummySession {
-    buy_orders: OrderList,
-    sell_orders: OrderList,
-
-}
