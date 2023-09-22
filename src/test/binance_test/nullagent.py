@@ -4,6 +4,7 @@ from rbot import Runner
 from rbot import BinanceConfig
 from rbot import BinanceMarket
 from rbot import init_debug_log
+from rbot import init_log
 from rbot import OrderSide
 
 class MyAgent:
@@ -23,20 +24,18 @@ class MyAgent:
         print("update: ", session.current_time, updated_order)
         pass
     
-#init_debug_log()
+init_log()
     
 market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
 
 print(BinanceConfig.TEST_BTCUSDT)
 
-#market.start_market_stream()
-#market.start_user_stream()
+market.start_market_stream()
+market.start_user_stream()
     
-#agent = MyAgent()
-#runner = Runner()
-
-
+agent = MyAgent()
+runner = Runner()
     
-#runner.run(market,agent)
+runner.run(market,agent)
 
     

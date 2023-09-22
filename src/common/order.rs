@@ -2,8 +2,8 @@
 
 use crate::common::time::time_string;
 
-use super::MarketMessage;
 use super::time::MicroSec;
+use super::MarketMessage;
 use pyo3::pyclass;
 use pyo3::pyfunction;
 use pyo3::pymethods;
@@ -26,19 +26,23 @@ pub struct TimeChunk {
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
-    New,          // 処理中
-    #[strum(ascii_case_insensitive, serialize = "PartiallyFilled" , serialize = "PARTIALLY_FILLED")]    
+    New, // 処理中
+    #[strum(
+        ascii_case_insensitive,
+        serialize = "PartiallyFilled",
+        serialize = "PARTIALLY_FILLED"
+    )]
     PartiallyFilled, // 一部約定
-    #[strum(ascii_case_insensitive)]    
-    Filled, 
-    #[strum(ascii_case_insensitive)]    
-    Canceled,     // ユーザによるキャンセル
-    #[strum(ascii_case_insensitive)]    
-    Rejected,     // システムからの拒否（指値範囲外、数量不足など）
-    #[strum(ascii_case_insensitive)]    
-    Expired,      // 期限切れ
-    #[strum(ascii_case_insensitive)]    
-    Error,        // その他エラー
+    #[strum(ascii_case_insensitive)]
+    Filled,
+    #[strum(ascii_case_insensitive)]
+    Canceled, // ユーザによるキャンセル
+    #[strum(ascii_case_insensitive)]
+    Rejected, // システムからの拒否（指値範囲外、数量不足など）
+    #[strum(ascii_case_insensitive)]
+    Expired, // 期限切れ
+    #[strum(ascii_case_insensitive)]
+    Error, // その他エラー
 }
 
 #[pymethods]
@@ -55,7 +59,6 @@ impl OrderStatus {
         return self.to_string();
     }
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
@@ -87,7 +90,6 @@ impl OrderSide {
     }
 }
 
-
 fn string_to_side(side: &str) -> OrderSide {
     match side.to_uppercase().as_str() {
         "BUY" | "B" => OrderSide::Buy,
@@ -99,9 +101,9 @@ fn string_to_side(side: &str) -> OrderSide {
     }
 }
 
-impl From<String> for OrderSide {
-    fn from(side: String) -> Self {
-        string_to_side(&side)
+impl From<&String> for OrderSide {
+    fn from(side: &String) -> Self {
+        string_to_side(side)
     }
 }
 
@@ -110,7 +112,6 @@ impl From<&str> for OrderSide {
         string_to_side(side)
     }
 }
-
 
 #[pymethods]
 impl OrderSide {
@@ -126,9 +127,9 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    #[strum(ascii_case_insensitive, serialize = "LIMIT")]    
+    #[strum(ascii_case_insensitive, serialize = "LIMIT")]
     Limit,
-    #[strum(ascii_case_insensitive, serialize = "MARKET")]        
+    #[strum(ascii_case_insensitive, serialize = "MARKET")]
     Market,
 }
 #[pymethods]
@@ -142,17 +143,16 @@ impl OrderType {
     }
 }
 
-
 fn str_to_order_type(order_type: &str) -> OrderType {
-        match order_type.to_uppercase().as_str() {
-            "LIMIT" => OrderType::Limit,
-            "MARKET" => OrderType::Market,
-            _ => {
-                log::error!("Unknown order type: {:?}", order_type);
-                OrderType::Limit
-            }
+    match order_type.to_uppercase().as_str() {
+        "LIMIT" => OrderType::Limit,
+        "MARKET" => OrderType::Market,
+        _ => {
+            log::error!("Unknown order type: {:?}", order_type);
+            OrderType::Limit
         }
     }
+}
 
 impl From<&str> for OrderType {
     fn from(order_type: &str) -> Self {
@@ -160,9 +160,9 @@ impl From<&str> for OrderType {
     }
 }
 
-impl From<String> for OrderType {
-    fn from(order_type: String) -> Self {
-        str_to_order_type(&order_type)
+impl From<&String> for OrderType {
+    fn from(order_type: &String) -> Self {
+        str_to_order_type(order_type)
     }
 }
 
@@ -212,7 +212,12 @@ impl Trade {
     pub fn __str__(&self) -> String {
         format!(
             "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
-            time_string(self.time), self.time, self.order_side, self.price, self.size, self.id
+            time_string(self.time),
+            self.time,
+            self.order_side,
+            self.price,
+            self.size,
+            self.id
         )
     }
 
@@ -229,6 +234,7 @@ impl Into<MarketMessage> for Trade {
         MarketMessage {
             trade: Some(self.clone()),
             order: None,
+            account: None,
         }
     }
 }
@@ -238,21 +244,20 @@ impl Into<MarketMessage> for Trade {
 pub struct OrderFill {
     // 約定時に確定するデータ
     pub transaction_id: String,
-    pub update_time: MicroSec,      // in us
+    pub update_time: MicroSec, // in us
     pub price: Decimal,
-    pub filled_size: Decimal,      // 約定数
+    pub filled_size: Decimal,     // 約定数
     pub quote_vol: Decimal,       // in opposite currency
-    pub commission: Decimal,       // 
-    pub commission_asset: String,  // 
-    pub maker: bool,           
+    pub commission: Decimal,      //
+    pub commission_asset: String, //
+    pub maker: bool,
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
-    pub fee_home: Decimal,       // in home currency
-    pub fee_foreign: Decimal,    // in foreign currency
+    pub fee_home: Decimal,    // in home currency
+    pub fee_foreign: Decimal, // in foreign currency
     pub home_change: Decimal,
     pub foreign_change: Decimal,
     pub free_home_change: Decimal,
@@ -283,25 +288,27 @@ impl Default for AccountChange {
 }
 
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountStatus {
     pub home: Decimal,
+    pub home_free: Decimal,
+    pub home_locked: Decimal,
+
     pub foreign: Decimal,
-    pub free_home: Decimal,
-    pub free_foreign: Decimal,
-    pub lock_home: Decimal,
-    pub lock_foreign: Decimal,
+    pub foreign_free: Decimal,
+    pub foreign_locked: Decimal,
 }
 
 impl Default for AccountStatus {
     fn default() -> Self {
         return AccountStatus {
             home: Decimal::new(0, 0),
+            home_free: Decimal::new(0, 0),
+            home_locked: Decimal::new(0, 0),
+
             foreign: Decimal::new(0, 0),
-            free_home: Decimal::new(0, 0),
-            free_foreign: Decimal::new(0, 0),
-            lock_home: Decimal::new(0, 0),
-            lock_foreign: Decimal::new(0, 0),
+            foreign_free: Decimal::new(0, 0),
+            foreign_locked: Decimal::new(0, 0),
         };
     }
 }
@@ -313,20 +320,20 @@ pub struct Order {
     pub symbol: String,
     pub create_time: MicroSec, // in us
     pub order_id: String,      // YYYY-MM-DD-SEQ
-    pub order_list_index: i64,    
-    pub client_order_id: String, 
+    pub order_list_index: i64,
+    pub client_order_id: String,
     pub order_side: OrderSide,
     pub order_type: OrderType,
-    pub price: Decimal,            // in Market order, price is 0.0
-    pub size: Decimal,             // in foreign
+    pub price: Decimal, // in Market order, price is 0.0
+    pub size: Decimal,  // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
-    pub remain_size: Decimal,      // 残数
+    pub remain_size: Decimal, // 残数
     pub status: OrderStatus,
     pub account_change: AccountChange,
     pub message: String,
     pub fills: Option<OrderFill>,
-    pub profit: Option<Decimal>,        
+    pub profit: Option<Decimal>,
 }
 
 #[pymethods]
@@ -345,10 +352,10 @@ impl Into<MarketMessage> for Order {
         MarketMessage {
             trade: None,
             order: Some(self.clone()),
+            account: None,
         }
     }
 }
-
 
 /*
 // 約定結果
@@ -395,7 +402,7 @@ pub struct OrderResult {
     pub total_profit: f64,
     #[pyo3(get)]
     pub position_change: f64,
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub message: String,
     #[pyo3(get)]
     pub size_in_price_currency: bool,

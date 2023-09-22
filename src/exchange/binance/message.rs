@@ -9,9 +9,9 @@ use strum_macros::Display;
 use crate::{
     common::{
         AccountChange, MarketMessage, MicroSec,
-        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade},
+        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus,
     },
-    exchange::{string_to_decimal, BoardItem},
+    exchange::{string_to_decimal, BoardItem, binance},
 };
 
 use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
@@ -40,14 +40,13 @@ impl Into<MarketMessage> for BinancePublicWsMessage {
             BinancePublicWsMessage::Trade(trade) => MarketMessage {
                 trade: Some(trade.to_trade()),
                 order: None,
+                account: None,
             },
             BinancePublicWsMessage::BoardUpdate(board_update) => {
+                // TODO: implment
                 log::warn!("BinancePublicWsMessage::BoardUpdate is not implemented yet");
 
-                MarketMessage {
-                    trade: None,
-                    order: None,
-                }
+                MarketMessage::new()
             }
         }
     }
@@ -286,8 +285,8 @@ impl BinanceOrderFill {
 
 impl From<BinanceOrderResponse> for Order {
     fn from(order: BinanceOrderResponse) -> Self {
-        let order_side: OrderSide = order.side.into();
-        let order_type: OrderType = order.order_type.into();
+        let order_side: OrderSide = order.side.as_str().into();
+        let order_type: OrderType = order.order_type.as_str().into();
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
         Order {
@@ -483,6 +482,32 @@ pub struct BinanceBalance {
     l: Decimal,
 }
 
+pub fn binance_account_update_to_account_status(
+    config: &BinanceConfig,
+    account_update: &BinanceAccountUpdate,
+) -> AccountStatus {
+
+    let mut account_status = AccountStatus::default();
+
+    let l = account_update.B.len();
+
+    for i in 0..l {
+        if account_update.B[i].a == config.foreign_currency {
+            account_status.foreign_free = account_update.B[i].f;
+            account_status.foreign_locked = account_update.B[i].l;                        
+            account_status.foreign = account_status.foreign_free + account_status.foreign_locked;
+        } else if account_update.B[i].a == config.home_currency {
+            account_status.home_free = account_update.B[i].f;
+            account_status.home_locked = account_update.B[i].l;
+            account_status.home = account_status.home_free + account_status.home_locked;
+        }
+    }
+
+    return account_status;
+}
+
+
+
 /// BinanceBalancdUpdate
 /// Represents a balance update message received from the Binance exchange.
 /// sample as blow
@@ -592,10 +617,10 @@ impl BinanceExecutionReport {
     }
 }
 
-impl From<BinanceExecutionReport> for Order {
-    fn from(order: BinanceExecutionReport) -> Self {
-        let order_side:OrderSide = order.S.into();
-        let order_type: OrderType = order.o.into();
+impl From<&BinanceExecutionReport> for Order {
+    fn from(order: &BinanceExecutionReport) -> Self {
+        let order_side:OrderSide = order.S.as_str().into();
+        let order_type: OrderType = order.o.as_str().into();
         let order_status = OrderStatus::from_str(&order.X).unwrap();
 
         let trade_id = order.t.to_string();
@@ -604,7 +629,7 @@ impl From<BinanceExecutionReport> for Order {
         let execute_size = order.l;
         let execute_price = order.L;
         let execute_total = order.z;
-        let commition_asset = order.N.unwrap_or_default();
+        let commition_asset = order.N.clone().unwrap_or_default();
         let ismaker = order.m;
 
         let remain_size =
@@ -628,11 +653,11 @@ impl From<BinanceExecutionReport> for Order {
         let account_change = AccountChange::new();
 
         let r = Order {
-            symbol: order.s,
+            symbol: order.s.clone(),
             create_time: binance_to_microsec(order.T),
             order_id: order.i.to_string(),
             order_list_index: order.g,
-            client_order_id: order.c,
+            client_order_id: order.c.clone(),
             order_side: order_side,
             order_type: order_type,
             price: order.p,
@@ -657,35 +682,29 @@ pub enum BinanceUserStreamMessage {
     executionReport(BinanceExecutionReport),
 }
 
-impl Into<MarketMessage> for BinanceUserStreamMessage {
-    fn into(self) -> MarketMessage {
+impl BinanceUserStreamMessage {
+    pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
+        let mut message = MarketMessage::new();
+
         match self {
             BinanceUserStreamMessage::outboundAccountPosition(account) => {
-                //                MarketMessage::AccountUpdate(account.into())
-                // TODO: Implement
-                log::error!("not supported");
-                MarketMessage {
-                    trade: None,
-                    order: None,
-                }
+                let status = binance_account_update_to_account_status(config, account);
+                message.account = Some(status);
             }
             BinanceUserStreamMessage::balanceUpdate(balance) => {
-                // TODO: implement
-                log::error!("not supported");
-                //                MarketMessage::BalanceUpdate(balance.into())
-                MarketMessage {
-                    trade: None,
-                    order: None,
-                }
+                log::error!("not implemented");
             }
-            BinanceUserStreamMessage::executionReport(order) => MarketMessage {
-                trade: None,
-                order: Some(order.into()),
-            },
-        }
+            BinanceUserStreamMessage::executionReport(order) => {
+                let order: Order = order.into();
+                message.order = Some(order);
+            }
+        };
+
+        message
     }
 }
 
+/*
 impl Into<Order> for BinanceUserStreamMessage {
     fn into(self) -> Order {
         match self {
@@ -713,6 +732,7 @@ impl Into<Order> for BinanceUserStreamMessage {
         }
     }
 }
+*/
 
 /*
 https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
