@@ -4,7 +4,7 @@ use hmac::digest::typenum::Or;
 use numpy::PyArray2;
 use pyo3::{pyclass, pymethods, PyObject, PyAny, Python, types::PyTuple};
 
-use crate::{exchange::binance::Market, common::{OrderSide, MarketStream, MicroSec}};
+use crate::{exchange::binance::Market, common::{OrderSide, MarketStream, MicroSec, AccountStatus}};
 
 use super::{OrderList, has_method};
 use pyo3::prelude::*;
@@ -19,6 +19,7 @@ use crate::common::Order;
 pub struct Session {
     buy_orders: OrderList,
     sell_orders: OrderList,
+    account: AccountStatus,
     market: PyObject,
     current_time: MicroSec,
     dummy: bool
@@ -31,6 +32,7 @@ impl Session {
         Self {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
+            account: AccountStatus::default(),
             market,            
             current_time: 0,
             dummy,
