@@ -4,6 +4,7 @@ from rbot import Runner
 from rbot import BinanceConfig
 from rbot import BinanceMarket
 from rbot import init_debug_log
+from rbot import OrderSide
 
 class MyAgent:
     def __init__(self):
@@ -13,19 +14,25 @@ class MyAgent:
         pass
     
     def on_tick(self, session, side, price, size):
-        print("tick: ", session.current_time, session.bids, session.asks, side, price, size)
+        print("tick: ", session.current_time, side, price, size)
+        
+        market.new_limit_order(OrderSide.Sell, price + 100, 0.001)        
         pass
     
     def on_update(self, session, updated_order):
+        print("update: ", session.current_time, updated_order)
         pass
     
-init_debug_log()
+#init_debug_log()
     
 market = BinanceMarket(BinanceConfig.TESTSPOT("BTCUSDT"))
 market.start_market_stream()
+market.start_user_stream()
     
 agent = MyAgent()
 runner = Runner()
+
+
     
 runner.run(market,agent)
 

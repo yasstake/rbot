@@ -36,9 +36,9 @@ fn make_user_stream_endpoint(config: &BinanceConfig, key: String) -> String {
     return url;
 }
 
-pub fn listen_userdata_stream<F>(config: &BinanceConfig, f: F) -> JoinHandle<()>
+pub fn listen_userdata_stream<F>(config: &BinanceConfig, mut f: F) -> JoinHandle<()>
 where
-    F: Fn(BinanceUserStreamMessage) + Send + 'static
+    F: FnMut(BinanceUserStreamMessage) + Send + 'static
 {
     let key = create_listen_key(&config).unwrap();
     let url = make_user_stream_endpoint(config, key.clone());

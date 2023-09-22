@@ -492,9 +492,14 @@ impl BinanceMarket {
     }
 
     pub fn start_user_stream(&mut self) {
+        let mut agent_channel = self.channel.clone();
+
+
         self.user_handler = Some(listen_userdata_stream(&self.config,
-            |message: BinanceUserStreamMessage| {
-                log::debug!("UserStream: {:?}", message);
+            move |message: BinanceUserStreamMessage| {
+                log::debug!("UserStream: {:?}", message );
+                let mutl_agent_channel = agent_channel.borrow_mut();
+                mutl_agent_channel.lock().unwrap().send(message.into());
             }));
     }
 

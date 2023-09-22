@@ -14,7 +14,7 @@ use crate::{
     exchange::{string_to_decimal, BoardItem},
 };
 
-use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
+use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
 
 pub type BinanceMessageId = u64;
 
@@ -52,7 +52,6 @@ impl Into<MarketMessage> for BinancePublicWsMessage {
         }
     }
 }
-
 
 #[pyclass]
 //  {"result":null,"id":1}
@@ -287,8 +286,8 @@ impl BinanceOrderFill {
 
 impl From<BinanceOrderResponse> for Order {
     fn from(order: BinanceOrderResponse) -> Self {
-        let order_side = OrderSide::from_str(&order.side).unwrap();
-        let order_type = OrderType::from_str(&order.order_type).unwrap();
+        let order_side: OrderSide = order.side.into();
+        let order_type: OrderType = order.order_type.into();
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
         Order {
@@ -595,8 +594,8 @@ impl BinanceExecutionReport {
 
 impl From<BinanceExecutionReport> for Order {
     fn from(order: BinanceExecutionReport) -> Self {
-        let order_side = OrderSide::from_str(&order.S).unwrap();
-        let order_type = OrderType::from_str(&order.o).unwrap();
+        let order_side:OrderSide = order.S.into();
+        let order_type: OrderType = order.o.into();
         let order_status = OrderStatus::from_str(&order.X).unwrap();
 
         let trade_id = order.t.to_string();
@@ -656,6 +655,63 @@ pub enum BinanceUserStreamMessage {
     outboundAccountPosition(BinanceAccountUpdate),
     balanceUpdate(BinanceBalanceUpdate),
     executionReport(BinanceExecutionReport),
+}
+
+impl Into<MarketMessage> for BinanceUserStreamMessage {
+    fn into(self) -> MarketMessage {
+        match self {
+            BinanceUserStreamMessage::outboundAccountPosition(account) => {
+                //                MarketMessage::AccountUpdate(account.into())
+                // TODO: Implement
+                log::error!("not supported");
+                MarketMessage {
+                    trade: None,
+                    order: None,
+                }
+            }
+            BinanceUserStreamMessage::balanceUpdate(balance) => {
+                // TODO: implement
+                log::error!("not supported");
+                //                MarketMessage::BalanceUpdate(balance.into())
+                MarketMessage {
+                    trade: None,
+                    order: None,
+                }
+            }
+            BinanceUserStreamMessage::executionReport(order) => MarketMessage {
+                trade: None,
+                order: Some(order.into()),
+            },
+        }
+    }
+}
+
+impl Into<Order> for BinanceUserStreamMessage {
+    fn into(self) -> Order {
+        match self {
+            BinanceUserStreamMessage::executionReport(order) => order.into(),
+            _ => {
+                log::error!("not supported");
+                Order {
+                    symbol: "".to_string(),
+                    create_time: 0,
+                    order_id: "".to_string(),
+                    order_list_index: 0,
+                    client_order_id: "".to_string(),
+                    order_side: OrderSide::Buy,
+                    order_type: OrderType::Limit,
+                    price: Decimal::from(0),
+                    size: Decimal::from(0),
+                    remain_size: Decimal::from(0),
+                    status: OrderStatus::New,
+                    account_change: AccountChange::new(),
+                    message: "".to_string(),
+                    fills: None,
+                    profit: None,
+                }
+            }
+        }
+    }
 }
 
 /*
