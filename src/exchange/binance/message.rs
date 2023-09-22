@@ -1,29 +1,32 @@
+use std::str::FromStr;
+
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::Display;
 
 use crate::{
     common::{
-        order::{OrderSide, Trade},
-        time::MicroSec,
+        AccountChange, MarketMessage, MicroSec,
+        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus,
     },
-    exchange::BoardItem,
+    exchange::{string_to_decimal, BoardItem, binance},
 };
 
-use super::super::string_to_f64;
+use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
 
 pub type BinanceMessageId = u64;
 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceSubscriptionReply {
     pub result: Option<String>,
     pub id: u64,
 }
 
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "e")]
 pub enum BinancePublicWsMessage {
     #[serde(rename = "trade")]
@@ -32,6 +35,25 @@ pub enum BinancePublicWsMessage {
     BoardUpdate(BinanceWsBoardUpdate),
 }
 
+impl Into<MarketMessage> for BinancePublicWsMessage {
+    fn into(self) -> MarketMessage {
+        match self {
+            BinancePublicWsMessage::Trade(trade) => MarketMessage {
+                trade: Some(trade.to_trade()),
+                order: None,
+                account: None,
+            },
+            BinancePublicWsMessage::BoardUpdate(board_update) => {
+                // TODO: implment
+                log::warn!("BinancePublicWsMessage::BoardUpdate is not implemented yet");
+
+                MarketMessage::new()
+            }
+        }
+    }
+}
+
+#[pyclass]
 //  {"result":null,"id":1}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceWsRespond {
@@ -39,30 +61,31 @@ pub struct BinanceWsRespond {
     pub id: BinanceMessageId,
 }
 
+#[pyclass]
 /// Represents a trade message received from the Binance exchange.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceTradeMessage {
     pub id: BinanceMessageId,
-    #[serde(deserialize_with = "string_to_f64")]
-    pub price: f64,
-    #[serde(rename = "qty", deserialize_with = "string_to_f64")]
-    pub size: f64,
-    #[serde(rename = "quoteQty", deserialize_with = "string_to_f64")]
-    pub volume_in_foreign: f64,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub price: Decimal,
+    #[serde(rename = "qty", deserialize_with = "string_to_decimal")]
+    pub size: Decimal,
+    #[serde(rename = "quoteQty", deserialize_with = "string_to_decimal")]
+    pub volume_in_foreign: Decimal,
     pub time: u64,
     #[serde(rename = "isBuyerMaker")]
-    pub is_buyer_maker: bool,
+    pub is_buyer_maker: Option<bool>,
     #[serde(rename = "isBestMatch")]
-    pub is_best_match: bool,
+    pub is_best_match: Option<bool>,
 }
 
 impl BinanceTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
-            time: (self.time * 1_000) as MicroSec,
+            time: binance_to_microsec(self.time),
             price: self.price,
             size: self.size,
-            order_side: if self.is_buyer_maker {
+            order_side: if self.is_buyer_maker.unwrap() {
                 OrderSide::Buy
             } else {
                 OrderSide::Sell
@@ -70,10 +93,20 @@ impl BinanceTradeMessage {
             id: self.id.to_string(),
         };
     }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
 }
 
 // {"e":"trade","E":1693226465430,"s":"BTCUSDT","t":3200243634,"p":"26132.02000000","q":"0.00244000","b":22161265544,"a":22161265465,"T":1693226465429,"m":false,"M":true}
-#[derive(Debug, Serialize, Deserialize)]
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsTradeMessage {
     //#[serde(rename = "e")]
     //pub event_type: String, // "e":"trade"              Event type
@@ -94,9 +127,9 @@ pub struct BinanceWsTradeMessage {
 impl BinanceWsTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
-            time: (self.time * 1_000) as MicroSec,
-            price: self.p.parse::<f64>().unwrap(),
-            size: self.q.parse::<f64>().unwrap(),
+            time: binance_to_microsec(self.time),
+            price: Decimal::from_str(&self.p).unwrap(), // self.p.parse::<f64>().unwrap(),
+            size: Decimal::from_str(&self.q).unwrap(),  // parse::<f64>().unwrap(),
             order_side: if self.m {
                 OrderSide::Buy
             } else {
@@ -105,10 +138,19 @@ impl BinanceWsTradeMessage {
             id: self.t.to_string(),
         };
     }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
 }
 
 // hold the latest board(as sample message blow)
 // {"lastUpdateId":18735297989,"bids":[["25993.48000000","0.15981000"],["25991.09000000","0.36750000"],["25991.08000000","0.03846000"]],"asks":[["25993.49000000","0.05770000"],["25993.50000000","0.00060000"],["25994.12000000","0.06100000"]]}
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceRestBoard {
     #[serde(rename = "lastUpdateId")]
@@ -118,8 +160,8 @@ pub struct BinanceRestBoard {
 }
 
 // {"e":"depthUpdate","E":1693266904308,"s":"BTCUSDT","U":38531387766,"u":38531387832,"b":[["26127.87000000","20.79393000"],["26126.82000000","0.02674000"],["26125.95000000","0.00000000"],["26125.78000000","0.38302000"],["26125.68000000","0.00000000"],["26125.10000000","0.00000000"],["26125.05000000","0.00000000"],["26124.76000000","0.00000000"],["26124.75000000","0.21458000"],["26114.84000000","1.14830000"],["26114.15000000","0.00000000"],["26090.85000000","0.00000000"],["26090.84000000","0.00000000"],["26090.32000000","2.29642000"],["26090.31000000","3.82738000"],["26087.99000000","0.03733000"],["26084.34000000","0.00000000"],["25553.07000000","0.13647000"],["25500.81000000","0.14160000"],["25496.85000000","0.00000000"],["25284.00000000","0.03996000"],["24827.83000000","0.00000000"],["24300.17000000","0.00000000"],["23772.50000000","0.00047000"],["23515.08000000","0.00000000"],["18289.50000000","0.00000000"],["13063.93000000","0.00091000"]],"a":[["26127.88000000","5.58099000"],["26128.39000000","0.20072000"],["26128.79000000","0.21483000"],["26129.26000000","0.38297000"],["26129.52000000","0.00000000"],["26129.53000000","0.00000000"],["26134.50000000","0.06000000"],["26134.99000000","1.07771000"],["26135.10000000","0.00700000"],["26155.27000000","0.00050000"],["26155.28000000","0.00000000"],["27027.87000000","0.00200000"],["27290.25000000","0.00000000"],["27817.92000000","0.00000000"],["28345.58000000","0.00000000"]]}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsBoardUpdate {
     //#[serde(rename = "e")]
     //pub event_type: String, // "e":"depthUpdate"        Event type
@@ -134,13 +176,34 @@ pub struct BinanceWsBoardUpdate {
     pub asks: Vec<BoardItem>, // "a":[]
 }
 
+impl BinanceWsBoardUpdate {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 // ["26127.87000000","20.79393000"]
+#[pyclass]
 pub struct BinanceWsBoardItem {
     #[serde(deserialize_with = "string_to_f64")]
     pub price: f64,
     #[serde(deserialize_with = "string_to_f64")]
     pub size: f64,
+}
+
+impl BinanceWsBoardItem {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
 }
 
 /*
@@ -211,6 +274,54 @@ pub struct BinanceOrderFill {
     tradeId: i64,
 }
 
+#[pymethods]
+impl BinanceOrderFill {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            price: dec![0.0],
+            qty: dec![0.0],
+            commission: dec![0.0],
+            commissionAsset: "".to_string(),
+            tradeId: 0,
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
+impl From<BinanceOrderResponse> for Order {
+    fn from(order: BinanceOrderResponse) -> Self {
+        let order_side: OrderSide = order.side.as_str().into();
+        let order_type: OrderType = order.order_type.as_str().into();
+        let order_status = OrderStatus::from_str(&order.status).unwrap();
+
+        Order {
+            symbol: order.symbol.clone(),
+            create_time: binance_to_microsec(order.transactTime),
+            order_id: order.orderId.to_string(),
+            order_list_index: order.orderListId,
+            client_order_id: order.clientOrderId.clone(),
+            order_side: order_side,
+            order_type: order_type,
+            price: order.price,
+            size: order.origQty,
+            remain_size: order.origQty,
+            status: order_status,
+            account_change: AccountChange::new(),
+            fills: OrderFill::new(),
+            profit: None,
+            message: "".to_string(),
+        }
+    }
+}
+
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderResponse {
@@ -219,24 +330,29 @@ pub struct BinanceOrderResponse {
     orderListId: i64,
     clientOrderId: String,
     transactTime: u64,
-    price: Option<Decimal>,
-    origQty: Option<Decimal>,
-    executedQty: Option<Decimal>,
-    cummulativeQuoteQty: Option<Decimal>,
-    status: Option<String>,
-    timeInForce: Option<String>,
+    price: Decimal,
+    origQty: Decimal,
+    executedQty: Decimal,
+    cummulativeQuoteQty: Decimal,
+    status: String,
+    timeInForce: String,
     #[serde(rename = "type")]
-    order_type: Option<String>,
-    side: Option<String>,
-    workingTime: Option<u64>,
-    selfTradePreventionMode: Option<String>,
+    order_type: String,
+    side: String,
+    workingTime: u64,
+    selfTradePreventionMode: String,
     fills: Option<Vec<BinanceOrderFill>>,
 }
 
+// TODO: returns Vec<Order>
 #[pymethods]
 impl BinanceOrderResponse {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
     pub fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        serde_json::to_string(&self).unwrap()
     }
 }
 
@@ -283,6 +399,70 @@ pub struct BinanceCancelOrderResponse {
     selfTradePreventionMode: String,
 }
 
+#[pymethods]
+impl BinanceCancelOrderResponse {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
+/*
+BiannceListOrderResponse will parse json below
+
+
+[
+  {
+    "symbol": "BNBBTC",
+    "id": 28457,
+    "orderId": 100234,
+    "orderListId": -1, //Unless OCO, the value will always be -1
+    "price": "4.00000100",
+    "qty": "12.00000000",
+    "quoteQty": "48.000012",
+    "commission": "10.10000000",
+    "commissionAsset": "BNB",
+    "time": 1499865549590,
+    "isBuyer": true,
+    "isMaker": false,
+    "isBestMatch": true
+  }
+]
+
+*/
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinanceListOrdersResponse {
+    symbol: String,
+    id: i64,
+    orderId: i64,
+    orderListId: i64,
+    price: Decimal,
+    qty: Decimal,
+    quoteQty: Decimal,
+    commission: Decimal,
+    commissionAsset: String,
+    time: u64,
+    isBuyer: bool,
+    isMaker: bool,
+    isBestMatch: bool,
+}
+
+#[pymethods]
+impl BinanceListOrdersResponse {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
 /*
 BinanceAccountUpdate is parse json as blow
 
@@ -315,6 +495,32 @@ pub struct BinanceBalance {
     l: Decimal,
 }
 
+pub fn binance_account_update_to_account_status(
+    config: &BinanceConfig,
+    account_update: &BinanceAccountUpdate,
+) -> AccountStatus {
+
+    let mut account_status = AccountStatus::default();
+
+    let l = account_update.B.len();
+
+    for i in 0..l {
+        if account_update.B[i].a == config.foreign_currency {
+            account_status.foreign_free = account_update.B[i].f;
+            account_status.foreign_locked = account_update.B[i].l;                        
+            account_status.foreign = account_status.foreign_free + account_status.foreign_locked;
+        } else if account_update.B[i].a == config.home_currency {
+            account_status.home_free = account_update.B[i].f;
+            account_status.home_locked = account_update.B[i].l;
+            account_status.home = account_status.home_free + account_status.home_locked;
+        }
+    }
+
+    return account_status;
+}
+
+
+
 /// BinanceBalancdUpdate
 /// Represents a balance update message received from the Binance exchange.
 /// sample as blow
@@ -325,7 +531,7 @@ pub struct BinanceBalance {
 ///  "d": "100.00000000",          //Balance Delta
 ///  "T": 1573200697068            //Clear Time
 ///  }
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceBalanceUpdate {
     // e: String,
@@ -374,7 +580,7 @@ pub struct BinanceBalanceUpdate {
 }
 
 */
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceExecutionReport {
     // e: String,
@@ -413,6 +619,75 @@ pub struct BinanceExecutionReport {
     V: String,
 }
 
+#[pymethods]
+impl BinanceExecutionReport {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
+impl From<&BinanceExecutionReport> for Order {
+    fn from(order: &BinanceExecutionReport) -> Self {
+        let order_side:OrderSide = order.S.as_str().into();
+        let order_type: OrderType = order.o.as_str().into();
+        let order_status = OrderStatus::from_str(&order.X).unwrap();
+
+        let trade_id = order.t.to_string();
+        //let create_time = binance_to_microsec(order.O);
+        let update_time = binance_to_microsec(order.E);
+        let execute_size = order.l;
+        let execute_price = order.L;
+        let execute_total = order.z;
+        let commition_asset = order.N.clone().unwrap_or_default();
+        let ismaker = order.m;
+
+        let remain_size =
+            if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
+                Decimal::from(0)
+            } else {
+                order.q - execute_total
+            };
+
+        let fills = OrderFill {
+            transaction_id: trade_id,
+            update_time: update_time,
+            price: execute_price,
+            filled_size: execute_size,
+            quote_vol: execute_price * execute_size,
+            commission: order.n,
+            commission_asset: commition_asset,
+            maker: ismaker,
+        };
+
+        let account_change = AccountChange::new();
+        // TODO: imple
+
+        let r = Order {
+            symbol: order.s.clone(),
+            create_time: binance_to_microsec(order.T),
+            order_id: order.i.to_string(),
+            order_list_index: order.g,
+            client_order_id: order.c.clone(),
+            order_side: order_side,
+            order_type: order_type,
+            price: order.p,
+            size: order.q,
+            remain_size: remain_size,
+            status: order_status,
+            account_change: account_change,
+            message: "".to_string(),
+            fills: fills,
+            profit: None, // TODO
+        };
+
+        return r;
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
 pub enum BinanceUserStreamMessage {
@@ -421,6 +696,57 @@ pub enum BinanceUserStreamMessage {
     executionReport(BinanceExecutionReport),
 }
 
+impl BinanceUserStreamMessage {
+    pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
+        let mut message = MarketMessage::new();
+
+        match self {
+            BinanceUserStreamMessage::outboundAccountPosition(account) => {
+                let status = binance_account_update_to_account_status(config, account);
+                message.account = Some(status);
+            }
+            BinanceUserStreamMessage::balanceUpdate(balance) => {
+                log::error!("not implemented");
+            }
+            BinanceUserStreamMessage::executionReport(order) => {
+                let order: Order = order.into();
+                message.order = Some(order);
+            }
+        };
+
+        message
+    }
+}
+
+/*
+impl Into<Order> for BinanceUserStreamMessage {
+    fn into(self) -> Order {
+        match self {
+            BinanceUserStreamMessage::executionReport(order) => order.into(),
+            _ => {
+                log::error!("not supported");
+                Order {
+                    symbol: "".to_string(),
+                    create_time: 0,
+                    order_id: "".to_string(),
+                    order_list_index: 0,
+                    client_order_id: "".to_string(),
+                    order_side: OrderSide::Buy,
+                    order_type: OrderType::Limit,
+                    price: Decimal::from(0),
+                    size: Decimal::from(0),
+                    remain_size: Decimal::from(0),
+                    status: OrderStatus::New,
+                    account_change: AccountChange::new(),
+                    message: "".to_string(),
+                    fills: None,
+                    profit: None,
+                }
+            }
+        }
+    }
+}
+*/
 
 /*
 https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
@@ -465,7 +791,7 @@ BinanceAccountInformation is parse json as blow
 }
 
 */
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountInformation {
     makerCommission: i64,
@@ -489,11 +815,12 @@ pub struct BinanceAccountInformation {
 #[pymethods]
 impl BinanceAccountInformation {
     pub fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        serde_json::to_string(self).unwrap()
+        // format!("{:?}", self)
     }
 }
 
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceCommissionRates {
     maker: Decimal,
@@ -502,15 +829,13 @@ pub struct BinanceCommissionRates {
     seller: Decimal,
 }
 
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountBalance {
     asset: String,
     free: Decimal,
     locked: Decimal,
 }
-
-
 
 /*
 BinanceOrderStatus is parse json as blow
@@ -538,7 +863,7 @@ BinanceOrderStatus is parse json as blow
   "selfTradePreventionMode": "NONE"
 }
 */
-#[pyclass] 
+#[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderStatus {
     symbol: String,
@@ -566,8 +891,52 @@ pub struct BinanceOrderStatus {
 
 #[pymethods]
 impl BinanceOrderStatus {
+    /*
+        // TODO: implement to Order struct
+        pub fn to_order(&self) -> Order {
+            let order = Order::new(
+            /*symbol*/
+            self.symbol.clone(),
+            /*size_in_price_currency*/
+            Decimal::new(0, 0),
+            /*create_time*/
+            binance_to_microsec(self.time),
+            //order_id
+            self.orderId.to_string(),
+            //client_order_id,
+            self.clientOrderId.clone(),
+            //order_side,
+            OrderSide::from_str(self.side.as_ref().unwrap().as_str()).unwrap(),
+            //order_type,
+            OrderType::from_str(self.order_type.as_ref().unwrap().as_str()).unwrap(),
+            //size,
+            self.origQty,
+            //filled_size,
+            self.executedQty,
+            None,
+            //price,
+            self.price,
+            //home_change,
+            None,
+            //foreign_change,
+            None,
+            //profit,
+            None,
+            //maker,
+            None,
+            //fee,
+            None,
+            //message,
+            None
+            );
+
+            return order;
+        }
+    */
+
     pub fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        serde_json::to_string(self).unwrap()
+        // format!("{:?}", self)
     }
 }
 
@@ -671,4 +1040,19 @@ mod binance_message_test {
             "#).unwrap();
     }
 
+    #[test]
+    fn test_binance_list_orders_response() {
+        let list = r#"[{"symbol":"BNBBTC","id":28457,"orderId":100234,"orderListId":-1,"price":"4.00000100","qty":"12.00000000","quoteQty":"48.000012","commission":"10.10000000","commissionAsset":"BNB","time":1499865549590,"isBuyer":true,"isMaker":false,"isBestMatch":true}]"#;
+
+        let list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
+    }
 }
+
+/*
+
+{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"PARTIALLY_FILLED","r":"NONE","i":4715241,"l":"0.00100000","z":"0.00100000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807168,"I":10227482,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"26.29190000","Y":"26.29190000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
+
+
+{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"FILLED","r":"NONE","i":4715241,"l":"0.00900000","z":"0.01000000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807169,"I":10227484,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"262.91900000","Y":"236.62710000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
+
+*/

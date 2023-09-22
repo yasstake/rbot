@@ -180,7 +180,7 @@ class BaseAgent:
     def _on_update(self, time, session, result):
         self.on_update(time, Session(session), result)
 
-
+"""
 class Session:
     def __init__(self, session):
         self.session = session
@@ -241,6 +241,8 @@ class Session:
         html += "</tbody></table>"
 
         return html
+
+"""
 
 class Market:
     MARKET = {}
@@ -374,7 +376,7 @@ class BackRunner:
 
         return table
 
-
+"""
 class BinanceMarket:
     def __init__(self, config):
         self.market = _BinanceMarket(config)
@@ -415,7 +417,8 @@ class BinanceMarket:
     def __getattr__(self, func):
         return getattr(self.market, func)
     
-    
+"""
+"""
 class ByBitMarket:
     def __init__(self, name, dummy=True):
         self.dummy = dummy
@@ -451,3 +454,4 @@ class ByBitMarket:
     def __getattr__(self, func):
         return getattr(self.market, func)
     
+"""

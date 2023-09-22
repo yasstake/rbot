@@ -33,19 +33,21 @@ use zip::ZipArchive;
 
 use crate::{
     common::{
-        order::Trade,
-        time::{MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
+        Trade,
+        {MicroSec, HHMM, MICRO_SECOND, NOW, SEC},
     },
     db::sqlite::TradeTable,
     exchange::binance::{BinanceConfig, BinanceMarket},
 };
 
-use std::sync::mpsc::Sender;
+use crossbeam_channel::Sender;
+use crossbeam_channel::Receiver;
 
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
 use tungstenite::{http::request, protocol::WebSocket};
 
+/*
 pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> TradeTable {
     match exchange_name.to_uppercase().as_str() {
         "BN" => match trade_type.to_uppercase().as_str() {
@@ -77,6 +79,7 @@ pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> Tra
         }
     }
 }
+*/
 
 fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
@@ -629,7 +632,7 @@ impl WebSocketClient {
         log::debug!("Response contains the following headers:");
 
         for (ref header, _value) in response.headers() {
-            println!("* {}", header);
+            log::debug!("* {}", header);
         }
 
         self.connection = Some(socket);
@@ -842,7 +845,7 @@ impl AutoConnectClient {
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardItem {
     #[serde(deserialize_with = "string_to_decimal")]
     pub price: Decimal,

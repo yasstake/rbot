@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::{exchange::{rest_get, bb::message::BybitTradeMessage}, common::order::Trade};
+use crate::{exchange::{rest_get, bb::message::BybitTradeMessage}, common::Trade};
 
 
 const SERVER: &str = "https://api.bybit.com";
