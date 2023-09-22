@@ -47,6 +47,7 @@ use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
 use tungstenite::{http::request, protocol::WebSocket};
 
+/*
 pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> TradeTable {
     match exchange_name.to_uppercase().as_str() {
         "BN" => match trade_type.to_uppercase().as_str() {
@@ -78,7 +79,7 @@ pub fn open_db(exchange_name: &str, trade_type: &str, trade_symbol: &str) -> Tra
         }
     }
 }
-
+*/
 
 fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where

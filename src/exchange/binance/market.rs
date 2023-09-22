@@ -44,6 +44,8 @@ use crate::exchange::{
     OrderBook,
 };
 
+use crate::exchange::binance::config::BinanceConfig;
+
 pub fn binance_to_microsec(t: u64) -> MicroSec {
     return (t as i64) * 1_000;
 }
@@ -55,121 +57,7 @@ pub struct BinanceAccount {
     pub subaccount: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[pyclass]
-pub struct BinanceConfig {
-    pub exchange_name: String,
-    pub trade_category: String,
-    pub trade_symbol: String,
-    pub size_in_foreign: bool,
-    pub testnet: bool,
 
-    // server config
-    pub rest_endpoint: String,
-    pub public_ws_endpoint: String,
-    pub private_ws_endpoint: String,
-    pub history_web_base: String,
-    pub new_order_path: String,
-    pub cancel_order_path: String,
-    pub public_subscribe_message: String,
-
-    // key & secret
-    pub api_key: String,
-    pub api_secret: String,
-}
-
-#[pymethods]
-impl BinanceConfig {
-    #[staticmethod]
-    pub fn BTCBUSD() -> Self {
-        return BinanceConfig::SPOT("BTCUSDT".to_string());
-    }
-
-    #[staticmethod]
-    pub fn TESTSPOT(symbol: String) -> Self {
-        let mut config = BinanceConfig::SPOT(symbol);
-
-        config.trade_category = "TESTSPOT".to_string();
-        config.rest_endpoint = "https://testnet.binance.vision".to_string();
-        config.public_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
-        config.private_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
-        config.testnet = true;
-
-        return config;
-    }
-
-    #[staticmethod]
-    pub fn SPOT(symbol: String) -> Self {
-        let upper_symbol = symbol.to_uppercase();
-        let lower_symbol = symbol.to_lowercase();
-
-        let api_key = std::env::var("BINANCE_API_KEY").expect("BINANCE_API_KEY is not set");
-        let api_secret =
-            std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET is not set");
-
-        return BinanceConfig {
-            exchange_name: "BN".to_string(),
-            trade_category: "SPOT".to_string(),
-            trade_symbol: upper_symbol,
-            size_in_foreign: false,
-
-            rest_endpoint: "https://api.binance.com".to_string(),
-            public_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
-            private_ws_endpoint: "wss://stream.binance.com:9443/ws".to_string(),
-            history_web_base: "https://data.binance.vision/data/spot/daily/trades".to_string(),
-            new_order_path: "/api/v3/order".to_string(),
-            cancel_order_path: "/api/v3/order".to_string(),
-            public_subscribe_message: json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
-                        format!("{}@trade", lower_symbol),
-                        format!("{}@depth@100ms", lower_symbol)
-                    ],
-                    "id": 1
-                }
-            )
-            .to_string(),
-            testnet: false,
-            api_key,
-            api_secret,
-        };
-    }
-
-    #[getter]
-    pub fn get_db_path(&self) -> String {
-        let mut exchange_name = self.exchange_name.clone();
-
-        if self.testnet {
-            exchange_name = format!("{}-TESTNET", exchange_name);
-        }
-
-        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol);
-
-        return db_path.to_str().unwrap().to_string();
-    }
-
-    pub fn __repr__(&self) -> String {
-        let mut printobj = self.clone();
-
-        if printobj.api_key.len() > 4 {
-            printobj.api_key = format!("{}*******************", printobj.api_key[0..4].to_string());
-        } else {
-            printobj.api_key = "!! NO KEY !!".to_string();
-        }
-
-        if printobj.api_secret.len() > 4 {
-            printobj.api_secret = format!(
-                "{}*******************",
-                printobj.api_secret[0..4].to_string()
-            );
-        } else {
-            printobj.api_secret = "!! NO SECRET !!".to_string();
-        }
-
-        serde_json::to_string(&printobj).unwrap()
-    }
-}
 
 // TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
 const BOARD_PRICE_UNIT: f64 = 0.01;
@@ -693,7 +581,7 @@ mod binance_test {
     #[test]
     fn test_make_historical_data_url_timestamp() {
         init_log();
-        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         println!(
             "{}",
             BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 1)
@@ -707,7 +595,7 @@ mod binance_test {
     #[test]
     fn test_download() {
         init_debug_log();
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
         println!("{}", time_string(market.db.end_time().unwrap_or(0)));
@@ -717,7 +605,7 @@ mod binance_test {
 
     #[test]
     fn test_db_info() {
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         println!("{:?}", market.db.info());
@@ -725,7 +613,7 @@ mod binance_test {
 
     #[test]
     fn test_ohlcv() {
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.ohlcv(0, 0, 3600);
@@ -735,7 +623,7 @@ mod binance_test {
 
     #[test]
     fn bench_ohlcv() {
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.ohlcv(0, 0, 3600);
@@ -743,7 +631,7 @@ mod binance_test {
 
     #[test]
     fn test_start_ws() {
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.start_market_stream();
@@ -752,7 +640,7 @@ mod binance_test {
 
     #[test]
     fn test_reflesh_board() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
         let market = BinanceMarket::new(&config);
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
@@ -765,7 +653,7 @@ mod binance_test {
 
     #[test]
     fn test_ws_start() {
-        let mut market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         market.start_market_stream();
@@ -775,7 +663,7 @@ mod binance_test {
 
     #[test]
     fn test_latest_archive_date() {
-        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let market = BinanceMarket::new("BTCBUSD", true);
 
         println!("{}", time_string(market.get_latest_archive_date().unwrap()));
@@ -783,7 +671,7 @@ mod binance_test {
 
     #[test]
     fn test_latest_archive_timestamp() {
-        let market = BinanceMarket::new(&BinanceConfig::BTCBUSD());
+        let market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let market = BinanceMarket::new("BTCBUSD", true);
 
         println!(

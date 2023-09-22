@@ -93,7 +93,7 @@ fn test_listen_userdata_stream() {
     use crate::exchange::binance::BinanceConfig;
     use crate::exchange::binance::ws::listen_userdata_stream;
 
-    let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+    let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
     init_debug_log();
     listen_userdata_stream(&config, |msg| {
         println!("msg: {:?}", msg);
