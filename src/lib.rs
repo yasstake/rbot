@@ -5,21 +5,24 @@ pub mod common;
 pub mod db;
 pub mod exchange;
 pub mod fs;
-pub mod sim;
+pub mod session;
+//pub mod sim;
 
 use common::{
     init_debug_log, init_log,
-    order::{Order, OrderSide},
-    time::time_string,
+    Order, OrderSide,
+    time_string,
 };
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::{BinanceMarket, BinanceConfig};
 use exchange::bb::BBMarket;
 
-use common::time::*;
-use sim::back::BackTester;
-use sim::session::DummySession;
+use common::*;
+use session::Session;
+use session::Runner;
+//use sim::back::BackTester;
+//use sim::session::DummySession;
 
 
 /// A Python module implemented in Rust.
@@ -42,8 +45,11 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // classes
     m.add_class::<Order>()?;
     m.add_class::<OrderSide>()?;
-    m.add_class::<DummySession>()?;
-    m.add_class::<BackTester>()?;
+
+    m.add_class::<Session>()?;
+    m.add_class::<Runner>()?;
+//    m.add_class::<DummySession>()?;
+//    m.add_class::<BackTester>()?;
 
     // Binance
     m.add_class::<BinanceMarket>()?;

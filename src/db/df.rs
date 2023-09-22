@@ -1,5 +1,5 @@
-use crate::common::order::Trade;
-use crate::common::time::{time_string, MicroSec, DAYS, SEC};
+use crate::common::Trade;
+use crate::common::{time_string, MicroSec, DAYS, SEC, NOW};
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -47,7 +47,7 @@ pub mod KEY {
 }
 
 fn future_date() -> MicroSec {
-    let now = crate::common::time::NOW();
+    let now = NOW();
     now + DAYS(10000)
 }
 
@@ -429,10 +429,12 @@ impl TradeBuffer {
 
     pub fn push_trade(&mut self, trade: &Trade) {
         self.time_stamp.push(trade.time);
-        self.price.push(trade.price);
-        self.size.push(trade.size);
+        self.price.push(trade.price.to_f64().unwrap());
+        self.size.push(trade.size.to_f64().unwrap());
         self.order_side.push(trade.order_side.is_buy_side());
     }
+
+
 
     pub fn to_dataframe(&self) -> DataFrame {
         let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
@@ -445,6 +447,7 @@ impl TradeBuffer {
         return df;
     }
 }
+
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
@@ -491,6 +494,8 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 }
 
 use polars::prelude::*;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 #[test]
 fn test_simple_dynamic_group() {
@@ -551,7 +556,7 @@ fn test_simple_dynamic_group() {
 #[cfg(test)]
 mod test_df {
     use super::*;
-    use crate::common::time::DAYS;
+    use crate::common::DAYS;
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(

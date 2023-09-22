@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message};

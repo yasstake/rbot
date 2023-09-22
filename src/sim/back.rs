@@ -456,6 +456,5 @@ mod back_testr_test {
             //            println!("{:?}", session2);
             }
         });
-
     }
 }
