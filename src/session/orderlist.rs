@@ -3,9 +3,10 @@ use polars_lazy::dsl::first;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde_derive::Serialize;
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderList {
     pub asc: bool,
     pub list: Vec<Order>,
@@ -92,8 +93,8 @@ impl OrderList {
     }
 
     /// Removes the given order from the list and returns true if successful, false otherwise.
-    pub fn remove(&mut self, order: Order) -> bool {
-        match self.index(&order) {
+    pub fn remove(&mut self, order: &Order) -> bool {
+        match self.index(order) {
             Some(index) => {
                 self.list.remove(index);
                 true
@@ -113,6 +114,14 @@ impl OrderList {
             .list
             .iter()
             .fold(dec![0.0], |acc, x| acc + x.remain_size);
+    }
+
+    pub fn __repr__(&self) -> String {
+        self.__str__()
+    }
+
+    pub fn __str__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
     }
 }
 
@@ -180,6 +189,19 @@ impl OrderList {
         }
 
         filled_orders
+    }
+
+    /// update or insert order
+    pub fn update_or_insert(&mut self, order: &Order) {
+        match self.index(order) {
+            Some(index) => {
+                self.list[index] = order.clone();
+            }
+            None => {
+                self.list.push(order.clone());
+            }
+        }
+        self.sort();
     }
 }
 

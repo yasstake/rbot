@@ -21,6 +21,9 @@ class MyAgent:
         pass
     
     def on_update(self, session, updated_order):
+        print("buy order", session.buy_orders)
+        print("sell order", session.sell_orders)
+        print("account", session.account)
         print("update: ", session.current_time, updated_order)
         pass
     

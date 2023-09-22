@@ -90,11 +90,11 @@ mod tests {
 
         assert_eq!(order_list.remain_size(), dec![40.0]);
         // Test remove
-        order_list.remove(updated_order1.clone());
+        order_list.remove(&updated_order1);
         assert_eq!(order_list.len(), 2);
         assert_eq!(order_list.remain_size(), dec![35.0]);
 
-        let result = order_list.remove(updated_order4.clone());
+        let result = order_list.remove(&updated_order4);
         assert_eq!(result, false);
         assert_eq!(order_list.len(), 2);
         assert_eq!(order_list.remain_size(), dec![35.0]);

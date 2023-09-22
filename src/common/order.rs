@@ -313,6 +313,17 @@ impl Default for AccountStatus {
     }
 }
 
+#[pymethods]
+impl AccountStatus {
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Order {
