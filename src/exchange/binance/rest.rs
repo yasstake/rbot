@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_trade_list() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
         let result = trade_list(&config);
 
         println!("result: {:?}", result);
@@ -676,10 +676,10 @@ mod tests {
 
     #[test]
     fn test_process_recent_trade() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
         let symbol = config.trade_symbol;
         let mut latest_time = 0;
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
 
         let result = process_recent_trade(&config, &mut |trades| {
             println!("trades: {:?}", trades);
@@ -701,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_process_old_trade() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
 
         let mut latest_time = 0;
 
@@ -725,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_timing_rest_api() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
 
         let mut latest_time = 0;
 
@@ -769,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_process_old_trade_until() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
 
         let mut latest_time = 0;
 
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn test_server_time() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
         let time = server_time(&config).unwrap();
         println!("Server time: {} ({})", time_string(time), time);
     }
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn test_clock_diff() {
-        let config = BinanceConfig::BTCBUSD();
+        let config = BinanceConfig::BTCUSDT();
 
         let time = server_time(&config).unwrap();
         let local_time = NOW();
@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn test_new_limit_order() {
         //        let config = BinanceConfig::BTCBUSD();
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let result = new_limit_order(
             &config,
@@ -843,7 +843,7 @@ mod tests {
     #[test]
     fn test_new_market_order() {
         //        let config = BinanceConfig::BTCBUSD();
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let result = new_market_order(&config, OrderSide::Buy, Decimal::from_f64(0.001).unwrap());
 
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn test_cancel_order() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let order_id = "444627";
 
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn test_get_balance() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let result = get_balance(&config);
         println!("result: {:?}", result);
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn test_create_listen_key() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let key = create_listen_key(&config).unwrap();
         println!("key: {}", key);
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_extend_listen_key() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let key = create_listen_key(&config).unwrap();
         println!("key: {}", key);
@@ -898,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_order_status() {
-        let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
         let message = order_status(&config).unwrap();
         println!("message: {:?}", message);
@@ -907,7 +907,7 @@ mod tests {
     #[test]
     fn test_order_list() {
         init_debug_log();
-        let config = BinanceConfig::TESTSPOT("BTCUSDT".to_string());
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
 
         let message = trade_list(&config).unwrap();
         println!("message: {:?}", message);

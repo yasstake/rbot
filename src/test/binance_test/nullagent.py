@@ -25,15 +25,18 @@ class MyAgent:
     
 #init_debug_log()
     
-market = BinanceMarket(BinanceConfig.TESTSPOT("BTCUSDT"))
-market.start_market_stream()
-market.start_user_stream()
+market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
+
+print(BinanceConfig.TEST_BTCUSDT)
+
+#market.start_market_stream()
+#market.start_user_stream()
     
-agent = MyAgent()
-runner = Runner()
+#agent = MyAgent()
+#runner = Runner()
 
 
     
-runner.run(market,agent)
+#runner.run(market,agent)
 
     
