@@ -36,7 +36,10 @@ fn make_user_stream_endpoint(config: &BinanceConfig, key: String) -> String {
     return url;
 }
 
-pub fn listen_userdata_stream(config: &BinanceConfig) -> JoinHandle<()>{
+pub fn listen_userdata_stream<F>(config: &BinanceConfig, f: F) -> JoinHandle<()>
+where
+    F: Fn(BinanceUserStreamMessage) + Send + 'static
+{
     let key = create_listen_key(&config).unwrap();
     let url = make_user_stream_endpoint(config, key.clone());
 
@@ -60,7 +63,8 @@ pub fn listen_userdata_stream(config: &BinanceConfig) -> JoinHandle<()>{
             println!("raw msg: {}", msg);
 
             let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
-            println!("cooked : {:?}", msg.unwrap());            
+            let msg = msg.unwrap();
+            f(msg);
 
             let now = NOW();
 
@@ -91,11 +95,11 @@ fn test_listen_userdata_stream() {
 
     let config = BinanceConfig::TESTSPOT("BTCBUSD".to_string());
     init_debug_log();
-    listen_userdata_stream(&config);
+    listen_userdata_stream(&config, |msg| {
+        println!("msg: {:?}", msg);
+    });
 
-//    sleep(Duration::from_secs(1));
-
-//    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
+    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
 
     sleep(Duration::from_secs(60*1));
 }

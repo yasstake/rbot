@@ -844,7 +844,7 @@ impl AutoConnectClient {
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardItem {
     #[serde(deserialize_with = "string_to_decimal")]
     pub price: Decimal,
