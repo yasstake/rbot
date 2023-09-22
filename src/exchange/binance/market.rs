@@ -1,7 +1,8 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
-
 use chrono::Datelike;
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
@@ -10,29 +11,32 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::de;
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::borrow::BorrowMut;
 use std::f32::consts::E;
-use std::{fs, thread};
 use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
-use crossbeam_channel::Sender;
-use crossbeam_channel::Receiver;
+use std::{fs, thread};
 
-use crate::common::{convert_pyresult, MarketStream, MarketMessage};
-use crate::common::{OrderSide, TimeChunk, Trade, Order};
+use crate::common::MultiChannel;
+use crate::common::{convert_pyresult, MarketMessage, MarketStream};
 use crate::common::{time_string, DAYS};
 use crate::common::{to_naive_datetime, MicroSec};
+use crate::common::{Order, OrderSide, TimeChunk, Trade};
 use crate::common::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
-use crate::fs::{project_dir, db_full_path};
+use crate::fs::{db_full_path, project_dir};
 
-
-use super::message::{BinanceWsBoardUpdate, BinanceOrderStatus, BinanceOrderResponse, BinanceTradeMessage, BinanceListOrdersResponse};
-use super::rest::{insert_trade_db, order_status, new_limit_order, new_market_order, trade_list};
+use super::message::BinanceUserStreamMessage;
+use super::message::{
+    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceTradeMessage,
+    BinanceWsBoardUpdate,
+};
+use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
@@ -71,10 +75,8 @@ pub struct BinanceConfig {
 
     // key & secret
     pub api_key: String,
-    pub api_secret: String
+    pub api_secret: String,
 }
-
-
 
 #[pymethods]
 impl BinanceConfig {
@@ -85,7 +87,7 @@ impl BinanceConfig {
 
     #[staticmethod]
     pub fn TESTSPOT(symbol: String) -> Self {
-        let mut config = BinanceConfig::SPOT(symbol); 
+        let mut config = BinanceConfig::SPOT(symbol);
 
         config.trade_category = "TESTSPOT".to_string();
         config.rest_endpoint = "https://testnet.binance.vision".to_string();
@@ -95,14 +97,15 @@ impl BinanceConfig {
 
         return config;
     }
-    
+
     #[staticmethod]
     pub fn SPOT(symbol: String) -> Self {
         let upper_symbol = symbol.to_uppercase();
         let lower_symbol = symbol.to_lowercase();
 
         let api_key = std::env::var("BINANCE_API_KEY").expect("BINANCE_API_KEY is not set");
-        let api_secret = std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET is not set");
+        let api_secret =
+            std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET is not set");
 
         return BinanceConfig {
             exchange_name: "BN".to_string(),
@@ -129,20 +132,20 @@ impl BinanceConfig {
             .to_string(),
             testnet: false,
             api_key,
-            api_secret
+            api_secret,
         };
     }
 
     #[getter]
     pub fn get_db_path(&self) -> String {
         let mut exchange_name = self.exchange_name.clone();
-    
+
         if self.testnet {
             exchange_name = format!("{}-TESTNET", exchange_name);
         }
 
         let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol);
-        
+
         return db_path.to_str().unwrap().to_string();
     }
 
@@ -151,12 +154,15 @@ impl BinanceConfig {
 
         if printobj.api_key.len() > 4 {
             printobj.api_key = format!("{}*******************", printobj.api_key[0..4].to_string());
-        }else {
+        } else {
             printobj.api_key = "!! NO KEY !!".to_string();
         }
 
         if printobj.api_secret.len() > 4 {
-            printobj.api_secret = format!("{}*******************", printobj.api_secret[0..4].to_string());
+            printobj.api_secret = format!(
+                "{}*******************",
+                printobj.api_secret[0..4].to_string()
+            );
         } else {
             printobj.api_secret = "!! NO SECRET !!".to_string();
         }
@@ -164,7 +170,6 @@ impl BinanceConfig {
         serde_json::to_string(&printobj).unwrap()
     }
 }
-
 
 // TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
 const BOARD_PRICE_UNIT: f64 = 0.01;
@@ -192,9 +197,11 @@ impl BinanceOrderBook {
         if self.last_update_id == 0 {
             log::debug!(
                 "reflesh board {} / {}->{}",
-                self.last_update_id, update_data.u, update_data.U
+                self.last_update_id,
+                update_data.u,
+                update_data.U
             );
-            sleep(Duration::from_millis(150));  // 100ms毎に更新されるので、150ms待つ。
+            sleep(Duration::from_millis(150)); // 100ms毎に更新されるので、150ms待つ。
             self.reflesh_board();
         }
 
@@ -213,7 +220,9 @@ impl BinanceOrderBook {
         if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
             log::debug!(
                 "lastupdate({}) / U({}) / u({})",
-                self.last_update_id, update_data.U, update_data.u
+                self.last_update_id,
+                update_data.U,
+                update_data.u
             );
             self.board
                 .update(&update_data.bids, &update_data.asks, false);
@@ -248,10 +257,8 @@ pub struct BinanceMarket {
     pub board: Arc<Mutex<BinanceOrderBook>>,
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
-    pub channel: Option<Sender<MarketMessage>>,
+    pub channel: Arc<Mutex<MultiChannel>>,
 }
-
-
 
 pub trait Market {
     fn limit_order(&self);
@@ -262,7 +269,6 @@ impl Market for BinanceMarket {
         // todo!()
     }
 }
-
 
 #[pymethods]
 impl BinanceMarket {
@@ -286,7 +292,7 @@ impl BinanceMarket {
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
             public_handler: None,
             user_handler: None,
-            channel: None,
+            channel: Arc::new(Mutex::new(MultiChannel::new()))
         };
     }
 
@@ -370,7 +376,11 @@ impl BinanceMarket {
         return self.db.py_ohlcv(from_time, to_time, window_sec);
     }
 
-    pub fn select_trades(&mut self, from_time: MicroSec, to_time: MicroSec) -> PyResult<PyDataFrame> {
+    pub fn select_trades(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+    ) -> PyResult<PyDataFrame> {
         return self.db.py_select_trades_polars(from_time, to_time);
     }
 
@@ -421,20 +431,18 @@ impl BinanceMarket {
 
     pub fn start_market_stream(&mut self) {
         let endpoint = &self.config.public_ws_endpoint;
-        let subscribe_message: Value = 
-                serde_json::from_str(&self.config.public_subscribe_message).unwrap();
-
+        let subscribe_message: Value =
+            serde_json::from_str(&self.config.public_subscribe_message).unwrap();
 
         // TODO: parameterize
-        let mut websocket = AutoConnectClient::new(
-            endpoint,
-            Some(subscribe_message)
-        );
+        let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
 
         websocket.connect();
 
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
+
+        let mut agent_channel = self.channel.clone();
 
         let handler = std::thread::spawn(move || loop {
             let message = websocket.receive_message().unwrap();
@@ -444,18 +452,24 @@ impl BinanceMarket {
                 let o = message_value.as_object().unwrap();
 
                 if o.contains_key("e") {
+                    log::debug!("Message: {:?}", message);
+  
                     let message: BinancePublicWsMessage =
                         serde_json::from_str(message.as_str()).unwrap();
 
-                    match message {
+                    match message.clone() {
                         BinancePublicWsMessage::Trade(trade) => {
                             log::debug!("Trade: {:?}", trade);
                             db_channel.send(vec![trade.to_trade()]);
+
+                            let multi_agent_channel = agent_channel.borrow_mut();
+                            multi_agent_channel.lock().unwrap().send(message.into());
                         }
                         BinancePublicWsMessage::BoardUpdate(board_update) => {
                             board.lock().unwrap().update(&board_update);
                         }
                     }
+
                 } else if o.contains_key("result") {
                     let message: BinanceWsRespond = serde_json::from_str(message.as_str()).unwrap();
                     log::debug!("Result: {:?}", message);
@@ -478,7 +492,10 @@ impl BinanceMarket {
     }
 
     pub fn start_user_stream(&mut self) {
-        self.user_handler = Some(listen_userdata_stream(&self.config));        
+        self.user_handler = Some(listen_userdata_stream(&self.config,
+            |message: BinanceUserStreamMessage| {
+                log::debug!("UserStream: {:?}", message);
+            }));
     }
 
     pub fn stop_user_stream(&mut self) {
@@ -490,50 +507,39 @@ impl BinanceMarket {
         }
     }
 
+
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
-        let (sender, stream) = MarketStream::open();
-
-        self.channel = Some(sender.clone());
-        
-        thread::spawn(move || {
-            loop {
-                let message = MarketMessage{
-                    trade: Some(Trade::new(
-                    NOW(),
-                    OrderSide::Buy,
-                    dec!(1.0),
-                    dec!(1.0),
-                    "test".to_string(),
-                )),
-                    order: None
-                };
-
-                log::debug!("Send message");
-
-                sender.send(message);
-
-                sleep(Duration::from_secs(1));
-            }
-        });
-
-        return stream;
+        self.channel.lock().unwrap().open_channel()
     }
 
-    pub fn new_limit_order_raw(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<BinanceOrderResponse> {
+    pub fn new_limit_order_raw(
+        &self,
+        side: OrderSide,
+        price: Decimal,
+        size: Decimal,
+    ) -> PyResult<BinanceOrderResponse> {
         let response = new_limit_order(&self.config, side, price, size);
-    
+
         convert_pyresult(response)
     }
 
-    pub fn new_limit_order(&self, side: OrderSide, price: Decimal, size: Decimal) -> PyResult<Order> {
+    pub fn new_limit_order(
+        &self,
+        side: OrderSide,
+        price: Decimal,
+        size: Decimal,
+    ) -> PyResult<Order> {
         let response = new_limit_order(&self.config, side, price, size);
-        
+
         convert_pyresult(response)
     }
 
-
-    pub fn new_market_order_raw(&self, side: OrderSide, size: Decimal) -> PyResult<BinanceOrderResponse> {
+    pub fn new_market_order_raw(
+        &self,
+        side: OrderSide,
+        size: Decimal,
+    ) -> PyResult<BinanceOrderResponse> {
         let response = new_market_order(&self.config, side, size);
 
         convert_pyresult(response)
@@ -544,7 +550,6 @@ impl BinanceMarket {
 
         convert_pyresult(response)
     }
-
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BinanceOrderStatus>> {
@@ -559,7 +564,6 @@ impl BinanceMarket {
 
         convert_pyresult(status)
     }
-
 }
 
 use crate::exchange::binance::rest::get_board_snapshot;
@@ -610,7 +614,7 @@ impl BinanceMarket {
             .unwrap_or_default()
             * 1_000;
 
-            let is_buyer_make = rec.get(5).unwrap_or_default();
+        let is_buyer_make = rec.get(5).unwrap_or_default();
         let order_side = match is_buyer_make {
             "True" => OrderSide::Buy,
             "False" => OrderSide::Sell,
@@ -636,7 +640,7 @@ impl BinanceMarket {
     8. If the quantity is 0, remove the price level.
     9. Receiving an event that removes a price level that is not in your local order book can happen and is normal.
     */
-    
+
     fn get_latest_archive_timestamp(&self) -> Result<MicroSec, String> {
         match self.get_latest_archive_date() {
             Ok(date) => {
@@ -680,7 +684,6 @@ mod binance_test {
     use crate::common::{init_debug_log, init_log};
 
     use super::*;
-
 
     #[test]
     fn test_make_historical_data_url_timestamp() {

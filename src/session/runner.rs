@@ -24,6 +24,14 @@ impl Runner {
         }
     }
 
+    pub fn back_test(&self) {
+        // TODO: implement
+    }
+
+    pub fn dry_run(&self) {
+        // TODO: implement
+    }
+
     pub fn run(
         &mut self,
         market: PyObject,
@@ -72,11 +80,13 @@ impl Runner {
         message: &MarketMessage,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
-
         session.on_message(&message);
         drop(session);
 
+        log::debug!("on_message: {:?}", message);
+
         if message.trade.is_some() {
+            
             let session = py_session.borrow_mut(*py);
 
             let trade = message.trade.as_ref().unwrap();

@@ -8,10 +8,10 @@ use strum_macros::Display;
 
 use crate::{
     common::{
-        {Order, OrderSide, OrderStatus, OrderType, Trade, OrderFill},
-        MicroSec, AccountChange,
+        AccountChange, MarketMessage, MicroSec,
+        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade},
     },
-    exchange::{BoardItem, string_to_decimal},
+    exchange::{string_to_decimal, BoardItem},
 };
 
 use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
@@ -25,7 +25,7 @@ pub struct BinanceSubscriptionReply {
     pub id: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "e")]
 pub enum BinancePublicWsMessage {
     #[serde(rename = "trade")]
@@ -33,6 +33,26 @@ pub enum BinancePublicWsMessage {
     #[serde(rename = "depthUpdate")]
     BoardUpdate(BinanceWsBoardUpdate),
 }
+
+impl Into<MarketMessage> for BinancePublicWsMessage {
+    fn into(self) -> MarketMessage {
+        match self {
+            BinancePublicWsMessage::Trade(trade) => MarketMessage {
+                trade: Some(trade.to_trade()),
+                order: None,
+            },
+            BinancePublicWsMessage::BoardUpdate(board_update) => {
+                log::warn!("BinancePublicWsMessage::BoardUpdate is not implemented yet");
+
+                MarketMessage {
+                    trade: None,
+                    order: None,
+                }
+            }
+        }
+    }
+}
+
 
 #[pyclass]
 //  {"result":null,"id":1}
@@ -87,7 +107,7 @@ impl BinanceTradeMessage {
 // {"e":"trade","E":1693226465430,"s":"BTCUSDT","t":3200243634,"p":"26132.02000000","q":"0.00244000","b":22161265544,"a":22161265465,"T":1693226465429,"m":false,"M":true}
 
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsTradeMessage {
     //#[serde(rename = "e")]
     //pub event_type: String, // "e":"trade"              Event type
@@ -109,7 +129,7 @@ impl BinanceWsTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
             time: binance_to_microsec(self.time),
-            price: Decimal::from_str(&self.p).unwrap(),  // self.p.parse::<f64>().unwrap(),
+            price: Decimal::from_str(&self.p).unwrap(), // self.p.parse::<f64>().unwrap(),
             size: Decimal::from_str(&self.q).unwrap(),  // parse::<f64>().unwrap(),
             order_side: if self.m {
                 OrderSide::Buy
@@ -142,7 +162,7 @@ pub struct BinanceRestBoard {
 
 // {"e":"depthUpdate","E":1693266904308,"s":"BTCUSDT","U":38531387766,"u":38531387832,"b":[["26127.87000000","20.79393000"],["26126.82000000","0.02674000"],["26125.95000000","0.00000000"],["26125.78000000","0.38302000"],["26125.68000000","0.00000000"],["26125.10000000","0.00000000"],["26125.05000000","0.00000000"],["26124.76000000","0.00000000"],["26124.75000000","0.21458000"],["26114.84000000","1.14830000"],["26114.15000000","0.00000000"],["26090.85000000","0.00000000"],["26090.84000000","0.00000000"],["26090.32000000","2.29642000"],["26090.31000000","3.82738000"],["26087.99000000","0.03733000"],["26084.34000000","0.00000000"],["25553.07000000","0.13647000"],["25500.81000000","0.14160000"],["25496.85000000","0.00000000"],["25284.00000000","0.03996000"],["24827.83000000","0.00000000"],["24300.17000000","0.00000000"],["23772.50000000","0.00047000"],["23515.08000000","0.00000000"],["18289.50000000","0.00000000"],["13063.93000000","0.00091000"]],"a":[["26127.88000000","5.58099000"],["26128.39000000","0.20072000"],["26128.79000000","0.21483000"],["26129.26000000","0.38297000"],["26129.52000000","0.00000000"],["26129.53000000","0.00000000"],["26134.50000000","0.06000000"],["26134.99000000","1.07771000"],["26135.10000000","0.00700000"],["26155.27000000","0.00050000"],["26155.28000000","0.00000000"],["27027.87000000","0.00200000"],["27290.25000000","0.00000000"],["27817.92000000","0.00000000"],["28345.58000000","0.00000000"]]}
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsBoardUpdate {
     //#[serde(rename = "e")]
     //pub event_type: String, // "e":"depthUpdate"        Event type
@@ -290,7 +310,6 @@ impl From<BinanceOrderResponse> for Order {
         }
     }
 }
-
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
@@ -589,12 +608,12 @@ impl From<BinanceExecutionReport> for Order {
         let commition_asset = order.N.unwrap_or_default();
         let ismaker = order.m;
 
-        let remain_size = if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
-            Decimal::from(0)
-        } else {
-            order.q - execute_total
-        };
-
+        let remain_size =
+            if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
+                Decimal::from(0)
+            } else {
+                order.q - execute_total
+            };
 
         let fills = OrderFill {
             transaction_id: trade_id,
@@ -607,7 +626,7 @@ impl From<BinanceExecutionReport> for Order {
             maker: ismaker,
         };
 
-        let account_change = AccountChange::new(); 
+        let account_change = AccountChange::new();
 
         let r = Order {
             symbol: order.s,
@@ -619,19 +638,17 @@ impl From<BinanceExecutionReport> for Order {
             order_type: order_type,
             price: order.p,
             size: order.q,
-            remain_size: remain_size,            
+            remain_size: remain_size,
             status: order_status,
             account_change: account_change,
-            message: "".to_string(),            
-            fills: Some(fills),    
-            profit: None,   // TODO                        
+            message: "".to_string(),
+            fills: Some(fills),
+            profit: None, // TODO
         };
 
-     
         return r;
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]

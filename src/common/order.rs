@@ -2,6 +2,7 @@
 
 use crate::common::time::time_string;
 
+use super::MarketMessage;
 use super::time::MicroSec;
 use pyo3::pyclass;
 use pyo3::pyfunction;
@@ -131,7 +132,7 @@ impl OrderType {
 
 // Represent one Trade execution.
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Represents a trade made on an exchange.
 pub struct Trade {
     /// The time the trade was executed, in microseconds since the epoch.
@@ -187,8 +188,17 @@ impl Trade {
     }
 }
 
+impl Into<MarketMessage> for Trade {
+    fn into(self) -> MarketMessage {
+        MarketMessage {
+            trade: Some(self.clone()),
+            order: None,
+        }
+    }
+}
+
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderFill {
     // 約定時に確定するデータ
     pub transaction_id: String,
@@ -203,7 +213,7 @@ pub struct OrderFill {
 
 
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
     pub fee_home: Decimal,       // in home currency
     pub fee_foreign: Decimal,    // in foreign currency
@@ -261,7 +271,7 @@ impl Default for AccountStatus {
 }
 
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
     pub symbol: String,
@@ -294,6 +304,14 @@ impl Order {
     }
 }
 
+impl Into<MarketMessage> for Order {
+    fn into(self) -> MarketMessage {
+        MarketMessage {
+            trade: None,
+            order: Some(self.clone()),
+        }
+    }
+}
 
 
 /*
