@@ -162,7 +162,6 @@ impl Market for BinanceMarket {
 impl BinanceMarket {
     #[new]
     pub fn new(config: &BinanceConfig) -> Self {
-        // TODO: SPOTにのみ対応しているのを変更する。
         let db_name = Self::db_path(&config).unwrap();
 
         log::debug!("create TradeTable: {}", db_name);
@@ -194,6 +193,7 @@ impl BinanceMarket {
     }
 
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
+        log::info!("log download: {} days", ndays);
         let latest_date;
 
         match self.get_latest_archive_timestamp() {
@@ -216,6 +216,8 @@ impl BinanceMarket {
         let download_rec = download_log(urls, tx, false, BinanceMarket::rec_to_trade);
 
         self.repave_today();
+
+        log::info!("downloaded: {}", download_rec);
 
         return download_rec;
     }
@@ -368,6 +370,8 @@ impl BinanceMarket {
         });
 
         self.public_handler = Some(handler);
+
+        log::info!("start_market_stream");
     }
 
     pub fn stop_market_stream(&mut self) {
@@ -391,6 +395,8 @@ impl BinanceMarket {
                 let m = message.convert_to_market_message(&cfg);
                 mutl_agent_channel.lock().unwrap().send(m);
             }));
+
+        log::info!("start_user_stream");
     }
 
     pub fn stop_user_stream(&mut self) {

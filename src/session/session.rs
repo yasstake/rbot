@@ -2,17 +2,20 @@ use std::f32::consts::E;
 
 use hmac::digest::typenum::Or;
 use numpy::PyArray2;
-use pyo3::{pyclass, pymethods, PyObject, PyAny, Python, types::PyTuple};
+use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
+use rust_decimal::Decimal;
 
-use crate::{exchange::binance::Market, common::{OrderSide, MarketStream, MicroSec, AccountStatus, OrderStatus}};
+use crate::{
+    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus},
+    exchange::binance::Market,
+};
 
-use super::{OrderList, has_method};
+use super::{has_method, OrderList};
 use pyo3::prelude::*;
 
 use crate::common::MarketMessage;
-use crate::common::Trade;
 use crate::common::Order;
-
+use crate::common::Trade;
 
 #[pyclass(name = "Session")]
 #[derive(Debug)]
@@ -22,7 +25,7 @@ pub struct Session {
     account: AccountStatus,
     market: PyObject,
     current_time: MicroSec,
-    dummy: bool
+    dummy: bool,
 }
 
 #[pymethods]
@@ -33,48 +36,43 @@ impl Session {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
             account: AccountStatus::default(),
-            market,            
+            market,
             current_time: 0,
             dummy,
         }
     }
 
-    pub fn on_account_update(&mut self, account: &AccountStatus) {
-        self.account = account.clone();
+    #[getter]
+    pub fn get_current_time(&self) -> MicroSec {
+        self.current_time
     }
 
-    pub fn on_order_update(&mut self, order: &Order) {
-        if order.order_side == OrderSide::Buy {
-            if order.status == OrderStatus::Filled ||
-                order.status == OrderStatus::Canceled {
-                    self.buy_orders.remove(order);
-            }
-            else {
-                self.buy_orders.update_or_insert(order);
-            }
-        }
-        else if order.order_side == OrderSide::Sell {
-            if order.status == OrderStatus::Filled ||
-                order.status == OrderStatus::Canceled {
-                    self.sell_orders.remove(order);
-            }
-            else {
-                self.sell_orders.update_or_insert(order);
-            }
-        }            
-        else {
-            log::error!("Unknown order side: {:?}", order.order_side)
-        }
+    // Board information
+    #[getter]
+    pub fn get_bids(&self) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.getattr(py, "bids"))
     }
 
+    #[getter]
+    pub fn get_asks(&self) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.getattr(py, "asks"))
+    }
+
+    // account information
     #[getter]
     pub fn get_account(&self) -> AccountStatus {
         self.account.clone()
     }
 
+    // order information
     #[getter]
     pub fn get_buy_orders(&self) -> OrderList {
         self.buy_orders.clone()
+    }
+
+    #[getter]
+    pub fn get_buy_order_amount(&self) -> Decimal {
+        self.buy_orders.remain_size()
     }
 
     #[getter]
@@ -82,40 +80,25 @@ impl Session {
         self.sell_orders.clone()
     }
 
-
-    pub fn calc_account(&mut self, order: &Order) {
-
-
-        /*
-        if order.order_side == OrderSide::Buy {
-            self.account.free -= order.quantity * order.price;
-            self.account.locked += order.quantity * order.price;
-        }
-        else if order.order_side == OrderSide::Sell {
-            self.account.free += order.quantity * order.price;
-            self.account.locked -= order.quantity * order.price;
-        }            
-        else {
-            log::error!("Unknown order side: {:?}", order.order_side)
-        }
-        */
+    #[getter]
+    pub fn get_sell_order_amount(&self) -> Decimal {
+        self.sell_orders.remain_size()
     }
 
+    // Message handling
     pub fn on_tick(&mut self, tick: &Trade) {
         self.current_time = tick.time;
         println!("set currenttime to {}", self.current_time);
 
         if self.dummy == false {
-            return; 
+            return;
         }
 
         if tick.order_side == OrderSide::Buy {
             self.sell_orders.consume_trade(tick);
-        }
-        else if tick.order_side == OrderSide::Sell {
-            self.buy_orders.consume_trade(tick);            
-        }            
-        else {
+        } else if tick.order_side == OrderSide::Sell {
+            self.buy_orders.consume_trade(tick);
+        } else {
             log::error!("Unknown order side: {:?}", tick.order_side)
         }
     }
@@ -137,23 +120,25 @@ impl Session {
         }
     }
 
-    #[getter]
-    pub fn get_current_time(&self) -> MicroSec {
-        self.current_time
+    pub fn on_account_update(&mut self, account: &AccountStatus) {
+        self.account = account.clone();
     }
 
-    #[getter]
-    pub fn get_bids(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| {
-            self.market.getattr(py, "bids")
-        })
-    }
-
-    #[getter]
-    pub fn get_asks(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| {
-            self.market.getattr(py, "asks")
-        })
+    pub fn on_order_update(&mut self, order: &Order) {
+        if order.order_side == OrderSide::Buy {
+            if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
+                self.buy_orders.remove(order);
+            } else {
+                self.buy_orders.update_or_insert(order);
+            }
+        } else if order.order_side == OrderSide::Sell {
+            if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
+                self.sell_orders.remove(order);
+            } else {
+                self.sell_orders.update_or_insert(order);
+            }
+        } else {
+            log::error!("Unknown order side: {:?}", order.order_side)
+        }
     }
 }
-

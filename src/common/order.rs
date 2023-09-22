@@ -8,6 +8,7 @@ use pyo3::pyclass;
 use pyo3::pyfunction;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
@@ -253,6 +254,24 @@ pub struct OrderFill {
     pub maker: bool,
 }
 
+#[pymethods]
+impl OrderFill {
+    #[new]
+    pub fn new() -> Self {
+        return OrderFill {
+            transaction_id: "".to_string(),
+            update_time: 0,
+            price: dec![0.0],
+            filled_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            maker: false,
+        };
+    }
+}
+
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
@@ -343,7 +362,7 @@ pub struct Order {
     pub status: OrderStatus,
     pub account_change: AccountChange,
     pub message: String,
-    pub fills: Option<OrderFill>,
+    pub fills: OrderFill,
     pub profit: Option<Decimal>,
 }
 

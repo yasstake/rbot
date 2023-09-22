@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::de::{self, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::Display;
@@ -273,7 +274,19 @@ pub struct BinanceOrderFill {
     tradeId: i64,
 }
 
+#[pymethods]
 impl BinanceOrderFill {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            price: dec![0.0],
+            qty: dec![0.0],
+            commission: dec![0.0],
+            commissionAsset: "".to_string(),
+            tradeId: 0,
+        }
+    }
+
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -302,7 +315,7 @@ impl From<BinanceOrderResponse> for Order {
             remain_size: order.origQty,
             status: order_status,
             account_change: AccountChange::new(),
-            fills: None,
+            fills: OrderFill::new(),
             profit: None,
             message: "".to_string(),
         }
@@ -651,6 +664,7 @@ impl From<&BinanceExecutionReport> for Order {
         };
 
         let account_change = AccountChange::new();
+        // TODO: imple
 
         let r = Order {
             symbol: order.s.clone(),
@@ -666,7 +680,7 @@ impl From<&BinanceExecutionReport> for Order {
             status: order_status,
             account_change: account_change,
             message: "".to_string(),
-            fills: Some(fills),
+            fills: fills,
             profit: None, // TODO
         };
 
