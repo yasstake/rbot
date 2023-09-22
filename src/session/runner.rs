@@ -120,6 +120,8 @@ impl Runner {
         Ok(())
     }
 
+    /// get market stream from Market object
+    /// Every market object shold implement `channel` attribute
     pub fn get_market_stream(market: &PyObject) -> MarketStream {
         Python::with_gil(|py| {
             let stream = market.getattr(py, "channel").unwrap();

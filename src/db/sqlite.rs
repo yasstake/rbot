@@ -269,7 +269,7 @@ impl TradeTableQuery for TradeTableDb {
         let _transaction_iter = statement
             .query_map(params_from_iter(param.iter()), |row| {
                 let bs_str: String = row.get_unwrap(1);
-                let bs = OrderSide::from_str_default(bs_str.as_str());
+                let bs: OrderSide = bs_str.into();
 
                 Ok(Trade {
                     time: row.get_unwrap(0),

@@ -58,31 +58,20 @@ impl OrderStatus {
 
 
 #[pyclass]
-#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// Enum representing the side of an order, either Buy or Sell.
 /// Buy is represented by the value "Buy", "BUY", "buy", "B",
 /// Sell is represented by the value "Sell", "SELL", "sell", "b"
 pub enum OrderSide {
-    #[strum(ascii_case_insensitive, serialize = "Buy", serialize = "B")]
+    #[strum(ascii_case_insensitive, serialize = "Buy")]
     Buy,
-    #[strum(ascii_case_insensitive, serialize = "Sell", serialize = "S")]
+    #[strum(ascii_case_insensitive, serialize = "Sell")]
     Sell,
     /// Represents an unknown order side.
     Unknown,
 }
 
 impl OrderSide {
-    pub fn from_str_default(side: &str) -> Self {
-        match OrderSide::from_str(side) {
-            Ok(side) => {
-                side
-            }
-            Err(_) => {
-                OrderSide::Unknown
-            }
-        }
-    }
-
     pub fn from_buy_side(buy_side: bool) -> Self {
         match buy_side {
             true => OrderSide::Buy,
@@ -99,6 +88,30 @@ impl OrderSide {
 }
 
 
+fn string_to_side(side: &str) -> OrderSide {
+    match side.to_uppercase().as_str() {
+        "BUY" | "B" => OrderSide::Buy,
+        "SELL" | "S" => OrderSide::Sell,
+        _ => {
+            log::error!("Unknown order side: {:?}", side);
+            OrderSide::Unknown
+        }
+    }
+}
+
+impl From<String> for OrderSide {
+    fn from(side: String) -> Self {
+        string_to_side(&side)
+    }
+}
+
+impl From<&str> for OrderSide {
+    fn from(side: &str) -> Self {
+        string_to_side(side)
+    }
+}
+
+
 #[pymethods]
 impl OrderSide {
     pub fn __repr__(&self) -> String {
@@ -110,7 +123,7 @@ impl OrderSide {
 }
 
 #[pyclass]
-#[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
     #[strum(ascii_case_insensitive, serialize = "LIMIT")]    
@@ -129,6 +142,29 @@ impl OrderType {
     }
 }
 
+
+fn str_to_order_type(order_type: &str) -> OrderType {
+        match order_type.to_uppercase().as_str() {
+            "LIMIT" => OrderType::Limit,
+            "MARKET" => OrderType::Market,
+            _ => {
+                log::error!("Unknown order type: {:?}", order_type);
+                OrderType::Limit
+            }
+        }
+    }
+
+impl From<&str> for OrderType {
+    fn from(order_type: &str) -> Self {
+        str_to_order_type(order_type)
+    }
+}
+
+impl From<String> for OrderType {
+    fn from(order_type: String) -> Self {
+        str_to_order_type(&order_type)
+    }
+}
 
 // Represent one Trade execution.
 #[pyclass]
