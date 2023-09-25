@@ -114,6 +114,12 @@ impl From<&str> for OrderSide {
     }
 }
 
+impl Into<String> for OrderSide {
+    fn into(self) -> String {
+        self.to_string()
+    }
+}
+
 #[pymethods]
 impl OrderSide {
     pub fn __repr__(&self) -> String {

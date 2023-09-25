@@ -99,7 +99,7 @@ fn test_listen_userdata_stream() {
         println!("msg: {:?}", msg);
     });
 
-    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
+    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001], Some(&"TestForWS")).unwrap();
 
     sleep(Duration::from_secs(60*1));
 }

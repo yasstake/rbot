@@ -95,6 +95,77 @@ impl Session {
         self.sell_orders.remain_size()
     }
 
+    pub fn market_order(&self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.call_method1(py, "market_order", (side, size)))
+    }
+
+    pub fn limit_order(
+        &mut self,
+        side: OrderSide,
+        size: Decimal,
+        price: Decimal,
+    ) -> Result<Order, PyErr> {
+        // first push order to order list
+
+        // then call market.limit_order
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .call_method1(py, "limit_order", (side, size, price));
+
+                match result {
+                    // if success update order list
+                    Ok(order) => {
+                        let o: Order = order.extract(py).unwrap();
+
+                        if o.order_side == OrderSide::Buy {
+                            self.buy_orders.update_or_insert(&o);
+                        } else if o.order_side == OrderSide::Sell {
+                            self.sell_orders.update_or_insert(&o);
+                        } else {
+                            log::error!("Unknown order side: {:?}", o.order_side)
+                        }
+
+                        return Ok(o)
+                    }
+                    Err(e) => {
+                        log::error!("limit_order error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;        
+    }
+
+    /*
+    /// fecth order list from exchange
+    /// update order list
+    pub fn sync_orderlist(&mut self) {
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .call_method0(py, "sync_orderlist");
+
+                match result {
+                    // if success update order list
+                    Ok(orderlist) => {
+                        let o: OrderList = orderlist.extract(py).unwrap();
+
+                        self.buy_orders = o.buy_orders;
+                        self.sell_orders = o.sell_orders;
+
+                        return Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("sync_orderlist error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;        
+    }
+    */
+
     // Message handling
     pub fn on_tick(&mut self, tick: &Trade) {
         self.current_time = tick.time;
