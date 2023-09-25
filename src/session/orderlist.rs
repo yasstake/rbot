@@ -1,6 +1,7 @@
 use crate::common::{Order, OrderSide, OrderStatus, Trade};
 use polars_lazy::dsl::first;
-use pyo3::{pyclass, pymethods};
+use pyo3::{pyclass, pymethods, PyResult};
+use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::Serialize;
