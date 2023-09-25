@@ -297,21 +297,32 @@ impl BinanceMarket {
     }
 
     #[getter]
-    fn get_asks(&self) -> PyResult<Py<PyArray2<f64>>> {
+    pub fn get_asks_a(&self) -> PyResult<Py<PyArray2<f64>>> {
         return self.board.lock().unwrap().board.get_asks_pyarray();
     }
 
     #[getter]
-    fn get_bids(&self) -> PyResult<Py<PyArray2<f64>>> {
+    pub fn get_asks(&self) -> PyResult<PyDataFrame> {
+        return self.board.lock().unwrap().board.get_asks_pydataframe();
+    }
+
+
+    #[getter]
+    pub fn get_bids_a(&self) -> PyResult<Py<PyArray2<f64>>> {
         return self.board.lock().unwrap().board.get_bids_pyarray();
     }
 
     #[getter]
-    fn get_file_name(&self) -> String {
+    pub fn get_bids(&self) -> PyResult<PyDataFrame> {
+        return self.board.lock().unwrap().board.get_bids_pydataframe();
+    }
+
+    #[getter]
+    pub fn get_file_name(&self) -> String {
         return self.db.get_file_name();
     }
 
-    fn vaccum(&self) {
+    pub fn vaccum(&self) {
         self.db.vaccum();
     }
 

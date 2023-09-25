@@ -22,7 +22,9 @@ use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
+use polars_core::{prelude::{DataFrame, NamedFrom}, series::Series};
 use pyo3::{Py, PyResult, Python};
+use pyo3_polars::PyDataFrame;
 use reqwest::Method;
 use serde::{de, Deserialize, Deserializer};
 use serde_derive::Serialize;
@@ -975,6 +977,25 @@ impl Board {
 
         return Ok(r);
     }
+
+    pub fn to_pydataframe(&self) -> PyResult<PyDataFrame> {
+        let board = self.get();
+
+        let mut prices: Vec<f64> = vec![];
+        let mut sizes: Vec<f64> = vec![];        
+
+        for item in board {
+            prices.push(item.price.to_f64().unwrap());   
+            sizes.push(item.size.to_f64().unwrap());
+        }
+
+        let prices = Series::new("Price", prices);
+        let sizes = Series::new("Size", sizes);
+
+        let df = DataFrame::new(vec![prices, sizes]).unwrap();
+
+        Ok(PyDataFrame(df))
+    }
 }
 
 #[derive(Debug)]
@@ -1004,12 +1025,20 @@ impl Depth {
         self.asks.to_pyarray()
     }
 
+    pub fn get_asks_pydataframe(&self) -> PyResult<PyDataFrame> {
+        self.asks.to_pydataframe()
+    }
+
     pub fn get_bids(&self) -> Vec<BoardItem> {
         self.bids.get()
     }
 
     pub fn get_bids_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
         self.bids.to_pyarray()
+    }
+
+    pub fn get_bids_pydataframe(&self) -> PyResult<PyDataFrame> {
+        self.bids.to_pydataframe()
     }
 
     pub fn set_bids(&mut self, price: Decimal, size: Decimal) {
@@ -1057,6 +1086,10 @@ impl OrderBook {
         self.depth.bids.to_pyarray()
     }
 
+    pub fn get_bids_pydataframe(&self) -> PyResult<PyDataFrame> {
+        self.depth.bids.to_pydataframe()
+    }
+
     pub fn get_asks(&self) -> Vec<BoardItem> {
         self.depth.asks.get()
     }
@@ -1064,6 +1097,11 @@ impl OrderBook {
     pub fn get_asks_pyarray(&self) -> PyResult<Py<PyArray2<f64>>> {
         self.depth.asks.to_pyarray()
     }
+
+    pub fn get_asks_pydataframe(&self) -> PyResult<PyDataFrame> {
+        self.depth.asks.to_pydataframe()
+    }
+    
 }
 
 #[cfg(test)]

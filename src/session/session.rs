@@ -3,6 +3,7 @@ use std::f32::consts::E;
 use hmac::digest::typenum::Or;
 use numpy::PyArray2;
 use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
+use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 
 use crate::{
@@ -47,10 +48,19 @@ impl Session {
         self.current_time
     }
 
-    // Board information
+    #[getter]
+    pub fn get_bids_a(&self) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.getattr(py, "bids_a"))
+    }
+
     #[getter]
     pub fn get_bids(&self) -> Result<Py<PyAny>, PyErr> {
         Python::with_gil(|py| self.market.getattr(py, "bids"))
+    }
+
+    #[getter]
+    pub fn get_asks_a(&self) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.getattr(py, "asks_a"))
     }
 
     #[getter]
