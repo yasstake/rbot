@@ -59,6 +59,27 @@ pub fn time_string(t: MicroSec) -> String {
 }
 
 #[pyfunction]
+pub fn hour_string(t: MicroSec) -> String {
+    let datetime = to_naive_datetime(t);
+
+    return datetime.format("%H").to_string();
+}
+
+#[pyfunction]
+pub fn min_string(t: MicroSec) -> String {
+    let datetime = to_naive_datetime(t);
+
+    return datetime.format("%M").to_string();
+}
+
+#[pyfunction]
+pub fn date_string(t: MicroSec) -> String {
+    let datetime = to_naive_datetime(t);
+
+    return datetime.format("%Y%m%d").to_string();
+}
+
+#[pyfunction]
 pub fn parse_time(t: &str) -> MicroSec {
     let datetime = DateTime::parse_from_str(t, "%Y-%m-%dT%H:%M:%S%.6f%z");
 

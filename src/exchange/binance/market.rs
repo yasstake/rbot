@@ -440,7 +440,7 @@ impl BinanceMarket {
     }
 
     #[pyo3(signature = (side, price, size, client_order_id=None))]
-    pub fn new_limit_order(
+    pub fn limit_order(
         &self,
         side: OrderSide,
         price: Decimal,
@@ -462,7 +462,7 @@ impl BinanceMarket {
         convert_pyresult(response)
     }
 
-    pub fn new_market_order(&self, side: OrderSide, size: Decimal) -> PyResult<Order> {
+    pub fn market_order(&self, side: OrderSide, size: Decimal) -> PyResult<Order> {
         let response = new_market_order(&self.config, side, size, None);
 
         convert_pyresult(response)
