@@ -7,7 +7,7 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 
 use crate::{
-    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus},
+    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus, NOW, date_string, hour_string, min_string},
     exchange::binance::Market,
 };
 
@@ -27,12 +27,22 @@ pub struct Session {
     market: PyObject,
     current_time: MicroSec,
     dummy: bool,
+    session_name: String,
+    order_number: i64
 }
 
 #[pymethods]
 impl Session {
     #[new]
-    pub fn new(market: PyObject, dummy: bool) -> Self {
+    pub fn new(market: PyObject, dummy: bool, session_name: Option<&str>) -> Self {
+        let session_name = match session_name {
+            Some(name) => name.to_string(),
+            None => {
+                let now = NOW();
+                format!("{}T{}{}", date_string(now), hour_string(now), min_string(now)).to_string()
+            },
+        };
+
         Self {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
@@ -40,6 +50,8 @@ impl Session {
             market,
             current_time: 0,
             dummy,
+            session_name,
+            order_number: 0
         }
     }
 
@@ -95,8 +107,11 @@ impl Session {
         self.sell_orders.remain_size()
     }
 
-    pub fn market_order(&self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.call_method1(py, "market_order", (side, size)))
+    pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        let local_id = self.new_order_id();
+
+        Python::with_gil(|py| 
+            self.market.call_method1(py, "market_order", (side, size, local_id)))
     }
 
     pub fn limit_order(
@@ -106,11 +121,12 @@ impl Session {
         price: Decimal,
     ) -> Result<Order, PyErr> {
         // first push order to order list
+        let local_id = self.new_order_id();
 
         // then call market.limit_order
         let r = Python::with_gil(|py| {
             let result = self.market
-                .call_method1(py, "limit_order", (side, size, price));
+                .call_method1(py, "limit_order", (side, size, price, local_id));
 
                 match result {
                     // if success update order list
@@ -221,5 +237,10 @@ impl Session {
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
+    }
+
+    fn new_order_id(&mut self) -> String {
+        self.order_number += 1;
+        format!("{}-{:04}", self.session_name, self.order_number)
     }
 }
