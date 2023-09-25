@@ -410,6 +410,11 @@ impl BinanceCancelOrderResponse {
     }
 }
 
+
+
+
+
+
 /*
 BiannceListOrderResponse will parse json below
 
@@ -462,6 +467,37 @@ impl BinanceListOrdersResponse {
         serde_json::to_string(&self).unwrap()
     }
 }
+/*
+impl Into<Order> for BinanceListOrdersResponse {
+    fn into(self) -> Order {
+        let order_side: OrderSide = if self.isBuyer {
+            OrderSide::Buy
+        } else {
+            OrderSide::Sell
+        };
+        let order_type: OrderType = OrderType::Limit;
+        let order_status = OrderStatus::Filled;
+
+        Order {
+            symbol: self.symbol.clone(),
+            create_time: binance_to_microsec(self.time),
+            order_id: self.orderId.to_string(),
+            order_list_index: self.orderListId,
+            client_order_id: "".to_string(),
+            order_side: order_side,
+            order_type: order_type,
+            price: self.price,
+            size: self.qty,
+            remain_size: self.qty,
+            status: order_status,
+            account_change: AccountChange::new(),
+            fills: OrderFill::new(),
+            profit: None,
+            message: "".to_string(),
+        }
+    }
+}
+*/
 
 /*
 BinanceAccountUpdate is parse json as blow

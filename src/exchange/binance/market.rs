@@ -36,6 +36,7 @@ use super::message::{
     BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceTradeMessage,
     BinanceWsBoardUpdate,
 };
+use super::rest::open_orders;
 use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
@@ -425,24 +426,28 @@ impl BinanceMarket {
         self.channel.lock().unwrap().open_channel()
     }
 
+    #[pyo3(signature = (side, price, size, client_order_id=None))]
     pub fn new_limit_order_raw(
         &self,
         side: OrderSide,
         price: Decimal,
         size: Decimal,
+        client_order_id: Option<&str>
     ) -> PyResult<BinanceOrderResponse> {
-        let response = new_limit_order(&self.config, side, price, size);
+        let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
         convert_pyresult(response)
     }
 
+    #[pyo3(signature = (side, price, size, client_order_id=None))]
     pub fn new_limit_order(
         &self,
         side: OrderSide,
         price: Decimal,
         size: Decimal,
+        client_order_id: Option<&str>
     ) -> PyResult<Order> {
-        let response = new_limit_order(&self.config, side, price, size);
+        let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
         convert_pyresult(response)
     }
@@ -452,13 +457,13 @@ impl BinanceMarket {
         side: OrderSide,
         size: Decimal,
     ) -> PyResult<BinanceOrderResponse> {
-        let response = new_market_order(&self.config, side, size);
+        let response = new_market_order(&self.config, side, size, None);
 
         convert_pyresult(response)
     }
 
     pub fn new_market_order(&self, side: OrderSide, size: Decimal) -> PyResult<Order> {
-        let response = new_market_order(&self.config, side, size);
+        let response = new_market_order(&self.config, side, size, None);
 
         convert_pyresult(response)
     }
@@ -466,6 +471,13 @@ impl BinanceMarket {
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BinanceOrderStatus>> {
         let status = order_status(&self.config);
+
+        convert_pyresult(status)
+    }
+
+    #[getter]
+    pub fn get_open_orders(&self) -> PyResult<Vec<BinanceOrderStatus>> {
+        let status = open_orders(&self.config);
 
         convert_pyresult(status)
     }
