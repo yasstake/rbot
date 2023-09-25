@@ -275,8 +275,8 @@ impl OrderFill {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
-    pub fee_home: Decimal,    // in home currency
-    pub fee_foreign: Decimal, // in foreign currency
+    pub commission_home: Decimal,    // in home currency
+    pub commission_foreign: Decimal, // in foreign currency
     pub home_change: Decimal,
     pub foreign_change: Decimal,
     pub free_home_change: Decimal,
@@ -288,8 +288,8 @@ pub struct AccountChange {
 impl AccountChange {
     pub fn new() -> Self {
         return AccountChange {
-            fee_home: Decimal::new(0, 0),
-            fee_foreign: Decimal::new(0, 0),
+            commission_home: Decimal::new(0, 0),
+            commission_foreign: Decimal::new(0, 0),
             home_change: Decimal::new(0, 0),
             foreign_change: Decimal::new(0, 0),
             free_home_change: Decimal::new(0, 0),
