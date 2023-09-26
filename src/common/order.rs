@@ -5,15 +5,13 @@ use crate::common::time::time_string;
 use super::time::MicroSec;
 use super::MarketMessage;
 use pyo3::pyclass;
-use pyo3::pyfunction;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
-use std::str::FromStr;
-use std::sync::mpsc::Receiver;
 use strum::EnumString;
 use strum_macros::Display;
 
@@ -67,9 +65,9 @@ impl OrderStatus {
 /// Buy is represented by the value "Buy", "BUY", "buy", "B",
 /// Sell is represented by the value "Sell", "SELL", "sell", "b"
 pub enum OrderSide {
-    #[strum(ascii_case_insensitive, serialize = "Buy")]
+    #[strum(ascii_case_insensitive)]
     Buy,
-    #[strum(ascii_case_insensitive, serialize = "Sell")]
+    #[strum(ascii_case_insensitive)]
     Sell,
     /// Represents an unknown order side.
     Unknown,
@@ -91,7 +89,16 @@ impl OrderSide {
     }
 }
 
-fn string_to_side(side: &str) -> OrderSide {
+
+pub fn orderside_deserialize<'de, D>(deserializer: D) -> Result<OrderSide, D::Error>
+where
+D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(string_to_side(&s))
+}
+
+pub fn string_to_side(side: &str) -> OrderSide {
     match side.to_uppercase().as_str() {
         "BUY" | "B" => OrderSide::Buy,
         "SELL" | "S" => OrderSide::Sell,
@@ -114,11 +121,14 @@ impl From<&str> for OrderSide {
     }
 }
 
+
+/* 
 impl Into<String> for OrderSide {
     fn into(self) -> String {
         self.to_string()
     }
 }
+*/
 
 #[pymethods]
 impl OrderSide {
@@ -148,6 +158,14 @@ impl OrderType {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
+}
+
+pub fn ordertype_deserialize<'de, D>(deserializer: D) -> Result<OrderType, D::Error>
+    where
+    D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(str_to_order_type(&s))
 }
 
 fn str_to_order_type(order_type: &str) -> OrderType {
