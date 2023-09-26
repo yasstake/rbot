@@ -22,6 +22,7 @@ use std::time::Duration;
 use std::{fs, thread};
 
 use crate::common::MultiChannel;
+use crate::common::convert_pyresult_vec;
 use crate::common::{convert_pyresult, MarketMessage, MarketStream};
 use crate::common::{time_string, DAYS};
 use crate::common::{to_naive_datetime, MicroSec};
@@ -479,11 +480,10 @@ impl BinanceMarket {
         convert_pyresult(response)
     }
 
-    pub fn cancel_all_order(&self) -> PyResult<Vec<Order>> {
+    pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
         let response = cancell_all_orders(&self.config);
         // TODO: imple
-        // convert_pyresult(response)
-        Ok(vec![])
+        convert_pyresult_vec(response)
     }
 
     #[getter]
