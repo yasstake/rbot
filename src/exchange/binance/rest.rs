@@ -581,12 +581,21 @@ pub fn new_market_order(
 /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
 pub fn cancel_order(
     config: &BinanceConfig,
-    order_id: String,
+    order_id: &str,
 ) -> Result<BinanceCancelOrderResponse, String> {
     let path = "/api/v3/order";
     let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
 
     parse_response::<BinanceCancelOrderResponse>(binance_delete_sign(&config, path, body.as_str()))
+}
+
+pub fn cancell_all_orders (
+    config: &BinanceConfig,
+) -> Result<Vec<BinanceCancelOrderResponse>, String> {
+    let path = "/api/v3/openOrders";
+    let body = format!("symbol={}", config.trade_symbol);
+
+    parse_response::<Vec<BinanceCancelOrderResponse>>(binance_delete_sign(&config, path, body.as_str()))
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
@@ -882,7 +891,23 @@ mod tests {
 
         let order_id = "444627";
 
-        let result = cancel_order(&config, order_id.to_string());
+        let result = cancel_order(&config, order_id);
+    
+        match result {
+            Ok(r) => {
+                println!("{:?}", r);
+            }
+            Err(e) => {
+                println!("{:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_binance_cancel_all_orders() {
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+
+        let result = cancell_all_orders(&config);
     
         match result {
             Ok(r) => {

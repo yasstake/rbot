@@ -36,6 +36,8 @@ use super::message::{
     BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceTradeMessage,
     BinanceWsBoardUpdate,
 };
+use super::rest::cancel_order;
+use super::rest::cancell_all_orders;
 use super::rest::open_orders;
 use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
@@ -57,8 +59,6 @@ pub struct BinanceAccount {
     pub secret_key: String,
     pub subaccount: String,
 }
-
-
 
 // TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
 const BOARD_PRICE_UNIT: f64 = 0.01;
@@ -180,7 +180,7 @@ impl BinanceMarket {
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
             public_handler: None,
             user_handler: None,
-            channel: Arc::new(Mutex::new(MultiChannel::new()))
+            channel: Arc::new(Mutex::new(MultiChannel::new())),
         };
     }
 
@@ -307,7 +307,6 @@ impl BinanceMarket {
         return self.board.lock().unwrap().board.get_asks_pydataframe();
     }
 
-
     #[getter]
     pub fn get_bids_a(&self) -> PyResult<Py<PyArray2<f64>>> {
         return self.board.lock().unwrap().board.get_bids_pyarray();
@@ -355,7 +354,7 @@ impl BinanceMarket {
 
                 if o.contains_key("e") {
                     log::debug!("Message: {:?}", message);
-  
+
                     let message: BinancePublicWsMessage =
                         serde_json::from_str(message.as_str()).unwrap();
 
@@ -371,7 +370,6 @@ impl BinanceMarket {
                             board.lock().unwrap().update(&board_update);
                         }
                     }
-
                 } else if o.contains_key("result") {
                     let message: BinanceWsRespond = serde_json::from_str(message.as_str()).unwrap();
                     log::debug!("Result: {:?}", message);
@@ -400,13 +398,15 @@ impl BinanceMarket {
 
         let cfg = self.config.clone();
 
-        self.user_handler = Some(listen_userdata_stream(&self.config,
+        self.user_handler = Some(listen_userdata_stream(
+            &self.config,
             move |message: BinanceUserStreamMessage| {
-                log::debug!("UserStream: {:?}", message );
+                log::debug!("UserStream: {:?}", message);
                 let mutl_agent_channel = agent_channel.borrow_mut();
                 let m = message.convert_to_market_message(&cfg);
                 mutl_agent_channel.lock().unwrap().send(m);
-            }));
+            },
+        ));
 
         log::info!("start_user_stream");
     }
@@ -420,7 +420,6 @@ impl BinanceMarket {
         }
     }
 
-
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
         self.channel.lock().unwrap().open_channel()
@@ -432,7 +431,7 @@ impl BinanceMarket {
         side: OrderSide,
         price: Decimal,
         size: Decimal,
-        client_order_id: Option<&str>
+        client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
@@ -445,7 +444,7 @@ impl BinanceMarket {
         side: OrderSide,
         price: Decimal,
         size: Decimal,
-        client_order_id: Option<&str>
+        client_order_id: Option<&str>,
     ) -> PyResult<Order> {
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
@@ -456,16 +455,35 @@ impl BinanceMarket {
         &self,
         side: OrderSide,
         size: Decimal,
+        client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
-        let response = new_market_order(&self.config, side, size, None);
+        let response = new_market_order(&self.config, side, size, client_order_id);
 
         convert_pyresult(response)
     }
 
-    pub fn market_order(&self, side: OrderSide, size: Decimal) -> PyResult<Order> {
-        let response = new_market_order(&self.config, side, size, None);
+    pub fn market_order(
+        &self,
+        side: OrderSide,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Order> {
+        let response = new_market_order(&self.config, side, size, client_order_id);
 
         convert_pyresult(response)
+    }
+
+    pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
+        let response = cancel_order(&self.config, order_id);
+
+        convert_pyresult(response)
+    }
+
+    pub fn cancel_all_order(&self) -> PyResult<Vec<Order>> {
+        let response = cancell_all_orders(&self.config);
+        // TODO: imple
+        // convert_pyresult(response)
+        Ok(vec![])
     }
 
     #[getter]

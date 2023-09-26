@@ -29,6 +29,9 @@ class MyAgent:
         print("update: ", session.current_time, updated_order)
         pass
     
+    def on_account_update(self, session, account):
+        print("account update: ", session.current_time, account)
+        pass
     
 market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
 

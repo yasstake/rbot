@@ -185,7 +185,6 @@ impl Session {
     // Message handling
     pub fn on_tick(&mut self, tick: &Trade) {
         self.current_time = tick.time;
-        println!("set currenttime to {}", self.current_time);
 
         if self.dummy == false {
             return;

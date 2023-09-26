@@ -62,8 +62,15 @@ impl Runner {
 
                 let message = message.unwrap();
 
-                let r = 
-                Runner::on_message(&py, agent, &py_session, &message, has_on_clock, has_on_tick, has_on_update);
+                let r = Runner::on_message(
+                    &py,
+                    agent,
+                    &py_session,
+                    &message,
+                    has_on_clock,
+                    has_on_tick,
+                    has_on_update,
+                );
 
                 if r.is_err() {
                     return Err(r.unwrap_err());
@@ -118,7 +125,6 @@ impl Runner {
         Ok(())
     }
     */
-
 }
 
 impl Runner {
@@ -137,41 +143,47 @@ impl Runner {
 
         log::debug!("on_message: {:?}", message);
 
-        if has_on_tick && message.trade.is_some() {
-            
+        if message.account.is_some() {
             let session = py_session.borrow_mut(*py);
 
-            let trade = message.trade.as_ref().unwrap();
+            let account = message.account.as_ref().unwrap();
+            let py_account = Py::new(*py, account.clone()).unwrap();
 
-            let result = agent.call_method1(
-                "on_tick",
-                (session, trade.order_side, trade.price, trade.size),
-            );
+            let result = agent.call_method1("on_account_update", (session, py_account));
 
             if result.is_err() {
                 return Err(result.unwrap_err());
             }
         }
-        
-        if has_on_update & message.order.is_some() {
-            let session = py_session.borrow_mut(*py);    
 
+        if message.trade.is_some() {
+            let trade = message.trade.as_ref().unwrap();
+
+            let session = py_session.borrow_mut(*py);
+            if has_on_tick {
+                agent.call_method1(
+                    "on_tick",
+                    (session, trade.order_side, trade.price, trade.size),
+                )?;
+            }
+        }
+
+        if message.order.is_some() {
             let order = message.order.as_ref().unwrap();
             let py_order = Py::new(*py, order.clone()).unwrap();
 
-            let result = agent.call_method1(
-                "on_update",
-                (session, py_order)
-            );
+            let session = py_session.borrow_mut(*py);
 
-            if result.is_err() {
-                return Err(result.unwrap_err());
+            if has_on_update {
+                agent.call_method1("on_update", (session, py_order))?;
             }
         }
-        
+
         if has_on_clock {
             // TODO: do something for clock intervall
         }
+
+
 
         Ok(())
     }
@@ -186,25 +198,4 @@ impl Runner {
             stream
         })
     }
-
-    /*
-    pub fn on_clock(agent: &PyAny, session: Session, time: MicroSec) -> Result<Session, PyErr> {
-        let result = agent.call_method1("on_clock", (session, time));
-
-        if result.is_err() {
-            return Err(result.unwrap_err());
-        }
-
-    }
-
-    pub fn on_update<'a>(agent: &'a PyAny, session: Session, order: Order) -> Result<Session, PyErr> {
-        let result = agent.call_method1("on_update", (session, order));
-
-        if result.is_err() {
-            return Err(result.unwrap_err());
-        }
-
-        Ok(session)
-    }
-    */
 }
