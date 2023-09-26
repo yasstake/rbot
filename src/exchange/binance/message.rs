@@ -411,7 +411,31 @@ impl BinanceCancelOrderResponse {
 }
 
 
+impl From<BinanceCancelOrderResponse> for Order {
+    fn from(order: BinanceCancelOrderResponse) -> Self {
+        let order_side: OrderSide = order.side.as_str().into();
+        let order_type: OrderType = order.order_type.as_str().into();
+        let order_status = OrderStatus::from_str(&order.status).unwrap();
 
+        Order {
+            symbol: order.symbol.clone(),
+            create_time: binance_to_microsec(order.transactTime),
+            order_id: order.orderId.to_string(),
+            order_list_index: order.orderListId,
+            client_order_id: order.origClientOrderId.clone(),  // keep original ID.
+            order_side: order_side,
+            order_type: order_type,
+            price: order.price,
+            size: order.origQty,
+            remain_size: order.origQty,
+            status: order_status,
+            account_change: AccountChange::new(),
+            fills: OrderFill::new(),
+            profit: None,
+            message: "".to_string(),
+        }
+    }
+}
 
 
 
@@ -736,6 +760,8 @@ impl BinanceUserStreamMessage {
     pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
         let mut message = MarketMessage::new();
 
+        log::debug!("RAW user stream:\n{:?}\n", self);
+
         match self {
             BinanceUserStreamMessage::outboundAccountPosition(account) => {
                 let status = binance_account_update_to_account_status(config, account);
@@ -1033,7 +1059,53 @@ mod binance_message_test {
 
         println!("{:?}", order_response);
     }
+    
+    // TODO: test cancel all orders response
+    #[test]
+    fn test_binance_cancel_all_orders() {
+        let order_response: Vec<BinanceCancelOrderResponse> = serde_json::from_str(
+            r#"
+            [
+                {
+                  "symbol": "BTCUSDT",
+                  "origClientOrderId": "E6APeyTJvkMvLMYMqu1KQ4",
+                  "orderId": 11,
+                  "orderListId": -1,
+                  "clientOrderId": "pXLV6Hz6mprAcVYpVMTGgx",
+                  "transactTime": 1684804350068,
+                  "price": "0.089853",
+                  "origQty": "0.178622",
+                  "executedQty": "0.000000",
+                  "cummulativeQuoteQty": "0.000000",
+                  "status": "CANCELED",
+                  "timeInForce": "GTC",
+                  "type": "LIMIT",
+                  "side": "BUY",
+                  "selfTradePreventionMode": "NONE"
+                },
+                {
+                  "symbol": "BTCUSDT",
+                  "origClientOrderId": "A3EF2HCwxgZPFMrfwbgrhv",
+                  "orderId": 13,
+                  "orderListId": -1,
+                  "clientOrderId": "pXLV6Hz6mprAcVYpVMTGgx",
+                  "transactTime": 1684804350069,
+                  "price": "0.090430",
+                  "origQty": "0.178622",
+                  "executedQty": "0.000000",
+                  "cummulativeQuoteQty": "0.000000",
+                  "status": "CANCELED",
+                  "timeInForce": "GTC",
+                  "type": "LIMIT",
+                  "side": "BUY",
+                  "selfTradePreventionMode": "NONE"
+                }
+            ]
+            "#).unwrap();
 
+        println!("{:?}", order_response);
+    }
+    
     #[test]
     fn test_binance_exution_report() {
         let order_response: BinanceUserStreamMessage = serde_json::from_str(r#"{"e":"executionReport","E":1499405658658,"s":"ETHBTC","c":"mUvoqJxFIILMdfAW5iGSOW","S":"BUY","o":"LIMIT","f":"GTC","q":"1.00000000","p":"0.10264410","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"NEW","X":"NEW","r":"NONE","i":4293153,"l":"0.00000000","z":"0.00000000","L":"0.00000000","n":"0","N":null,"T":1499405658657,"t":-1,"I":8641984,"w":true,"m":false,"M":false,"O":1499405658657,"Z":"0.00000000","Y":"0.00000000","Q":"0.00000000","W":1499405658657,"V":"NONE"}"#).unwrap();
@@ -1082,6 +1154,8 @@ mod binance_message_test {
 
         let list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
     }
+
+
 }
 
 /*

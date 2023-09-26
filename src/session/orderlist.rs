@@ -194,6 +194,7 @@ impl OrderList {
 
     /// update or insert order
     pub fn update_or_insert(&mut self, order: &Order) {
+        // TODO: check timestamp and update
         match self.index(order) {
             Some(index) => {
                 self.list[index] = order.clone();
