@@ -348,12 +348,18 @@ impl Default for AccountChange {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountStatus {
+    #[pyo3(get)]
     pub home: Decimal,
+    #[pyo3(get)]    
     pub home_free: Decimal,
+    #[pyo3(get)]    
     pub home_locked: Decimal,
 
+    #[pyo3(get)]
     pub foreign: Decimal,
+    #[pyo3(get)]    
     pub foreign_free: Decimal,
+    #[pyo3(get)]    
     pub foreign_locked: Decimal,
 }
 
