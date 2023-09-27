@@ -16,35 +16,29 @@ mod tests {
 
         let now = NOW();
 
-        let order1 = Order {
-            order_id: "1".to_string(),
-            price: dec![100.0],
-            size: dec![10.0],
-            remain_size: dec![10.0],
-            symbol: "BTCUSDT".to_string(),
-            create_time: now,
-            order_list_index: -1,
-            client_order_id: "MYORDER-1".to_string(),
-            order_side: OrderSide::Buy,
-            order_type: OrderType::Limit,
-            status: OrderStatus::New,
-            account_change: AccountChange::new(),
-            message: "".to_string(),
-            fills: OrderFill::new(),
-            profit: None,
-        };
+        let order1 = Order::new(
+            "BTCUSDT".to_string(),
+            now,
+            "MYORDER-1".to_string(), 
+            "MYORDER-1".to_string(),
+            OrderSide::Buy,
+            OrderType::Limit,
+            OrderStatus::New,
+            dec![100.0], 
+            dec![10.0]
+        );
 
         let mut order2 = order1.clone();
         order2.order_id =  "2".to_string();
-        order2.price= dec![200.0];
-        order2.size = dec![20.0];
+        order2.order_price= dec![200.0];
+        order2.order_size = dec![20.0];
         order2.remain_size = dec![20.0];
         order2.order_side = OrderSide::Sell;
 
         let mut order3 = order1.clone();
         order3.order_id =  "3".to_string();
-        order3.price= dec![150.0];
-        order3.size = dec![15.0];
+        order3.order_price= dec![150.0];
+        order3.order_size = dec![15.0];
         order3.remain_size = dec![15.0];
         order3.order_side = OrderSide::Buy;
 
@@ -71,8 +65,8 @@ mod tests {
         // Test update
         let mut updated_order1 = order1.clone();
             
-        updated_order1.price = dec![150.1];
-        updated_order1.size = dec![10.0];
+        updated_order1.order_price = dec![150.1];
+        updated_order1.order_size = dec![10.0];
         updated_order1.remain_size = dec![5.0];
         updated_order1.order_side = OrderSide::Buy;
 
@@ -115,43 +109,38 @@ mod tests {
 
         let now = NOW();
 
-        let order1 = Order {
-            order_id: "1".to_string(),
-            price: dec![100.0],
-            size: dec![10.0],
-            remain_size: dec![10.0],
-            symbol: "BTCUSDT".to_string(),
-            create_time: now,
-            order_list_index: -1,
-            client_order_id: "MYORDER-1".to_string(),
-            order_side: OrderSide::Buy,
-            order_type: OrderType::Limit,
-            status: OrderStatus::New,
-            account_change: AccountChange::new(),
-            message: "".to_string(),
-            fills: OrderFill::new(),
-            profit: None,
-        };
+        let order1 = Order::new(
+            "BTCUSDT".to_string(),
+            now,
+            "MYORDER-1".to_string(), 
+            "MYORDER-1".to_string(),
+            OrderSide::Buy,
+            OrderType::Limit,
+            OrderStatus::New,
+            dec![100.0], 
+            dec![10.0]
+        );
+
         order_list.append(order1.clone());
 
         let mut order2 = order1.clone();
         order2.order_id =  "2".to_string();
-        order2.price= dec![200.0];
-        order2.size = dec![20.0];
+        order2.order_price= dec![200.0];
+        order2.order_size = dec![20.0];
         order2.remain_size = dec![20.0];
         order_list.append(order2);
 
         let mut order3 = order1.clone();
         order3.order_id =  "3".to_string();
-        order3.price= dec![150.0];
-        order3.size = dec![15.0];
+        order3.order_price= dec![150.0];
+        order3.order_size = dec![15.0];
         order3.remain_size = dec![15.0];
         order_list.append(order3);        
 
         let mut order4 = order1.clone();
         order4.order_id =  "4".to_string();
-        order4.price= dec![250.0];
-        order4.size = dec![25.0];
+        order4.order_price= dec![250.0];
+        order4.order_size = dec![25.0];
         order4.remain_size = dec![25.0];
         order_list.append(order4);
 
