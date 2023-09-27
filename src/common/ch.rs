@@ -75,7 +75,6 @@ impl MultiChannel {
     }
 
     pub fn open_channel(&mut self) -> MarketStream {
-        //        let (sender, receiver) = bounded(1024);
         let (sender, receiver) = unbounded();
         self.add_channel(sender);
 

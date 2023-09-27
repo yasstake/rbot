@@ -31,6 +31,27 @@ pub fn convert_pyresult<T1, T2>(r: Result<T1, String>) -> Result<T2, PyErr>
     }
 }
 
+pub fn convert_pyresult_vec<T1, T2>(r: Result<Vec<T1>, String>) -> Result<Vec<T2>, PyErr>
+    where T2: From<T1>
+{
+    let mut v: Vec<T2> = vec![];
+
+    match r {
+        Ok(items) => {
+            for i in items {
+                let r:T2 = i.into();            
+                v.push(r);
+            }
+        }
+        Err(e) => return Err(pyo3::exceptions::PyException::new_err(e)),
+    }
+
+    Ok(v)
+}
+
+
+
+
 /*
 trait Representable {
     fn __str__(&self) -> String

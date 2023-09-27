@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use futures::lock;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -10,7 +11,7 @@ use strum_macros::Display;
 use crate::{
     common::{
         AccountChange, MarketMessage, MicroSec,
-        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus,
+        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize, string_to_status,
     },
     exchange::{string_to_decimal, BoardItem, binance},
 };
@@ -296,29 +297,54 @@ impl BinanceOrderFill {
     }
 }
 
-impl From<BinanceOrderResponse> for Order {
+impl From<BinanceOrderResponse> for Vec<Order> {
     fn from(order: BinanceOrderResponse) -> Self {
         let order_side: OrderSide = order.side.as_str().into();
         let order_type: OrderType = order.order_type.as_str().into();
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
-        Order {
-            symbol: order.symbol.clone(),
-            create_time: binance_to_microsec(order.transactTime),
-            order_id: order.orderId.to_string(),
-            order_list_index: order.orderListId,
-            client_order_id: order.clientOrderId.clone(),
-            order_side: order_side,
-            order_type: order_type,
-            price: order.price,
-            size: order.origQty,
-            remain_size: order.origQty,
-            status: order_status,
-            account_change: AccountChange::new(),
-            fills: OrderFill::new(),
-            profit: None,
-            message: "".to_string(),
+        let order_head = Order::new(
+            order.symbol,
+            binance_to_microsec(order.transactTime),
+            order.orderId.to_string(),
+            order.clientOrderId,
+            order_side,
+            order_type,
+            order_status,
+            order.price,
+            order.origQty,
+        );
+
+        let mut orders: Vec<Order> = vec![];
+
+        if 0 < order.fills.len() {
+            let mut total_filled_size: Decimal = dec![0.0];
+
+            for fill in order.fills {
+                let mut order = order_head.clone();
+                order.execute_price = fill.price;
+                order.execute_size = fill.qty;
+
+                total_filled_size = total_filled_size + fill.qty;
+                order.remain_size = order.order_size - total_filled_size;
+
+                if order.status == OrderStatus::Filled && order.remain_size != dec![0.0] {
+                    order.status = OrderStatus::PartiallyFilled;
+                }
+
+                order.quote_vol = fill.price * fill.qty;
+                order.commission = fill.commission;
+                order.commission_asset = fill.commissionAsset;
+                order.is_maker = false; // immidately filled order is not maker.
+                order.transaction_id = fill.tradeId.to_string();
+                orders.push(order);
+            }
         }
+        else {
+            orders.push(order_head);
+        }
+
+        orders
     }
 }
 
@@ -341,7 +367,7 @@ pub struct BinanceOrderResponse {
     side: String,
     workingTime: u64,
     selfTradePreventionMode: String,
-    fills: Option<Vec<BinanceOrderFill>>,
+    fills: Vec<BinanceOrderFill>,
 }
 
 // TODO: returns Vec<Order>
@@ -410,6 +436,28 @@ impl BinanceCancelOrderResponse {
     }
 }
 
+
+impl From<BinanceCancelOrderResponse> for Order {
+    fn from(order: BinanceCancelOrderResponse) -> Self {
+        let order_side: OrderSide = order.side.as_str().into();
+        let order_type: OrderType = order.order_type.as_str().into();
+        let order_status = OrderStatus::from_str(&order.status).unwrap();
+
+        Order::new(
+            order.symbol,
+            binance_to_microsec(order.transactTime),
+            order.orderId.to_string(),
+            order.clientOrderId,
+            order_side,
+            order_type,
+            OrderStatus::Canceled,
+            order.price,
+            order.origQty,
+        )
+    }
+}
+
+
 /*
 BiannceListOrderResponse will parse json below
 
@@ -462,6 +510,37 @@ impl BinanceListOrdersResponse {
         serde_json::to_string(&self).unwrap()
     }
 }
+/*
+impl Into<Order> for BinanceListOrdersResponse {
+    fn into(self) -> Order {
+        let order_side: OrderSide = if self.isBuyer {
+            OrderSide::Buy
+        } else {
+            OrderSide::Sell
+        };
+        let order_type: OrderType = OrderType::Limit;
+        let order_status = OrderStatus::Filled;
+
+        Order {
+            symbol: self.symbol.clone(),
+            create_time: binance_to_microsec(self.time),
+            order_id: self.orderId.to_string(),
+            order_list_index: self.orderListId,
+            client_order_id: "".to_string(),
+            order_side: order_side,
+            order_type: order_type,
+            price: self.price,
+            size: self.qty,
+            remain_size: self.qty,
+            status: order_status,
+            account_change: AccountChange::new(),
+            fills: OrderFill::new(),
+            profit: None,
+            message: "".to_string(),
+        }
+    }
+}
+*/
 
 /*
 BinanceAccountUpdate is parse json as blow
@@ -490,8 +569,11 @@ pub struct BinanceAccountUpdate {
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceBalance {
+    #[serde(rename = "a")]
     a: String,
+    #[serde(rename = "f")]
     f: Decimal,
+    #[serde(rename = "l")]
     l: Decimal,
 }
 
@@ -518,6 +600,7 @@ pub fn binance_account_update_to_account_status(
 
     return account_status;
 }
+
 
 
 
@@ -584,39 +667,76 @@ pub struct BinanceBalanceUpdate {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceExecutionReport {
     // e: String,
-    E: u64,
-    s: String,
-    c: String,
-    S: String,
-    o: String,
-    f: String,
-    q: Decimal,
-    p: Decimal,
-    P: Decimal,
-    F: Decimal,
-    g: i64,
-    C: String,
-    x: String,
-    X: String,
-    r: String,
-    i: i64,
-    l: Decimal,
-    z: Decimal,
-    L: Decimal,
-    n: Decimal,
-    N: Option<String>,
-    T: u64,
-    t: i64,
-    I: i64,
-    w: bool,
-    m: bool,
-    M: bool,
-    O: u64,
-    Z: Decimal,
-    Y: Decimal,
-    Q: Decimal,
-    W: u64,
-    V: String,
+    #[serde(rename = "E")]
+    time: u64,
+    #[serde(rename = "s")]
+    symbol: String,
+    #[serde(rename = "c")]
+    client_order_id: String,
+    #[serde(rename = "S")]
+    #[serde(deserialize_with = "orderside_deserialize")]
+    order_side: OrderSide,
+    #[serde(rename = "o")]
+    #[serde(deserialize_with = "ordertype_deserialize")]
+    order_type: OrderType,
+    #[serde(rename = "f")]
+    time_in_force: String,
+    #[serde(rename = "q")]
+    order_quantity: Decimal,
+    #[serde(rename = "p")]
+    order_price: Decimal,
+    #[serde(rename = "P")]
+    stop_price: Decimal,
+    #[serde(rename = "F")]
+    ice_berg_quantity: Decimal,
+    #[serde(rename = "g")]
+    order_list_id: i64,
+    #[serde(rename = "C")]
+    original_client_order_id: String,
+    #[serde(rename = "x")]
+    #[serde(deserialize_with = "ordertype_deserialize")]
+    current_execution_type: OrderType,
+    #[serde(rename = "X")]
+    #[serde(deserialize_with = "orderstatus_deserialize")]
+    current_order_status: OrderStatus,
+    #[serde(rename = "r")]
+    order_reject_reason: String,
+    #[serde(rename = "i")]
+    order_id: i64,
+    #[serde(rename = "l")]
+    last_executed_quantity: Decimal,
+    #[serde(rename = "z")]
+    cumulative_filled_quantity: Decimal,
+    #[serde(rename = "L")]
+    last_executed_price: Decimal,
+    #[serde(rename = "n")]
+    commission_amount: Decimal,
+    #[serde(rename = "N")]
+    commission_asset: Option<String>,
+    #[serde(rename = "T")]  
+    transaction_time: u64,
+    #[serde(rename = "t")]
+    trade_id: i64,
+    #[serde(rename = "I")]
+    _ignore: i64,
+    #[serde(rename = "w")]
+    on_order_book: bool,
+    #[serde(rename = "m")]
+    is_maker: bool,
+    #[serde(rename = "M")]
+    _ignore2: bool,
+    #[serde(rename = "O")]
+    order_creation_time: u64,
+    #[serde(rename = "Z")]
+    cumulative_quote_quantity: Decimal,
+    #[serde(rename = "Y")]
+    last_quote_quantity: Decimal,
+    #[serde(rename = "Q")]
+    quoite_quantity: Decimal,
+    #[serde(rename = "W")]
+    working_time: u64,
+    #[serde(rename = "V")]
+    self_prevention_mode: String,
 }
 
 #[pymethods]
@@ -631,25 +751,67 @@ impl BinanceExecutionReport {
 }
 
 impl From<&BinanceExecutionReport> for Order {
-    fn from(order: &BinanceExecutionReport) -> Self {
-        let order_side:OrderSide = order.S.as_str().into();
-        let order_type: OrderType = order.o.as_str().into();
-        let order_status = OrderStatus::from_str(&order.X).unwrap();
+    fn from(value: &BinanceExecutionReport) -> Self {
+        let mut order = Order::new(
+            value.symbol.clone(),
+            binance_to_microsec(value.time),
+            value.order_id.to_string(),
+            value.client_order_id.to_string(),
+            value.order_side,
+            value.order_type,
+            value.current_order_status,
+            value.order_price,
+            value.order_quantity,
+        );
 
-        let trade_id = order.t.to_string();
+        order.status = value.current_order_status;
+        order.transaction_id = value.trade_id.to_string();
+        order.update_time = binance_to_microsec(value.transaction_time);
+        order.execute_price = value.last_executed_price;
+        order.execute_size = value.last_executed_quantity;
+        order.remain_size = value.order_quantity - value.cumulative_filled_quantity;
+        order.quote_vol = value.last_quote_quantity;
+        order.commission = value.commission_amount;
+        order.commission_asset = value.commission_asset.clone().unwrap_or_default();
+        order.is_maker= value.is_maker;
+
+        if value.order_reject_reason != "NONE" {
+            order.message  = value.order_reject_reason.clone();
+        }
+
+        order
+    }
+
+
+
+
+    /*
+    fn from(order: &BinanceExecutionReport) -> Self {
+        let order_id = order.order_id.to_string();
+        let client_order_id = order.client_order_id.clone();
+
+        let order_side:OrderSide = order.order_side;
+        let order_price: Decimal = order.order_price;
+        let order_size:Decimal = order.order_quantity;
+        let order_type: OrderType = order.order_type;
+        let order_status = order.current_order_status;
+        let order_quote = order_price * order_size;
+
+        let trade_id = order.trade_id.to_string();
         //let create_time = binance_to_microsec(order.O);
-        let update_time = binance_to_microsec(order.E);
-        let execute_size = order.l;
-        let execute_price = order.L;
-        let execute_total = order.z;
-        let commition_asset = order.N.clone().unwrap_or_default();
-        let ismaker = order.m;
+        let update_time = binance_to_microsec(order.time);
+        let execute_size = order.last_executed_quantity;
+        let execute_price = order.last_executed_price;
+        let execute_total = order.cumulative_filled_quantity;
+        let commission_amount = order.commission_amount;
+        let commition_asset = order.commission_asset.clone().unwrap_or_default();
+        let ismaker = order.is_maker;
 
         let remain_size =
             if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
                 Decimal::from(0)
             } else {
-                order.q - execute_total
+                order.order_quantity - execute_total
             };
 
         let fills = OrderFill {
@@ -658,34 +820,107 @@ impl From<&BinanceExecutionReport> for Order {
             price: execute_price,
             filled_size: execute_size,
             quote_vol: execute_price * execute_size,
-            commission: order.n,
+            commission: order.commission_amount,
             commission_asset: commition_asset,
             maker: ismaker,
         };
 
-        let account_change = AccountChange::new();
-        // TODO: imple
+        let mut account_change = AccountChange::new();
 
+        match order_status {
+            OrderStatus::New => {
+                // in new order, asset is locked.
+                if order_side == OrderSide::Buy {
+                    let lock_size = order_size * order.order_price;
+                    account_change.lock_home_change = lock_size;
+                    account_change.free_home_change = - lock_size;
+                    // TODO: may be need to add fee
+                }
+                else if order_side == OrderSide::Sell {
+                    let lock_size = order_size;
+                    account_change.lock_foreign_change = lock_size;
+                    account_change.free_foreign_change = - lock_size;
+                    // TODO: may be need to add fee
+                }
+            }
+            
+            OrderStatus::PartiallyFilled | OrderStatus::Filled => {
+                // lock is free, and foreing sizie is change.
+                if order_side == OrderSide::Buy {
+                    let unlock_size = execute_size * execute_price;
+                    if order.is_maker {
+                        account_change.lock_home_change = - unlock_size;
+                    }
+                    account_change.home_change = - unlock_size;
+
+                    account_change.foreign_change = execute_size;
+                }
+                else if order_side == OrderSide::Sell {
+                    let unlock_size = execute_size;
+
+                    if order.is_maker {
+                        account_change.lock_foreign_change = - unlock_size;
+                    }
+                    account_change.foreign_change = - unlock_size;
+
+                    account_change.home_change = execute_size * execute_price;
+
+                }
+            }
+            OrderStatus::Canceled => {
+                // lock is free
+                if order_side == OrderSide::Buy {
+                    if order.on_order_book {
+                        let unlock_size = order_size * order_price;
+                        account_change.lock_home_change = - unlock_size;
+                        account_change.free_home_change = unlock_size;
+                    }
+                }
+                else if order_side == OrderSide::Sell {
+                    if order.on_order_book {
+                        let unlock_size = order_size;
+                        account_change.lock_foreign_change = - unlock_size;
+                        account_change.free_foreign_change = unlock_size;
+                    }
+                }
+            }
+            OrderStatus::Rejected => {log::error!("Rejected: not implemented {:?}", order);},
+            OrderStatus::Expired => {log::error!("Expired: not implemented {:?}", order);},
+            OrderStatus::Error => {log::error!("Error: not implemented {:?}", order);},
+        }
+
+        let order = Order::new(
+            order.symbol,
+            update_time,
+            order_id,
+            client_order_id,
+            order_side,
+            order_type,
+            order_status,
+            order_price,
+            order_size,
+        );
+        )
         let r = Order {
-            symbol: order.s.clone(),
-            create_time: binance_to_microsec(order.T),
-            order_id: order.i.to_string(),
-            order_list_index: order.g,
-            client_order_id: order.c.clone(),
+            symbol: order.symbol.clone(),
+            create_time: binance_to_microsec(order.transaction_time),
+            order_id: order.order_id.to_string(),
+            order_list_index: order.order_list_id,
+            client_order_id: order.client_order_id.clone(),
             order_side: order_side,
             order_type: order_type,
-            price: order.p,
-            size: order.q,
+            price: order.order_price,
+            size: order.order_quantity,
             remain_size: remain_size,
             status: order_status,
             account_change: account_change,
             message: "".to_string(),
             fills: fills,
-            profit: None, // TODO
         };
 
         return r;
     }
+    */
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -699,6 +934,8 @@ pub enum BinanceUserStreamMessage {
 impl BinanceUserStreamMessage {
     pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
         let mut message = MarketMessage::new();
+
+        log::debug!("RAW user stream:\n{:?}\n", self);
 
         match self {
             BinanceUserStreamMessage::outboundAccountPosition(account) => {
@@ -874,7 +1111,8 @@ pub struct BinanceOrderStatus {
     origQty: Decimal,
     executedQty: Decimal,
     cummulativeQuoteQty: Decimal,
-    status: String,
+    #[serde(deserialize_with = "orderstatus_deserialize")]
+    status: OrderStatus,
     timeInForce: String,
     #[serde(rename = "type")]
     order_type: String,
@@ -888,6 +1126,43 @@ pub struct BinanceOrderStatus {
     origQuoteOrderQty: Decimal,
     selfTradePreventionMode: String,
 }
+
+
+impl From<BinanceOrderStatus> for Order {
+    fn from(border: BinanceOrderStatus) -> Order {
+        let order_side: OrderSide = border.side.as_str().into();
+        let order_type: OrderType = border.order_type.as_str().into();
+        let order_status = border.status;
+
+        let mut order = Order::new(
+            border.symbol,
+            binance_to_microsec(border.time),
+            border.orderId.to_string(),
+            border.clientOrderId,
+            order_side,
+            order_type,
+            order_status,
+            border.price,
+            border.origQty,
+        );
+
+        order.remain_size =  border.origQty - border.executedQty;
+        //order.transaction_id: String,
+        order.update_time = binance_to_microsec(border.updateTime);
+        //order.execute_price 
+        order.execute_size = border.executedQty;
+        // order.quote_vol: Decimal,
+        //order.commission: Decimal,
+        //order.commission_asset: String,
+        order.is_maker = border.isWorking;  // on board it's maker
+        // order.message: String,
+
+        order
+    }
+}
+
+
+
 
 #[pymethods]
 impl BinanceOrderStatus {
@@ -997,7 +1272,53 @@ mod binance_message_test {
 
         println!("{:?}", order_response);
     }
+    
+    // TODO: test cancel all orders response
+    #[test]
+    fn test_binance_cancel_all_orders() {
+        let order_response: Vec<BinanceCancelOrderResponse> = serde_json::from_str(
+            r#"
+            [
+                {
+                  "symbol": "BTCUSDT",
+                  "origClientOrderId": "E6APeyTJvkMvLMYMqu1KQ4",
+                  "orderId": 11,
+                  "orderListId": -1,
+                  "clientOrderId": "pXLV6Hz6mprAcVYpVMTGgx",
+                  "transactTime": 1684804350068,
+                  "price": "0.089853",
+                  "origQty": "0.178622",
+                  "executedQty": "0.000000",
+                  "cummulativeQuoteQty": "0.000000",
+                  "status": "CANCELED",
+                  "timeInForce": "GTC",
+                  "type": "LIMIT",
+                  "side": "BUY",
+                  "selfTradePreventionMode": "NONE"
+                },
+                {
+                  "symbol": "BTCUSDT",
+                  "origClientOrderId": "A3EF2HCwxgZPFMrfwbgrhv",
+                  "orderId": 13,
+                  "orderListId": -1,
+                  "clientOrderId": "pXLV6Hz6mprAcVYpVMTGgx",
+                  "transactTime": 1684804350069,
+                  "price": "0.090430",
+                  "origQty": "0.178622",
+                  "executedQty": "0.000000",
+                  "cummulativeQuoteQty": "0.000000",
+                  "status": "CANCELED",
+                  "timeInForce": "GTC",
+                  "type": "LIMIT",
+                  "side": "BUY",
+                  "selfTradePreventionMode": "NONE"
+                }
+            ]
+            "#).unwrap();
 
+        println!("{:?}", order_response);
+    }
+    
     #[test]
     fn test_binance_exution_report() {
         let order_response: BinanceUserStreamMessage = serde_json::from_str(r#"{"e":"executionReport","E":1499405658658,"s":"ETHBTC","c":"mUvoqJxFIILMdfAW5iGSOW","S":"BUY","o":"LIMIT","f":"GTC","q":"1.00000000","p":"0.10264410","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"NEW","X":"NEW","r":"NONE","i":4293153,"l":"0.00000000","z":"0.00000000","L":"0.00000000","n":"0","N":null,"T":1499405658657,"t":-1,"I":8641984,"w":true,"m":false,"M":false,"O":1499405658657,"Z":"0.00000000","Y":"0.00000000","Q":"0.00000000","W":1499405658657,"V":"NONE"}"#).unwrap();
@@ -1033,6 +1354,15 @@ mod binance_message_test {
     }
 
     #[test]
+    fn test_binance_order_status_cap_NEW() {
+        let order_response: BinanceOrderStatus = serde_json::from_str(
+            r#"{"symbol":"LTCBTC","orderId":1,"orderListId":-1,"clientOrderId":"myOrder1","price":"0.1","origQty":"1.0","executedQty":"0.0","cummulativeQuoteQty":"0.0","status":"NEW","timeInForce":"GTC","type":"LIMIT","side":"BUY","stopPrice":"0.0","icebergQty":"0.0","time":1499827319559,"updateTime":1499827319559,"isWorking":true,"workingTime":1499827319559,"origQuoteOrderQty":"0.000000","selfTradePreventionMode":"NONE"}"#).unwrap();
+
+        println!("{:?}", order_response);
+    }
+
+
+    #[test]
     fn test_binance_execution_report() {
         let execution: BinanceUserStreamMessage = serde_json::from_str(
             r#"
@@ -1046,13 +1376,6 @@ mod binance_message_test {
 
         let list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
     }
+
+
 }
-
-/*
-
-{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"PARTIALLY_FILLED","r":"NONE","i":4715241,"l":"0.00100000","z":"0.00100000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807168,"I":10227482,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"26.29190000","Y":"26.29190000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
-
-
-{"e":"executionReport","E":1694688059529,"s":"BTCUSDT","c":"IISCnZOzIaE42YmWBDue1v","S":"BUY","o":"MARKET","f":"GTC","q":"0.01000000","p":"0.00000000","P":"0.00000000","F":"0.00000000","g":-1,"C":"","x":"TRADE","X":"FILLED","r":"NONE","i":4715241,"l":"0.00900000","z":"0.01000000","L":"26291.90000000","n":"0.00000000","N":"BTC","T":1694688059529,"t":807169,"I":10227484,"w":false,"m":false,"M":true,"O":1694688059529,"Z":"262.91900000","Y":"236.62710000","Q":"0.00000000","W":1694688059529,"V":"NONE"}
-
-*/

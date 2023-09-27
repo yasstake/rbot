@@ -75,13 +75,13 @@ impl OrderList {
     /// Sorts the order list in ascending or descending order based on the `asc` field and create_time.
     pub fn sort(&mut self) {
         self.list.sort_by(|a, b| {
-            if a.price == b.price {
+            if a.order_price == b.order_price {
                 a.create_time.cmp(&b.create_time)
             } else {
                 if self.asc {
-                    a.price.cmp(&b.price)
+                    a.order_price.cmp(&b.order_price)
                 } else {
-                    b.price.cmp(&a.price)
+                    b.order_price.cmp(&a.order_price)
                 }
             }
         });
@@ -102,6 +102,11 @@ impl OrderList {
             }
             None => false,
         }
+    }
+
+    /// get order by list
+    pub fn get(&self) -> Vec<Order> {
+        self.list.clone()
     }
 
     /// Returns the number of orders in the list.
@@ -155,13 +160,13 @@ impl OrderList {
 
             // Buy Order will sonsumme Sell Trade which below the trade price only.
             //　買いオーダーは高い売りトレードがあっても影響を受けない
-            if (trade.price >= self.list[0].price) && (self.list[0].order_side == OrderSide::Buy) {
+            if (trade.price >= self.list[0].order_price) && (self.list[0].order_side == OrderSide::Buy) {
                 break;
             }
 
             // Sell Order will sonsumme Buy Trade which above the trade price only.
             //　売りオーダーは安い買いトレードがあっても影響を受けない
-            if (trade.price <= self.list[0].price) && (self.list[0].order_side == OrderSide::Sell) {
+            if (trade.price <= self.list[0].order_price) && (self.list[0].order_side == OrderSide::Sell) {
                 break;
             }
 
@@ -196,7 +201,7 @@ impl OrderList {
     pub fn update_or_insert(&mut self, order: &Order) {
         match self.index(order) {
             Some(index) => {
-                self.list[index] = order.clone();
+                self.list[index].update(order);
             }
             None => {
                 self.list.push(order.clone());

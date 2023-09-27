@@ -60,7 +60,7 @@ where
         loop {
             let msg = websocket.receive_message();
             let msg = msg.unwrap();
-            println!("raw msg: {}", msg);
+            log::debug!("raw msg: {}", msg);
 
             let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
             let msg = msg.unwrap();
@@ -99,7 +99,7 @@ fn test_listen_userdata_stream() {
         println!("msg: {:?}", msg);
     });
 
-    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001]);
+    new_limit_order(&config, OrderSide::Buy, dec![25000.0], dec![0.001], Some(&"TestForWS")).unwrap();
 
     sleep(Duration::from_secs(60*1));
 }

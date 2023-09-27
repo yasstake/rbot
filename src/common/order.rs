@@ -4,16 +4,15 @@ use crate::common::time::time_string;
 
 use super::time::MicroSec;
 use super::MarketMessage;
+use polars_core::utils::arrow::bitmap::or;
 use pyo3::pyclass;
-use pyo3::pyfunction;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
-use std::str::FromStr;
-use std::sync::mpsc::Receiver;
 use strum::EnumString;
 use strum_macros::Display;
 
@@ -26,6 +25,8 @@ pub struct TimeChunk {
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
+    #[strum(ascii_case_insensitive)]
+    InProcess,      // 処理中
     #[strum(ascii_case_insensitive)]
     New, // 処理中
     #[strum(
@@ -41,9 +42,21 @@ pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     Rejected, // システムからの拒否（指値範囲外、数量不足など）
     #[strum(ascii_case_insensitive)]
-    Expired, // 期限切れ
-    #[strum(ascii_case_insensitive)]
     Error, // その他エラー
+}
+
+pub fn orderstatus_deserialize<'de, D>(deserializer: D) -> Result<OrderStatus, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(string_to_status(&s))
+}
+
+pub fn string_to_status(s: &str) -> OrderStatus {
+    let order_status:OrderStatus = s.parse().unwrap_or(OrderStatus::Error);
+
+    return order_status;
 }
 
 #[pymethods]
@@ -67,9 +80,9 @@ impl OrderStatus {
 /// Buy is represented by the value "Buy", "BUY", "buy", "B",
 /// Sell is represented by the value "Sell", "SELL", "sell", "b"
 pub enum OrderSide {
-    #[strum(ascii_case_insensitive, serialize = "Buy")]
+    #[strum(ascii_case_insensitive)]
     Buy,
-    #[strum(ascii_case_insensitive, serialize = "Sell")]
+    #[strum(ascii_case_insensitive)]
     Sell,
     /// Represents an unknown order side.
     Unknown,
@@ -91,7 +104,16 @@ impl OrderSide {
     }
 }
 
-fn string_to_side(side: &str) -> OrderSide {
+
+pub fn orderside_deserialize<'de, D>(deserializer: D) -> Result<OrderSide, D::Error>
+where
+D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(string_to_side(&s))
+}
+
+pub fn string_to_side(side: &str) -> OrderSide {
     match side.to_uppercase().as_str() {
         "BUY" | "B" => OrderSide::Buy,
         "SELL" | "S" => OrderSide::Sell,
@@ -113,6 +135,15 @@ impl From<&str> for OrderSide {
         string_to_side(side)
     }
 }
+
+
+/* 
+impl Into<String> for OrderSide {
+    fn into(self) -> String {
+        self.to_string()
+    }
+}
+*/
 
 #[pymethods]
 impl OrderSide {
@@ -142,6 +173,14 @@ impl OrderType {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
+}
+
+pub fn ordertype_deserialize<'de, D>(deserializer: D) -> Result<OrderType, D::Error>
+    where
+    D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(str_to_order_type(&s))
 }
 
 fn str_to_order_type(order_type: &str) -> OrderType {
@@ -347,23 +386,82 @@ impl AccountStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
+    #[pyo3(get)]
     pub symbol: String,
+    #[pyo3(get)]
     pub create_time: MicroSec, // in us
+    #[pyo3(get)]
     pub order_id: String,      // YYYY-MM-DD-SEQ
-    pub order_list_index: i64,
+    #[pyo3(get)]
     pub client_order_id: String,
+    #[pyo3(get)]
     pub order_side: OrderSide,
+    #[pyo3(get)]
     pub order_type: OrderType,
-    pub price: Decimal, // in Market order, price is 0.0
-    pub size: Decimal,  // in foreign
+    #[pyo3(get)]
+    pub order_price: Decimal, // in Market order, price is 0.0
+    #[pyo3(get)]
+    pub order_size: Decimal,  // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
+    #[pyo3(get)]
     pub remain_size: Decimal, // 残数
+    #[pyo3(get)]
     pub status: OrderStatus,
-    pub account_change: AccountChange,
+    #[pyo3(get)]
+    pub transaction_id: String,
+    #[pyo3(get)]
+    pub update_time: MicroSec,
+    #[pyo3(get)]
+    pub execute_price: Decimal,
+    #[pyo3(get)]
+    pub execute_size: Decimal,
+    #[pyo3(get)]
+    pub quote_vol: Decimal,
+    #[pyo3(get)]
+    pub commission: Decimal,
+    #[pyo3(get)]
+    pub commission_asset: String,
+    #[pyo3(get)]
+    pub is_maker: bool,
+    #[pyo3(get)]
     pub message: String,
-    pub fills: OrderFill,
-    pub profit: Option<Decimal>,
+}
+
+impl Order {
+    pub fn new(
+        symbol: String,
+        create_time: MicroSec,
+        order_id: String,
+        client_order_id: String,
+        order_side: OrderSide,
+        order_type: OrderType,
+        order_status: OrderStatus,
+        price: Decimal,
+        size: Decimal,
+    ) -> Self {
+        return Order {
+            symbol,
+            create_time,
+            order_id,
+            client_order_id,
+            order_side,
+            order_type,
+            order_price: price,
+            order_size: size,
+            remain_size: size,
+            status: order_status,
+            transaction_id: "".to_string(),
+            update_time: 0,
+            execute_price: dec![0.0],
+            execute_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: false,
+            message: "".to_string(),
+        };
+    }
 }
 
 #[pymethods]
@@ -374,6 +472,32 @@ impl Order {
 
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn update(&mut self, order: &Order) {
+        /* unchange feild 
+        order_id,
+        client_order_id,
+        order_side,
+        order_type,
+        order_price: price,
+        order_size: size,
+        */
+
+        self.remain_size = order.remain_size;
+        self.status = order.status;
+        self.transaction_id = order.transaction_id.clone();
+        self.update_time = order.update_time;
+        self.execute_price = order.execute_price;
+        self.execute_size = order.execute_size;
+        self.quote_vol = order.quote_vol;
+        self.commission = order.commission;
+        self.commission_asset = order.commission_asset.clone();
+        self.is_maker = order.is_maker;
+
+        if order.message.len() > 0 {
+            self.message = order.message.clone();
+        }
     }
 }
 
