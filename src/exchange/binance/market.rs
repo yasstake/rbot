@@ -477,13 +477,17 @@ impl BinanceMarket {
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
         let response = cancel_order(&self.config, order_id);
 
-        convert_pyresult(response)
+        return convert_pyresult(response);
     }
 
     pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
         let response = cancell_all_orders(&self.config);
-        // TODO: imple
-        convert_pyresult_vec(response)
+
+        if response.is_ok() {
+            return convert_pyresult_vec(response);
+        }
+
+        return PyResult::Ok(vec![]);
     }
 
     #[getter]

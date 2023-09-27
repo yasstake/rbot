@@ -7,7 +7,10 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 
 use crate::{
-    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus, NOW, date_string, hour_string, min_string},
+    common::{
+        date_string, hour_string, min_string, AccountStatus, MarketStream, MicroSec, OrderSide,
+        OrderStatus, NOW,
+    },
     exchange::binance::Market,
 };
 
@@ -28,7 +31,7 @@ pub struct Session {
     current_time: MicroSec,
     dummy: bool,
     session_name: String,
-    order_number: i64
+    order_number: i64,
 }
 
 #[pymethods]
@@ -39,8 +42,14 @@ impl Session {
             Some(name) => name.to_string(),
             None => {
                 let now = NOW();
-                format!("{}T{}{}", date_string(now), hour_string(now), min_string(now)).to_string()
-            },
+                format!(
+                    "{}T{}{}",
+                    date_string(now),
+                    hour_string(now),
+                    min_string(now)
+                )
+                .to_string()
+            }
         };
 
         let mut session = Self {
@@ -51,7 +60,7 @@ impl Session {
             current_time: 0,
             dummy,
             session_name,
-            order_number: 0
+            order_number: 0,
         };
 
         session.load_order_list().unwrap();
@@ -111,11 +120,17 @@ impl Session {
         self.sell_orders.remain_size()
     }
 
+    pub fn cance_order(&mut self, order_id: &str) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.call_method1(py, "cancel_order", (order_id,)))
+    }
+
     pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         let local_id = self.new_order_id();
 
-        Python::with_gil(|py| 
-            self.market.call_method1(py, "market_order", (side, size, local_id)))
+        Python::with_gil(|py| {
+            self.market
+                .call_method1(py, "market_order", (side, size, local_id))
+        })
     }
 
     pub fn limit_order(
@@ -123,39 +138,43 @@ impl Session {
         side: OrderSide,
         size: Decimal,
         price: Decimal,
-    ) -> Result<Order, PyErr> {
+    ) -> Result<Vec<Order>, PyErr> {
         // first push order to order list
         let local_id = self.new_order_id();
 
         // then call market.limit_order
         let r = Python::with_gil(|py| {
-            let result = self.market
+            let result = self
+                .market
                 .call_method1(py, "limit_order", (side, size, price, local_id));
 
-                match result {
-                    // if success update order list
-                    Ok(order) => {
-                        let o: Order = order.extract(py).unwrap();
+            match result {
+                // if success update order list
+                Ok(order) => {
+                    let orders: Vec<Order> = order.extract(py).unwrap();
 
+                    for o in &orders {
                         if o.order_side == OrderSide::Buy {
                             self.buy_orders.update_or_insert(&o);
                         } else if o.order_side == OrderSide::Sell {
                             self.sell_orders.update_or_insert(&o);
                         } else {
-                            log::error!("Unknown order side: {:?}", o.order_side)
+                            log::error!("Unknown order side: {:?}", o.order_side);
                         }
+                    }
 
-                        return Ok(o)
-                    }
-                    Err(e) => {
-                        log::error!("limit_order error: {:?}", e);
-                        return Err(e)
-                    }
+                    return Ok(orders);
                 }
+                Err(e) => {
+                    log::error!("limit_order error: {:?}", e);
+                    return Err(e);
+                }
+            }
         });
 
-        return r;        
+        return r;
     }
+
 
     /*
     /// fecth order list from exchange
@@ -182,7 +201,7 @@ impl Session {
                 }
         });
 
-        return r;        
+        return r;
     }
     */
 
@@ -254,33 +273,32 @@ impl Session {
         }
 
         let r = Python::with_gil(|py| {
-            let result = self.market
-                .getattr(py, "open_orders");
+            let result = self.market.getattr(py, "open_orders");
 
-                match result {
-                    // if success update order list
-                    Ok(orderlist) => {
-                        let orders: Vec<Order> = orderlist.extract(py).unwrap();
-                        log::debug!("OpenOrders {:?}", orderlist);                        
+            match result {
+                // if success update order list
+                Ok(orderlist) => {
+                    let orders: Vec<Order> = orderlist.extract(py).unwrap();
+                    log::debug!("OpenOrders {:?}", orderlist);
 
-                        for order in orders {
-                            log::debug!("OpenOrder {:?}", order);
-                            if order.order_side == OrderSide::Buy {
-                                self.buy_orders.update_or_insert(&order);
-                            } else if order.order_side == OrderSide::Sell {
-                                self.sell_orders.update_or_insert(&order);
-                            } else {
-                                log::error!("Unknown order side: {:?}", order.order_side)
-                            }
+                    for order in orders {
+                        log::debug!("OpenOrder {:?}", order);
+                        if order.order_side == OrderSide::Buy {
+                            self.buy_orders.update_or_insert(&order);
+                        } else if order.order_side == OrderSide::Sell {
+                            self.sell_orders.update_or_insert(&order);
+                        } else {
+                            log::error!("Unknown order side: {:?}", order.order_side)
                         }
+                    }
 
-                        return Ok(())
-                    }
-                    Err(e) => {
-                        log::error!("sync_orderlist error: {:?}", e);
-                        return Err(e)
-                    }
+                    return Ok(());
                 }
+                Err(e) => {
+                    log::error!("sync_orderlist error: {:?}", e);
+                    return Err(e);
+                }
+            }
         });
 
         return r;
