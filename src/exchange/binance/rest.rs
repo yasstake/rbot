@@ -14,6 +14,7 @@ use super::message::BinanceTradeMessage;
 use super::BinanceConfig;
 use crate::common::time_string;
 use crate::common::MicroSec;
+use crate::common::Order;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::HHMM;
@@ -381,7 +382,7 @@ pub fn binance_get_sign(
     let query = sign_with_timestamp(&config.api_secret, &q);
     let result = rest_get(&config.rest_endpoint, path, headers, Some(&query), None);
 
-    log::debug!("path{} / body: {} / {:?}", path, q, result);
+    log::debug!("AUTH GET: path{} / body: {} / {:?}", path, q, result);
 
     return parse_binance_result(result);
 }
@@ -539,13 +540,19 @@ pub fn new_limit_order(
     side: OrderSide,
     price: Decimal,
     size: Decimal,
+    cliend_order_id: Option<&str>,
 ) -> Result<BinanceOrderResponse, String> {
     let path = "/api/v3/order";
     let side = order_side_string(side);
-    let body = format!(
+    let mut body = format!(
         "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
         config.trade_symbol, side, size, price
     );
+
+    if cliend_order_id.is_some() {
+        let cliend_order_id = cliend_order_id.unwrap();
+        body = format!("{}&newClientOrderId={}", body, cliend_order_id);
+    }
 
     parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
@@ -555,13 +562,19 @@ pub fn new_market_order(
     config: &BinanceConfig,
     side: OrderSide,
     size: Decimal,
+    cliend_order_id: Option<&str>,
 ) -> Result<BinanceOrderResponse, String> {
     let path = "/api/v3/order";
     let side = order_side_string(side);
-    let body = format!(
+    let mut body = format!(
         "symbol={}&side={}&type=MARKET&quantity={}",
         config.trade_symbol, side, size
     );
+
+    if cliend_order_id.is_some() {
+        let cliend_order_id = cliend_order_id.unwrap();
+        body = format!("{}&newClientOrderId={}", body, cliend_order_id);
+    }
 
     parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
@@ -569,12 +582,25 @@ pub fn new_market_order(
 /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
 pub fn cancel_order(
     config: &BinanceConfig,
-    order_id: String,
+    order_id: &str,
 ) -> Result<BinanceCancelOrderResponse, String> {
     let path = "/api/v3/order";
     let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
 
     parse_response::<BinanceCancelOrderResponse>(binance_delete_sign(&config, path, body.as_str()))
+}
+
+pub fn cancell_all_orders(
+    config: &BinanceConfig,
+) -> Result<Vec<BinanceCancelOrderResponse>, String> {
+    let path = "/api/v3/openOrders";
+    let body = format!("symbol={}", config.trade_symbol);
+
+    parse_response::<Vec<BinanceCancelOrderResponse>>(binance_delete_sign(
+        &config,
+        path,
+        body.as_str(),
+    ))
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
@@ -621,6 +647,13 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
 }
 
 use crate::exchange::binance::message::BinanceListOrdersResponse;
+
+pub fn open_orders(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
+    let path = "/api/v3/openOrders";
+    let query = format!("symbol={}", config.trade_symbol);
+
+    parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
+}
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
     let path = "/api/v3/myTrades";
@@ -829,23 +862,30 @@ mod tests {
     #[test]
     fn test_new_limit_order() {
         //        let config = BinanceConfig::BTCBUSD();
-        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
 
         let result = new_limit_order(
             &config,
             OrderSide::Buy,
-            Decimal::from_f64(25_000.0).unwrap(),
+            Decimal::from_f64(24_000.0).unwrap(),
             Decimal::from_f64(0.001).unwrap(),
+            Some(&"LimitOrder-test"),
         );
         println!("result: {:?}", result.unwrap());
     }
 
     #[test]
     fn test_new_market_order() {
-        //        let config = BinanceConfig::BTCBUSD();
+        init_debug_log();
+
         let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
-        let result = new_market_order(&config, OrderSide::Buy, Decimal::from_f64(0.001).unwrap());
+        let result = new_market_order(
+            &config,
+            OrderSide::Buy,
+            Decimal::from_f64(0.001).unwrap(),
+            Some(&"rest-test"),
+        );
 
         println!("result: {:?}", result.unwrap());
         println!("");
@@ -857,8 +897,24 @@ mod tests {
 
         let order_id = "444627";
 
-        let result = cancel_order(&config, order_id.to_string());
-    
+        let result = cancel_order(&config, order_id);
+
+        match result {
+            Ok(r) => {
+                println!("{:?}", r);
+            }
+            Err(e) => {
+                println!("{:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_binance_cancel_all_orders() {
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+
+        let result = cancell_all_orders(&config);
+
         match result {
             Ok(r) => {
                 println!("{:?}", r);
@@ -902,6 +958,20 @@ mod tests {
 
         let message = order_status(&config).unwrap();
         println!("message: {:?}", message);
+    }
+
+    #[test]
+    fn test_open_orders() {
+        init_debug_log();
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+
+        let message = open_orders(&config).unwrap();
+        println!("message: {:?}", message);
+
+        for i in message {
+            let order: Order = i.into();
+            println!("i: {:?}", order);
+        }
     }
 
     #[test]

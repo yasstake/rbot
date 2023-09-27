@@ -7,7 +7,7 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 
 use crate::{
-    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus},
+    common::{AccountStatus, MarketStream, MicroSec, OrderSide, OrderStatus, NOW, date_string, hour_string, min_string},
     exchange::binance::Market,
 };
 
@@ -27,20 +27,36 @@ pub struct Session {
     market: PyObject,
     current_time: MicroSec,
     dummy: bool,
+    session_name: String,
+    order_number: i64
 }
 
 #[pymethods]
 impl Session {
     #[new]
-    pub fn new(market: PyObject, dummy: bool) -> Self {
-        Self {
+    pub fn new(market: PyObject, dummy: bool, session_name: Option<&str>) -> Self {
+        let session_name = match session_name {
+            Some(name) => name.to_string(),
+            None => {
+                let now = NOW();
+                format!("{}T{}{}", date_string(now), hour_string(now), min_string(now)).to_string()
+            },
+        };
+
+        let mut session = Self {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
             account: AccountStatus::default(),
             market,
             current_time: 0,
             dummy,
-        }
+            session_name,
+            order_number: 0
+        };
+
+        session.load_order_list().unwrap();
+
+        return session;
     }
 
     #[getter]
@@ -76,8 +92,8 @@ impl Session {
 
     // order information
     #[getter]
-    pub fn get_buy_orders(&self) -> OrderList {
-        self.buy_orders.clone()
+    pub fn get_buy_orders(&self) -> Vec<Order> {
+        self.buy_orders.get()
     }
 
     #[getter]
@@ -86,8 +102,8 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_sell_orders(&self) -> OrderList {
-        self.sell_orders.clone()
+    pub fn get_sell_orders(&self) -> Vec<Order> {
+        self.sell_orders.get()
     }
 
     #[getter]
@@ -95,10 +111,84 @@ impl Session {
         self.sell_orders.remain_size()
     }
 
+    pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        let local_id = self.new_order_id();
+
+        Python::with_gil(|py| 
+            self.market.call_method1(py, "market_order", (side, size, local_id)))
+    }
+
+    pub fn limit_order(
+        &mut self,
+        side: OrderSide,
+        size: Decimal,
+        price: Decimal,
+    ) -> Result<Order, PyErr> {
+        // first push order to order list
+        let local_id = self.new_order_id();
+
+        // then call market.limit_order
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .call_method1(py, "limit_order", (side, size, price, local_id));
+
+                match result {
+                    // if success update order list
+                    Ok(order) => {
+                        let o: Order = order.extract(py).unwrap();
+
+                        if o.order_side == OrderSide::Buy {
+                            self.buy_orders.update_or_insert(&o);
+                        } else if o.order_side == OrderSide::Sell {
+                            self.sell_orders.update_or_insert(&o);
+                        } else {
+                            log::error!("Unknown order side: {:?}", o.order_side)
+                        }
+
+                        return Ok(o)
+                    }
+                    Err(e) => {
+                        log::error!("limit_order error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;        
+    }
+
+    /*
+    /// fecth order list from exchange
+    /// update order list
+    pub fn sync_orderlist(&mut self) {
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .call_method0(py, "sync_orderlist");
+
+                match result {
+                    // if success update order list
+                    Ok(orderlist) => {
+                        let o: OrderList = orderlist.extract(py).unwrap();
+
+                        self.buy_orders = o.buy_orders;
+                        self.sell_orders = o.sell_orders;
+
+                        return Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("sync_orderlist error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;        
+    }
+    */
+
     // Message handling
     pub fn on_tick(&mut self, tick: &Trade) {
         self.current_time = tick.time;
-        println!("set currenttime to {}", self.current_time);
 
         if self.dummy == false {
             return;
@@ -150,5 +240,49 @@ impl Session {
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
+    }
+
+    fn new_order_id(&mut self) -> String {
+        self.order_number += 1;
+        format!("{}-{:04}", self.session_name, self.order_number)
+    }
+
+    fn load_order_list(&mut self) -> Result<(), PyErr> {
+        // when dummy mode, order list is start with empty.
+        if self.dummy == true {
+            return Ok(());
+        }
+
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .getattr(py, "open_orders");
+
+                match result {
+                    // if success update order list
+                    Ok(orderlist) => {
+                        let orders: Vec<Order> = orderlist.extract(py).unwrap();
+                        log::debug!("OpenOrders {:?}", orderlist);                        
+
+                        for order in orders {
+                            log::debug!("OpenOrder {:?}", order);
+                            if order.order_side == OrderSide::Buy {
+                                self.buy_orders.update_or_insert(&order);
+                            } else if order.order_side == OrderSide::Sell {
+                                self.sell_orders.update_or_insert(&order);
+                            } else {
+                                log::error!("Unknown order side: {:?}", order.order_side)
+                            }
+                        }
+
+                        return Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("sync_orderlist error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;
     }
 }
