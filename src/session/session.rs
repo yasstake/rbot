@@ -43,7 +43,7 @@ impl Session {
             },
         };
 
-        Self {
+        let mut session = Self {
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
             account: AccountStatus::default(),
@@ -52,7 +52,11 @@ impl Session {
             dummy,
             session_name,
             order_number: 0
-        }
+        };
+
+        session.load_order_list().unwrap();
+
+        return session;
     }
 
     #[getter]
@@ -88,8 +92,8 @@ impl Session {
 
     // order information
     #[getter]
-    pub fn get_buy_orders(&self) -> OrderList {
-        self.buy_orders.clone()
+    pub fn get_buy_orders(&self) -> Vec<Order> {
+        self.buy_orders.get()
     }
 
     #[getter]
@@ -98,8 +102,8 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_sell_orders(&self) -> OrderList {
-        self.sell_orders.clone()
+    pub fn get_sell_orders(&self) -> Vec<Order> {
+        self.sell_orders.get()
     }
 
     #[getter]
@@ -241,5 +245,44 @@ impl Session {
     fn new_order_id(&mut self) -> String {
         self.order_number += 1;
         format!("{}-{:04}", self.session_name, self.order_number)
+    }
+
+    fn load_order_list(&mut self) -> Result<(), PyErr> {
+        // when dummy mode, order list is start with empty.
+        if self.dummy == true {
+            return Ok(());
+        }
+
+        let r = Python::with_gil(|py| {
+            let result = self.market
+                .getattr(py, "open_orders");
+
+                match result {
+                    // if success update order list
+                    Ok(orderlist) => {
+                        let orders: Vec<Order> = orderlist.extract(py).unwrap();
+                        log::debug!("OpenOrders {:?}", orderlist);                        
+
+                        for order in orders {
+                            log::debug!("OpenOrder {:?}", order);
+                            if order.order_side == OrderSide::Buy {
+                                self.buy_orders.update_or_insert(&order);
+                            } else if order.order_side == OrderSide::Sell {
+                                self.sell_orders.update_or_insert(&order);
+                            } else {
+                                log::error!("Unknown order side: {:?}", order.order_side)
+                            }
+                        }
+
+                        return Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("sync_orderlist error: {:?}", e);
+                        return Err(e)
+                    }
+                }
+        });
+
+        return r;
     }
 }

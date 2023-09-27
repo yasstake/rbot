@@ -1111,7 +1111,8 @@ pub struct BinanceOrderStatus {
     origQty: Decimal,
     executedQty: Decimal,
     cummulativeQuoteQty: Decimal,
-    status: String,
+    #[serde(deserialize_with = "orderstatus_deserialize")]
+    status: OrderStatus,
     timeInForce: String,
     #[serde(rename = "type")]
     order_type: String,
@@ -1125,6 +1126,43 @@ pub struct BinanceOrderStatus {
     origQuoteOrderQty: Decimal,
     selfTradePreventionMode: String,
 }
+
+
+impl From<BinanceOrderStatus> for Order {
+    fn from(border: BinanceOrderStatus) -> Order {
+        let order_side: OrderSide = border.side.as_str().into();
+        let order_type: OrderType = border.order_type.as_str().into();
+        let order_status = border.status;
+
+        let mut order = Order::new(
+            border.symbol,
+            binance_to_microsec(border.time),
+            border.orderId.to_string(),
+            border.clientOrderId,
+            order_side,
+            order_type,
+            order_status,
+            border.price,
+            border.origQty,
+        );
+
+        order.remain_size =  border.origQty - border.executedQty;
+        //order.transaction_id: String,
+        order.update_time = binance_to_microsec(border.updateTime);
+        //order.execute_price 
+        order.execute_size = border.executedQty;
+        // order.quote_vol: Decimal,
+        //order.commission: Decimal,
+        //order.commission_asset: String,
+        order.is_maker = border.isWorking;  // on board it's maker
+        // order.message: String,
+
+        order
+    }
+}
+
+
+
 
 #[pymethods]
 impl BinanceOrderStatus {
@@ -1314,6 +1352,15 @@ mod binance_message_test {
 
         println!("{:?}", order_response);
     }
+
+    #[test]
+    fn test_binance_order_status_cap_NEW() {
+        let order_response: BinanceOrderStatus = serde_json::from_str(
+            r#"{"symbol":"LTCBTC","orderId":1,"orderListId":-1,"clientOrderId":"myOrder1","price":"0.1","origQty":"1.0","executedQty":"0.0","cummulativeQuoteQty":"0.0","status":"NEW","timeInForce":"GTC","type":"LIMIT","side":"BUY","stopPrice":"0.0","icebergQty":"0.0","time":1499827319559,"updateTime":1499827319559,"isWorking":true,"workingTime":1499827319559,"origQuoteOrderQty":"0.000000","selfTradePreventionMode":"NONE"}"#).unwrap();
+
+        println!("{:?}", order_response);
+    }
+
 
     #[test]
     fn test_binance_execution_report() {

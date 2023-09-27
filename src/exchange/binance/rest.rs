@@ -14,6 +14,7 @@ use super::message::BinanceTradeMessage;
 use super::BinanceConfig;
 use crate::common::time_string;
 use crate::common::MicroSec;
+use crate::common::Order;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::HHMM;
@@ -561,7 +562,7 @@ pub fn new_market_order(
     config: &BinanceConfig,
     side: OrderSide,
     size: Decimal,
-    cliend_order_id: Option<&str>
+    cliend_order_id: Option<&str>,
 ) -> Result<BinanceOrderResponse, String> {
     let path = "/api/v3/order";
     let side = order_side_string(side);
@@ -589,13 +590,17 @@ pub fn cancel_order(
     parse_response::<BinanceCancelOrderResponse>(binance_delete_sign(&config, path, body.as_str()))
 }
 
-pub fn cancell_all_orders (
+pub fn cancell_all_orders(
     config: &BinanceConfig,
 ) -> Result<Vec<BinanceCancelOrderResponse>, String> {
     let path = "/api/v3/openOrders";
     let body = format!("symbol={}", config.trade_symbol);
 
-    parse_response::<Vec<BinanceCancelOrderResponse>>(binance_delete_sign(&config, path, body.as_str()))
+    parse_response::<Vec<BinanceCancelOrderResponse>>(binance_delete_sign(
+        &config,
+        path,
+        body.as_str(),
+    ))
 }
 
 /// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
@@ -647,11 +652,7 @@ pub fn open_orders(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, St
     let path = "/api/v3/openOrders";
     let query = format!("symbol={}", config.trade_symbol);
 
-    parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(
-        &config,
-        path,
-        Some(query.as_str()),
-    ))
+    parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
@@ -879,7 +880,12 @@ mod tests {
 
         let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
 
-        let result = new_market_order(&config, OrderSide::Buy, Decimal::from_f64(0.001).unwrap(), Some(&"rest-test"));
+        let result = new_market_order(
+            &config,
+            OrderSide::Buy,
+            Decimal::from_f64(0.001).unwrap(),
+            Some(&"rest-test"),
+        );
 
         println!("result: {:?}", result.unwrap());
         println!("");
@@ -892,7 +898,7 @@ mod tests {
         let order_id = "444627";
 
         let result = cancel_order(&config, order_id);
-    
+
         match result {
             Ok(r) => {
                 println!("{:?}", r);
@@ -908,7 +914,7 @@ mod tests {
         let config = BinanceConfig::TESTSPOT("BTC", "USDT");
 
         let result = cancell_all_orders(&config);
-    
+
         match result {
             Ok(r) => {
                 println!("{:?}", r);
@@ -961,7 +967,12 @@ mod tests {
 
         let message = open_orders(&config).unwrap();
         println!("message: {:?}", message);
-    }   
+
+        for i in message {
+            let order: Order = i.into();
+            println!("i: {:?}", order);
+        }
+    }
 
     #[test]
     fn test_order_list() {
