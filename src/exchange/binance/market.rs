@@ -446,7 +446,7 @@ impl BinanceMarket {
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Order> {
+    ) -> PyResult<Vec<Order>> {
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
         convert_pyresult(response)
@@ -468,7 +468,7 @@ impl BinanceMarket {
         side: OrderSide,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Order> {
+    ) -> PyResult<Vec<Order>> {
         let response = new_market_order(&self.config, side, size, client_order_id);
 
         convert_pyresult(response)

@@ -4,6 +4,7 @@ use crate::common::time::time_string;
 
 use super::time::MicroSec;
 use super::MarketMessage;
+use polars_core::utils::arrow::bitmap::or;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
@@ -42,6 +43,20 @@ pub enum OrderStatus {
     Expired, // 期限切れ
     #[strum(ascii_case_insensitive)]
     Error, // その他エラー
+}
+
+pub fn orderstatus_deserialize<'de, D>(deserializer: D) -> Result<OrderStatus, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let s: String = de::Deserialize::deserialize(deserializer)?;
+    Ok(string_to_status(&s))
+}
+
+pub fn string_to_status(s: &str) -> OrderStatus {
+    let order_status:OrderStatus = s.parse().unwrap_or(OrderStatus::Error);
+
+    return order_status;
 }
 
 #[pymethods]
@@ -371,23 +386,82 @@ impl AccountStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
+    #[pyo3(get)]
     pub symbol: String,
+    #[pyo3(get)]
     pub create_time: MicroSec, // in us
+    #[pyo3(get)]
     pub order_id: String,      // YYYY-MM-DD-SEQ
-    pub order_list_index: i64,
+    #[pyo3(get)]
     pub client_order_id: String,
+    #[pyo3(get)]
     pub order_side: OrderSide,
+    #[pyo3(get)]
     pub order_type: OrderType,
-    pub price: Decimal, // in Market order, price is 0.0
-    pub size: Decimal,  // in foreign
+    #[pyo3(get)]
+    pub order_price: Decimal, // in Market order, price is 0.0
+    #[pyo3(get)]
+    pub order_size: Decimal,  // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
+    #[pyo3(get)]
     pub remain_size: Decimal, // 残数
+    #[pyo3(get)]
     pub status: OrderStatus,
-    pub account_change: AccountChange,
+    #[pyo3(get)]
+    pub transaction_id: String,
+    #[pyo3(get)]
+    pub update_time: MicroSec,
+    #[pyo3(get)]
+    pub execute_price: Decimal,
+    #[pyo3(get)]
+    pub execute_size: Decimal,
+    #[pyo3(get)]
+    pub quote_vol: Decimal,
+    #[pyo3(get)]
+    pub commission: Decimal,
+    #[pyo3(get)]
+    pub commission_asset: String,
+    #[pyo3(get)]
+    pub is_maker: bool,
+    #[pyo3(get)]
     pub message: String,
-    pub fills: OrderFill,
-    pub profit: Option<Decimal>,
+}
+
+impl Order {
+    pub fn new(
+        symbol: String,
+        create_time: MicroSec,
+        order_id: String,
+        client_order_id: String,
+        order_side: OrderSide,
+        order_type: OrderType,
+        order_status: OrderStatus,
+        price: Decimal,
+        size: Decimal,
+    ) -> Self {
+        return Order {
+            symbol,
+            create_time,
+            order_id,
+            client_order_id,
+            order_side,
+            order_type,
+            order_price: price,
+            order_size: size,
+            remain_size: size,
+            status: order_status,
+            transaction_id: "".to_string(),
+            update_time: 0,
+            execute_price: dec![0.0],
+            execute_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: false,
+            message: "".to_string(),
+        };
+    }
 }
 
 #[pymethods]

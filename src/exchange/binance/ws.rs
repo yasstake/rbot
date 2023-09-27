@@ -60,7 +60,7 @@ where
         loop {
             let msg = websocket.receive_message();
             let msg = msg.unwrap();
-            println!("raw msg: {}", msg);
+            log::debug!("raw msg: {}", msg);
 
             let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
             let msg = msg.unwrap();

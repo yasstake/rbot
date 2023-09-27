@@ -6,6 +6,7 @@ from rbot import BinanceMarket
 from rbot import init_debug_log
 from rbot import init_log
 from rbot import OrderSide
+from rbot import time_string
 
 class MyAgent:
     def __init__(self):
@@ -23,11 +24,19 @@ class MyAgent:
     """
     
     def on_update(self, session, updated_order):
-        print("buy order", session.buy_orders)
-        print("sell order", session.sell_orders)
-        print("account", session.account)
-        print("update: ", session.current_time, updated_order)
-        pass
+        #print("buy orders", session.buy_orders)
+        #print("sell orders", session.sell_orders)
+        #print("account", session.account)
+        print("update: ", time_string(session.current_time), 
+              updated_order.order_side,
+              updated_order.order_price,
+              updated_order.order_size,
+              updated_order.execute_size,
+              time_string(updated_order.create_time),
+              time_string(updated_order.update_time),
+              updated_order.status,
+              )
+
     
     def on_account_update(self, session, account):
         print("account update: ", session.current_time, account)
