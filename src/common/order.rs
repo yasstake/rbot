@@ -26,6 +26,8 @@ pub struct TimeChunk {
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
+    InProcess,      // 処理中
+    #[strum(ascii_case_insensitive)]
     New, // 処理中
     #[strum(
         ascii_case_insensitive,
@@ -39,8 +41,6 @@ pub enum OrderStatus {
     Canceled, // ユーザによるキャンセル
     #[strum(ascii_case_insensitive)]
     Rejected, // システムからの拒否（指値範囲外、数量不足など）
-    #[strum(ascii_case_insensitive)]
-    Expired, // 期限切れ
     #[strum(ascii_case_insensitive)]
     Error, // その他エラー
 }
@@ -472,6 +472,32 @@ impl Order {
 
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn update(&mut self, order: &Order) {
+        /* unchange feild 
+        order_id,
+        client_order_id,
+        order_side,
+        order_type,
+        order_price: price,
+        order_size: size,
+        */
+
+        self.remain_size = order.remain_size;
+        self.status = order.status;
+        self.transaction_id = order.transaction_id.clone();
+        self.update_time = order.update_time;
+        self.execute_price = order.execute_price;
+        self.execute_size = order.execute_size;
+        self.quote_vol = order.quote_vol;
+        self.commission = order.commission;
+        self.commission_asset = order.commission_asset.clone();
+        self.is_maker = order.is_maker;
+
+        if order.message.len() > 0 {
+            self.message = order.message.clone();
+        }
     }
 }
 

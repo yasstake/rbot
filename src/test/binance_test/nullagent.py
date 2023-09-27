@@ -24,9 +24,6 @@ class MyAgent:
     """
     
     def on_update(self, session, updated_order):
-        #print("buy orders", session.buy_orders)
-        #print("sell orders", session.sell_orders)
-        #print("account", session.account)
         print("update: ", time_string(session.current_time), 
               updated_order.order_side,
               updated_order.order_price,
@@ -36,7 +33,10 @@ class MyAgent:
               time_string(updated_order.update_time),
               updated_order.status,
               )
-
+        print("buy orders", session.buy_orders)
+        print("sell orders", session.sell_orders)
+        print("account", session.account)
+        print("-------------------")
     
     def on_account_update(self, session, account):
         print("account update: ", session.current_time, account)

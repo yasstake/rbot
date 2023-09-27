@@ -104,6 +104,11 @@ impl OrderList {
         }
     }
 
+    /// get order by list
+    pub fn get(&self) -> Vec<Order> {
+        self.list.clone()
+    }
+
     /// Returns the number of orders in the list.
     pub fn len(&self) -> usize {
         return self.list.len();
@@ -194,10 +199,9 @@ impl OrderList {
 
     /// update or insert order
     pub fn update_or_insert(&mut self, order: &Order) {
-        // TODO: check timestamp and update
         match self.index(order) {
             Some(index) => {
-                self.list[index] = order.clone();
+                self.list[index].update(order);
             }
             None => {
                 self.list.push(order.clone());

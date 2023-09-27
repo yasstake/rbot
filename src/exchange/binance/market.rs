@@ -494,10 +494,12 @@ impl BinanceMarket {
     }
 
     #[getter]
-    pub fn get_open_orders(&self) -> PyResult<Vec<BinanceOrderStatus>> {
+    pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
         let status = open_orders(&self.config);
 
-        convert_pyresult(status)
+        log::debug!("OpenOrder: {:?}", status);
+
+        convert_pyresult_vec(status)
     }
 
     #[getter]
