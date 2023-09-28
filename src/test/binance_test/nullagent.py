@@ -15,13 +15,12 @@ class MyAgent:
     def on_clock(self):
         pass
 
-    """
+
     def on_tick(self, session, side, price, size):
         print("tick: ", session.current_time, side, price, size)
         
         market.limit_order(OrderSide.Sell, price + 100, 0.001)        
         pass
-    """
     
     def on_update(self, session, updated_order):
         print("update: ", time_string(session.current_time), 

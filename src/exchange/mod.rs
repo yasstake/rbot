@@ -989,8 +989,8 @@ impl Board {
             sizes.push(item.size.to_f64().unwrap());
         }
 
-        let prices = Series::new("Price", prices);
-        let sizes = Series::new("Size", sizes);
+        let prices = Series::new("price", prices);
+        let sizes = Series::new("size", sizes);
 
         let df = DataFrame::new(vec![prices, sizes]).unwrap();
 
