@@ -12,12 +12,12 @@ from time import sleep
 
 class MyAgent:
     def __init__(self):
-        self.oneshot = True
+        self.home = 0
+        self.foreign = 0
     
     def on_clock(self):
         pass
-
-
+    
     def on_tick(self, session, side, price, size):
         if len(session.asks) == 0 or len(session.bids) == 0:
             return
@@ -47,37 +47,15 @@ class MyAgent:
                 session.limit_order(OrderSide.Buy, bid_edge, 0.001)
        
 
-    """    
+
     def on_update(self, session, updated_order):
-        if len(session.asks) == 0 or len(session.bids) == 0:
-            return
-
-        ask_edge = session.asks[0]['price'][0]
-        bid_edge = session.bids[0]['price'][0]
-
-        print("update: ", time_string(session.current_time), 
-              updated_order.order_side,
-              updated_order.order_price,
-              updated_order.order_size,
-              updated_order.execute_size,
-              time_string(updated_order.create_time),
-              time_string(updated_order.update_time),
-              updated_order.status,
-              )
-        print("buy orders", session.buy_orders)
-        print("sell orders", session.sell_orders)
-
-
-        if len(session.sell_orders) == 0:
-            print(">Sell Order, price: ", ask_edge - 0.01, "size: ", 0.001)
-            session.limit_order(OrderSide.Sell, ask_edge, 0.001)
-            
-        if len(session.buy_orders) == 0:
-            print(">Buy Order, price: ", bid_edge + 0.01, "size: ", 0.001)
-            session.limit_order(OrderSide.Buy, bid_edge, 0.001)
-
-        print("-------------------")
-    """
+        self.home += updated_order.home_change
+        self.foreign += updated_order.foreign_change
+        
+        total = self.home + self.foreign * session.bids[0]['price'][0]
+        
+        print("UPDATE_TOTAL", self.home, self.foreign, total)
+        
     
     def on_account_update(self, session, account):
         #print("account update: ", session.current_time, account)

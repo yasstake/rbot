@@ -1,8 +1,9 @@
 use pyo3::{pyclass, pymethods};
+use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::json;
 
-use crate::fs::db_full_path;
+use crate::{fs::db_full_path, common::ExchangeConfig};
 
 
 
@@ -12,7 +13,6 @@ pub struct BinanceConfig {
     pub exchange_name: String,
     pub trade_category: String,
     pub trade_symbol: String,
-    pub size_in_foreign: bool,
     
     pub home_currency: String,
     pub foreign_currency: String,
@@ -31,6 +31,8 @@ pub struct BinanceConfig {
     // key & secret
     pub api_key: String,
     pub api_secret: String,
+
+    pub exchange_config: ExchangeConfig
 }
 
 #[pymethods]
@@ -79,7 +81,6 @@ impl BinanceConfig {
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
-            size_in_foreign: false,
 
             home_currency: home_symbol.to_string(),
             foreign_currency: foreign_symbol.to_string(),
@@ -104,6 +105,12 @@ impl BinanceConfig {
             testnet: false,
             api_key,
             api_secret,
+            exchange_config: ExchangeConfig::new(
+                home_symbol,
+                foreign_symbol,
+                dec!(0.01),    // in btc
+                dec!(0.00001), // in btc
+            ),
         };
     }
 
