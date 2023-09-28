@@ -4,6 +4,7 @@ use chrono::Datelike;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
+use hmac::digest::crypto_common::BlockSizeUser;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -22,6 +23,8 @@ use std::time::Duration;
 use std::{fs, thread};
 
 use crate::common::MultiChannel;
+use crate::common::PRICE_SCALE;
+use crate::common::SIZE_SCALE;
 use crate::common::convert_pyresult_vec;
 use crate::common::{convert_pyresult, MarketMessage, MarketStream};
 use crate::common::{time_string, DAYS};
@@ -434,6 +437,9 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
+        let price = price.round_dp(PRICE_SCALE);
+        let size = size.round_dp(SIZE_SCALE);
+
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
         convert_pyresult(response)
@@ -447,6 +453,9 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
+        let price = price.round_dp(PRICE_SCALE);
+        let size = size.round_dp(SIZE_SCALE);
+
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
         convert_pyresult(response)
@@ -458,6 +467,8 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
+        let size = size.round_dp(SIZE_SCALE);
+
         let response = new_market_order(&self.config, side, size, client_order_id);
 
         convert_pyresult(response)
@@ -469,6 +480,8 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
+        let size = size.round_dp(SIZE_SCALE);
+
         let response = new_market_order(&self.config, side, size, client_order_id);
 
         convert_pyresult(response)

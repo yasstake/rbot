@@ -9,7 +9,7 @@ use rust_decimal::Decimal;
 use crate::{
     common::{
         date_string, hour_string, min_string, AccountStatus, MarketStream, MicroSec, OrderSide,
-        OrderStatus, NOW,
+        OrderStatus, NOW, PRICE_SCALE, SIZE_SCALE,
     },
     exchange::binance::Market,
 };
@@ -120,11 +120,25 @@ impl Session {
         self.sell_orders.remain_size()
     }
 
-    pub fn cance_order(&mut self, order_id: &str) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.call_method1(py, "cancel_order", (order_id,)))
+    /// cancel order 
+    /// if success return order id
+    /// if fail return None
+    pub fn cancel_order(&mut self, order_id: &str) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| {
+            let r = self.market.call_method1(py, "cancel_order", (order_id,));
+
+            if r.is_err() {
+                let none = Python::None(py);
+                return Ok(none);
+            }
+            r
+        })
     }
 
+    // TODO: Decimal
     pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        let size = size.round_dp(SIZE_SCALE);
+
         let local_id = self.new_order_id();
 
         Python::with_gil(|py| {
@@ -133,12 +147,16 @@ impl Session {
         })
     }
 
+    // TODO: Decimal
     pub fn limit_order(
         &mut self,
         side: OrderSide,
         size: Decimal,
         price: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
+        let price = price.round_dp(PRICE_SCALE);
+        let size = size.round_dp(SIZE_SCALE);
+
         // first push order to order list
         let local_id = self.new_order_id();
 
@@ -174,7 +192,6 @@ impl Session {
 
         return r;
     }
-
 
     /*
     /// fecth order list from exchange
