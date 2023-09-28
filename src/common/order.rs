@@ -638,8 +638,8 @@ impl Order {
 
     /// in order book, accout locked the size of order
     fn update_balance_new(&mut self, config: &ExchangeConfig) {
-        let order_size= self.execute_size;
-        let order_quote_vol = self.quote_vol;
+        let order_size= self.order_size;
+        let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
@@ -647,7 +647,7 @@ impl Order {
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
-            self.free_home_change = dec![0.0];
+            self.free_home_change = - order_quote_vol;
             self.free_foreign_change = dec![0.0];
             self.lock_home_change = order_quote_vol;
             self.lock_foreign_change = dec![0.0];
@@ -657,7 +657,7 @@ impl Order {
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
             self.free_home_change = dec![0.0];
-            self.free_foreign_change = dec![0.0];
+            self.free_foreign_change = - order_size;
             self.lock_home_change = dec![0.0];
             self.lock_foreign_change = order_size;
         }
@@ -665,10 +665,7 @@ impl Order {
 
     /// The lock is freed and shift the balance.
     fn update_balance_filled(&mut self, config: &ExchangeConfig) {
-        let order_size= self.execute_size;
-        let order_quote_vol = self.quote_vol;
         let filled_size = self.execute_size;
-        let filled_price = self.execute_size;
         let filled_quote_vol = self.execute_size * self.execute_price;
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
@@ -685,7 +682,7 @@ impl Order {
             // move home to foregin
             self.home_change = - filled_quote_vol;
             self.foreign_change = filled_size;
-            self.free_home_change = dec![0.0];
+            self.free_home_change = - filled_quote_vol;
             self.free_foreign_change = filled_size;
             self.lock_home_change = - filled_quote_vol;
             self.lock_foreign_change = dec![0.0];
@@ -693,7 +690,7 @@ impl Order {
             self.home_change = filled_quote_vol;
             self.foreign_change = - filled_size;
             self.free_home_change = filled_quote_vol;
-            self.free_foreign_change = dec![0.0];
+            self.free_foreign_change = - filled_size;
             self.lock_home_change = dec![0.0];
             self.lock_foreign_change = - filled_size;
         }
@@ -701,8 +698,8 @@ impl Order {
 
     //
     fn update_balance_canceled(&mut self, config: &ExchangeConfig) {
-        let order_size= self.execute_size;
-        let order_quote_vol = self.quote_vol;
+        let order_size= self.order_size;
+        let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
