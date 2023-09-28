@@ -27,25 +27,20 @@ class MyAgent:
 
 
         if len(session.sell_orders) == 0:
-            print(">Sell Order, price: ", ask_edge + 0.5, "size: ", 0.001)
-            session.limit_order(OrderSide.Sell, ask_edge + 0.5, 0.001)
+            session.limit_order(OrderSide.Sell, ask_edge + 2.5, 0.01)
         else:
             sell_price = session.sell_orders[0].order_price
-            if sell_price - ask_edge  > 5.0:
-                print(">Sell Order, change price: ", ask_edge, "size: ", 0.001)
+            if sell_price - ask_edge  > 25.0:
                 session.cancel_order(session.sell_orders[0].order_id)
-                session.limit_order(OrderSide.Sell, ask_edge, 0.001)
+                session.limit_order(OrderSide.Sell, ask_edge + 2.5, 0.01)
 
         if len(session.buy_orders) == 0:
-            print(">Buy Order, price: ", bid_edge - 0.5, "size: ", 0.001)
-            session.limit_order(OrderSide.Buy, bid_edge - 0.5, 0.001)
+            session.limit_order(OrderSide.Buy, bid_edge - 2.5, 0.01)
         else:            
             buy_price = session.buy_orders[0].order_price
-            if  bid_edge - buy_price > 5.0:
-                print(">Buy Order change, price: ", bid_edge, "size: ", 0.001)
+            if  bid_edge - buy_price > 25.0:
                 session.cancel_order(session.buy_orders[0].order_id)
-                session.limit_order(OrderSide.Buy, bid_edge, 0.001)
-       
+                session.limit_order(OrderSide.Buy, bid_edge - 2.5, 0.01)
 
 
     def on_update(self, session, updated_order):
@@ -55,6 +50,7 @@ class MyAgent:
         total = self.home + self.foreign * session.bids[0]['price'][0]
         
         print("UPDATE_TOTAL", self.home, self.foreign, total)
+        print("Order Update: ", time_string(session.current_time), updated_order)
         
     
     def on_account_update(self, session, account):
