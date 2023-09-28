@@ -8,6 +8,7 @@ use polars_core::utils::arrow::bitmap::or;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal_macros::dec;
 use serde::de;
 use serde_derive::Deserialize;
@@ -26,7 +27,7 @@ pub struct TimeChunk {
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
-    InProcess,      // 処理中
+    InProcess, // 処理中
     #[strum(ascii_case_insensitive)]
     New, // 処理中
     #[strum(
@@ -54,7 +55,7 @@ where
 }
 
 pub fn string_to_status(s: &str) -> OrderStatus {
-    let order_status:OrderStatus = s.parse().unwrap_or(OrderStatus::Error);
+    let order_status: OrderStatus = s.parse().unwrap_or(OrderStatus::Error);
 
     return order_status;
 }
@@ -104,10 +105,9 @@ impl OrderSide {
     }
 }
 
-
 pub fn orderside_deserialize<'de, D>(deserializer: D) -> Result<OrderSide, D::Error>
 where
-D: de::Deserializer<'de>,
+    D: de::Deserializer<'de>,
 {
     let s: String = de::Deserialize::deserialize(deserializer)?;
     Ok(string_to_side(&s))
@@ -136,8 +136,7 @@ impl From<&str> for OrderSide {
     }
 }
 
-
-/* 
+/*
 impl Into<String> for OrderSide {
     fn into(self) -> String {
         self.to_string()
@@ -176,7 +175,7 @@ impl OrderType {
 }
 
 pub fn ordertype_deserialize<'de, D>(deserializer: D) -> Result<OrderType, D::Error>
-    where
+where
     D: de::Deserializer<'de>,
 {
     let s: String = de::Deserialize::deserialize(deserializer)?;
@@ -310,7 +309,6 @@ impl OrderFill {
     }
 }
 
-
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
@@ -380,6 +378,30 @@ impl AccountStatus {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
+    #[getter]
+    pub fn get_home(&self) -> f64 {
+        return self.home.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_home_free(&self) -> f64 {
+        return self.home_free.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_home_locked(&self) -> f64 {
+        return self.home_locked.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_foreign(&self) -> f64 {
+        return self.foreign.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_foreign_free(&self) -> f64 {
+        return self.foreign_free.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_foreign_locked(&self) -> f64 {
+        return self.foreign_locked.to_f64().unwrap();
+    }
 }
 
 #[pyclass]
@@ -391,20 +413,20 @@ pub struct Order {
     #[pyo3(get)]
     pub create_time: MicroSec, // in us
     #[pyo3(get)]
-    pub order_id: String,      // YYYY-MM-DD-SEQ
+    pub order_id: String, // YYYY-MM-DD-SEQ
     #[pyo3(get)]
     pub client_order_id: String,
     #[pyo3(get)]
     pub order_side: OrderSide,
     #[pyo3(get)]
     pub order_type: OrderType,
-    #[pyo3(get)]
+    // #[pyo3(get)]
     pub order_price: Decimal, // in Market order, price is 0.0
-    #[pyo3(get)]
-    pub order_size: Decimal,  // in foreign
+    //#[pyo3(get)]
+    pub order_size: Decimal, // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
-    #[pyo3(get)]
+    //#[pyo3(get)]
     pub remain_size: Decimal, // 残数
     #[pyo3(get)]
     pub status: OrderStatus,
@@ -412,13 +434,13 @@ pub struct Order {
     pub transaction_id: String,
     #[pyo3(get)]
     pub update_time: MicroSec,
-    #[pyo3(get)]
+    //#[pyo3(get)]
     pub execute_price: Decimal,
-    #[pyo3(get)]
+    //#[pyo3(get)]
     pub execute_size: Decimal,
-    #[pyo3(get)]
+    //#[pyo3(get)]
     pub quote_vol: Decimal,
-    #[pyo3(get)]
+    //#[pyo3(get)]
     pub commission: Decimal,
     #[pyo3(get)]
     pub commission_asset: String,
@@ -475,7 +497,7 @@ impl Order {
     }
 
     pub fn update(&mut self, order: &Order) {
-        /* unchange feild 
+        /* unchange feild
         order_id,
         client_order_id,
         order_side,
@@ -498,6 +520,41 @@ impl Order {
         if order.message.len() > 0 {
             self.message = order.message.clone();
         }
+    }
+
+    #[getter]
+    pub fn get_order_price(&self) -> f64 {
+        return self.order_price.to_f64().unwrap();
+    }
+    //#[pyo3(get)]
+    #[getter]
+    pub fn get_order_size(&self) -> f64 {
+        return self.order_size.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_remain_size(&self) -> f64 {
+        return self.remain_size.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_execute_price(&self) -> f64 {
+        return self.execute_price.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_execute_size(&self) -> f64 {
+        return self.execute_size.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_quote_vol(&self) -> f64 {
+        return self.quote_vol.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_commission(&self) -> f64 {
+        return self.commission.to_f64().unwrap();
     }
 }
 

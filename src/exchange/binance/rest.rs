@@ -579,6 +579,17 @@ pub fn new_market_order(
     parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
 
+// https://binance-docs.github.io/apidocs/spot/en/#query-order-user_data
+/*
+pub fn alter_order(
+    config: &BinanceConfig,
+    order_id: &str,
+    price: Decimal,
+    size: Decimal,
+) -> Result<BinanceOrderResponse, String> {
+}
+*/
+
 /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
 pub fn cancel_order(
     config: &BinanceConfig,
