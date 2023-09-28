@@ -297,6 +297,9 @@ impl BinanceOrderFill {
     }
 }
 
+
+
+
 impl From<BinanceOrderResponse> for Vec<Order> {
     fn from(order: BinanceOrderResponse) -> Self {
         let order_side: OrderSide = order.side.as_str().into();
@@ -347,6 +350,7 @@ impl From<BinanceOrderResponse> for Vec<Order> {
         orders
     }
 }
+
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
@@ -946,7 +950,8 @@ impl BinanceUserStreamMessage {
                 log::error!("not implemented");
             }
             BinanceUserStreamMessage::executionReport(order) => {
-                let order: Order = order.into();
+                let mut order: Order = order.into();
+                order.update_balance(&config.exchange_config);
                 message.order = Some(order);
             }
         };
