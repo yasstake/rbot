@@ -1,14 +1,13 @@
-use serde_json::Value;
 
 use crate::{exchange::{rest_get, bb::message::BybitTradeMessage}, common::Trade};
 
 
-const SERVER: &str = "https://api.bybit.com";
 
 fn get_recent_trades(symbol: &str) -> Result<Vec<Trade>, String> 
 {
     let path = format!("/v5/market/recent-trade?symbol={}&limit=1000", symbol);
 
+    pub const SERVER: &str = "https://api.bybit.com";        
     let result = rest_get(SERVER, path.as_str(), vec![], None, None);
 
 //    print!("result: {:?}", result.unwrap());
@@ -28,7 +27,11 @@ fn get_recent_trades(symbol: &str) -> Result<Vec<Trade>, String>
 
 #[cfg(test)]
 mod bybit_rest_test {
-    use crate::exchange::{rest_get, bb::rest::SERVER};
+    use super::*;
+
+
+    pub const SERVER: &str = "https://api.bybit.com";    
+    use crate::exchange::rest_get;
 
     #[test]
     fn test_get_recent_trades() {

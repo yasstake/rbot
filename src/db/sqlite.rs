@@ -5,13 +5,8 @@ use numpy::IntoPyArray;
 use numpy::PyArray2;
 use polars::prelude::DataFrame;
 use polars_core::prelude::IndexOrder;
-use polars_lazy::prelude::IntoLazy;
-use pyo3::pyclass;
-use pyo3::pymethods;
 use pyo3::{Py, PyResult, Python};
 use pyo3_polars::PyDataFrame;
-use rusqlite::DatabaseName;
-use rusqlite::OpenFlags;
 use rusqlite::params_from_iter;
 use rusqlite::{params, Connection, Error, Result, Statement, Transaction};
 use rust_decimal::Decimal;
@@ -32,17 +27,8 @@ use crate::common::OrderSide;
 use crate::db::df::KEY;
 use polars::prelude::Float64Type;
 
-use std::io::Stdout;
-use std::rc::Rc;
-use std::sync::mpsc::channel;
-
-use std::sync::{mpsc, Arc, RwLock};
 use std::thread;
-use std::thread::JoinHandle;
-
-use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
-
 
 pub trait TradeTableQuery {
     fn open(name: &str) -> Result<Self, Error>
@@ -69,7 +55,6 @@ pub trait TradeTableQuery {
 
 #[derive(Debug)]
 pub struct TradeTableDb {
-    file_name: String,
     connection: Connection,
 }
 
@@ -193,7 +178,6 @@ impl TradeTableQuery for TradeTableDb {
         match result {
             Ok(conn) => {
                 let db = TradeTableDb {
-                file_name: name.to_string(),
                 connection: conn,
                 };
 
@@ -1127,9 +1111,6 @@ impl TradeTableQuery for TradeTable {
 
 #[cfg(test)]
 mod test_transaction_table {
-    use std::thread::sleep;
-    use std::time::Duration;
-
     use rust_decimal_macros::dec;
 
     use crate::common::init_log;
@@ -1375,7 +1356,7 @@ mod test_transaction_table {
     #[test]
     fn test_start_thread() {
         let mut table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
-        let mut tx = table.start_thread();
+        let tx = table.start_thread();
 
         let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
         tx.send(v).unwrap();
@@ -1383,7 +1364,7 @@ mod test_transaction_table {
         let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
         tx.send(v).unwrap();
 
-        let mut tx = table.start_thread();  
+        let tx = table.start_thread();  
 
         let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "B".to_string()}];
         tx.send(v).unwrap();

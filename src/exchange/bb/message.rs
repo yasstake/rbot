@@ -86,7 +86,7 @@ mod bybit_message_test {
     fn test_parse_recent_trade() {
         use super::BybitTradeMessage;
 
-        let mut result: BybitTradeMessage = serde_json::from_str(RECENT_TRADE).unwrap();
+        let result: BybitTradeMessage = serde_json::from_str(RECENT_TRADE).unwrap();
 
         println!("result: {:?}", result);
 

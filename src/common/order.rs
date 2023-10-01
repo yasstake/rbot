@@ -3,10 +3,8 @@
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
-use super::ExchangeConfig;
+use super::MarketConfig;
 use super::MarketMessage;
-use hmac::digest::typenum::Or;
-use polars_core::utils::arrow::bitmap::or;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use rust_decimal::prelude::ToPrimitive;
@@ -622,7 +620,7 @@ impl Into<MarketMessage> for Order {
 }
 
 impl Order {
-    pub fn update_balance(&mut self, config: &ExchangeConfig) {
+    pub fn update_balance(&mut self, config: &MarketConfig) {
         match self.status {
             OrderStatus::New => {
                 self.update_balance_new(config);
@@ -637,7 +635,7 @@ impl Order {
     }
 
     /// in order book, accout locked the size of order
-    fn update_balance_new(&mut self, config: &ExchangeConfig) {
+    fn update_balance_new(&mut self, config: &MarketConfig) {
         let order_size= self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
@@ -664,7 +662,7 @@ impl Order {
     }
 
     /// The lock is freed and shift the balance.
-    fn update_balance_filled(&mut self, config: &ExchangeConfig) {
+    fn update_balance_filled(&mut self, config: &MarketConfig) {
         let filled_size = self.execute_size;
         let filled_quote_vol = self.execute_size * self.execute_price;
         let commission = self.commission;
@@ -697,7 +695,7 @@ impl Order {
     }
 
     //
-    fn update_balance_canceled(&mut self, config: &ExchangeConfig) {
+    fn update_balance_canceled(&mut self, config: &MarketConfig) {
         let order_size= self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 

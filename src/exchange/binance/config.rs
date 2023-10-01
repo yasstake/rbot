@@ -3,7 +3,7 @@ use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::json;
 
-use crate::{fs::db_full_path, common::ExchangeConfig};
+use crate::{fs::db_full_path, common::MarketConfig};
 
 
 
@@ -32,7 +32,7 @@ pub struct BinanceConfig {
     pub api_key: String,
     pub api_secret: String,
 
-    pub exchange_config: ExchangeConfig
+    pub exchange_config: MarketConfig
 }
 
 #[pymethods]
@@ -105,7 +105,7 @@ impl BinanceConfig {
             testnet: false,
             api_key,
             api_secret,
-            exchange_config: ExchangeConfig::new(
+            exchange_config: MarketConfig::new(
                 home_symbol,
                 foreign_symbol,
                 dec!(0.01),    // in btc
