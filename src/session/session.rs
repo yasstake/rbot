@@ -1,10 +1,10 @@
-use std::f32::consts::E;
 
-use hmac::digest::typenum::Or;
+
 use numpy::PyArray2;
 use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 use crate::{
     common::{
@@ -32,6 +32,15 @@ pub struct Session {
     dummy: bool,
     session_name: String,
     order_number: i64,
+
+    commission_home: Decimal,
+    commission_foreign: Decimal,
+    home_change: Decimal,
+    foreign_change: Decimal,
+    free_home_change: Decimal,
+    free_foreign_change: Decimal,
+    lock_home_change: Decimal,
+    lock_foreign_change: Decimal,
 }
 
 #[pymethods]
@@ -61,6 +70,15 @@ impl Session {
             dummy,
             session_name,
             order_number: 0,
+
+            commission_home: dec![0.0],
+            commission_foreign: dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],            
         };
 
         session.load_order_list().unwrap();

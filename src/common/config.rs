@@ -24,7 +24,7 @@ pub enum PriceType {
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExchangeConfig {
+pub struct MarketConfig {
     pub price_unit: Decimal,
     pub size_unit: Decimal,
 
@@ -38,10 +38,7 @@ pub struct ExchangeConfig {
     pub foreign_currency: String,
 }
 
-use PriceType::*;
-use FeeType::*;
-
-impl ExchangeConfig {
+impl MarketConfig {
     pub fn new(
         home_currency: &str,
         foreign_currency: &str,

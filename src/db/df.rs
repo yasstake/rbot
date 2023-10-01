@@ -46,10 +46,6 @@ pub mod KEY {
     pub const count: &str = "count";
 }
 
-fn future_date() -> MicroSec {
-    let now = NOW();
-    now + DAYS(10000)
-}
 
 /// Cutoff from_time to to_time(not include)
 pub fn select_df(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> DataFrame {

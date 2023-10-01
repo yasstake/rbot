@@ -1,26 +1,17 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use chrono::Datelike;
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 use csv::StringRecord;
-use hmac::digest::crypto_common::BlockSizeUser;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use serde::de;
-use serde_derive::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::borrow::BorrowMut;
-use std::f32::consts::E;
-use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
-use std::{fs, thread};
 
 use crate::common::MultiChannel;
 use crate::common::PRICE_SCALE;
@@ -31,13 +22,12 @@ use crate::common::{time_string, DAYS};
 use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{Order, OrderSide, TimeChunk, Trade};
 use crate::common::{HHMM, NOW, TODAY};
-use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
+use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
-use crate::fs::{db_full_path, project_dir};
 
 use super::message::BinanceUserStreamMessage;
 use super::message::{
-    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceTradeMessage,
+    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, 
     BinanceWsBoardUpdate,
 };
 use super::rest::cancel_order;

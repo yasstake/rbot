@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use futures::lock;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
