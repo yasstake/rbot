@@ -983,16 +983,21 @@ impl Board {
 
         let mut prices: Vec<f64> = vec![];
         let mut sizes: Vec<f64> = vec![];        
+        let mut cusum_col: Vec<f64> = vec![];
+        let mut cusum: Decimal = dec![0.0];
 
         for item in board {
             prices.push(item.price.to_f64().unwrap());   
             sizes.push(item.size.to_f64().unwrap());
+            cusum += item.size;
+            cusum_col.push(cusum.to_f64().unwrap());
         }
 
         let prices = Series::new("price", prices);
         let sizes = Series::new("size", sizes);
+        let cusum = Series::new("cusum", cusum_col);
 
-        let df = DataFrame::new(vec![prices, sizes]).unwrap();
+        let df = DataFrame::new(vec![prices, sizes, cusum]).unwrap();
 
         Ok(PyDataFrame(df))
     }
