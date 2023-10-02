@@ -10,37 +10,59 @@ from rbot import time_string
 from threading import Thread
 from time import sleep
 
+import polars as pl
+
+ORDER_SIZE = 0.001
+SPREAD_TRIGGER = 0.0002
+SPREAD_UPDATE =  0.0001
+PRICE_DIFF = 0.01
+SKIP_SIZE = 0.005
+
 class MyAgent:
     def __init__(self):
         self.home = 0
         self.foreign = 0
-    
-    def on_clock(self):
-        pass
+
+    def calc_spread(self, session, skip_size=SKIP_SIZE):
+        if len(session.asks) == 0 or len(session.bids) == 0:
+            return 0.0, 0.0, 0.0
+        
+        bid = session.bids.filter(pl.col('size') > skip_size).head()['price'][0]
+        ask = session.asks.filter(pl.col('size') > skip_size).head()['price'][0]
+        
+        return bid, ask, ask - bid
     
     def on_tick(self, session, side, price, size):
-        if len(session.asks) == 0 or len(session.bids) == 0:
+        # スプレットを確認
+        bid, ask, spread = self.calc_spread(session)
+        if bid == 0.0:
             return
 
-        ask_edge = session.asks[0]['price'][0]
-        bid_edge = session.bids[0]['price'][0]
+        amount_buy = session.buy_order_amount
+        amount_sell = session.sell_order_amount
 
-
-        if len(session.sell_orders) == 0:
-            session.limit_order(OrderSide.Sell, ask_edge + 2.5, 0.01)
-        else:
-            sell_price = session.sell_orders[0].order_price
-            if sell_price - ask_edge  > 25.0:
-                session.cancel_order(session.sell_orders[0].order_id)
-                session.limit_order(OrderSide.Sell, ask_edge + 2.5, 0.01)
-
-        if len(session.buy_orders) == 0:
-            session.limit_order(OrderSide.Buy, bid_edge - 2.5, 0.01)
-        else:            
-            buy_price = session.buy_orders[0].order_price
-            if  bid_edge - buy_price > 25.0:
-                session.cancel_order(session.buy_orders[0].order_id)
-                session.limit_order(OrderSide.Buy, bid_edge - 2.5, 0.01)
+        if amount_buy != 0 and amount_sell == 0:  # 買いオーダーだけ残っている場合
+                # 買いオーダーの乖離をみて、離れていれば売り
+                buy_price = session.buy_orders[0].order_price
+                if bid - buy_price > price * SPREAD_UPDATE:
+                    order_size = ORDER_SIZE - session.buy_orders[0].remain_size
+                    session.cancel_order(session.buy_orders[0].order_id)
+                    session.market_order(OrderSide.Buy, order_size)
+               
+        if amount_sell != 0 and amount_buy == 0: #　売りオーダーだけ残っている場合
+                # 売りオーダーの乖離をみて離れていれば修正            
+                sell_price = session.sell_orders[0].order_price    
+                if sell_price - ask > price * SPREAD_UPDATE:
+                    order_size = ORDER_SIZE - session.sell_orders[0].remain_size
+                    session.cancel_order(session.sell_orders[0].order_id)
+                    session.limit_order(OrderSide.Sell, ask + PRICE_DIFF, order_size)
+        
+        # スプレッドが大きい場合
+        if spread > price * SPREAD_TRIGGER:
+            # まだ指値が両サイドに入っていない場合は、両サイドに指値を入れる。
+            if amount_buy == 0 and amount_sell == 0:
+                session.limit_order(OrderSide.Buy, bid + PRICE_DIFF, ORDER_SIZE)
+                session.limit_order(OrderSide.Sell, ask - PRICE_DIFF, ORDER_SIZE)
 
 
     def on_update(self, session, updated_order):
@@ -50,7 +72,9 @@ class MyAgent:
         total = self.home + self.foreign * session.bids[0]['price'][0]
         
         print("UPDATE_TOTAL", self.home, self.foreign, total)
-        print("Order Update: ", time_string(session.current_time), updated_order)
+        
+        print("UPDATE BUY: ", session.buy_orders)
+        print("UPDATE SELL: ", session.sell_orders)
         
     
     def on_account_update(self, session, account):

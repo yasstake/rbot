@@ -1,9 +1,7 @@
-
-
 use numpy::PyArray2;
 use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use crate::{
@@ -78,7 +76,7 @@ impl Session {
             free_home_change: dec![0.0],
             free_foreign_change: dec![0.0],
             lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],            
+            lock_foreign_change: dec![0.0],
         };
 
         session.load_order_list().unwrap();
@@ -124,8 +122,8 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_buy_order_amount(&self) -> Decimal {
-        self.buy_orders.remain_size()
+    pub fn get_buy_order_amount(&self) -> f64 {
+        self.buy_orders.remain_size().to_f64().unwrap()
     }
 
     #[getter]
@@ -134,11 +132,50 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_sell_order_amount(&self) -> Decimal {
-        self.sell_orders.remain_size()
+    pub fn get_sell_order_amount(&self) -> f64 {
+        self.sell_orders.remain_size().to_f64().unwrap()
     }
 
-    /// cancel order 
+    #[getter]
+    pub fn get_commission_home(&self) -> f64 {
+        self.commission_home.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn commission_foreign(&self) -> f64 {
+        self.commission_foreign.to_f64().unwrap()
+    }
+    #[getter]
+    pub fn home_change(&self) -> f64 {
+        self.home_change.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn foreign_change(&self) -> f64 {
+        self.foreign_change.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn free_home_change(&self) -> f64 {
+        self.free_home_change.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn free_foreign_change(&self) -> f64 {
+        self.free_foreign_change.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn lock_home_change(&self) -> f64 {
+        self.lock_home_change.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn lock_foreign_change(&self) -> f64 {
+        self.lock_foreign_change.to_f64().unwrap()
+    }
+
+    /// cancel order
     /// if success return order id
     /// if fail return None
     pub fn cancel_order(&mut self, order_id: &str) -> Result<Py<PyAny>, PyErr> {
@@ -157,7 +194,7 @@ impl Session {
     pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         let size = size.round_dp(SIZE_SCALE);
 
-        let local_id = self.new_order_id();
+        let local_id = self.new_order_id(&side);
 
         Python::with_gil(|py| {
             self.market
@@ -176,7 +213,7 @@ impl Session {
         let size = size.round_dp(SIZE_SCALE);
 
         // first push order to order list
-        let local_id = self.new_order_id();
+        let local_id = self.new_order_id(&side);
 
         // then call market.limit_order
         let r = Python::with_gil(|py| {
@@ -294,11 +331,18 @@ impl Session {
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
+
+        self.update_lalance(order);
     }
 
-    fn new_order_id(&mut self) -> String {
+    fn new_order_id(&mut self, side: &OrderSide) -> String {
         self.order_number += 1;
-        format!("{}-{:04}", self.session_name, self.order_number)
+
+        match side {
+            OrderSide::Buy => format!("{}-{:04}BUY", self.session_name, self.order_number),
+            OrderSide::Sell =>format!("{}-{:04}SEL", self.session_name, self.order_number),
+            OrderSide::Unknown => format!("{}-{:04}UNK", self.session_name, self.order_number)
+        }
     }
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
@@ -337,5 +381,18 @@ impl Session {
         });
 
         return r;
+    }
+
+    pub fn update_lalance(&mut self, order: &Order) {
+        self.commission_foreign += order.commission_foreign;
+        self.commission_home += order.commission_home;
+
+        self.home_change += order.home_change;
+        self.free_home_change += order.free_home_change;
+        self.lock_home_change += order.lock_home_change;
+
+        self.foreign_change += order.foreign_change;
+        self.free_foreign_change += order.free_foreign_change;
+        self.lock_foreign_change += order.lock_foreign_change;
     }
 }
