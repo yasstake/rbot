@@ -13,13 +13,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
-use crate::common::MultiChannel;
-use crate::common::PRICE_SCALE;
-use crate::common::SIZE_SCALE;
 use crate::common::convert_pyresult_vec;
 use crate::common::{convert_pyresult, MarketMessage, MarketStream};
 use crate::common::{time_string, DAYS};
 use crate::common::{to_naive_datetime, MicroSec};
+use crate::common::{MarketConfig, MultiChannel};
 use crate::common::{Order, OrderSide, TimeChunk, Trade};
 use crate::common::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableQuery};
@@ -27,8 +25,7 @@ use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond
 
 use super::message::BinanceUserStreamMessage;
 use super::message::{
-    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, 
-    BinanceWsBoardUpdate,
+    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
 };
 use super::rest::cancel_order;
 use super::rest::cancell_all_orders;
@@ -427,8 +424,11 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
-        let price = price.round_dp(PRICE_SCALE);
-        let size = size.round_dp(SIZE_SCALE);
+        let price_scale = self.config.market_config.price_scale;
+        let size_scale = self.config.market_config.size_scale;
+
+        let price = price.round_dp(price_scale);
+        let size = size.round_dp(size_scale);
 
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
@@ -443,10 +443,38 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let price = price.round_dp(PRICE_SCALE);
-        let size = size.round_dp(SIZE_SCALE);
+        let price_scale = self.config.market_config.price_scale;
+        let price_dp = price.round_dp(price_scale);        
 
-        let response = new_limit_order(&self.config, side, price, size, client_order_id);
+        let size_scale = self.config.market_config.size_scale;
+        let size_dp = size.round_dp(size_scale);
+
+        let response = new_limit_order(&self.config, side, price_dp, size_dp, client_order_id);
+
+        if response.is_err() {
+            log::error!(
+                "limit_order: side = {:?}, price = {:?}/{:?}, size = {:?}/{:?}, id = {:?}, result={:?}",
+                side,
+                price,
+                price_dp,
+                size,
+                size_dp,
+                client_order_id,
+                response
+            );
+
+            let err = format!(
+                "limit_order({:?}, {:?}/{:?}, {:?}/{:?}, {:?}) -> {:?}",
+                side,
+                price,
+                price_dp,
+                size,
+                size_dp,
+                client_order_id,
+                response.unwrap_err()
+            );
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
+        }
 
         convert_pyresult(response)
     }
@@ -457,7 +485,8 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
-        let size = size.round_dp(SIZE_SCALE);
+        let size_scale = self.config.market_config.size_scale;
+        let size = size.round_dp(size_scale);
 
         let response = new_market_order(&self.config, side, size, client_order_id);
 
@@ -470,9 +499,30 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let size = size.round_dp(SIZE_SCALE);
+        let size_scale = self.config.market_config.size_scale;
+        let size = size.round_dp(size_scale);
 
         let response = new_market_order(&self.config, side, size, client_order_id);
+
+        if response.is_err() {
+            log::error!(
+                "market_order: side = {:?}, size = {:?}, id = {:?}, result={:?}",
+                side,
+                size,
+                client_order_id,
+                response
+            );
+
+            let err = format!(
+                "market_order({:?}, {:?}, {:?}) -> {:?}",
+                side,
+                size,
+                client_order_id,
+                response.unwrap_err()
+            );
+
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
+        }
 
         convert_pyresult(response)
     }
@@ -514,6 +564,11 @@ impl BinanceMarket {
         let status = trade_list(&self.config);
 
         convert_pyresult(status)
+    }
+
+    #[getter]
+    pub fn get_market_config(&self) -> MarketConfig {
+        return self.config.market_config.clone();
     }
 }
 

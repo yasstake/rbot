@@ -32,7 +32,7 @@ pub struct BinanceConfig {
     pub api_key: String,
     pub api_secret: String,
 
-    pub exchange_config: MarketConfig
+    pub market_config: MarketConfig
 }
 
 #[pymethods]
@@ -105,11 +105,11 @@ impl BinanceConfig {
             testnet: false,
             api_key,
             api_secret,
-            exchange_config: MarketConfig::new(
+            market_config: MarketConfig::new(
                 home_symbol,
                 foreign_symbol,
-                dec!(0.01),    // in btc
-                dec!(0.00001), // in btc
+                2,
+                4,
             ),
         };
     }

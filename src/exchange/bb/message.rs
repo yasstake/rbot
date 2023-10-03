@@ -9,9 +9,10 @@ use serde_json::Value;
 
 use crate::common::OrderSide;
 use crate::common::Trade;
+use crate::exchange::string_to_i64;
 
 use super::super::string_to_f64;
-use super::super::string_to_i64;
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BybitTradeMessage {

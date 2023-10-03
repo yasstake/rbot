@@ -4,9 +4,6 @@ use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 
 
-pub const PRICE_SCALE: u32 = 4;
-pub const SIZE_SCALE: u32 = 8;
-
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FeeType {
@@ -26,7 +23,10 @@ pub enum PriceType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
     pub price_unit: Decimal,
+    pub price_scale: u32,
+
     pub size_unit: Decimal,
+    pub size_scale: u32,
 
     pub maker_fee: Decimal,
     pub taker_fee: Decimal,
@@ -42,12 +42,14 @@ impl MarketConfig {
     pub fn new(
         home_currency: &str,
         foreign_currency: &str,
-        price_unit: Decimal,
-        size_unit: Decimal,
+        price_scale: u32,
+        size_scale: u32,
     ) -> Self {
         Self {
-            price_unit,
-            size_unit,
+            price_unit: Decimal::new(1, price_scale),
+            price_scale,
+            size_unit: Decimal::new(1, size_scale),
+            size_scale,
             maker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
             taker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
             price_type: PriceType::Foreign,
