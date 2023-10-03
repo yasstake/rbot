@@ -950,7 +950,7 @@ impl BinanceUserStreamMessage {
             }
             BinanceUserStreamMessage::executionReport(order) => {
                 let mut order: Order = order.into();
-                order.update_balance(&config.exchange_config);
+                order.update_balance(&config.market_config);
                 message.order = Some(order);
             }
         };

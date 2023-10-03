@@ -368,7 +368,7 @@ impl TradeTable {
                 match rx.recv() {
                     Ok(trades) => {
                         let _result = db.insert_records(&trades);
-                        log::info!("recv trades: {}", trades.len());
+                        log::debug!("recv trades: {}", trades.len());
                     }
                     Err(e) => {
                         log::error!("recv error {:?}", e);

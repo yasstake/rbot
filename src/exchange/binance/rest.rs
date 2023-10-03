@@ -546,7 +546,7 @@ pub fn new_limit_order(
     let side = order_side_string(side);
     let mut body = format!(
         "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
-        config.trade_symbol, side, size, price
+        config.trade_symbol, side, size, price 
     );
 
     if cliend_order_id.is_some() {
