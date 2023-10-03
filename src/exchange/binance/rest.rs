@@ -533,8 +533,27 @@ where
     }
 }
 
-/// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
 
+/// Creates a new limit order on Binance exchange.
+///
+/// # Arguments
+///
+/// * `config` - A reference to a `BinanceConfig` object containing the API key and secret key.
+/// * `side` - The order side, either `OrderSide::Buy` or `OrderSide::Sell`.
+/// * `price` - The price at which to place the order.
+/// * `size` - The size of the order.
+/// * `cliend_order_id` - An optional client order ID to assign to the order.
+///
+/// # Returns
+///
+/// A `Result` containing a `BinanceOrderResponse` object if the order was successfully placed,
+/// or an error message as a `String` if the order failed.
+/// 
+/// For SPOT:
+/// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
+/// 
+/// For MARGIN:
+/// https://binance-docs.github.io/apidocs/spot/en/#margin-account-new-order-trade
 pub fn new_limit_order(
     config: &BinanceConfig,
     side: OrderSide,
@@ -557,7 +576,25 @@ pub fn new_limit_order(
     parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
 
+
+/// Creates a new market order on Binance exchange.
+///
+/// # Arguments
+///
+/// * `config` - A reference to a `BinanceConfig` struct containing the API key and secret key.
+/// * `side` - The order side, either `OrderSide::Buy` or `OrderSide::Sell`.
+/// * `size` - The size of the order.
+/// * `cliend_order_id` - An optional client order ID.
+///
+/// # Returns
+///
+/// A `Result` containing a `BinanceOrderResponse` struct if successful, or an error message `String` if unsuccessful.
+///
+/// For SPOT:
 /// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
+/// 
+/// For MARGIN:
+/// https://binance-docs.github.io/apidocs/spot/en/#margin-account-new-order-trade
 pub fn new_market_order(
     config: &BinanceConfig,
     side: OrderSide,
@@ -614,9 +651,13 @@ pub fn cancell_all_orders(
     ))
 }
 
-/// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
-/// Get Balance from user account
 
+/// Get Balance from user account
+/// for SPOT
+/// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data/// 
+/// 
+/// for MARGIN
+/// https://binance-docs.github.io/apidocs/spot/en/#margin-account-balance-user_data
 pub fn get_balance(config: &BinanceConfig) -> Result<BinanceAccountInformation, String> {
     let path = "/api/v3/account";
 
@@ -676,6 +717,7 @@ pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersRespons
         Some(query.as_str()),
     ))
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -992,5 +1034,38 @@ mod tests {
 
         let message = trade_list(&config).unwrap();
         println!("message: {:?}", message);
+    }
+
+    #[test]
+    fn test_sport_order_e2e() {
+        init_debug_log();
+        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+
+        // display balance
+        let balance = get_balance(&config).unwrap();
+        println!("{:?}", balance);
+
+
+        // make limit order
+        let order = new_limit_order(
+            &config,
+            OrderSide::Buy,
+            Decimal::from_f64(24_000.0).unwrap(),
+            Decimal::from_f64(0.001).unwrap(),
+            Some(&"LimitOrder-test"),
+        ).unwrap();
+
+        // cancel
+
+        let orders: Vec<Order> = order.into();
+
+        if orders.len() == 1 {
+            let order = &orders[0];
+            println!("order: {:?}", order);
+
+            let result = cancel_order(&config, &order.order_id);
+            println!("result: {:?}", result);
+        }
+
     }
 }

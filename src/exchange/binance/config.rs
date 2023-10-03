@@ -26,7 +26,10 @@ pub struct BinanceConfig {
     pub history_web_base: String,
     pub new_order_path: String,
     pub cancel_order_path: String,
+    pub open_orders_path: String,
+    pub account_path: String,
     pub public_subscribe_message: String,
+    pub user_data_stream_path: String,
 
     // key & secret
     pub api_key: String,
@@ -91,6 +94,10 @@ impl BinanceConfig {
             history_web_base: "https://data.binance.vision/data/spot/daily/trades".to_string(),
             new_order_path: "/api/v3/order".to_string(),
             cancel_order_path: "/api/v3/order".to_string(),
+            open_orders_path: "/api/v3/openOrders".to_string(),
+            account_path: "/api/v3/account".to_string(),
+            user_data_stream_path: "/api/v3/userDataStream".to_string(),
+
             public_subscribe_message: json!(
                 {
                     "method": "SUBSCRIBE",

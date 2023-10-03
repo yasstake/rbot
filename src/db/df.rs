@@ -1,5 +1,5 @@
 use crate::common::Trade;
-use crate::common::{time_string, MicroSec, DAYS, SEC, NOW};
+use crate::common::{time_string, MicroSec, DAYS, NOW, SEC};
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -45,7 +45,6 @@ pub mod KEY {
     pub const end_time: &str = "end_time";
     pub const count: &str = "count";
 }
-
 
 /// Cutoff from_time to to_time(not include)
 pub fn select_df(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
@@ -173,15 +172,6 @@ pub fn ohlcv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .groupby_dynamic(col(KEY::time_stamp), [], option)
-        .agg([
-            col(KEY::price).first().alias(KEY::open),
-            col(KEY::price).max().alias(KEY::high),
-            col(KEY::price).min().alias(KEY::low),
-            col(KEY::price).last().alias(KEY::close),
-            col(KEY::size).sum().alias(KEY::vol),
-            col(KEY::price).count().alias(KEY::count),
-        ])
         .sort(
             KEY::time_stamp,
             SortOptions {
@@ -191,6 +181,15 @@ pub fn ohlcv_df(
                 multithreaded: true,
             },
         )
+        .groupby_dynamic(col(KEY::time_stamp), [], option)
+        .agg([
+            col(KEY::price).first().alias(KEY::open),
+            col(KEY::price).max().alias(KEY::high),
+            col(KEY::price).min().alias(KEY::low),
+            col(KEY::price).last().alias(KEY::close),
+            col(KEY::size).sum().alias(KEY::vol),
+            col(KEY::price).count().alias(KEY::count),
+        ])
         .collect();
 
     match result {
@@ -234,6 +233,15 @@ pub fn ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
+        .sort(
+            KEY::time_stamp,
+            SortOptions {
+                descending: false,
+                nulls_last: false,
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .groupby_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -245,15 +253,6 @@ pub fn ohlcvv_df(
             col(KEY::time_stamp).min().alias(KEY::start_time),
             col(KEY::time_stamp).max().alias(KEY::end_time),
         ])
-        .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
-                nulls_last: false,
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .collect();
 
     match result {
@@ -297,6 +296,15 @@ pub fn ohlcv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
+        .sort(
+            KEY::time_stamp,
+            SortOptions {
+                descending: false,
+                nulls_last: false,
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .groupby_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::open)
@@ -312,15 +320,6 @@ pub fn ohlcv_from_ohlcvv_df(
             col(KEY::vol).sum().alias(KEY::vol),
             col(KEY::count).sum().alias(KEY::count),
         ])
-        .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
-                nulls_last: false,
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .collect();
 
     match result {
@@ -359,6 +358,15 @@ pub fn ohlcvv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
+        .sort(
+            KEY::time_stamp,
+            SortOptions {
+                descending: false,
+                nulls_last: false,
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .groupby_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -370,15 +378,6 @@ pub fn ohlcvv_from_ohlcvv_df(
             col(KEY::start_time).min().alias(KEY::start_time),
             col(KEY::end_time).max().alias(KEY::end_time),
         ])
-        .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
-                nulls_last: false,
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .collect();
 
     match result {
@@ -430,8 +429,6 @@ impl TradeBuffer {
         self.order_side.push(trade.order_side.is_buy_side());
     }
 
-
-
     pub fn to_dataframe(&self) -> DataFrame {
         let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
         let price = Series::new(KEY::price, self.price.to_vec());
@@ -443,7 +440,6 @@ impl TradeBuffer {
         return df;
     }
 }
-
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
@@ -490,8 +486,8 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 }
 
 use polars::prelude::*;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[test]
 fn test_simple_dynamic_group() {
