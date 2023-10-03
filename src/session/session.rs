@@ -17,7 +17,7 @@ use crate::{
 use super::{has_method, OrderList};
 use pyo3::prelude::*;
 
-use crate::common::MarketMessage;
+use crate::common::{MarketMessage, SEC};
 use crate::common::Order;
 use crate::common::Trade;
 
@@ -94,6 +94,26 @@ impl Session {
         session.load_order_list().unwrap();
 
         return session;
+    }
+
+    pub fn ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
+        let window_sec = interval * count;
+        let time_from = self.current_time - SEC(window_sec);
+        let time_to = 0; // latest
+
+        Python::with_gil(|py| {
+            let result = self.market.call_method1(py, "ohlcv", (time_from, time_to, interval));
+
+            match result {
+                Ok(df) => {
+                    return Ok(df);
+                }
+                Err(e) => {
+                    log::error!("ohlcv error: {:?}", e);
+                    return Err(e);
+                }
+            }
+        })
     }
 
     #[getter]

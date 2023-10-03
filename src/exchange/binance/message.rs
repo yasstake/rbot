@@ -283,7 +283,7 @@ impl BinanceOrderFill {
             qty: dec![0.0],
             commission: dec![0.0],
             commissionAsset: "".to_string(),
-            tradeId: 0,
+            tradeId: 0,                         // only for SPOT
         }
     }
 
@@ -368,7 +368,7 @@ pub struct BinanceOrderResponse {
     #[serde(rename = "type")]
     order_type: String,
     side: String,
-    workingTime: u64,
+    workingTime: u64,                   // only for SPOT
     selfTradePreventionMode: String,
     fills: Vec<BinanceOrderFill>,
 }
