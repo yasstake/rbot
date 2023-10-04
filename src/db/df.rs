@@ -1,5 +1,5 @@
 use crate::common::Trade;
-use crate::common::{time_string, MicroSec, DAYS, NOW, SEC};
+use crate::common::{time_string, MicroSec, SEC};
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -487,68 +487,67 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
-
-#[test]
-fn test_simple_dynamic_group() {
-    let option = DynamicGroupOptions {
-        every: Duration::new(DAYS(1)),
-        index_column: "date".into(),
-        check_sorted: true,
-        start_by: StartBy::DataPoint,
-        period: Duration::new(DAYS(1)), // データ取得の幅（グループ間隔と同じでOK)
-        offset: Duration::parse("0m"),
-        truncate: true,                    // タイムスタンプを切り下げてまとめる。
-        include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
-        closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-
-        ..Default::default()
-    };
-
-    // Make example of lazy group by
-    let df = df!(
-        "date" => [DAYS(100), DAYS(100), DAYS(101), DAYS(101), DAYS(102),DAYS(103)],
-        "category" => ["A", "B", "A", "B", "A", "B"],
-        "value" => [1, 2, 3, 4, 5, 6]
-    )
-    .unwrap();
-
-    println!("{:?}", df);
-
-    let groupby = df
-        .lazy()
-        .sort(
-            "date",
-            SortOptions {
-                descending: false,
-                nulls_last: false,
-                multithreaded: true,
-                maintain_order: false,
-            },
-        )
-        .groupby_dynamic(
-            col("date"),
-            //[col("category")],
-            [],
-            option,
-        )
-        .agg([
-            col("value").mean().alias("mean"),
-            col("value").sum().alias("sum"),
-        ])
-        .collect()
-        .unwrap();
-
-    println!("{:?}", groupby);
-    let df = make_empty_ohlcv();
-    assert_eq!(df.height(), 0);
-    assert_eq!(df.width(), 7);
-}
 
 #[cfg(test)]
 mod test_df {
     use super::*;
     use crate::common::DAYS;
+
+    #[test]
+    fn test_simple_dynamic_group() {
+        let option = DynamicGroupOptions {
+            every: Duration::new(DAYS(1)),
+            index_column: "date".into(),
+            check_sorted: true,
+            start_by: StartBy::DataPoint,
+            period: Duration::new(DAYS(1)), // データ取得の幅（グループ間隔と同じでOK)
+            offset: Duration::parse("0m"),
+            truncate: true,                    // タイムスタンプを切り下げてまとめる。
+            include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
+            closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
+
+            ..Default::default()
+        };
+
+        // Make example of lazy group by
+        let df = df!(
+            "date" => [DAYS(100), DAYS(100), DAYS(101), DAYS(101), DAYS(102),DAYS(103)],
+            "category" => ["A", "B", "A", "B", "A", "B"],
+            "value" => [1, 2, 3, 4, 5, 6]
+        )
+        .unwrap();
+
+        println!("{:?}", df);
+
+        let groupby = df
+            .lazy()
+            .sort(
+                "date",
+                SortOptions {
+                    descending: false,
+                    nulls_last: false,
+                    multithreaded: true,
+                    maintain_order: false,
+                },
+            )
+            .groupby_dynamic(
+                col("date"),
+                //[col("category")],
+                [],
+                option,
+            )
+            .agg([
+                col("value").mean().alias("mean"),
+                col("value").sum().alias("sum"),
+            ])
+            .collect()
+            .unwrap();
+
+        println!("{:?}", groupby);
+        let df = make_empty_ohlcv();
+        assert_eq!(df.height(), 0);
+        assert_eq!(df.width(), 7);
+    }
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(
