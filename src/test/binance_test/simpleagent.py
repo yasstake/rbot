@@ -72,13 +72,13 @@ market.start_market_stream()
 #market.repave_today()
 market.start_user_stream()
 
-    
 agent = MyAgent()
 runner = Runner()
 
 from threading import Thread
 from time import sleep
 
+init_log()
 
 def run():
     runner.run(market, agent)
