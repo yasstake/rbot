@@ -14,11 +14,11 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::convert_pyresult_vec;
-use crate::common::{convert_pyresult, MarketMessage, MarketStream};
-use crate::common::{time_string, DAYS};
+use crate::common::{convert_pyresult, MarketStream};
+use crate::common::DAYS;
 use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{MarketConfig, MultiChannel};
-use crate::common::{Order, OrderSide, TimeChunk, Trade};
+use crate::common::{Order, OrderSide, Trade};
 use crate::common::{HHMM, NOW, TODAY};
 use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
@@ -686,7 +686,7 @@ impl BinanceMarket {
 mod binance_test {
     use std::{thread::sleep, time::Duration};
 
-    use crate::common::{init_debug_log, init_log};
+    use crate::common::{init_debug_log, init_log, time_string};
 
     use super::*;
 
@@ -728,7 +728,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.ohlcv(0, 0, 3600);
+        let _ = market.ohlcv(0, 0, 3600);
 
         println!("{:?}", market.db.ohlcv_df(0, 0, 3600));
     }
@@ -738,7 +738,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.ohlcv(0, 0, 3600);
+        let _ = market.ohlcv(0, 0, 3600);
     }
 
     #[test]
@@ -753,7 +753,7 @@ mod binance_test {
     #[test]
     fn test_reflesh_board() {
         let config = BinanceConfig::BTCUSDT();
-        let market = BinanceMarket::new(&config);
+        let _market = BinanceMarket::new(&config);
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         let update_data = get_board_snapshot(&config).unwrap();

@@ -1,7 +1,7 @@
 use std::thread::sleep;
 use std::time::Duration;
 
-use crossbeam_channel::Receiver;
+// use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 
 use super::message::BinanceAccountInformation;
@@ -14,12 +14,10 @@ use super::message::BinanceTradeMessage;
 use super::BinanceConfig;
 use crate::common::time_string;
 use crate::common::MicroSec;
-use crate::common::Order;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::HHMM;
 use crate::common::NOW;
-use crate::db::df::KEY::id;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
@@ -168,7 +166,7 @@ pub fn process_old_trade<F>(
 where
     F: FnMut(Vec<Trade>) -> Result<(), String>,
 {
-    let mut path: String;
+    let path: String;
 
     if from_id == 0 {
         path = format!(
@@ -246,6 +244,7 @@ where
     let mut from_id = 0;
     let mut count = 0;
 
+    // TODO: check implementation
     let start_time = server_time(config);
 
     loop {
@@ -724,7 +723,7 @@ mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
-    use crate::common::{init_debug_log, time_string, HHMM};
+    use crate::common::{init_debug_log, time_string, HHMM, Order};
 
     use crate::common::init_log;
 

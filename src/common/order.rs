@@ -635,7 +635,7 @@ impl Order {
     }
 
     /// in order book, accout locked the size of order
-    fn update_balance_new(&mut self, config: &MarketConfig) {
+    fn update_balance_new(&mut self, _config: &MarketConfig) {
         let order_size= self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
@@ -695,7 +695,7 @@ impl Order {
     }
 
     //
-    fn update_balance_canceled(&mut self, config: &MarketConfig) {
+    fn update_balance_canceled(&mut self, _config: &MarketConfig) {
         let order_size= self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 

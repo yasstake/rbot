@@ -1,7 +1,7 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use pyo3::{pyfunction, PyErr};
-use log::{LevelFilter};
+use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
 
