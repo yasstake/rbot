@@ -35,7 +35,7 @@ use crate::exchange::rest_put;
 /// # Returns
 ///
 /// Returns a `Result` containing a tuple of `BinanceMessageId` and `MicroSec` if the operation is successful, otherwise returns an error message as a `String`.
-fn process_recent_trade<F>(
+pub fn process_recent_trade<F>(
     config: &BinanceConfig,
     f: &mut F,
 ) -> Result<(BinanceMessageId, MicroSec), String>

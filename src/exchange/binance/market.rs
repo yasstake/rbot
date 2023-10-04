@@ -34,8 +34,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
-    OrderBook,
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook,
 };
 
 use crate::exchange::binance::config::BinanceConfig;
