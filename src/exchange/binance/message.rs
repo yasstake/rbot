@@ -697,8 +697,7 @@ pub struct BinanceExecutionReport {
     #[serde(rename = "C")]
     original_client_order_id: String,
     #[serde(rename = "x")]
-    #[serde(deserialize_with = "ordertype_deserialize")]
-    current_execution_type: OrderType,
+    current_execution_type: String,
     #[serde(rename = "X")]
     #[serde(deserialize_with = "orderstatus_deserialize")]
     current_order_status: OrderStatus,
@@ -781,6 +780,8 @@ impl From<&BinanceExecutionReport> for Order {
         if value.order_reject_reason != "NONE" {
             order.message  = value.order_reject_reason.clone();
         }
+
+        log::debug!("order: {:?}", order);
 
         order
     }

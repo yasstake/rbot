@@ -4,4 +4,6 @@ pandas
 bokeh
 polars
 pyarrow
+flet
+
 

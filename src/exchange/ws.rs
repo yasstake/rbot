@@ -127,7 +127,7 @@ impl WebSocketClient {
 
         if message.is_err() {
             log::error!("Disconnected from server");
-            return Err(format!("Disconnected : {}", message.unwrap_err()));
+            return Err(format!("Disconnected {}: {}", self.url, message.unwrap_err()));
         }
 
         let message = message.unwrap();
@@ -211,7 +211,7 @@ impl AutoConnectClient {
         self.client = self.next_client.take();
         self.next_client = None;
 
-        log::info!("------WS switched------");
+        log::info!("------WS switched-{}-----", self.url);
     }
 
     pub fn receive_message(&mut self) -> Result<String, String> {
@@ -231,7 +231,7 @@ impl AutoConnectClient {
         // if the connection_next is not None, receive message
         if self.next_client.is_some() {
             if self.sync_records < SYNC_RECORDS {
-                self.sync_records += 1;
+                self.sync_records += 1;             // TODO: change overlap time from number of opelap records.
                 log::info!("SYNC {}", self.sync_records);
                 let message = self._receive_message();
                 let m = message.unwrap();
@@ -246,8 +246,7 @@ impl AutoConnectClient {
                     let message = self._receive_message();
 
                     if message.is_err() {
-                        log::error!("Disconnected from server");
-                        // TODO: reconnect
+                        log::warn!("Disconnected from server before sync complete {}: {:?}", self.url, message.unwrap_err());
                         break;
                     }                    
 
