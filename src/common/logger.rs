@@ -1,7 +1,7 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use pyo3::{pyfunction, PyErr};
-use log::{LevelFilter};
+use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
 
@@ -9,7 +9,7 @@ use simple_logger::SimpleLogger;
 #[pyfunction]
 /// Initializes the logger with a warning level filter.
 pub fn init_log() {
-    let _ = SimpleLogger::new().with_level(LevelFilter::Warn).init();
+    let _ = SimpleLogger::new().with_level(LevelFilter::Info).init();
 }
 
 #[pyfunction]

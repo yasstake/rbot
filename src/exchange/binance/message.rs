@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use futures::lock;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -284,7 +283,7 @@ impl BinanceOrderFill {
             qty: dec![0.0],
             commission: dec![0.0],
             commissionAsset: "".to_string(),
-            tradeId: 0,
+            tradeId: 0,                         // only for SPOT
         }
     }
 
@@ -296,6 +295,9 @@ impl BinanceOrderFill {
         serde_json::to_string(&self).unwrap()
     }
 }
+
+
+
 
 impl From<BinanceOrderResponse> for Vec<Order> {
     fn from(order: BinanceOrderResponse) -> Self {
@@ -348,6 +350,7 @@ impl From<BinanceOrderResponse> for Vec<Order> {
     }
 }
 
+
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderResponse {
@@ -365,7 +368,7 @@ pub struct BinanceOrderResponse {
     #[serde(rename = "type")]
     order_type: String,
     side: String,
-    workingTime: u64,
+    workingTime: u64,                   // only for SPOT
     selfTradePreventionMode: String,
     fills: Vec<BinanceOrderFill>,
 }
@@ -694,8 +697,7 @@ pub struct BinanceExecutionReport {
     #[serde(rename = "C")]
     original_client_order_id: String,
     #[serde(rename = "x")]
-    #[serde(deserialize_with = "ordertype_deserialize")]
-    current_execution_type: OrderType,
+    current_execution_type: String,
     #[serde(rename = "X")]
     #[serde(deserialize_with = "orderstatus_deserialize")]
     current_order_status: OrderStatus,
@@ -778,6 +780,8 @@ impl From<&BinanceExecutionReport> for Order {
         if value.order_reject_reason != "NONE" {
             order.message  = value.order_reject_reason.clone();
         }
+
+        log::debug!("order: {:?}", order);
 
         order
     }
@@ -946,7 +950,8 @@ impl BinanceUserStreamMessage {
                 log::error!("not implemented");
             }
             BinanceUserStreamMessage::executionReport(order) => {
-                let order: Order = order.into();
+                let mut order: Order = order.into();
+                order.update_balance(&config.market_config);
                 message.order = Some(order);
             }
         };

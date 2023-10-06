@@ -1,44 +1,31 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use chrono::Datelike;
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 use csv::StringRecord;
-use hmac::digest::crypto_common::BlockSizeUser;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use serde::de;
-use serde_derive::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::borrow::BorrowMut;
-use std::f32::consts::E;
-use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
-use std::{fs, thread};
 
-use crate::common::MultiChannel;
-use crate::common::PRICE_SCALE;
-use crate::common::SIZE_SCALE;
 use crate::common::convert_pyresult_vec;
-use crate::common::{convert_pyresult, MarketMessage, MarketStream};
-use crate::common::{time_string, DAYS};
+use crate::common::{convert_pyresult, MarketStream};
+use crate::common::DAYS;
 use crate::common::{to_naive_datetime, MicroSec};
-use crate::common::{Order, OrderSide, TimeChunk, Trade};
+use crate::common::{MarketConfig, MultiChannel};
+use crate::common::{Order, OrderSide, Trade};
 use crate::common::{HHMM, NOW, TODAY};
-use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
+use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
-use crate::fs::{db_full_path, project_dir};
 
 use super::message::BinanceUserStreamMessage;
 use super::message::{
-    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceTradeMessage,
-    BinanceWsBoardUpdate,
+    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
 };
 use super::rest::cancel_order;
 use super::rest::cancell_all_orders;
@@ -47,8 +34,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, log_download, make_download_url_list, AutoConnectClient, Board,
-    OrderBook,
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook,
 };
 
 use crate::exchange::binance::config::BinanceConfig;
@@ -437,8 +423,11 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
-        let price = price.round_dp(PRICE_SCALE);
-        let size = size.round_dp(SIZE_SCALE);
+        let price_scale = self.config.market_config.price_scale;
+        let size_scale = self.config.market_config.size_scale;
+
+        let price = price.round_dp(price_scale);
+        let size = size.round_dp(size_scale);
 
         let response = new_limit_order(&self.config, side, price, size, client_order_id);
 
@@ -453,10 +442,38 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let price = price.round_dp(PRICE_SCALE);
-        let size = size.round_dp(SIZE_SCALE);
+        let price_scale = self.config.market_config.price_scale;
+        let price_dp = price.round_dp(price_scale);        
 
-        let response = new_limit_order(&self.config, side, price, size, client_order_id);
+        let size_scale = self.config.market_config.size_scale;
+        let size_dp = size.round_dp(size_scale);
+
+        let response = new_limit_order(&self.config, side, price_dp, size_dp, client_order_id);
+
+        if response.is_err() {
+            log::error!(
+                "limit_order: side = {:?}, price = {:?}/{:?}, size = {:?}/{:?}, id = {:?}, result={:?}",
+                side,
+                price,
+                price_dp,
+                size,
+                size_dp,
+                client_order_id,
+                response
+            );
+
+            let err = format!(
+                "limit_order({:?}, {:?}/{:?}, {:?}/{:?}, {:?}) -> {:?}",
+                side,
+                price,
+                price_dp,
+                size,
+                size_dp,
+                client_order_id,
+                response.unwrap_err()
+            );
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
+        }
 
         convert_pyresult(response)
     }
@@ -467,7 +484,8 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
-        let size = size.round_dp(SIZE_SCALE);
+        let size_scale = self.config.market_config.size_scale;
+        let size = size.round_dp(size_scale);
 
         let response = new_market_order(&self.config, side, size, client_order_id);
 
@@ -480,9 +498,30 @@ impl BinanceMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let size = size.round_dp(SIZE_SCALE);
+        let size_scale = self.config.market_config.size_scale;
+        let size = size.round_dp(size_scale);
 
         let response = new_market_order(&self.config, side, size, client_order_id);
+
+        if response.is_err() {
+            log::error!(
+                "market_order: side = {:?}, size = {:?}, id = {:?}, result={:?}",
+                side,
+                size,
+                client_order_id,
+                response
+            );
+
+            let err = format!(
+                "market_order({:?}, {:?}, {:?}) -> {:?}",
+                side,
+                size,
+                client_order_id,
+                response.unwrap_err()
+            );
+
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
+        }
 
         convert_pyresult(response)
     }
@@ -524,6 +563,11 @@ impl BinanceMarket {
         let status = trade_list(&self.config);
 
         convert_pyresult(status)
+    }
+
+    #[getter]
+    pub fn get_market_config(&self) -> MarketConfig {
+        return self.config.market_config.clone();
     }
 }
 
@@ -642,7 +686,7 @@ impl BinanceMarket {
 mod binance_test {
     use std::{thread::sleep, time::Duration};
 
-    use crate::common::{init_debug_log, init_log};
+    use crate::common::{init_debug_log, init_log, time_string};
 
     use super::*;
 
@@ -684,7 +728,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.ohlcv(0, 0, 3600);
+        let _ = market.ohlcv(0, 0, 3600);
 
         println!("{:?}", market.db.ohlcv_df(0, 0, 3600));
     }
@@ -694,7 +738,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
-        market.ohlcv(0, 0, 3600);
+        let _ = market.ohlcv(0, 0, 3600);
     }
 
     #[test]
@@ -709,7 +753,7 @@ mod binance_test {
     #[test]
     fn test_reflesh_board() {
         let config = BinanceConfig::BTCUSDT();
-        let market = BinanceMarket::new(&config);
+        let _market = BinanceMarket::new(&config);
         //let mut market = BinanceMarket::new("BTCBUSD", true);
 
         let update_data = get_board_snapshot(&config).unwrap();

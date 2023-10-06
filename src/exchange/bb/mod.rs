@@ -5,7 +5,6 @@ pub mod message;
 pub mod rest;
 pub mod ws;
 
-use std::io::{stdout, Write};
 use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
@@ -14,15 +13,14 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
 
-use crate::common::{OrderSide, TimeChunk, Trade};
+use crate::common::{OrderSide, Trade, DAYS};
 use crate::common::NOW;
-use crate::common::{time_string, DAYS};
 use crate::common::{to_naive_datetime, MicroSec};
-use crate::db::sqlite::{TradeTable, TradeTableDb, TradeTableQuery};
+use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::fs::db_full_path;
 
 
-use super::{log_download, download_log, make_download_url_list};
+use super::{download_log, make_download_url_list};
 
 // TODO: implement ByBit Config.
 #[pyclass]
@@ -271,7 +269,7 @@ KLine形式で１分足ならばもっと長期間のログが取得可能。
 */
 
 #[cfg(test)]
-mod BBMarketTest{
+mod bbmarket_test{
     use csv::StringRecord;
     use rust_decimal_macros::dec;
 

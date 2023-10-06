@@ -9,9 +9,10 @@ use serde_json::Value;
 
 use crate::common::OrderSide;
 use crate::common::Trade;
+use crate::exchange::string_to_i64;
 
 use super::super::string_to_f64;
-use super::super::string_to_i64;
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BybitTradeMessage {
@@ -86,7 +87,7 @@ mod bybit_message_test {
     fn test_parse_recent_trade() {
         use super::BybitTradeMessage;
 
-        let mut result: BybitTradeMessage = serde_json::from_str(RECENT_TRADE).unwrap();
+        let result: BybitTradeMessage = serde_json::from_str(RECENT_TRADE).unwrap();
 
         println!("result: {:?}", result);
 
