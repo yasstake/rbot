@@ -43,6 +43,10 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(FLOOR, m)?)?;
 
     // classes
+    m.add_class::<MarketConfig>()?;
+    m.add_class::<OrderStatus>()?;
+    m.add_class::<AccountStatus>()?;
+
     m.add_class::<Order>()?;
     m.add_class::<OrderSide>()?;
 

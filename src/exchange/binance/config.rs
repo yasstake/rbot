@@ -2,7 +2,7 @@ use pyo3::{pyclass, pymethods};
 use serde_derive::{Serialize, Deserialize};
 use serde_json::json;
 
-use crate::fs::db_full_path;
+use crate::{fs::db_full_path, common::MarketConfig};
 
 
 
@@ -12,7 +12,6 @@ pub struct BinanceConfig {
     pub exchange_name: String,
     pub trade_category: String,
     pub trade_symbol: String,
-    pub size_in_foreign: bool,
     
     pub home_currency: String,
     pub foreign_currency: String,
@@ -26,11 +25,16 @@ pub struct BinanceConfig {
     pub history_web_base: String,
     pub new_order_path: String,
     pub cancel_order_path: String,
+    pub open_orders_path: String,
+    pub account_path: String,
     pub public_subscribe_message: String,
+    pub user_data_stream_path: String,
 
     // key & secret
     pub api_key: String,
     pub api_secret: String,
+
+    pub market_config: MarketConfig
 }
 
 #[pymethods]
@@ -79,7 +83,6 @@ impl BinanceConfig {
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
-            size_in_foreign: false,
 
             home_currency: home_symbol.to_string(),
             foreign_currency: foreign_symbol.to_string(),
@@ -90,6 +93,10 @@ impl BinanceConfig {
             history_web_base: "https://data.binance.vision/data/spot/daily/trades".to_string(),
             new_order_path: "/api/v3/order".to_string(),
             cancel_order_path: "/api/v3/order".to_string(),
+            open_orders_path: "/api/v3/openOrders".to_string(),
+            account_path: "/api/v3/account".to_string(),
+            user_data_stream_path: "/api/v3/userDataStream".to_string(),
+
             public_subscribe_message: json!(
                 {
                     "method": "SUBSCRIBE",
@@ -104,6 +111,12 @@ impl BinanceConfig {
             testnet: false,
             api_key,
             api_secret,
+            market_config: MarketConfig::new(
+                home_symbol,
+                foreign_symbol,
+                2,
+                4,
+            ),
         };
     }
 

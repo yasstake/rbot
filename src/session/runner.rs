@@ -6,8 +6,10 @@ use std::thread;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
 use rusqlite::ffi::SQLITE_FCNTL_CKSM_FILE;
+use rust_decimal::prelude::ToPrimitive;
 
-use crate::common::{MarketMessage, MarketStream, MicroSec, Order, Trade};
+use crate::common::{MarketMessage, MarketStream, MicroSec, Order, Trade, MarketConfig};
+use crate::exchange::binance::config;
 
 use super::{has_method, Session};
 
@@ -44,8 +46,12 @@ impl Runner {
         let stream = stream.reciver;
 
         let result = Python::with_gil(|py| {
+            let config = market.getattr(py, "market_config").unwrap();
+            let config = config.extract::<MarketConfig>(py).unwrap();
             // TODO: implement reflet session name based on agent name
-            let py_session = Py::new(py, Session::new(market, false, None)).unwrap();
+            let mut session = Session::new(market, false, &config, None);
+            session.open_log(&session.session_name.clone());
+            let py_session = Py::new(py, session).unwrap();
 
             // TODO: implment on_clock;
             let has_on_clock = has_method(agent, "on_clock");
@@ -161,9 +167,12 @@ impl Runner {
 
             let session = py_session.borrow_mut(*py);
             if has_on_tick {
+                let price = trade.price.to_f64().unwrap();
+                let size = trade.size.to_f64().unwrap();
+
                 agent.call_method1(
                     "on_tick",
-                    (session, trade.order_side, trade.price, trade.size),
+                    (session, trade.order_side, price, size)
                 )?;
             }
         }

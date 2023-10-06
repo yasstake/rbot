@@ -3,12 +3,12 @@
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
+use super::MarketConfig;
 use super::MarketMessage;
-use polars_core::utils::arrow::bitmap::or;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::de;
 use serde_derive::Deserialize;
@@ -26,8 +26,6 @@ pub struct TimeChunk {
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
 pub enum OrderStatus {
-    #[strum(ascii_case_insensitive)]
-    InProcess, // 処理中
     #[strum(ascii_case_insensitive)]
     New, // 処理中
     #[strum(
@@ -188,7 +186,9 @@ fn str_to_order_type(order_type: &str) -> OrderType {
         "MARKET" => OrderType::Market,
         _ => {
             log::error!("Unknown order type: {:?}", order_type);
-            OrderType::Limit
+            // OrderType::Limit
+            // TODO: for debuging purpose
+            panic!("Unknown order type: {:?}", order_type);
         }
     }
 }
@@ -448,6 +448,14 @@ pub struct Order {
     pub is_maker: bool,
     #[pyo3(get)]
     pub message: String,
+    pub commission_home: Decimal,    // in home currency
+    pub commission_foreign: Decimal, // in foreign currency
+    pub home_change: Decimal,
+    pub foreign_change: Decimal,
+    pub free_home_change: Decimal,
+    pub free_foreign_change: Decimal,
+    pub lock_home_change: Decimal,
+    pub lock_foreign_change: Decimal,
 }
 
 impl Order {
@@ -482,6 +490,14 @@ impl Order {
             commission_asset: "".to_string(),
             is_maker: false,
             message: "".to_string(),
+            commission_home: dec![0.0],
+            commission_foreign: dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],
         };
     }
 }
@@ -556,6 +572,43 @@ impl Order {
     pub fn get_commission(&self) -> f64 {
         return self.commission.to_f64().unwrap();
     }
+    #[getter]
+    pub fn get_commission_home(&self) -> f64 {
+        return self.commission_home.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_commission_foreign(&self)->f64 {
+        return self.commission_foreign.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn home_change(&self) -> f64 {
+        return self.home_change.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_foreign_change(&self) -> f64 {
+        return self.foreign_change.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_free_home_change(&self) -> f64 {
+        return self.free_home_change.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_free_foreign_change(&self) -> f64 {
+        return self.free_foreign_change.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_lock_home_change(&self) -> f64 {
+        return self.lock_home_change.to_f64().unwrap();
+    }
+    #[getter]
+    pub fn get_lock_foreign_change(&self) -> f64 {
+        return self.lock_foreign_change.to_f64().unwrap();
+    }
+
+
 }
 
 impl Into<MarketMessage> for Order {
@@ -568,236 +621,105 @@ impl Into<MarketMessage> for Order {
     }
 }
 
-/*
-// 約定結果
-#[pyclass]
-#[derive(Debug, Clone)]
-pub struct OrderResult {
-    #[pyo3(get)]
-    pub update_time: MicroSec,
-    #[pyo3(get)]
-    pub order_id: String,
-    #[pyo3(get)]
-    pub order_sub_id: i32, // 分割された場合に利用
-    #[pyo3(get)]
-    pub order_side: OrderSide,
-    #[pyo3(get)]
-    pub post_only: bool,
-    #[pyo3(get)]
-    pub create_time: MicroSec,
-    #[pyo3(get)]
-    pub status: OrderStatus,
-    #[pyo3(get)]
-    pub open_price: f64,
-    #[pyo3(get)]
-    pub open_home_size: f64,
-    #[pyo3(get)]
-    pub open_foreign_size: f64,
-    #[pyo3(get)]
-    pub close_price: f64,
-    #[pyo3(get)]
-    pub close_home_size: f64,
-    #[pyo3(get)]
-    pub close_foreign_size: f64,
-    #[pyo3(get)]
-    pub order_price: f64,
-    #[pyo3(get)]
-    pub order_home_size: f64,
-    #[pyo3(get)]
-    pub order_foreign_size: f64,
-    #[pyo3(get)]
-    pub profit: f64,
-    #[pyo3(get)]
-    pub fee: f64,
-    #[pyo3(get)]
-    pub total_profit: f64,
-    #[pyo3(get)]
-    pub position_change: f64,
-    #[pyo3(get)]
-    pub message: String,
-    #[pyo3(get)]
-    pub size_in_price_currency: bool,
-}
-
-impl OrderResult {
-    pub fn from_order(timestamp: MicroSec, order: &Order, status: OrderStatus) -> Self {
-        if order.size == 0.0 {
-            log::error!("{}  /order size=0", timestamp);
+impl Order {
+    pub fn update_balance(&mut self, config: &MarketConfig) {
+        match self.status {
+            OrderStatus::New => {
+                self.update_balance_new(config);
+            }
+            OrderStatus::PartiallyFilled | OrderStatus::Filled => {
+                self.update_balance_filled(config);
+            }
+            OrderStatus::Canceled | OrderStatus::Rejected | OrderStatus::Error => {
+                self.update_balance_canceled(config);
+            }
         }
-
-        let result = OrderResult {
-            update_time: timestamp,
-            order_id: order.order_id.clone(),
-            order_sub_id: 0,
-            order_side: order.order_side,
-            post_only: order.post_only,
-            create_time: order.create_time,
-            status,
-            open_price: 0.0,
-            open_home_size: 0.0,
-            open_foreign_size: 0.0,
-            close_price: 0.0,
-            close_home_size: 0.0,
-            close_foreign_size: 0.0,
-            order_price: order.price,
-            order_home_size: order.size,
-            order_foreign_size: OrderResult::calc_foreign_size(
-                order.price,
-                order.size,
-                order.size_in_price_currency,
-            ),
-            profit: 0.0,
-            fee: 0.0,
-            total_profit: 0.0,
-            position_change: 0.0,
-            message: order.message.clone(),
-            size_in_price_currency: order.size_in_price_currency,
-        };
-
-        return result;
     }
 
-    // TODO: calc size in currency.
-    pub fn calc_foreign_size(price: f64, home_size: f64, size_in_price_currency: bool) -> f64 {
-        if price == 0.0 {
-            print!("Div 0 in calc_foreign size {}/{}", price, home_size);
-            panic!("Div 0");
-        }
+    /// in order book, accout locked the size of order
+    fn update_balance_new(&mut self, _config: &MarketConfig) {
+        let order_size= self.order_size;
+        let order_quote_vol = self.order_size * self.order_price;
 
-        if size_in_price_currency {
-            return home_size / price;
+        if self.order_side == OrderSide::Buy {
+            // move home to foregin
+            self.commission_home = dec![0.0];
+            self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.foreign_change = dec![0.0];
+            self.free_home_change = - order_quote_vol;
+            self.free_foreign_change = dec![0.0];
+            self.lock_home_change = order_quote_vol;
+            self.lock_foreign_change = dec![0.0];
+        } else { // Sell
+            self.commission_home = dec![0.0];
+            self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.foreign_change = dec![0.0];
+            self.free_home_change = dec![0.0];
+            self.free_foreign_change = - order_size;
+            self.lock_home_change = dec![0.0];
+            self.lock_foreign_change = order_size;
+        }
+    }
+
+    /// The lock is freed and shift the balance.
+    fn update_balance_filled(&mut self, config: &MarketConfig) {
+        let filled_size = self.execute_size;
+        let filled_quote_vol = self.execute_size * self.execute_price;
+        let commission = self.commission;
+        let commission_asset = self.commission_asset.clone();
+
+        if commission_asset == config.home_currency {
+            self.commission_home = commission;
+            self.commission_foreign = dec![0.0];
         } else {
-            return home_size * price;
+            self.commission_home = dec![0.0];
+            self.commission_foreign = commission;
+        }
+
+        if self.order_side == OrderSide::Buy {
+            // move home to foregin
+            self.home_change = - filled_quote_vol;
+            self.foreign_change = filled_size;
+            self.free_home_change = - filled_quote_vol;
+            self.free_foreign_change = filled_size;
+            self.lock_home_change = - filled_quote_vol;
+            self.lock_foreign_change = dec![0.0];
+        } else { // Sell
+            self.home_change = filled_quote_vol;
+            self.foreign_change = - filled_size;
+            self.free_home_change = filled_quote_vol;
+            self.free_foreign_change = - filled_size;
+            self.lock_home_change = dec![0.0];
+            self.lock_foreign_change = - filled_size;
         }
     }
 
-    /// オーダーを指定された大きさで２つに分ける。
-    /// 一つはSelf, もう一つはCloneされたChild Order
-    /// 子供のオーダについては、sub_idが１インクリメントする。
-    /// 分けられない場合(境界が大きすぎる） NoActionが返る。
-    pub fn split_child(&mut self, size: f64) -> Result<OrderResult, OrderStatus> {
-        if self.order_home_size <= size {
-            // do nothing.
-            return Err(OrderStatus::NoAction);
+    //
+    fn update_balance_canceled(&mut self, _config: &MarketConfig) {
+        let order_size= self.order_size;
+        let order_quote_vol = self.order_size * self.order_price;
+
+        if self.order_side == OrderSide::Buy {
+            // move home to foregin
+            self.commission_home = dec![0.0];
+            self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.foreign_change = dec![0.0];
+            self.free_home_change = order_quote_vol;
+            self.free_foreign_change = dec![0.0];
+            self.lock_home_change = - order_quote_vol;
+            self.lock_foreign_change = dec![0.0];
+        } else { // Sell
+            self.commission_home = dec![0.0];
+            self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.foreign_change = dec![0.0];
+            self.free_home_change = dec![0.0];
+            self.free_foreign_change = order_size;
+            self.lock_home_change = dec![0.0];
+            self.lock_foreign_change = - order_size;
         }
-
-        let mut child = self.clone();
-
-        child.order_sub_id = self.order_sub_id + 1;
-        child.order_home_size = self.order_home_size - size;
-        if child.order_price == 0.0 {
-            log::error!("Div 0 by child {:?}", child);
-        }
-        child.order_foreign_size = OrderResult::calc_foreign_size(
-            child.order_price,
-            child.order_home_size,
-            self.size_in_price_currency,
-        );
-
-        self.order_home_size = size;
-
-        if self.order_price == 0.0 {
-            log::error!("Div 0 by parent {:?}", self);
-        }
-        self.order_foreign_size = OrderResult::calc_foreign_size(
-            self.order_price,
-            self.order_home_size,
-            self.size_in_price_currency,
-        );
-
-        return Ok(child);
     }
 }
-*/
-/*
-#[pymethods]
-impl OrderResult {
-    pub fn __str__(&self) -> String {
-        return format!("update_time: {:?}, order_id: {:?}, order_sub_id: {:?}, order_side: {:?}, post_only: {:?}, create_time: {:?}, status: {:?}, open_price: {:?}, open_home_size: {:?}, open_foreign_size: {:?}, close_price: {:?}, close_home_size: {:?}, close_foreign_size: {:?}, order_price: {:?}, order_home_size: {:?}, order_foreign_size: {:?}, profit: {:?}, fee: {:?}, total_profit: {:?}, position_change: {:?}, message: {:?}",
-                       self.update_time,
-                       self.order_id,
-                       self.order_sub_id,
-                       self.order_side,
-                       self.post_only,
-                       self.create_time,
-                       self.status,
-                       self.open_price,
-                       self.open_home_size,
-                       self.open_foreign_size,
-                       self.close_price,
-                       self.close_home_size,
-                       self.close_foreign_size,
-                       self.order_price,
-                       self.order_home_size,
-                       self.order_foreign_size,
-                       self.profit,
-                       self.fee,
-                       self.total_profit,
-                       self.position_change,
-                       self.message);
-    }
-
-    pub fn __repr__(&self) -> String {
-        return self.__str__();
-    }
-}
-
-/// on memory log archive for OrderResult
-pub type LogBuffer = Vec<OrderResult>;
-
-/// make log buffer for log_order_result
-pub fn make_log_buffer() -> LogBuffer {
-    vec![]
-}
-
-pub fn log_order_result(log_buffer: &mut LogBuffer, order_result: OrderResult) {
-    log_buffer.push(order_result);
-}
-
-pub fn print_order_results(log_buffer: &LogBuffer) {
-    for log in log_buffer {
-        println!("{:?}", log);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//     Unit TEST
-///////////////////////////////////////////////////////////////////////////////
-
-#[cfg(test)]
-mod order_side_test {
-    use std::str::FromStr;
-
-    use super::*;
-    #[test]
-    fn test_from_str() {
-        assert_eq!(OrderSide::from_str("B").unwrap(), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("Buy").unwrap(), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("BUY").unwrap(), OrderSide::Buy);
-        assert_eq!(OrderSide::from_str("S").unwrap(), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("Sell").unwrap(), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str("SELL").unwrap(), OrderSide::Sell);
-        assert_eq!(OrderSide::from_str_default("BS"), OrderSide::Unknown);
-    }
-
-    #[test]
-    fn test_to_string() {
-        assert_eq!(OrderSide::Buy.to_string(), "Buy");
-        assert_eq!(OrderSide::Sell.to_string(), "Sell");
-    }
-
-    #[test]
-    fn test_from_buy_side() {
-        assert_eq!(OrderSide::from_buy_side(true), OrderSide::Buy);
-        assert_eq!(OrderSide::from_buy_side(false), OrderSide::Sell);
-    }
-
-    #[test]
-    fn test_is_buy_side() {
-        assert_eq!(OrderSide::Buy.is_buy_side(), true);
-        assert_eq!(OrderSide::Sell.is_buy_side(), false);
-    }
-}
-
-
-*/

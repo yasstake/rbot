@@ -2,15 +2,12 @@ use super::order::Order;
 use super::order::Trade;
 use super::AccountStatus;
 use anyhow::Result;
-use crossbeam_channel::bounded;
+// use crossbeam_channel::bounded;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use crossbeam_channel::TrySendError;
-use openssl::x509::AccessDescription;
 use pyo3::pyclass;
-use std::sync::mpsc;
-use std::sync::Mutex;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +140,7 @@ mod channel_test {
         init_log();
         init_debug_log();
         let mut channel = MultiChannel::new();
-        let receiver = channel.open_channel();
+        let _receiver = channel.open_channel();
 
         for _ in 0..1024 {
             let message = MarketMessage {
@@ -187,6 +184,6 @@ mod channel_test {
         assert_eq!(result.is_err(), true);
 
         // send again, should be ok
-        let result = channel.send(message.clone());
+        let _result = channel.send(message.clone());
     }
 }
