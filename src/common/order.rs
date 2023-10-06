@@ -186,7 +186,9 @@ fn str_to_order_type(order_type: &str) -> OrderType {
         "MARKET" => OrderType::Market,
         _ => {
             log::error!("Unknown order type: {:?}", order_type);
-            OrderType::Limit
+            // OrderType::Limit
+            // TODO: for debuging purpose
+            panic!("Unknown order type: {:?}", order_type);
         }
     }
 }
