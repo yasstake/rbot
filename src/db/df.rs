@@ -1,3 +1,5 @@
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
 use polars::prelude::BooleanType;
@@ -12,7 +14,7 @@ use polars_core::prelude::SortOptions;
 use polars_lazy::prelude::IntoLazy;
 use polars_lazy::prelude::{col, LazyFrame};
 use polars_time::ClosedWindow;
-// Copyright(c) 2022. yasstake. All rights reserved.
+
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -485,13 +487,21 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
     }
 }
 
+pub fn convert_timems_to_datetime(df: &mut DataFrame) -> &DataFrame {
+    let time = df.column(KEY::time_stamp).unwrap().i64().unwrap().clone();
+    let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+    let df = df.with_column(date_time).unwrap();
+
+    df
+}
+
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
 
 #[cfg(test)]
 mod test_df {
     use super::*;
-    use crate::common::DAYS;
+    use crate::{common::DAYS, db::df};
 
     #[test]
     fn test_simple_dynamic_group() {
@@ -630,4 +640,45 @@ mod test_df {
         let r3 = ohlcv_from_ohlcvv_df(&r2, 0, 0, 10);
         println!("{:?}", r3);
     }
+
+
+    #[test]
+    fn test_make_ohlcv_datetime() {
+        use polars::datatypes::TimeUnit;
+        use polars::datatypes::TimeZone;
+
+        let mut time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+
+        let mut t64 = time.i64().unwrap().clone();
+        let date_time = t64.into_datetime(TimeUnit::Microseconds, None);
+
+        let t = Series::new("time", date_time);
+        let open = Series::new(KEY::open, Vec::<f64>::new());
+        let high = Series::new(KEY::high, Vec::<f64>::new());
+        let low = Series::new(KEY::low, Vec::<f64>::new());
+        let close = Series::new(KEY::close, Vec::<f64>::new());
+        let vol = Series::new(KEY::vol, Vec::<f64>::new());
+        let count = Series::new(KEY::count, Vec::<f64>::new());
+
+
+
+        let df = DataFrame::new(vec![t, open, high, low, close, vol, count]).unwrap();
+    
+        println!("{:?}", df);
+    }
+
+    #[test]
+    fn test_convert_ohlc_datetime() {
+        let mut df = make_empty_ohlcv();
+
+        println!("{:?}", df);
+
+
+        let time = df.column("time_stamp").unwrap().i64().unwrap().clone();
+        let mut date_time = time.into_datetime(TimeUnit::Microseconds, None);
+        let df = df.with_column(date_time).unwrap();
+
+        println!("{:?}", df);
+    }
+
 }
