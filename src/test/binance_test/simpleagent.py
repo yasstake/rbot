@@ -78,7 +78,7 @@ runner = Runner()
 from threading import Thread
 from time import sleep
 
-init_debug_log()
+init_log()
 
 def run():
     runner.run(market, agent)

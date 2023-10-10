@@ -1,21 +1,18 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use pyo3::{pyfunction, PyErr};
-use log::LevelFilter;
-use simple_logger::SimpleLogger;
-
-
+use env_logger::Env; 
 
 #[pyfunction]
 /// Initializes the logger with a warning level filter.
 pub fn init_log() {
-    let _ = SimpleLogger::new().with_level(LevelFilter::Info).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
 }
 
 #[pyfunction]
 /// Initializes a debug logger with the `Debug` log level.
 pub fn init_debug_log() {
-    let _ = SimpleLogger::new().with_level(LevelFilter::Debug).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 }
 
 /// Converts a `Result<T, String>` to a `Result<T, PyErr>` by mapping the `Err` variant to a `PyErr`.
