@@ -167,10 +167,12 @@ pub struct AutoConnectClient {
     last_ping_time: MicroSec,
     sync_interval: MicroSec,
     sync_records: i64,
+    sync_mode: bool,
 }
 
-const SYNC_RECORDS: i64 = 100;
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 50; // every 50 min
+const SYNC_RECORDS: i64 = 5;
+// TODO: change sync interval (possibly 12 hours)
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 15; // every 15 min for test
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
@@ -185,6 +187,7 @@ impl AutoConnectClient {
             last_ping_time: NOW(),
             sync_interval: SYNC_INTERVAL,
             sync_records: 0,
+            sync_mode: false,
         }
     }
 
@@ -229,17 +232,12 @@ impl AutoConnectClient {
         }
 
         // if the connection_next is not None, receive message
-        if self.next_client.is_some() {
-            if self.sync_records < SYNC_RECORDS {
-                self.sync_records += 1;             // TODO: change overlap time from number of opelap records.
-                log::info!("SYNC {}", self.sync_records);
-                let message = self._receive_message();
-                let m = message.unwrap();
-                self.last_message = m.clone();
+        if self.next_client.is_some() && self.next_client.as_ref().unwrap().has_message() {
+            self.sync_mode = true;
+        }
 
-                return Ok(m);
-            } else {
-                self.sync_records = 0;
+        if self.sync_mode {
+            if SYNC_RECORDS < self.sync_records {
                 self.switch();
 
                 loop {
@@ -258,9 +256,26 @@ impl AutoConnectClient {
                         || (!self.client.as_ref().unwrap().has_message())
                     {
                         self.last_message = "".to_string();
+                        self.sync_mode = false;
+                        self.sync_records = 0;
+
                         break;
                     }
                 }
+            }
+            else {
+                log::info!("SYNC {}", self.sync_records);
+                let message = self._receive_message();
+
+                if message.is_ok() {
+                    let m = message.unwrap();
+                    self.last_message = m.clone();
+
+                    self.sync_records += 1;
+
+                    return Ok(m);
+                }
+                return message;                
             }
         }
 
