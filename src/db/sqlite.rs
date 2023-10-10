@@ -30,6 +30,8 @@ use polars::prelude::Float64Type;
 use std::thread;
 use crossbeam_channel::Sender;
 
+use super::df::convert_timems_to_datetime;
+
 pub trait TradeTableQuery {
     fn open(name: &str) -> Result<Self, Error>
     where
@@ -611,8 +613,10 @@ impl TradeTable {
     ) -> PyResult<PyDataFrame> {
         from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcvv_df(from_time, to_time, window_sec);
+        let mut df = self.ohlcvv_df(from_time, to_time, window_sec);
         
+        let df = convert_timems_to_datetime(&mut df).clone();
+
         return Ok(PyDataFrame(df));
     }
 
@@ -685,7 +689,8 @@ impl TradeTable {
     ) -> PyResult<PyDataFrame> {
         from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcv_df(from_time, to_time, window_sec);
+        let mut df = self.ohlcv_df(from_time, to_time, window_sec);
+        let df = convert_timems_to_datetime(&mut df).clone();        
         let df = PyDataFrame(df);
 
         return Ok(df);
@@ -697,9 +702,9 @@ impl TradeTable {
         from_time: MicroSec,
         to_time: MicroSec,
     ) -> PyResult<PyDataFrame> {
-        let trades = self.select_df_from_db(from_time, to_time);
-
-        let df = PyDataFrame(trades);
+        let mut df  = self.select_df_from_db(from_time, to_time);
+        let df = convert_timems_to_datetime(&mut df).clone();        
+        let df = PyDataFrame(df);
 
         return Ok(df);
     }
