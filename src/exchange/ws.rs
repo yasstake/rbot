@@ -178,7 +178,7 @@ const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 impl AutoConnectClient {
     pub fn new(url: &str, message: Option<Value>) -> Self {
         AutoConnectClient {
-            client: Some(WebSocketClient::new(url, message.clone())),
+            client: None,
             next_client: None,
             url: url.to_string(),
             subscribe_message: message.clone(),
@@ -192,6 +192,10 @@ impl AutoConnectClient {
     }
 
     pub fn connect(&mut self) {
+        self.client = Some(WebSocketClient::new(
+            self.url.as_str(),
+            self.subscribe_message.clone(),
+        ));
         self.client.as_mut().unwrap().connect();
         self.last_connect_time = NOW();
     }
@@ -283,6 +287,11 @@ impl AutoConnectClient {
     }
 
     fn _receive_message(&mut self) -> Result<String, String> {
+        let client = self.client.as_mut();
+        if client.is_none() {
+            self.connect();
+        }        
+
         let result = self.client.as_mut().unwrap().receive_message();
 
         match result {
