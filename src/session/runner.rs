@@ -93,44 +93,6 @@ impl Runner {
         }
     }
 
-    /*
-    pub fn start_thread(
-        &mut self,
-        market: PyObject,
-        // py_session: PyObject,
-        agent: &PyAny,
-    ) -> Result<(), PyErr> {
-        let stream = Self::get_market_stream(&market);
-        let stream = stream.reciver;
-
-        let result = Python::with_gil(|py| {
-            // TODO: implement reflet session name based on agent name
-            let py_session = Py::new(py, Session::new(market, false, None)).unwrap();
-
-            thread::spawn(move ||{
-            loop {
-                let message = stream.recv();
-
-                if message.is_err() {
-                    log::error!("Error in stream.recv: {:?}", message);
-                    break;
-                }
-
-                let message = message.unwrap();
-
-                let r = Runner::on_message(&py, agent, &py_session, &message);
-
-                if r.is_err() {
-                    return Err(r.unwrap_err());
-                }
-            }
-            Ok(())
-        });
-        });
-
-        Ok(())
-    }
-    */
 }
 
 impl Runner {
