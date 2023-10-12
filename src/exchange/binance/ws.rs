@@ -59,10 +59,21 @@ where
 
         loop {
             let msg = websocket.receive_message();
+            if msg.is_err() {
+                log::warn!("Error in websocket.receive_message: {:?}", msg);
+                continue;
+            }
+
             let msg = msg.unwrap();
             log::debug!("raw msg: {}", msg);
 
             let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
+
+            if msg.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", msg);
+                continue;
+            }
+
             let msg = msg.unwrap();
             f(msg);
 
