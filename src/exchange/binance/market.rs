@@ -34,7 +34,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook,
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook, BoardItem,
 };
 
 use crate::exchange::binance::config::BinanceConfig;
@@ -298,8 +298,18 @@ impl BinanceMarket {
     }
 
     #[getter]
+    pub fn get_asks_vec(&self) -> Vec<BoardItem> {
+        return self.board.lock().unwrap().board.get_asks();
+    }
+
+    #[getter]
     pub fn get_bids_a(&self) -> PyResult<Py<PyArray2<f64>>> {
         return self.board.lock().unwrap().board.get_bids_pyarray();
+    }
+
+    #[getter]
+    pub fn get_bids_vec(&self) -> Vec<BoardItem> {
+        return self.board.lock().unwrap().board.get_bids();
     }
 
     #[getter]
@@ -387,6 +397,7 @@ impl BinanceMarket {
         log::info!("start_market_stream");
     }
 
+    // TODO: 単に待っているだけなので、終了処理を実装する。
     pub fn stop_market_stream(&mut self) {
         match self.public_handler.take() {
             Some(h) => {
@@ -421,6 +432,24 @@ impl BinanceMarket {
             }
             None => {}
         }
+    }
+
+    pub fn is_user_stream_running(&self) -> bool {
+        if let Some(handler) = &self.user_handler {
+            return !handler.is_finished();
+        }
+        return false;
+    }
+
+    pub fn is_market_stream_running(&self) -> bool {
+        if let Some(handler) = &self.public_handler {
+            return !handler.is_finished();
+        }
+        return false;
+    }
+
+    pub fn is_db_thread_running(&self) -> bool {
+        return self.db.is_thread_running();
     }
 
     #[getter]

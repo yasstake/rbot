@@ -528,11 +528,6 @@ mod test_exchange {
 
     use super::*;
     use crate::common::init_debug_log;
-//    use crate::exchange::binance::BinanceMarket;
-    use std::thread::sleep;
-    use std::thread::spawn;
-    use std::time::Duration;
-
 
     #[test]
     fn test_log_download() {

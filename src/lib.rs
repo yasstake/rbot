@@ -13,6 +13,7 @@ use common::{
     Order, OrderSide,
     time_string,
 };
+use exchange::BoardItem;
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::{BinanceMarket, BinanceConfig};
@@ -40,7 +41,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(MIN, m)?)?;
     m.add_function(wrap_pyfunction!(SEC, m)?)?;
 
-    m.add_function(wrap_pyfunction!(FLOOR, m)?)?;
+    m.add_function(wrap_pyfunction!(FLOOR_SEC, m)?)?;
 
     // classes
     m.add_class::<MarketConfig>()?;
@@ -49,6 +50,10 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<Order>()?;
     m.add_class::<OrderSide>()?;
+    m.add_class::<OrderType>()?;
+    m.add_class::<Trade>()?;
+    m.add_class::<BoardItem>()?;
+
 
     m.add_class::<Session>()?;
     m.add_class::<Runner>()?;

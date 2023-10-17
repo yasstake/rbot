@@ -14,7 +14,7 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{TimeChunk, Trade};
-use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR, FLOOR_DAY, NOW};
+use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_SEC, FLOOR_DAY, NOW};
 use crate::db::df::merge_df;
 use crate::db::df::ohlcvv_df;
 use crate::db::df::ohlcvv_from_ohlcvv_df;
@@ -386,13 +386,27 @@ impl TradeTable {
         return self.tx.clone().unwrap();
     }
 
+    pub fn is_thread_running(&self) -> bool {
+        if let Some(handler) = self.handle.as_ref() {
+            if handler.is_finished() {
+                println!("thread is finished");
+                return false;
+            } else {
+                println!("thread is running");
+                return true;
+            }
+        } else {
+            println!("thread is not started");
+            return false;
+        }
+    }
 
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.cache_duration;
     }
 
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
-        return FLOOR(t, TradeTable::OHLCV_WINDOW_SEC);
+        return FLOOR_SEC(t, TradeTable::OHLCV_WINDOW_SEC);
     }
 
     pub fn ohlcv_end(t: MicroSec) -> MicroSec {
