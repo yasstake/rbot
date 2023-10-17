@@ -42,7 +42,18 @@ impl OrderList {
     ///
     /// An `Option` containing the index of the order in the list, or `None` if the order is not found.
     pub fn index(&self, order: &Order) -> Option<usize> {
-        return self.list.iter().position(|x| x.order_id == order.order_id);
+        return self.index_by_id(&order.order_id);
+    }
+
+    pub fn index_by_id(&self, order_id: &str) -> Option<usize> {
+        return self.list.iter().position(|x| x.order_id == order_id);
+    }
+
+    pub fn get_item_by_id(&self, order_id: &str) -> Option<Order> {
+        match self.index_by_id(order_id) {
+            Some(index) => Some(self.list[index].clone()),
+            None => None
+        }
     }
 
     /// Clears the list of orders.
@@ -94,13 +105,14 @@ impl OrderList {
     }
 
     /// Removes the given order from the list and returns true if successful, false otherwise.
-    pub fn remove(&mut self, order: &Order) -> bool {
-        match self.index(order) {
+    pub fn remove(&mut self, order_id: &str) -> Option<Order> {
+        match self.index_by_id(order_id) {
             Some(index) => {
+                let order = self.list[index].clone();
                 self.list.remove(index);
-                true
+                Some(order)
             }
-            None => false,
+            None => None
         }
     }
 
@@ -158,6 +170,7 @@ impl OrderList {
                 break;
             }
 
+            // 先頭のオーダー(list[0] を順次処理する)
             // Buy Order will sonsumme Sell Trade which below the trade price only.
             //　買いオーダーは高い売りトレードがあっても影響を受けない
             if (trade.price >= self.list[0].order_price) && (self.list[0].order_side == OrderSide::Buy) {
@@ -173,7 +186,11 @@ impl OrderList {
             if remain_size < self.list[0].remain_size {
                 // consume all remain_size, order is not filled.
                 self.list[0].status = OrderStatus::PartiallyFilled;
+                self.list[0].execute_size = remain_size;
                 self.list[0].remain_size -= remain_size;
+                self.list[0].execute_price = trade.price;
+                self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;
+
                 remain_size = 0.into();
                 filled_orders.push(self.list[0].clone());
 
@@ -183,7 +200,10 @@ impl OrderList {
             } else {
                 // Order is filled.
                 self.list[0].status = OrderStatus::Filled;
-                self.list[0].remain_size = 0.into();
+                self.list[0].execute_size = self.list[0].order_size;
+                self.list[0].remain_size = 0.into();                
+                self.list[0].execute_price = trade.price;
+                self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;                
 
                 remain_size -= self.list[0].remain_size;
 

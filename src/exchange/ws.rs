@@ -170,15 +170,15 @@ pub struct AutoConnectClient {
     sync_mode: bool,
 }
 
-const SYNC_RECORDS: i64 = 5;
+const SYNC_RECORDS: i64 = 3;
 // TODO: change sync interval (possibly 12 hours)
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 15; // every 15 min for test
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 5; // every 5 min for test
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
 impl AutoConnectClient {
     pub fn new(url: &str, message: Option<Value>) -> Self {
         AutoConnectClient {
-            client: Some(WebSocketClient::new(url, message.clone())),
+            client: None,
             next_client: None,
             url: url.to_string(),
             subscribe_message: message.clone(),
@@ -192,6 +192,10 @@ impl AutoConnectClient {
     }
 
     pub fn connect(&mut self) {
+        self.client = Some(WebSocketClient::new(
+            self.url.as_str(),
+            self.subscribe_message.clone(),
+        ));
         self.client.as_mut().unwrap().connect();
         self.last_connect_time = NOW();
     }
@@ -245,15 +249,21 @@ impl AutoConnectClient {
 
                     if message.is_err() {
                         log::warn!("Disconnected from server before sync complete {}: {:?}", self.url, message.unwrap_err());
+                        self.client.as_mut().unwrap().close();
+                        self.client = None;
+
+                        self.last_message = "".to_string();                        
+                        self.sync_mode = false;
+                        self.sync_records = 0;
+                        log::warn!("few records may be lost");
                         break;
                     }                    
 
                     let message = message.unwrap();
 
-                    log::debug!("{} / {}", message, self.last_message);
+                    log::debug!("SYNC: {} / {}", message, self.last_message);
 
-                    if (message == self.last_message)
-                        || (!self.client.as_ref().unwrap().has_message())
+                    if message == self.last_message
                     {
                         self.last_message = "".to_string();
                         self.sync_mode = false;
@@ -261,10 +271,20 @@ impl AutoConnectClient {
 
                         break;
                     }
+
+                    if self.sync_records == 0 {
+                        self.last_message = "".to_string();
+                        self.sync_mode = false;
+                        self.sync_records = 0;
+
+                        break;
+                    }
+
+                    self.sync_records -= 1;
                 }
             }
             else {
-                log::info!("SYNC {}", self.sync_records);
+                log::info!("SYNC:({})/ {}", self.url, self.sync_records);
                 let message = self._receive_message();
 
                 if message.is_ok() {
@@ -275,6 +295,12 @@ impl AutoConnectClient {
 
                     return Ok(m);
                 }
+
+                log::warn!("Disconnected from server before sync start {}: {:?}", self.url, message);
+                self.last_message = "".to_string();
+                self.sync_mode = false;
+                self.sync_records = 0;
+
                 return message;                
             }
         }
@@ -283,6 +309,11 @@ impl AutoConnectClient {
     }
 
     fn _receive_message(&mut self) -> Result<String, String> {
+        let client = self.client.as_mut();
+        if client.is_none() {
+            self.connect();
+        }        
+
         let result = self.client.as_mut().unwrap().receive_message();
 
         match result {
@@ -290,10 +321,7 @@ impl AutoConnectClient {
                 return result;
             }
             Err(e) => {
-                log::debug!("reconnect");
-                self.connect_next(None);
-                self.switch();
-
+                log::debug!("recive error{}", e);
                 Err(e)
             }
         }
