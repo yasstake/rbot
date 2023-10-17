@@ -11,6 +11,8 @@ use rust_decimal::prelude::ToPrimitive;
 use crate::common::{MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, SEC};
 use crate::exchange::binance::config;
 
+use crossbeam_channel::Receiver;
+
 use super::{has_method, Session};
 
 #[pyclass]
@@ -30,28 +32,28 @@ impl Runner {
         }
     }
 
-    pub fn back_test(&self) {
-        // TODO: implement
-        // repave
-        // start db loop
+    pub fn back_test(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64, time_from: MicroSec, time_to: MicroSec) -> Result<(), PyErr> {
+        let stream = Self::open_backtest_stream(&market, time_from, time_to);
+        let reciever = stream.reciver;
+        self.run(market, &reciever, agent, true, interval_sec)
     }
 
     pub fn dry_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
-        // repave
-        // start market stream
-        self.run(market, agent, true, interval_sec)
+        let stream = Self::get_market_stream(&market);
+        let reciever = stream.reciver;
+        self.run(market, &reciever, agent, true, interval_sec)
     }
 
     pub fn real_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
-        // repave
-        // start market stream
-        // start user stream
-        self.run(market, agent, false, interval_sec)
+        let stream = Self::get_market_stream(&market);
+        let reciever = stream.reciver;
+        self.run(market, &reciever, agent, false, interval_sec)
     }
 
-    pub fn run(&mut self, market: PyObject, agent: &PyAny, dummy: bool, interval_sec: i64) -> Result<(), PyErr> {
-        let stream = Self::get_market_stream(&market);
-        let stream = stream.reciver;
+}
+
+impl Runner {
+    pub fn run(&mut self, market: PyObject, receiver: &Receiver<MarketMessage>, agent: &PyAny, dummy: bool, interval_sec: i64) -> Result<(), PyErr> {
 
         let result = Python::with_gil(|py| {
             let config = market.getattr(py, "market_config").unwrap();
@@ -67,7 +69,7 @@ impl Runner {
             let has_on_update = has_method(agent, "on_update");
 
             loop {
-                let message = stream.recv();
+                let message = receiver.recv();
 
                 if message.is_err() {
                     log::error!("Error in stream.recv: {:?}", message);
@@ -118,9 +120,8 @@ impl Runner {
             Ok(())
         }
     }
-}
 
-impl Runner {
+
     pub fn on_message(
         self: &mut Self,
         py: &Python,
@@ -272,12 +273,32 @@ impl Runner {
 
     /// get market stream from Market object
     /// Every market object shold implement `channel` attribute
+    /// TODO: retrun Error
     pub fn get_market_stream(market: &PyObject) -> MarketStream {
         Python::with_gil(|py| {
             let stream = market.getattr(py, "channel").unwrap();
             let stream = stream.extract::<MarketStream>(py).unwrap();
 
             stream
+        })
+    }
+
+    /// TODO: return error
+    pub fn open_backtest_stream(market: &PyObject, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+        Python::with_gil(|py| {
+            let stream = 
+                market.call_method1(py, "open_backtest_channel", (time_from, time_to));
+
+            if stream.is_ok() {
+                let stream = stream.unwrap();
+                let stream = stream.extract::<MarketStream>(py).unwrap();
+                stream
+            }
+            else {
+                let err = stream.unwrap_err();
+                log::error!("Error in open_backtest_channel: {:?}", err);
+                panic!("Error in open_backtest_channel: {:?}", err);
+            }
         })
     }
 }

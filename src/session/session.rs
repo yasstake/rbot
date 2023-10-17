@@ -38,14 +38,14 @@ pub struct Session {
     order_number: i64,
     transaction_number: i64,
 
-    commission_home: Decimal,
-    commission_foreign: Decimal,
-    home_change: Decimal,
-    foreign_change: Decimal,
-    free_home_change: Decimal,
-    free_foreign_change: Decimal,
-    lock_home_change: Decimal,
-    lock_foreign_change: Decimal,
+    commission_home_sum: Decimal,
+    commission_foreign_sum: Decimal,
+    home_sum: Decimal,
+    foreign_sum: Decimal,
+    free_home_sum: Decimal,
+    free_foreign_sum: Decimal,
+    lock_home_sum: Decimal,
+    lock_foreign_sum: Decimal,
 
     market_config: MarketConfig,
 
@@ -88,14 +88,14 @@ impl Session {
             order_number: 0,
             transaction_number: 0,
 
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
+            commission_home_sum: dec![0.0],
+            commission_foreign_sum: dec![0.0],
+            home_sum: dec![0.0],
+            foreign_sum: dec![0.0],
+            free_home_sum: dec![0.0],
+            free_foreign_sum: dec![0.0],
+            lock_home_sum: dec![0.0],
+            lock_foreign_sum: dec![0.0],
 
             market_config: market_config.clone(),
 
@@ -203,41 +203,41 @@ impl Session {
 
     #[getter]
     pub fn get_commission_home(&self) -> f64 {
-        self.commission_home.to_f64().unwrap()
+        self.commission_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn commission_foreign(&self) -> f64 {
-        self.commission_foreign.to_f64().unwrap()
+        self.commission_foreign_sum.to_f64().unwrap()
     }
     #[getter]
     pub fn home_change(&self) -> f64 {
-        self.home_change.to_f64().unwrap()
+        self.home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn foreign_change(&self) -> f64 {
-        self.foreign_change.to_f64().unwrap()
+        self.foreign_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn free_home_change(&self) -> f64 {
-        self.free_home_change.to_f64().unwrap()
+        self.free_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn free_foreign_change(&self) -> f64 {
-        self.free_foreign_change.to_f64().unwrap()
+        self.free_foreign_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn lock_home_change(&self) -> f64 {
-        self.lock_home_change.to_f64().unwrap()
+        self.lock_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn lock_foreign_change(&self) -> f64 {
-        self.lock_foreign_change.to_f64().unwrap()
+        self.lock_foreign_sum.to_f64().unwrap()
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
@@ -629,16 +629,16 @@ impl Session {
 
     // TODO: check if this is correct
     pub fn update_balance(&mut self, order: &Order) {
-        self.commission_foreign += order.commission_foreign;
-        self.commission_home += order.commission_home;
+        self.commission_foreign_sum += order.commission_foreign;
+        self.commission_home_sum += order.commission_home;
 
-        self.home_change += order.home_change;
-        self.free_home_change += order.free_home_change;
-        self.lock_home_change += order.lock_home_change;
+        self.home_sum += order.home_change;
+        self.free_home_sum += order.free_home_change;
+        self.lock_home_sum += order.lock_home_change;
 
-        self.foreign_change += order.foreign_change;
-        self.free_foreign_change += order.free_foreign_change;
-        self.lock_foreign_change += order.lock_foreign_change;
+        self.foreign_sum += order.foreign_change;
+        self.free_foreign_sum += order.free_foreign_change;
+        self.lock_foreign_sum += order.lock_foreign_change;
     }
 
     pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {

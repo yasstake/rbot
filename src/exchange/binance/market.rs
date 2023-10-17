@@ -10,10 +10,10 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
-use std::thread::{sleep, JoinHandle};
+use std::thread::{sleep, JoinHandle, Thread, self};
 use std::time::Duration;
 
-use crate::common::convert_pyresult_vec;
+use crate::common::{convert_pyresult_vec, MarketMessage};
 use crate::common::DAYS;
 use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
@@ -454,7 +454,28 @@ impl BinanceMarket {
 
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
-        self.channel.lock().unwrap().open_channel()
+        self.channel.lock().unwrap().open_channel(0)
+    }
+
+    pub fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+        let channel = self.channel.lock().unwrap().open_channel(1_000);
+        let sender = self.channel.clone();
+
+        let mut table_db = self.db.connection.clone_connection();
+
+        thread::spawn(move || {
+            table_db.select(time_from, time_to, |trade| {
+                let mut channel = sender.lock().unwrap();
+                let message: MarketMessage = trade.into();
+                let r = channel.send(message);
+        
+                if r.is_err() {
+                    log::error!("Error in channel.send: {:?}", r);
+                }
+            });
+        });
+
+        return channel;
     }
 
     #[pyo3(signature = (side, price, size, client_order_id=None))]
@@ -721,6 +742,9 @@ impl BinanceMarket {
                 return Err(format!("{} does not exist", url));
             }
         }
+    }
+
+    fn write_message_to_channel(&mut self, message: MarketMessage) {
     }
 }
 
