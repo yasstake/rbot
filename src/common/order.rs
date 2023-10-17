@@ -268,7 +268,7 @@ impl Trade {
     }
 }
 
-impl Into<MarketMessage> for Trade {
+impl Into<MarketMessage> for &Trade {
     fn into(self) -> MarketMessage {
         MarketMessage {
             trade: Some(self.clone()),
@@ -611,7 +611,7 @@ impl Order {
 
 }
 
-impl Into<MarketMessage> for Order {
+impl Into<MarketMessage> for &Order {
     fn into(self) -> MarketMessage {
         MarketMessage {
             trade: None,
