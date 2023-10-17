@@ -23,7 +23,7 @@ pub fn to_naive_datetime(microsecond: MicroSec) -> NaiveDateTime {
 
 #[allow(non_snake_case)]
 #[pyfunction]
-pub fn FLOOR(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
+pub fn FLOOR_SEC(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     let unit_sec_micro = SEC(unit_sec);
 
     let floor = ((microsecond / unit_sec_micro) as i64) * unit_sec_micro;
@@ -33,7 +33,7 @@ pub fn FLOOR(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
 
 #[allow(non_snake_case)]
 pub fn FLOOR_DAY(timestamp: MicroSec) -> MicroSec {
-    return FLOOR(timestamp, 24 * 60 * 60);
+    return FLOOR_SEC(timestamp, 24 * 60 * 60);
 }
 
 #[allow(non_snake_case)]
@@ -135,20 +135,20 @@ mod time_test {
     #[test]
     fn test_floor() {
         assert_eq!(
-            FLOOR(1_000_000 - 1, 1),
+            FLOOR_SEC(1_000_000 - 1, 1),
             parse_time("1970-01-01T00:00:00.000000+00:00")
         );
         assert_eq!(
-            FLOOR(1_000_000, 1),
+            FLOOR_SEC(1_000_000, 1),
             parse_time("1970-01-01T00:00:01.000000+00:00")
         );
 
         assert_eq!(
-            FLOOR(MIN(1) + 1, 10),
+            FLOOR_SEC(MIN(1) + 1, 10),
             parse_time("1970-01-01T00:01:00.000000+00:00")
         );
         assert_eq!(
-            FLOOR(DAYS(1) + MIN(1) + 1, 60 * 10),
+            FLOOR_SEC(DAYS(1) + MIN(1) + 1, 60 * 10),
             parse_time("1970-01-02T00:00:00.000000+00:00")
         );
     }
@@ -186,12 +186,12 @@ mod time_test {
 
     #[test]
     fn test_floor2() {
-        assert_eq!(0, FLOOR(999_999, 1));
-        assert_eq!(1_000_000, FLOOR(1_000_000, 1));
-        assert_eq!(1_000_000, FLOOR(1_000_111, 1));
-        assert_eq!(10_000_000, FLOOR(10_123_111, 10));
-        assert_eq!(10_000_000, FLOOR(19_123_111, 10));
-        assert_eq!(20_000_000, FLOOR(29_123_111, 10));
+        assert_eq!(0, FLOOR_SEC(999_999, 1));
+        assert_eq!(1_000_000, FLOOR_SEC(1_000_000, 1));
+        assert_eq!(1_000_000, FLOOR_SEC(1_000_111, 1));
+        assert_eq!(10_000_000, FLOOR_SEC(10_123_111, 10));
+        assert_eq!(10_000_000, FLOOR_SEC(19_123_111, 10));
+        assert_eq!(20_000_000, FLOOR_SEC(29_123_111, 10));
     }
 
     #[test]

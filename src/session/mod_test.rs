@@ -84,12 +84,12 @@ mod tests {
 
         assert_eq!(order_list.remain_size(), dec![40.0]);
         // Test remove
-        order_list.remove(&updated_order1);
+        order_list.remove(&updated_order1.order_id);
         assert_eq!(order_list.len(), 2);
         assert_eq!(order_list.remain_size(), dec![35.0]);
 
-        let result = order_list.remove(&updated_order4);
-        assert_eq!(result, false);
+        let result = order_list.remove(&updated_order4.order_id);
+        assert_eq!(result.is_some(), true);
         assert_eq!(order_list.len(), 2);
         assert_eq!(order_list.remain_size(), dec![35.0]);
 

@@ -1,4 +1,4 @@
-use pyo3::pyclass;
+use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
@@ -38,6 +38,7 @@ pub struct MarketConfig {
     pub foreign_currency: String,
 }
 
+
 impl MarketConfig {
     pub fn new(
         home_currency: &str,
@@ -57,5 +58,12 @@ impl MarketConfig {
             home_currency: home_currency.to_string(),
             foreign_currency: foreign_currency.to_string(),
         }
+    }
+}
+
+#[pymethods]
+impl MarketConfig {
+    pub fn symbol(&self) -> String {
+        return format!("{}{}", self.foreign_currency, self.home_currency);
     }
 }
