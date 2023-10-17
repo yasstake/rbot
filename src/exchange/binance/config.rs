@@ -34,6 +34,7 @@ pub struct BinanceConfig {
     pub api_key: String,
     pub api_secret: String,
 
+    #[pyo3(get)]
     pub market_config: MarketConfig
 }
 
@@ -67,6 +68,12 @@ impl BinanceConfig {
         return config;
     }
 
+
+    // TODO: implement        
+    pub fn load_key(&mut self, file: &str) {
+
+    }
+
     #[staticmethod]
     pub fn SPOT(foreign_symbol: &str, home_symbol: &str) -> Self {
 
@@ -75,9 +82,21 @@ impl BinanceConfig {
         let upper_symbol = symbol.to_uppercase();
         let lower_symbol = symbol.to_lowercase();
 
-        let api_key = std::env::var("BINANCE_API_KEY").expect("BINANCE_API_KEY is not set");
-        let api_secret =
-            std::env::var("BINANCE_API_SECRET").expect("BINANCE_API_SECRET is not set");
+        let api_key = if let Ok(key) = std::env::var("BINANCE_API_KEY") {
+            key
+        }
+        else {
+            log::error!("no key found in env[BINANCE_API_KEY]");
+            "".to_string()
+        };
+
+        let api_secret = if let Ok(secret) = std::env::var("BINANCE_API_SECRET") {
+            secret
+        }
+        else {
+            log::error!("no secret found in env[BINANCE_API_SECRET]");
+            "".to_string()
+        };
 
         return BinanceConfig {
             exchange_name: "BN".to_string(),

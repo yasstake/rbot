@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ndarray::Array2;
 use numpy::{PyArray2, IntoPyArray};
 use polars_core::{series::Series, prelude::{DataFrame, NamedFrom}};
-use pyo3::{PyResult, Py, Python};
+use pyo3::{PyResult, Py, Python, pyclass};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -44,7 +44,7 @@ where
 
 
 
-
+#[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardItem {
     #[serde(deserialize_with = "string_to_decimal")]

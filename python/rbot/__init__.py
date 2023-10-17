@@ -2,9 +2,18 @@ from .rbot import *
 import pandas as pd
 import numpy as np
 import time
+import signal
 
 if hasattr(rbot, "__all__"):
     __all__ = rbot.__all__
+
+
+def terminate(_a, _b):
+    print("terminate", _a, _b)
+    exit(0)
+    
+signal.signal(signal.SIGTERM, terminate)
+signal.signal(signal.SIGINT, terminate)
 
 
 def decode_order_side(bs):

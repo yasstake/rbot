@@ -1,15 +1,19 @@
-use std::{fs::OpenOptions, path::Path};
+use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::Mutex;
+use std::{fs::OpenOptions, path::Path};
 
+use polars_core::utils::arrow::array::ord;
 use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
+use crate::exchange::BoardItem;
 use crate::{
     common::{
-        date_string, hour_string, min_string, AccountStatus, MarketStream, MicroSec, OrderSide,
-        OrderStatus, NOW, MarketConfig,
+        date_string, hour_string, min_string, AccountStatus, MarketConfig, MarketStream, MicroSec,
+        OrderSide, OrderStatus, NOW,
     },
     exchange::binance::Market,
 };
@@ -17,11 +21,9 @@ use crate::{
 use super::{has_method, OrderList};
 use pyo3::prelude::*;
 
-use crate::common::{MarketMessage, SEC};
-use crate::common::Order;
 use crate::common::Trade;
-
-
+use crate::common::{MarketMessage, SEC};
+use crate::common::{Order, OrderType};
 
 #[pyclass(name = "Session")]
 #[derive(Debug)]
@@ -34,6 +36,7 @@ pub struct Session {
     dummy: bool,
     pub session_name: String,
     order_number: i64,
+    transaction_number: i64,
 
     commission_home: Decimal,
     commission_foreign: Decimal,
@@ -46,13 +49,20 @@ pub struct Session {
 
     market_config: MarketConfig,
 
+    dummy_q: Mutex<VecDeque<Vec<Order>>>,
+
     log_file: Option<std::fs::File>,
 }
 
 #[pymethods]
 impl Session {
     #[new]
-    pub fn new(market: PyObject, dummy: bool, market_config: &MarketConfig, session_name: Option<&str>) -> Self {
+    pub fn new(
+        market: PyObject,
+        dummy: bool,
+        market_config: &MarketConfig,
+        session_name: Option<&str>,
+    ) -> Self {
         let session_name = match session_name {
             Some(name) => name.to_string(),
             None => {
@@ -76,6 +86,7 @@ impl Session {
             dummy,
             session_name,
             order_number: 0,
+            transaction_number: 0,
 
             commission_home: dec![0.0],
             commission_foreign: dec![0.0],
@@ -88,7 +99,9 @@ impl Session {
 
             market_config: market_config.clone(),
 
-            log_file:None,
+            dummy_q: Mutex::new(VecDeque::new()),
+
+            log_file: None,
         };
 
         session.load_order_list().unwrap();
@@ -99,10 +112,12 @@ impl Session {
     pub fn ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
         let window_sec = interval * count;
         let time_from = self.current_time - SEC(window_sec);
-        let time_to = 0; // latest
+        let time_to = self.current_time;
 
         Python::with_gil(|py| {
-            let result = self.market.call_method1(py, "ohlcv", (time_from, time_to, interval));
+            let result = self
+                .market
+                .call_method1(py, "ohlcv", (time_from, time_to, interval));
 
             match result {
                 Ok(df) => {
@@ -132,13 +147,31 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_asks_a(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.getattr(py, "asks_a"))
+    pub fn get_bids_vec(&self) -> Result<Vec<BoardItem>, PyErr> {
+        Python::with_gil(|py| {
+            let asks = self.market.getattr(py, "bids_vec")?;
+            let asks: Vec<BoardItem> = asks.extract(py)?;
+            Ok(asks)
+        })
     }
 
     #[getter]
     pub fn get_asks(&self) -> Result<Py<PyAny>, PyErr> {
         Python::with_gil(|py| self.market.getattr(py, "asks"))
+    }
+
+    #[getter]
+    pub fn get_asks_a(&self) -> Result<Py<PyAny>, PyErr> {
+        Python::with_gil(|py| self.market.getattr(py, "asks_a"))
+    }
+
+    #[getter]
+    pub fn get_asks_vec(&self) -> Result<Vec<BoardItem>, PyErr> {
+        Python::with_gil(|py| {
+            let asks = self.market.getattr(py, "asks_vec")?;
+            let asks: Vec<BoardItem> = asks.extract(py)?;
+            Ok(asks)
+        })
     }
 
     // account information
@@ -207,10 +240,18 @@ impl Session {
         self.lock_foreign_change.to_f64().unwrap()
     }
 
+    pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
+        if self.dummy {
+            self.dummy_cancel_order(order_id)
+        } else {
+            self.real_cancel_order(order_id)
+        }
+    }
+
     /// cancel order
     /// if success return order id
     /// if fail return None
-    pub fn cancel_order(&mut self, order_id: &str) -> Result<Py<PyAny>, PyErr> {
+    pub fn real_cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
             let r = self.market.call_method1(py, "cancel_order", (order_id,));
 
@@ -218,12 +259,40 @@ impl Session {
                 let none = Python::None(py);
                 return Ok(none);
             }
-            r
+            r.into()
         })
     }
 
+    pub fn dummy_cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
+        Python::with_gil(|py| {
+            let mut order: Order = if let Some(order) = self.buy_orders.get_item_by_id(order_id) {
+                order
+            } else if let Some(order) = self.sell_orders.get_item_by_id(&order_id) {
+                order
+            } else {
+                log::error!("dummy_cancel_order: order not found: {}", order_id);
+                return Ok(Python::None(py));
+            };
+
+            order.status = OrderStatus::Canceled;
+            self.update_balance(&order);
+            order.update_time = self.current_time;
+
+            self.push_dummy_q(&vec![order.clone()]);
+
+            return Ok(order.into_py(py));
+        })
+    }
 
     pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        if self.dummy {
+            return self.dummy_market_order(side, size);
+        } else {
+            return self.real_market_order(side, size);
+        }
+    }
+
+    pub fn real_market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
@@ -237,8 +306,107 @@ impl Session {
         })
     }
 
+    /// TODO: implement
+    pub fn dummy_market_order(
+        &mut self,
+        side: OrderSide,
+        size: Decimal,
+    ) -> Result<Py<PyAny>, PyErr> {
+        let size_scale = self.market_config.size_scale;
+        let size = size.round_dp(size_scale);
+
+        let local_id = self.new_order_id(&side);
+
+        let board = if side == OrderSide::Buy {
+            self.get_asks_vec()
+        } else {
+            self.get_bids_vec()
+        };
+
+        if board.is_err() {
+            // TODO: バックテストのときのアルゴリズムを考える。
+            log::error!("dummy_market_order: cannot get board.");
+            return Err(board.unwrap_err());
+        }
+
+        let board = board.unwrap();
+
+        if board.len() == 0 {
+            // TODO: バックテストのときのアルゴリズムを考える。
+            log::error!("dummy_market_order: board is empty");
+        }
+
+
+        let mut filled_orders = vec![];
+        let mut remain_size = size;
+
+        log::debug!("board: {:?}", board);
+
+        for item in board {
+            if remain_size <= dec![0.0] {
+                break;
+            }
+
+            let mut order = Order::new(
+                self.market_config.symbol(),
+                self.current_time,
+                local_id.clone(),
+                local_id.clone(),
+                side,
+                OrderType::Market,
+                OrderStatus::Filled,
+                item.price,
+                size,
+            );
+
+            order.transaction_id = self.dummy_transaction_id();
+            order.update_time = self.current_time;
+
+            if remain_size < item.size {
+                order.status = OrderStatus::Filled;
+                order.execute_size = remain_size;
+                order.remain_size = dec![0.0];
+                order.execute_price = item.price;
+                order.quote_vol = order.execute_price * order.execute_size;
+            }
+            else {
+                order.status = OrderStatus::PartiallyFilled;
+                order.execute_size = item.size;
+                order.remain_size = remain_size - item.size;
+                order.execute_price = item.price;
+                order.quote_vol = order.execute_price * order.execute_size;
+            }
+
+            order.update_balance(&self.market_config);
+            filled_orders.push(order.clone());
+            remain_size -= item.size;
+        }
+
+        Python::with_gil(|py| {
+            if filled_orders.len() == 0 {
+                let none = Python::None(py);
+                return Ok(none);
+            } else {
+                self.push_dummy_q(&filled_orders);
+                return Ok(filled_orders.into_py(py));
+            }
+        })
+    }
 
     pub fn limit_order(
+        &mut self,
+        side: OrderSide,
+        price: Decimal,
+        size: Decimal,
+    ) -> Result<Vec<Order>, PyErr> {
+        if self.dummy {
+            return self.dummy_limit_order(side, price, size);
+        } else {
+            return self.real_limit_order(side, price, size);
+        }
+    }
+
+    pub fn real_limit_order(
         &mut self,
         side: OrderSide,
         price: Decimal,
@@ -247,7 +415,7 @@ impl Session {
         let price_scale = self.market_config.price_scale;
         let pricedp = price.round_dp(price_scale);
 
-        let size_scale = self.market_config.size_scale;        
+        let size_scale = self.market_config.size_scale;
         let sizedp = size.round_dp(size_scale);
 
         // first push order to order list
@@ -262,9 +430,9 @@ impl Session {
 
         // then call market.limit_order
         let r = Python::with_gil(|py| {
-            let result = self
-                .market
-                .call_method1(py, "limit_order", (side, pricedp, sizedp, local_id));
+            let result =
+                self.market
+                    .call_method1(py, "limit_order", (side, pricedp, sizedp, local_id));
 
             match result {
                 // if success update order list
@@ -284,7 +452,12 @@ impl Session {
                     return Ok(orders);
                 }
                 Err(e) => {
-                    log::error!("limit_order error: {:?}  / priceorg={:?}/sizeorg={:?}", e, price, size);
+                    log::error!(
+                        "limit_order error: {:?}  / priceorg={:?}/sizeorg={:?}",
+                        e,
+                        price,
+                        size
+                    );
                     return Err(e);
                 }
             }
@@ -293,56 +466,67 @@ impl Session {
         return r;
     }
 
-    /*
-    /// fecth order list from exchange
-    /// update order list
-    pub fn sync_orderlist(&mut self) {
-        let r = Python::with_gil(|py| {
-            let result = self.market
-                .call_method0(py, "sync_orderlist");
+    pub fn dummy_limit_order(
+        &mut self,
+        side: OrderSide,
+        price: Decimal,
+        size: Decimal,
+    ) -> Result<Vec<Order>, PyErr> {
+        let price_scale = self.market_config.price_scale;
+        let pricedp = price.round_dp(price_scale);
 
-                match result {
-                    // if success update order list
-                    Ok(orderlist) => {
-                        let o: OrderList = orderlist.extract(py).unwrap();
+        let size_scale = self.market_config.size_scale;
+        let sizedp = size.round_dp(size_scale);
 
-                        self.buy_orders = o.buy_orders;
-                        self.sell_orders = o.sell_orders;
+        // first push order to order list
+        let local_id = self.new_order_id(&side);
 
-                        return Ok(())
-                    }
-                    Err(e) => {
-                        log::error!("sync_orderlist error: {:?}", e);
-                        return Err(e)
-                    }
-                }
-        });
+        log::debug!(
+            "dummuy_limit_order: side={:?}, size={}, price={}",
+            side,
+            sizedp,
+            pricedp
+        );
 
-        return r;
-    }
-    */
+        let mut order = Order::new(
+            self.market_config.symbol(),
+            self.current_time,
+            local_id.clone(),
+            local_id.clone(),
+            side,
+            OrderType::Limit,
+            OrderStatus::New,
+            pricedp,
+            sizedp,
+        );
 
-    // Message handling
-    pub fn on_tick(&mut self, tick: &Trade) {
-        self.current_time = tick.time;
+        order.update_balance(&self.market_config);
 
-        if self.dummy == false {
-            return;
-        }
-
-        if tick.order_side == OrderSide::Buy {
-            self.sell_orders.consume_trade(tick);
-        } else if tick.order_side == OrderSide::Sell {
-            self.buy_orders.consume_trade(tick);
+        if side == OrderSide::Buy {
+            self.buy_orders.update_or_insert(&order);
+        } else if side == OrderSide::Sell {
+            self.sell_orders.update_or_insert(&order);
         } else {
-            log::error!("Unknown order side: {:?}", tick.order_side)
+            log::error!("Unknown order side: {:?}", side);
         }
+
+        self.push_dummy_q(&vec![order.clone()]);
+
+        return Ok(vec![order]);
     }
 
-    pub fn on_message(&mut self, message: &MarketMessage) {
+    pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
+        let mut result = vec![];
+
         if let Some(trade) = &message.trade {
             log::debug!("on_message: trade={:?}", trade);
-            self.on_tick(trade);
+            result = self.on_tick(trade);
+
+            if 0 < result.len() {
+                for order in result.iter() {
+                    self.on_order_update(&order);
+                }
+            }
         }
 
         if let Some(order) = &message.order {
@@ -354,6 +538,19 @@ impl Session {
             log::debug!("on_message: account={:?}", account);
             self.on_account_update(account);
         }
+
+        return result;
+    }
+
+    // Message handling
+    pub fn on_tick(&mut self, tick: &Trade) -> Vec<Order> {
+        self.current_time = tick.time;
+
+        if self.dummy == false {
+            return vec![];
+        }
+
+        return self.execute_dummuy_tick(tick);
     }
 
     pub fn on_account_update(&mut self, account: &AccountStatus) {
@@ -363,13 +560,13 @@ impl Session {
     pub fn on_order_update(&mut self, order: &Order) {
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
-                self.buy_orders.remove(order);
+                self.buy_orders.remove(&order.order_id);
             } else {
                 self.buy_orders.update_or_insert(order);
             }
         } else if order.order_side == OrderSide::Sell {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
-                self.sell_orders.remove(order);
+                self.sell_orders.remove(&order.order_id);
             } else {
                 self.sell_orders.update_or_insert(order);
             }
@@ -387,8 +584,8 @@ impl Session {
 
         match side {
             OrderSide::Buy => format!("{}-{:04}BUY", self.session_name, self.order_number),
-            OrderSide::Sell =>format!("{}-{:04}SEL", self.session_name, self.order_number),
-            OrderSide::Unknown => format!("{}-{:04}UNK", self.session_name, self.order_number)
+            OrderSide::Sell => format!("{}-{:04}SEL", self.session_name, self.order_number),
+            OrderSide::Unknown => format!("{}-{:04}UNK", self.session_name, self.order_number),
         }
     }
 
@@ -430,6 +627,7 @@ impl Session {
         return r;
     }
 
+    // TODO: check if this is correct
     pub fn update_balance(&mut self, order: &Order) {
         self.commission_foreign += order.commission_foreign;
         self.commission_home += order.commission_home;
@@ -450,7 +648,7 @@ impl Session {
             OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(log_file)?
+                .open(log_file)?,
         );
         Ok(())
     }
@@ -463,5 +661,63 @@ impl Session {
 
         Ok(())
     }
+}
 
+impl Session {
+    fn push_dummy_q(&mut self, message: &Vec<Order>) {
+        let mut q = self.dummy_q.lock().unwrap();
+        q.push_back(message.clone());
+    }
+
+    fn pop_dummy_q(&mut self) -> Option<Vec<Order>> {
+        let mut q = self.dummy_q.lock().unwrap();
+        q.pop_front()
+    }
+
+    fn dummy_transaction_id(&mut self) -> String {
+        self.transaction_number += 1;
+        format!("{}-{:04}", self.session_name, self.transaction_number)
+    }
+
+    fn update_dummy_orders(&mut self, orders: &mut Vec<Order>, is_maker: bool) {
+        for o in orders {
+            o.update_balance(&self.market_config);
+            o.is_maker = is_maker;
+
+            if o.status == OrderStatus::Filled || o.status == OrderStatus::PartiallyFilled {
+                if o.transaction_id == "" {
+                    o.transaction_id = self.dummy_transaction_id();
+                }
+            }
+        }
+    }
+
+    fn execute_dummuy_tick(&mut self, tick: &Trade) -> Vec<Order> {
+        let orders = self.pop_dummy_q();
+
+        if let Some(mut order_vec) = orders {
+            log::debug!("pop dummy order: {:?}", order_vec);
+            self.update_dummy_orders(&mut order_vec, false);
+
+            return order_vec;
+        }
+
+        // consume order
+        if tick.order_side == OrderSide::Buy {
+            let mut os = self.sell_orders.consume_trade(tick);
+            self.update_dummy_orders(&mut os, true);
+            log::debug!("consume_trade Buy: {:?}, {:?}", tick, os);
+
+            return os;
+        } else if tick.order_side == OrderSide::Sell {
+            let mut os = self.buy_orders.consume_trade(tick);
+            self.update_dummy_orders(&mut os, true);
+            log::debug!("consume_trade Sell: {:?}, {:?}", tick, os);
+
+            return os;
+        } else {
+            log::error!("Unknown order side: {:?}", tick.order_side);
+            return vec![];
+        }
+    }
 }

@@ -412,6 +412,8 @@ pub struct Order {
     pub symbol: String,
     #[pyo3(get)]
     pub create_time: MicroSec, // in us
+    #[pyo3(get)]    
+    pub status: OrderStatus,
     #[pyo3(get)]
     pub order_id: String, // YYYY-MM-DD-SEQ
     #[pyo3(get)]
@@ -426,10 +428,8 @@ pub struct Order {
     pub order_size: Decimal, // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
-    //#[pyo3(get)]
+    #[pyo3(get)]    
     pub remain_size: Decimal, // 残数
-    #[pyo3(get)]
-    pub status: OrderStatus,
     #[pyo3(get)]
     pub transaction_id: String,
     #[pyo3(get)]
@@ -473,6 +473,7 @@ impl Order {
         return Order {
             symbol,
             create_time,
+            status: order_status,            
             order_id,
             client_order_id,
             order_side,
@@ -480,7 +481,6 @@ impl Order {
             order_price: price,
             order_size: size,
             remain_size: size,
-            status: order_status,
             transaction_id: "".to_string(),
             update_time: 0,
             execute_price: dec![0.0],

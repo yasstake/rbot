@@ -14,8 +14,8 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::convert_pyresult_vec;
-use crate::common::{convert_pyresult, MarketStream};
 use crate::common::DAYS;
+use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{MarketConfig, MultiChannel};
 use crate::common::{Order, OrderSide, Trade};
@@ -34,7 +34,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook,
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook, BoardItem,
 };
 
 use crate::exchange::binance::config::BinanceConfig;
@@ -298,8 +298,18 @@ impl BinanceMarket {
     }
 
     #[getter]
+    pub fn get_asks_vec(&self) -> Vec<BoardItem> {
+        return self.board.lock().unwrap().board.get_asks();
+    }
+
+    #[getter]
     pub fn get_bids_a(&self) -> PyResult<Py<PyArray2<f64>>> {
         return self.board.lock().unwrap().board.get_bids_pyarray();
+    }
+
+    #[getter]
+    pub fn get_bids_vec(&self) -> Vec<BoardItem> {
+        return self.board.lock().unwrap().board.get_bids();
     }
 
     #[getter]
@@ -320,6 +330,7 @@ impl BinanceMarket {
         return format!("<b>Binance DB ({})</b>{}", self.name, self.db._repr_html_());
     }
 
+    // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
         let endpoint = &self.config.public_ws_endpoint;
         let subscribe_message: Value =
@@ -335,18 +346,30 @@ impl BinanceMarket {
 
         let mut agent_channel = self.channel.clone();
 
-        let handler = std::thread::spawn(move || loop {
-            let message = websocket.receive_message().unwrap();
-            let message_value: Value = serde_json::from_str(message.as_str()).unwrap();
+        let handler = std::thread::spawn(move || {loop {
+            let message = websocket.receive_message();
+            if message.is_err() {
+                log::warn!("Error in websocket.receive_message: {:?}", message);
+                continue;
+            }
+            let m = message.unwrap();
+
+            let message_value = serde_json::from_str::<Value>(&m);
+
+            if message_value.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", message_value);
+                continue;
+            }
+            let message_value: Value = message_value.unwrap();
 
             if message_value.is_object() {
                 let o = message_value.as_object().unwrap();
 
                 if o.contains_key("e") {
-                    log::debug!("Message: {:?}", message);
+                    log::debug!("Message: {:?}", &m);
 
                     let message: BinancePublicWsMessage =
-                        serde_json::from_str(message.as_str()).unwrap();
+                        serde_json::from_str(&m).unwrap();
 
                     match message.clone() {
                         BinancePublicWsMessage::Trade(trade) => {
@@ -361,12 +384,12 @@ impl BinanceMarket {
                         }
                     }
                 } else if o.contains_key("result") {
-                    let message: BinanceWsRespond = serde_json::from_str(message.as_str()).unwrap();
+                    let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
                     log::debug!("Result: {:?}", message);
                 } else {
                     continue;
                 }
-            }
+            }}
         });
 
         self.public_handler = Some(handler);
@@ -374,6 +397,7 @@ impl BinanceMarket {
         log::info!("start_market_stream");
     }
 
+    // TODO: 単に待っているだけなので、終了処理を実装する。
     pub fn stop_market_stream(&mut self) {
         match self.public_handler.take() {
             Some(h) => {
@@ -410,6 +434,24 @@ impl BinanceMarket {
         }
     }
 
+    pub fn is_user_stream_running(&self) -> bool {
+        if let Some(handler) = &self.user_handler {
+            return !handler.is_finished();
+        }
+        return false;
+    }
+
+    pub fn is_market_stream_running(&self) -> bool {
+        if let Some(handler) = &self.public_handler {
+            return !handler.is_finished();
+        }
+        return false;
+    }
+
+    pub fn is_db_thread_running(&self) -> bool {
+        return self.db.is_thread_running();
+    }
+
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
         self.channel.lock().unwrap().open_channel()
@@ -443,7 +485,7 @@ impl BinanceMarket {
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
         let price_scale = self.config.market_config.price_scale;
-        let price_dp = price.round_dp(price_scale);        
+        let price_dp = price.round_dp(price_scale);
 
         let size_scale = self.config.market_config.size_scale;
         let size_dp = size.round_dp(size_scale);
