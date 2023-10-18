@@ -13,6 +13,16 @@ from rbot import OrderStatus
 
 OFFSET = 0.0
 
+
+class DummyAgent:
+    def on_clock(self, session, clock):
+        print(time_string(clock))
+    
+    def on_tick(self, session, side, price, size):
+        pass
+        #print(side, price, size)
+        
+
 class MyAgent:
     def __init__(self):
         self.last_update = 0
@@ -38,7 +48,7 @@ class MyAgent:
 
         # ポジションがある場合は、売りの指値を入れる
         if self.has_position:
-            print("has position", session.sell_orders, session.buy_orders)
+            #print("has position", session.sell_orders, session.buy_orders)
             if len(session.sell_orders) == 0: # 売りオーダーがない場合は、売りの指値を入れる。
                 session.limit_order(OrderSide.Sell, close_price * (1 + OFFSET), self.order_size)
             else:
@@ -47,7 +57,7 @@ class MyAgent:
                 if last_order_time + HHMM(0, 1) < session.current_time:
                     session.cancel_order(session.sell_orders[0].order_id)
         else:
-            print('no position', session.sell_orders, session.buy_orders)
+            #print('no position', session.sell_orders, session.buy_orders)
             if len(session.buy_orders) == 0: # ポジションもなく、オーダーもキューされていない場合は買いの指値を入れる
                 session.limit_order(OrderSide.Buy, close_price * (1 - OFFSET), self.order_size)    
             else:
@@ -57,18 +67,13 @@ class MyAgent:
                     session.cancel_order(session.buy_orders[0].order_id)
     
     def on_update(self, session, updated_order):
-        print("on_update", updated_order)
+        #print("on_update", updated_order)
         if updated_order.status == OrderStatus.Filled:
             if updated_order.order_side == OrderSide.Buy:
                 self.has_position = True
             else:
                 self.has_position = False
         
-        if updated_order.status == OrderStatus.Canceled:
-            print("cancel order", updated_order)
-            
-
-        print(updated_order)
     
     def on_account_update(self, session, account):
         print("account update: ", session.current_time, account)
@@ -82,16 +87,17 @@ print(BinanceConfig.TEST_BTCUSDT)
 #market.repave_today()
 #market.start_user_stream()
 
-agent = MyAgent()
+#agent = MyAgent()
+agent = DummyAgent()
 runner = Runner()
 
 from threading import Thread
 from time import sleep
 
-init_debug_log()
+init_log()
 
 def run():
-    runner.back_test(market, agent, 60, 0, 0)
+    runner.back_test(market, agent, 3600, 0, 0)
 
 
 run()

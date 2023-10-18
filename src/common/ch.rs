@@ -65,6 +65,15 @@ impl MultiChannel {
         }
     }
 
+    pub fn close(&mut self) {
+        loop {
+            match self.channels.pop() {
+                Some(channel) => drop(channel),
+                None => break,
+            }
+        }
+    }
+
     pub fn add_channel(&mut self, channel: Sender<MarketMessage>) {
         self.channels.push(Channel {
             sender: channel,
