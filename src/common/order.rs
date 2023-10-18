@@ -160,9 +160,9 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    #[strum(ascii_case_insensitive, serialize = "LIMIT")]
+    #[strum(ascii_case_insensitive, serialize = "Limit")]
     Limit,
-    #[strum(ascii_case_insensitive, serialize = "MARKET")]
+    #[strum(ascii_case_insensitive, serialize = "Market")]
     Market,
 }
 #[pymethods]
