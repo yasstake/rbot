@@ -1,4 +1,5 @@
 use pyo3::{pyclass, pymethods};
+use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::json;
 
@@ -64,6 +65,7 @@ impl BinanceConfig {
         config.public_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
         config.private_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
         config.testnet = true;
+        config.market_config.market_order_price_slip = dec![0.5];
 
         return config;
     }
@@ -98,6 +100,14 @@ impl BinanceConfig {
             "".to_string()
         };
 
+        let mut market_config = MarketConfig::new(
+            home_symbol,
+            foreign_symbol,
+            2,
+            4,
+        );
+
+
         return BinanceConfig {
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
@@ -130,12 +140,7 @@ impl BinanceConfig {
             testnet: false,
             api_key,
             api_secret,
-            market_config: MarketConfig::new(
-                home_symbol,
-                foreign_symbol,
-                2,
-                4,
-            ),
+            market_config,
         };
     }
 

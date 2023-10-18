@@ -57,10 +57,22 @@ pub trait TradeTableQuery {
 
 #[derive(Debug)]
 pub struct TradeTableDb {
+    pub file_name: String,
     connection: Connection,
 }
 
 impl TradeTableDb {
+    pub fn clone_connection(&self) -> TradeTableDb {
+
+        let conn = Connection::open(&self.file_name).unwrap();
+        let db = TradeTableDb {
+            file_name: self.file_name.clone(),
+            connection: conn,
+        };
+
+        return db;
+    }
+
     // insert records with param transaction and trades
     pub fn insert_transaction(tx: &Transaction, trades: &Vec<Trade>) -> Result<i64, Error> {
         let mut insert_len = 0;
@@ -180,7 +192,8 @@ impl TradeTableQuery for TradeTableDb {
         match result {
             Ok(conn) => {
                 let db = TradeTableDb {
-                connection: conn,
+                    file_name: name.to_string(),
+                    connection: conn,
                 };
 
                 Ok(db)
@@ -332,7 +345,7 @@ impl TradeTableQuery for TradeTableDb {
 #[derive(Debug)]
 pub struct TradeTable {
     file_name: String,
-    connection: TradeTableDb,
+    pub connection: TradeTableDb,
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
     cache_duration: MicroSec,
@@ -1099,6 +1112,31 @@ impl TradeTableQuery for TradeTable {
     fn recreate_table(&self) {
         self.connection.recreate_table();
     }
+    
+    /// Selects trades from the database within the specified time range and applies the given closure to each trade.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_time` - The start time of the time range to select trades from.
+    /// * `to_time` - The end time of the time range to select trades from.
+    /// * `f` - A closure that will be applied to each selected trade.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rbot::db::sqlite::SqliteDb;
+    /// use rbot::models::Trade;
+    ///
+    /// let mut db = SqliteDb::new(":memory:").unwrap();
+    /// let from_time = 0;
+    /// let to_time = 100;
+    /// db.insert_trade(&Trade::new(from_time, 1.0, 1.0)).unwrap();
+    /// db.insert_trade(&Trade::new(to_time + 1, 2.0, 2.0)).unwrap();
+    /// let mut trades = Vec::new();
+    /// db.select(from_time, to_time, |trade| trades.push(trade.clone()));
+    /// assert_eq!(trades.len(), 1);
+    /// assert_eq!(trades[0].timestamp, from_time);
+    /// ```
     fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: F)
     where
         F: FnMut(&Trade),

@@ -3,11 +3,11 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::{fs::OpenOptions, path::Path};
 
-use polars_core::utils::arrow::array::ord;
-use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
+use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
+use serde_derive::Serialize;
 
 use crate::exchange::BoardItem;
 use crate::{
@@ -21,9 +21,56 @@ use crate::{
 use super::{has_method, OrderList};
 use pyo3::prelude::*;
 
-use crate::common::Trade;
+use crate::common::{Trade, ordervec_to_dataframe};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
+
+#[pyclass]
+#[derive(Debug)]
+pub struct ExecuteLog {
+    on_memory: bool,
+    memory: Vec<Order>,
+    log_file: Option<std::fs::File>,    
+}
+
+impl ExecuteLog {
+    pub fn new(on_memory: bool, log_file: Option<std::fs::File>) -> Self {
+        Self {
+            on_memory,
+            memory: vec![],
+            log_file,
+        }
+    }
+
+    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
+        let log_file = Path::new(path).with_extension("log");
+
+        self.log_file = Some(
+            OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(log_file)?,
+        );
+        Ok(())
+    }
+
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error>{
+        if self.on_memory {
+            self.memory.push(order.clone());
+        } else {
+            if let Some(file) = &mut self.log_file {
+                let s = serde_json::to_string(order)?;
+                file.write_all(s.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get(&self) -> Vec<Order> {
+        self.memory.clone()
+    }
+}
 
 #[pyclass(name = "Session")]
 #[derive(Debug)]
@@ -38,20 +85,23 @@ pub struct Session {
     order_number: i64,
     transaction_number: i64,
 
-    commission_home: Decimal,
-    commission_foreign: Decimal,
-    home_change: Decimal,
-    foreign_change: Decimal,
-    free_home_change: Decimal,
-    free_foreign_change: Decimal,
-    lock_home_change: Decimal,
-    lock_foreign_change: Decimal,
+    commission_home_sum: Decimal,
+    commission_foreign_sum: Decimal,
+    home_sum: Decimal,
+    foreign_sum: Decimal,
+    free_home_sum: Decimal,
+    free_foreign_sum: Decimal,
+    lock_home_sum: Decimal,
+    lock_foreign_sum: Decimal,
+
+    sell_edge: Decimal,
+    buy_edge: Decimal,
 
     market_config: MarketConfig,
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
 
-    log_file: Option<std::fs::File>,
+    log: ExecuteLog,
 }
 
 #[pymethods]
@@ -62,6 +112,7 @@ impl Session {
         dummy: bool,
         market_config: &MarketConfig,
         session_name: Option<&str>,
+        log_memory: bool,
     ) -> Self {
         let session_name = match session_name {
             Some(name) => name.to_string(),
@@ -88,20 +139,23 @@ impl Session {
             order_number: 0,
             transaction_number: 0,
 
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
+            commission_home_sum: dec![0.0],
+            commission_foreign_sum: dec![0.0],
+            home_sum: dec![0.0],
+            foreign_sum: dec![0.0],
+            free_home_sum: dec![0.0],
+            free_foreign_sum: dec![0.0],
+            lock_home_sum: dec![0.0],
+            lock_foreign_sum: dec![0.0],
+
+            sell_edge: dec![0.0],
+            buy_edge: dec![0.0],
 
             market_config: market_config.clone(),
 
             dummy_q: Mutex::new(VecDeque::new()),
 
-            log_file: None,
+            log: ExecuteLog::new(log_memory, None),
         };
 
         session.load_order_list().unwrap();
@@ -203,41 +257,63 @@ impl Session {
 
     #[getter]
     pub fn get_commission_home(&self) -> f64 {
-        self.commission_home.to_f64().unwrap()
+        self.commission_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn commission_foreign(&self) -> f64 {
-        self.commission_foreign.to_f64().unwrap()
+        self.commission_foreign_sum.to_f64().unwrap()
     }
     #[getter]
     pub fn home_change(&self) -> f64 {
-        self.home_change.to_f64().unwrap()
+        self.home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn foreign_change(&self) -> f64 {
-        self.foreign_change.to_f64().unwrap()
+        self.foreign_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn free_home_change(&self) -> f64 {
-        self.free_home_change.to_f64().unwrap()
+        self.free_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn free_foreign_change(&self) -> f64 {
-        self.free_foreign_change.to_f64().unwrap()
+        self.free_foreign_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn lock_home_change(&self) -> f64 {
-        self.lock_home_change.to_f64().unwrap()
+        self.lock_home_sum.to_f64().unwrap()
     }
 
     #[getter]
     pub fn lock_foreign_change(&self) -> f64 {
-        self.lock_foreign_change.to_f64().unwrap()
+        self.lock_foreign_sum.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn get_buy_edge(&self) -> f64 {
+        self.buy_edge.to_f64().unwrap()        
+    }
+
+    #[getter]
+    pub fn get_sell_edge(&self) -> f64 {
+        self.sell_edge.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn get_log(&self) -> Vec<Order> {
+        self.log.get()
+    }
+
+    #[getter]
+    pub fn get_log_df(&self) -> PyResult<PyDataFrame> {
+        let df = ordervec_to_dataframe(self.get_log());
+
+        Ok(PyDataFrame(df))
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
@@ -306,7 +382,7 @@ impl Session {
         })
     }
 
-    /// TODO: implement
+
     pub fn dummy_market_order(
         &mut self,
         side: OrderSide,
@@ -317,79 +393,40 @@ impl Session {
 
         let local_id = self.new_order_id(&side);
 
-        let board = if side == OrderSide::Buy {
-            self.get_asks_vec()
+        let execute_price = if side == OrderSide::Buy {
+            self.sell_edge + self.market_config.market_order_price_slip
         } else {
-            self.get_bids_vec()
+            self.buy_edge - self.market_config.market_order_price_slip            
         };
 
-        if board.is_err() {
-            // TODO: バックテストのときのアルゴリズムを考える。
-            log::error!("dummy_market_order: cannot get board.");
-            return Err(board.unwrap_err());
-        }
+        let mut order = Order::new(
+            self.market_config.symbol(),
+            self.current_time,
+            local_id.clone(),
+            local_id.clone(),
+            side,
+            OrderType::Market,
+            OrderStatus::Filled,
+            dec![0.0],
+            size,
+        );
 
-        let board = board.unwrap();
+        order.transaction_id = self.dummy_transaction_id();
+        order.update_time = self.current_time;
+        order.is_maker = false;
 
-        if board.len() == 0 {
-            // TODO: バックテストのときのアルゴリズムを考える。
-            log::error!("dummy_market_order: board is empty");
-        }
+        order.execute_size = size;
+        order.remain_size = dec![0.0];
+        order.execute_price = execute_price;
+        order.quote_vol = order.execute_price * order.execute_size;
 
+        order.update_balance(&self.market_config);
 
-        let mut filled_orders = vec![];
-        let mut remain_size = size;
-
-        log::debug!("board: {:?}", board);
-
-        for item in board {
-            if remain_size <= dec![0.0] {
-                break;
-            }
-
-            let mut order = Order::new(
-                self.market_config.symbol(),
-                self.current_time,
-                local_id.clone(),
-                local_id.clone(),
-                side,
-                OrderType::Market,
-                OrderStatus::Filled,
-                item.price,
-                size,
-            );
-
-            order.transaction_id = self.dummy_transaction_id();
-            order.update_time = self.current_time;
-
-            if remain_size < item.size {
-                order.status = OrderStatus::Filled;
-                order.execute_size = remain_size;
-                order.remain_size = dec![0.0];
-                order.execute_price = item.price;
-                order.quote_vol = order.execute_price * order.execute_size;
-            }
-            else {
-                order.status = OrderStatus::PartiallyFilled;
-                order.execute_size = item.size;
-                order.remain_size = remain_size - item.size;
-                order.execute_price = item.price;
-                order.quote_vol = order.execute_price * order.execute_size;
-            }
-
-            order.update_balance(&self.market_config);
-            filled_orders.push(order.clone());
-            remain_size -= item.size;
-        }
+        let orders = vec![order];
 
         Python::with_gil(|py| {
-            if filled_orders.len() == 0 {
-                let none = Python::None(py);
-                return Ok(none);
-            } else {
-                self.push_dummy_q(&filled_orders);
-                return Ok(filled_orders.into_py(py));
-            }
+            self.push_dummy_q(&orders);
+            return Ok(orders.into_py(py));
         })
     }
 
@@ -500,6 +537,7 @@ impl Session {
             sizedp,
         );
 
+        order.is_maker = true;
         order.update_balance(&self.market_config);
 
         if side == OrderSide::Buy {
@@ -546,6 +584,19 @@ impl Session {
     pub fn on_tick(&mut self, tick: &Trade) -> Vec<Order> {
         self.current_time = tick.time;
 
+        if tick.order_side == OrderSide::Buy {
+            self.sell_edge = tick.price;
+            if self.sell_edge <= self.buy_edge{
+                self.buy_edge = self.sell_edge - self.market_config.price_unit;
+            }
+        } else if tick.order_side == OrderSide::Sell {
+            self.buy_edge = tick.price;
+            if self.sell_edge <= self.buy_edge{
+                self.sell_edge = self.buy_edge + self.market_config.price_unit;
+            }
+        }
+
+
         if self.dummy == false {
             return vec![];
         }
@@ -576,7 +627,7 @@ impl Session {
 
         self.update_balance(order);
 
-        self.log(&order.__str__());
+        self.log(&order);
     }
 
     fn new_order_id(&mut self, side: &OrderSide) -> String {
@@ -629,37 +680,27 @@ impl Session {
 
     // TODO: check if this is correct
     pub fn update_balance(&mut self, order: &Order) {
-        self.commission_foreign += order.commission_foreign;
-        self.commission_home += order.commission_home;
+        self.commission_foreign_sum += order.commission_foreign;
+        self.commission_home_sum += order.commission_home;
 
-        self.home_change += order.home_change;
-        self.free_home_change += order.free_home_change;
-        self.lock_home_change += order.lock_home_change;
+        self.home_sum += order.home_change;
+        self.free_home_sum += order.free_home_change;
+        self.lock_home_sum += order.lock_home_change;
 
-        self.foreign_change += order.foreign_change;
-        self.free_foreign_change += order.free_foreign_change;
-        self.lock_foreign_change += order.lock_foreign_change;
+        self.foreign_sum += order.foreign_change;
+        self.free_foreign_sum += order.free_foreign_change;
+        self.lock_foreign_sum += order.lock_foreign_change;
+    }
+}
+
+
+impl Session {    
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
+        self.log.log(order)
     }
 
     pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
-        let log_file = Path::new(path).with_extension("log");
-
-        self.log_file = Some(
-            OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(log_file)?,
-        );
-        Ok(())
-    }
-
-    pub fn log(&mut self, message: &str) -> Result<(), std::io::Error> {
-        if let Some(file) = &mut self.log_file {
-            writeln!(file, "{}", message)?;
-            //file.write_all(format!("{}", message)?.as_bytes())?;
-        }
-
-        Ok(())
+        self.log.open_log(path)
     }
 }
 
