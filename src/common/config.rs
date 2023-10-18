@@ -36,6 +36,8 @@ pub struct MarketConfig {
 
     pub home_currency: String,
     pub foreign_currency: String,
+
+    pub market_order_price_slip: Decimal,
 }
 
 
@@ -57,6 +59,7 @@ impl MarketConfig {
             fee_type: FeeType::Home,
             home_currency: home_currency.to_string(),
             foreign_currency: foreign_currency.to_string(),
+            market_order_price_slip: dec![0.0],
         }
     }
 }

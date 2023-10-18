@@ -69,14 +69,10 @@ impl Runner {
             let config = market.getattr(py, "market_config").unwrap();
             let config = config.extract::<MarketConfig>(py).unwrap();
 
-
             // TODO: implement reflet session name based on agent name
             let mut session = Session::new(market, dummy, &config, None);
             session.open_log(&session.session_name.clone());
             let py_session = Py::new(py, session).unwrap();
-
-
-            
 
             // TODO: implment on_clock;
             let has_on_clock = has_method(agent, "on_clock");
@@ -156,10 +152,6 @@ impl Runner {
         let mut session = py_session.borrow_mut(*py);
         session.on_message(&message);
         drop(session);
-
-        if has_on_clock {
-            // TODO: do something for clock intervall
-        }
 
         log::debug!("on_message: {:?}", message);
 
