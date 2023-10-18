@@ -8,6 +8,7 @@ use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
+use serde::de;
 
 use crate::exchange::BoardItem;
 use crate::{
@@ -46,6 +47,9 @@ pub struct Session {
     free_foreign_sum: Decimal,
     lock_home_sum: Decimal,
     lock_foreign_sum: Decimal,
+
+    sell_edge: Decimal,
+    buy_edge: Decimal,
 
     market_config: MarketConfig,
 
@@ -96,6 +100,9 @@ impl Session {
             free_foreign_sum: dec![0.0],
             lock_home_sum: dec![0.0],
             lock_foreign_sum: dec![0.0],
+
+            sell_edge: dec![0.0],
+            buy_edge: dec![0.0],
 
             market_config: market_config.clone(),
 
@@ -240,6 +247,16 @@ impl Session {
         self.lock_foreign_sum.to_f64().unwrap()
     }
 
+    #[getter]
+    pub fn get_buy_edge(&self) -> f64 {
+        self.buy_edge.to_f64().unwrap()        
+    }
+
+    #[getter]
+    pub fn get_sell_edge(&self) -> f64 {
+        self.sell_edge.to_f64().unwrap()
+    }
+
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         if self.dummy {
             self.dummy_cancel_order(order_id)
@@ -306,7 +323,7 @@ impl Session {
         })
     }
 
-    /// TODO: implement
+
     pub fn dummy_market_order(
         &mut self,
         side: OrderSide,
@@ -317,79 +334,40 @@ impl Session {
 
         let local_id = self.new_order_id(&side);
 
-        let board = if side == OrderSide::Buy {
-            self.get_asks_vec()
+        let execute_price = if side == OrderSide::Buy {
+            self.sell_edge + self.market_config.market_order_price_slip
         } else {
-            self.get_bids_vec()
+            self.buy_edge - self.market_config.market_order_price_slip            
         };
 
-        if board.is_err() {
-            // TODO: バックテストのときのアルゴリズムを考える。
-            log::error!("dummy_market_order: cannot get board.");
-            return Err(board.unwrap_err());
-        }
+        let mut order = Order::new(
+            self.market_config.symbol(),
+            self.current_time,
+            local_id.clone(),
+            local_id.clone(),
+            side,
+            OrderType::Market,
+            OrderStatus::Filled,
+            dec![0.0],
+            size,
+        );
 
-        let board = board.unwrap();
+        order.transaction_id = self.dummy_transaction_id();
+        order.update_time = self.current_time;
+        order.is_maker = false;
 
-        if board.len() == 0 {
-            // TODO: バックテストのときのアルゴリズムを考える。
-            log::error!("dummy_market_order: board is empty");
-        }
+        order.execute_size = size;
+        order.remain_size = dec![0.0];
+        order.execute_price = execute_price;
+        order.quote_vol = order.execute_price * order.execute_size;
 
+        order.update_balance(&self.market_config);
 
-        let mut filled_orders = vec![];
-        let mut remain_size = size;
-
-        log::debug!("board: {:?}", board);
-
-        for item in board {
-            if remain_size <= dec![0.0] {
-                break;
-            }
-
-            let mut order = Order::new(
-                self.market_config.symbol(),
-                self.current_time,
-                local_id.clone(),
-                local_id.clone(),
-                side,
-                OrderType::Market,
-                OrderStatus::Filled,
-                item.price,
-                size,
-            );
-
-            order.transaction_id = self.dummy_transaction_id();
-            order.update_time = self.current_time;
-
-            if remain_size < item.size {
-                order.status = OrderStatus::Filled;
-                order.execute_size = remain_size;
-                order.remain_size = dec![0.0];
-                order.execute_price = item.price;
-                order.quote_vol = order.execute_price * order.execute_size;
-            }
-            else {
-                order.status = OrderStatus::PartiallyFilled;
-                order.execute_size = item.size;
-                order.remain_size = remain_size - item.size;
-                order.execute_price = item.price;
-                order.quote_vol = order.execute_price * order.execute_size;
-            }
-
-            order.update_balance(&self.market_config);
-            filled_orders.push(order.clone());
-            remain_size -= item.size;
-        }
+        let orders = vec![order];
 
         Python::with_gil(|py| {
-            if filled_orders.len() == 0 {
-                let none = Python::None(py);
-                return Ok(none);
-            } else {
-                self.push_dummy_q(&filled_orders);
-                return Ok(filled_orders.into_py(py));
-            }
+            self.push_dummy_q(&orders);
+            return Ok(orders.into_py(py));
         })
     }
 
@@ -500,6 +478,7 @@ impl Session {
             sizedp,
         );
 
+        order.is_maker = true;
         order.update_balance(&self.market_config);
 
         if side == OrderSide::Buy {
@@ -545,6 +524,19 @@ impl Session {
     // Message handling
     pub fn on_tick(&mut self, tick: &Trade) -> Vec<Order> {
         self.current_time = tick.time;
+
+        if tick.order_side == OrderSide::Buy {
+            self.sell_edge = tick.price;
+            if self.sell_edge <= self.buy_edge{
+                self.buy_edge = self.sell_edge - self.market_config.price_unit;
+            }
+        } else if tick.order_side == OrderSide::Sell {
+            self.buy_edge = tick.price;
+            if self.sell_edge <= self.buy_edge{
+                self.sell_edge = self.buy_edge + self.market_config.price_unit;
+            }
+        }
+
 
         if self.dummy == false {
             return vec![];

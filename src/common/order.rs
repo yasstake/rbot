@@ -412,7 +412,7 @@ pub struct Order {
     pub symbol: String,
     #[pyo3(get)]
     pub create_time: MicroSec, // in us
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub status: OrderStatus,
     #[pyo3(get)]
     pub order_id: String, // YYYY-MM-DD-SEQ
@@ -428,7 +428,7 @@ pub struct Order {
     pub order_size: Decimal, // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub remain_size: Decimal, // 残数
     #[pyo3(get)]
     pub transaction_id: String,
@@ -473,7 +473,7 @@ impl Order {
         return Order {
             symbol,
             create_time,
-            status: order_status,            
+            status: order_status,
             order_id,
             client_order_id,
             order_side,
@@ -578,7 +578,7 @@ impl Order {
     }
 
     #[getter]
-    pub fn get_commission_foreign(&self)->f64 {
+    pub fn get_commission_foreign(&self) -> f64 {
         return self.commission_foreign.to_f64().unwrap();
     }
     #[getter]
@@ -607,8 +607,6 @@ impl Order {
     pub fn get_lock_foreign_change(&self) -> f64 {
         return self.lock_foreign_change.to_f64().unwrap();
     }
-
-
 }
 
 impl Into<MarketMessage> for &Order {
@@ -638,7 +636,11 @@ impl Order {
 
     /// in order book, accout locked the size of order
     fn update_balance_new(&mut self, _config: &MarketConfig) {
-        let order_size= self.order_size;
+        if !self.is_maker {
+            return;
+        }
+
+        let order_size = self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
@@ -647,17 +649,18 @@ impl Order {
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
-            self.free_home_change = - order_quote_vol;
+            self.free_home_change = -order_quote_vol;
             self.free_foreign_change = dec![0.0];
             self.lock_home_change = order_quote_vol;
             self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+        } else {
+            // Sell
             self.commission_home = dec![0.0];
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
             self.free_home_change = dec![0.0];
-            self.free_foreign_change = - order_size;
+            self.free_foreign_change = -order_size;
             self.lock_home_change = dec![0.0];
             self.lock_foreign_change = order_size;
         }
@@ -680,25 +683,32 @@ impl Order {
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
-            self.home_change = - filled_quote_vol;
+            self.home_change = -filled_quote_vol;
             self.foreign_change = filled_size;
-            self.free_home_change = - filled_quote_vol;
+
+            self.free_home_change = -filled_quote_vol;
             self.free_foreign_change = filled_size;
-            self.lock_home_change = - filled_quote_vol;
-            self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+            if self.is_maker {
+                self.lock_home_change = -filled_quote_vol;
+                self.lock_foreign_change = dec![0.0];
+            }
+        } else {
+            // Sell
             self.home_change = filled_quote_vol;
-            self.foreign_change = - filled_size;
+            self.foreign_change = -filled_size;
+
             self.free_home_change = filled_quote_vol;
-            self.free_foreign_change = - filled_size;
-            self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = - filled_size;
+            self.free_foreign_change = -filled_size;
+            if self.is_maker {
+                self.lock_home_change = dec![0.0];
+                self.lock_foreign_change = -filled_size;
+            }
         }
     }
 
     //
     fn update_balance_canceled(&mut self, _config: &MarketConfig) {
-        let order_size= self.order_size;
+        let order_size = self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
@@ -709,9 +719,10 @@ impl Order {
             self.foreign_change = dec![0.0];
             self.free_home_change = order_quote_vol;
             self.free_foreign_change = dec![0.0];
-            self.lock_home_change = - order_quote_vol;
+            self.lock_home_change = -order_quote_vol;
             self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+        } else {
+            // Sell
             self.commission_home = dec![0.0];
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
@@ -719,7 +730,7 @@ impl Order {
             self.free_home_change = dec![0.0];
             self.free_foreign_change = order_size;
             self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = - order_size;
+            self.lock_foreign_change = -order_size;
         }
     }
 }

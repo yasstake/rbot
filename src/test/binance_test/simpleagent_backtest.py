@@ -14,14 +14,6 @@ from rbot import OrderStatus
 OFFSET = 0.0
 
 
-class DummyAgent:
-    def on_clock(self, session, clock):
-        print(time_string(clock))
-    
-    def on_tick(self, session, side, price, size):
-        pass
-        #print(side, price, size)
-        
 
 class MyAgent:
     def __init__(self):
@@ -32,47 +24,19 @@ class MyAgent:
     def on_clock(self, session, clock):
         print("on_clock", time_string(clock))
 
-    def on_tick(self, session, side, price, size):
-        # 3秒毎に実行
-        if session.current_time < self.last_update + SEC(3):
-            return        
+        print("sell edge", session.sell_edge)
+        print("buy edge ", session.buy_edge)        
+    
+        order = session.market_order(OrderSide.Sell, self.order_size)                
+        print("sell order", order)
 
-        self.last_update = session.current_time
-        
-        # 3秒毎にOHLCを取得。15秒前から5本分
-        ohlc = session.ohlcv(3, 5)
-        if ohlc.shape[0] < 1:
-            return
+    
+        order = session.market_order(OrderSide.Buy, self.order_size)                    
+        print("buy order", order)
 
-        close_price = ohlc.tail(1)['close'][0]  # 最新の終値
-
-        # ポジションがある場合は、売りの指値を入れる
-        if self.has_position:
-            #print("has position", session.sell_orders, session.buy_orders)
-            if len(session.sell_orders) == 0: # 売りオーダーがない場合は、売りの指値を入れる。
-                session.limit_order(OrderSide.Sell, close_price * (1 + OFFSET), self.order_size)
-            else:
-                # 1分以上経過している売りオーダーはキャンセル。オーダは次サイクルで実施。
-                last_order_time = session.sell_orders[0].create_time
-                if last_order_time + HHMM(0, 1) < session.current_time:
-                    session.cancel_order(session.sell_orders[0].order_id)
-        else:
-            #print('no position', session.sell_orders, session.buy_orders)
-            if len(session.buy_orders) == 0: # ポジションもなく、オーダーもキューされていない場合は買いの指値を入れる
-                session.limit_order(OrderSide.Buy, close_price * (1 - OFFSET), self.order_size)    
-            else:
-                # 1分以上経過している買いオーダーは、キャンセル。オーダは次サイクルで実施。                                
-                last_order_time = session.buy_orders[0].create_time
-                if last_order_time + HHMM(0, 1) < session.current_time:
-                    session.cancel_order(session.buy_orders[0].order_id)
     
     def on_update(self, session, updated_order):
-        #print("on_update", updated_order)
-        if updated_order.status == OrderStatus.Filled:
-            if updated_order.order_side == OrderSide.Buy:
-                self.has_position = True
-            else:
-                self.has_position = False
+        print("on_update", updated_order)
         
     
     def on_account_update(self, session, account):
@@ -83,18 +47,13 @@ market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
 
 print(BinanceConfig.TEST_BTCUSDT)
 
-#market.start_market_stream()
-#market.repave_today()
-#market.start_user_stream()
-
-#agent = MyAgent()
-agent = DummyAgent()
+agent = MyAgent()
 runner = Runner()
 
 from threading import Thread
 from time import sleep
 
-init_log()
+
 
 def run():
     runner.back_test(market, agent, 3600, 0, 0)
