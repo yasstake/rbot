@@ -5,6 +5,10 @@ use crate::common::time::time_string;
 use super::time::MicroSec;
 use super::MarketConfig;
 use super::MarketMessage;
+use polars_core::prelude::DataFrame;
+use polars_core::prelude::NamedFrom;
+use polars_core::prelude::TimeUnit;
+use polars_core::series::Series;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use rust_decimal::prelude::ToPrimitive;
@@ -156,9 +160,9 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    #[strum(ascii_case_insensitive, serialize = "LIMIT")]
+    #[strum(ascii_case_insensitive, serialize = "Limit")]
     Limit,
-    #[strum(ascii_case_insensitive, serialize = "MARKET")]
+    #[strum(ascii_case_insensitive, serialize = "Market")]
     Market,
 }
 #[pymethods]
@@ -268,7 +272,7 @@ impl Trade {
     }
 }
 
-impl Into<MarketMessage> for Trade {
+impl Into<MarketMessage> for &Trade {
     fn into(self) -> MarketMessage {
         MarketMessage {
             trade: Some(self.clone()),
@@ -412,7 +416,7 @@ pub struct Order {
     pub symbol: String,
     #[pyo3(get)]
     pub create_time: MicroSec, // in us
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub status: OrderStatus,
     #[pyo3(get)]
     pub order_id: String, // YYYY-MM-DD-SEQ
@@ -428,7 +432,7 @@ pub struct Order {
     pub order_size: Decimal, // in foreign
 
     // 以後オーダーの状況に応じてUpdateされる。
-    #[pyo3(get)]    
+    #[pyo3(get)]
     pub remain_size: Decimal, // 残数
     #[pyo3(get)]
     pub transaction_id: String,
@@ -473,7 +477,7 @@ impl Order {
         return Order {
             symbol,
             create_time,
-            status: order_status,            
+            status: order_status,
             order_id,
             client_order_id,
             order_side,
@@ -578,7 +582,7 @@ impl Order {
     }
 
     #[getter]
-    pub fn get_commission_foreign(&self)->f64 {
+    pub fn get_commission_foreign(&self) -> f64 {
         return self.commission_foreign.to_f64().unwrap();
     }
     #[getter]
@@ -607,11 +611,9 @@ impl Order {
     pub fn get_lock_foreign_change(&self) -> f64 {
         return self.lock_foreign_change.to_f64().unwrap();
     }
-
-
 }
 
-impl Into<MarketMessage> for Order {
+impl Into<MarketMessage> for &Order {
     fn into(self) -> MarketMessage {
         MarketMessage {
             trade: None,
@@ -619,6 +621,137 @@ impl Into<MarketMessage> for Order {
             account: None,
         }
     }
+}
+
+pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
+    let mut symbol = Vec::<String>::new();
+    let mut create_time = Vec::<MicroSec>::new();
+    let mut status = Vec::<String>::new();
+    let mut order_id = Vec::<String>::new();
+    let mut client_order_id = Vec::<String>::new();
+    let mut order_side = Vec::<String>::new();
+    let mut order_type = Vec::<String>::new();
+    let mut order_price = Vec::<f64>::new();
+    let mut order_size = Vec::<f64>::new();
+    let mut remain_size = Vec::<f64>::new();
+    let mut transaction_id = Vec::<String>::new();
+    let mut update_time = Vec::<MicroSec>::new();
+    let mut execute_price = Vec::<f64>::new();
+    let mut execute_size = Vec::<f64>::new();
+    let mut quote_vol = Vec::<f64>::new();
+    let mut commission = Vec::<f64>::new();
+    let mut commission_asset = Vec::<String>::new();
+    let mut is_maker = Vec::<bool>::new();
+    let mut message = Vec::<String>::new();
+    let mut commission_home = Vec::<f64>::new();
+    let mut commission_foreign = Vec::<f64>::new();
+    let mut home_change = Vec::<f64>::new();
+    let mut foreign_change = Vec::<f64>::new();
+    let mut free_home_change = Vec::<f64>::new();
+    let mut free_foreign_change = Vec::<f64>::new();
+    let mut lock_home_change = Vec::<f64>::new();
+    let mut lock_foreign_change = Vec::<f64>::new();
+
+    for order in orders {
+        symbol.push(order.symbol.clone());
+        create_time.push(order.create_time);
+        status.push(order.status.to_string());
+        order_id.push(order.order_id.clone());
+        client_order_id.push(order.client_order_id.clone());
+        order_side.push(order.order_side.to_string());
+        order_type.push(order.order_type.to_string());
+        order_price.push(order.order_price.to_f64().unwrap());
+        order_size.push(order.order_size.to_f64().unwrap());
+        remain_size.push(order.remain_size.to_f64().unwrap());
+        transaction_id.push(order.transaction_id.clone());
+        update_time.push(order.update_time);
+        execute_price.push(order.execute_price.to_f64().unwrap());
+        execute_size.push(order.execute_size.to_f64().unwrap());
+        quote_vol.push(order.quote_vol.to_f64().unwrap());
+        commission.push(order.commission.to_f64().unwrap());
+        commission_asset.push(order.commission_asset.clone());
+        is_maker.push(order.is_maker);
+        message.push(order.message.clone());
+
+        commission_home.push(order.commission_home.to_f64().unwrap());
+        commission_foreign.push(order.commission_foreign.to_f64().unwrap());
+        home_change.push(order.home_change.to_f64().unwrap());
+        foreign_change.push(order.foreign_change.to_f64().unwrap());
+        free_home_change.push(order.free_home_change.to_f64().unwrap());
+        free_foreign_change.push(order.free_foreign_change.to_f64().unwrap());
+        lock_home_change.push(order.lock_home_change.to_f64().unwrap());
+        lock_foreign_change.push(order.lock_foreign_change.to_f64().unwrap());
+    }
+
+    let symbol = Series::new("symbol", symbol);
+    let create_time = Series::new("create_time", create_time);
+    let status = Series::new("status", status);
+    let order_id = Series::new("order_id", order_id);
+    let client_order_id = Series::new("client_order_id", client_order_id);
+    let order_side = Series::new("order_side", order_side);
+    let order_type = Series::new("order_type", order_type);
+    let order_price = Series::new("order_price", order_price);
+    let order_size = Series::new("order_size", order_size);
+    let remain_size = Series::new("remain_size", remain_size);
+    let transaction_id = Series::new("transaction_id", transaction_id);
+    let update_time = Series::new("update_time", update_time);
+    let execute_price = Series::new("execute_price", execute_price);
+    let execute_size = Series::new("execute_size", execute_size);
+    let quote_vol = Series::new("quote_vol", quote_vol);
+    let commission = Series::new("commission", commission);
+    let commission_asset = Series::new("commission_asset", commission_asset);
+    let is_maker = Series::new("is_maker", is_maker);
+    let message = Series::new("message", message);
+
+    let commission_home = Series::new("commission_home", commission_home);
+    let commission_foreign = Series::new("commission_foreign", commission_foreign);
+    let home_change = Series::new("home_change", home_change);
+    let foreign_change = Series::new("foreign_change", foreign_change);
+    let free_home_change = Series::new("free_home_change", free_home_change);
+    let free_foreign_change = Series::new("free_foreign_change", free_foreign_change);
+    let lock_home_change = Series::new("lock_home_change", lock_home_change);
+    let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
+
+    let mut df = DataFrame::new(vec![
+        symbol,
+        create_time,
+        status,
+        order_id,
+        client_order_id,
+        order_side,
+        order_type,
+        order_price,
+        order_size,
+        remain_size,
+        transaction_id,
+        update_time,
+        execute_price,
+        execute_size,
+        quote_vol,
+        commission,
+        commission_asset,
+        is_maker,
+        message,
+        commission_home,
+        commission_foreign,
+        home_change,
+        foreign_change,
+        free_home_change,
+        free_foreign_change,
+        lock_home_change,
+        lock_foreign_change,
+    ])
+    .unwrap();
+
+    let time = df.column("create_time").unwrap().i64().unwrap().clone();
+    let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+    let df = df.with_column(date_time).unwrap();
+
+    let time = df.column("update_time").unwrap().i64().unwrap().clone();
+    let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+    let df = df.with_column(date_time).unwrap();
+
+    return df.clone();
 }
 
 impl Order {
@@ -638,7 +771,11 @@ impl Order {
 
     /// in order book, accout locked the size of order
     fn update_balance_new(&mut self, _config: &MarketConfig) {
-        let order_size= self.order_size;
+        if !self.is_maker {
+            return;
+        }
+
+        let order_size = self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
@@ -647,17 +784,18 @@ impl Order {
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
-            self.free_home_change = - order_quote_vol;
+            self.free_home_change = -order_quote_vol;
             self.free_foreign_change = dec![0.0];
             self.lock_home_change = order_quote_vol;
             self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+        } else {
+            // Sell
             self.commission_home = dec![0.0];
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
             self.free_home_change = dec![0.0];
-            self.free_foreign_change = - order_size;
+            self.free_foreign_change = -order_size;
             self.lock_home_change = dec![0.0];
             self.lock_foreign_change = order_size;
         }
@@ -680,25 +818,32 @@ impl Order {
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
-            self.home_change = - filled_quote_vol;
+            self.home_change = -filled_quote_vol;
             self.foreign_change = filled_size;
-            self.free_home_change = - filled_quote_vol;
+
+            self.free_home_change = -filled_quote_vol;
             self.free_foreign_change = filled_size;
-            self.lock_home_change = - filled_quote_vol;
-            self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+            if self.is_maker {
+                self.lock_home_change = -filled_quote_vol;
+                self.lock_foreign_change = dec![0.0];
+            }
+        } else {
+            // Sell
             self.home_change = filled_quote_vol;
-            self.foreign_change = - filled_size;
+            self.foreign_change = -filled_size;
+
             self.free_home_change = filled_quote_vol;
-            self.free_foreign_change = - filled_size;
-            self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = - filled_size;
+            self.free_foreign_change = -filled_size;
+            if self.is_maker {
+                self.lock_home_change = dec![0.0];
+                self.lock_foreign_change = -filled_size;
+            }
         }
     }
 
     //
     fn update_balance_canceled(&mut self, _config: &MarketConfig) {
-        let order_size= self.order_size;
+        let order_size = self.order_size;
         let order_quote_vol = self.order_size * self.order_price;
 
         if self.order_side == OrderSide::Buy {
@@ -709,9 +854,10 @@ impl Order {
             self.foreign_change = dec![0.0];
             self.free_home_change = order_quote_vol;
             self.free_foreign_change = dec![0.0];
-            self.lock_home_change = - order_quote_vol;
+            self.lock_home_change = -order_quote_vol;
             self.lock_foreign_change = dec![0.0];
-        } else { // Sell
+        } else {
+            // Sell
             self.commission_home = dec![0.0];
             self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
@@ -719,7 +865,7 @@ impl Order {
             self.free_home_change = dec![0.0];
             self.free_foreign_change = order_size;
             self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = - order_size;
+            self.lock_foreign_change = -order_size;
         }
     }
 }

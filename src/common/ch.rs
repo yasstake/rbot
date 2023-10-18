@@ -2,6 +2,7 @@ use super::order::Order;
 use super::order::Trade;
 use super::AccountStatus;
 use anyhow::Result;
+use crossbeam_channel::bounded;
 // use crossbeam_channel::bounded;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
@@ -64,6 +65,15 @@ impl MultiChannel {
         }
     }
 
+    pub fn close(&mut self) {
+        loop {
+            match self.channels.pop() {
+                Some(channel) => drop(channel),
+                None => break,
+            }
+        }
+    }
+
     pub fn add_channel(&mut self, channel: Sender<MarketMessage>) {
         self.channels.push(Channel {
             sender: channel,
@@ -71,8 +81,14 @@ impl MultiChannel {
         });
     }
 
-    pub fn open_channel(&mut self) -> MarketStream {
-        let (sender, receiver) = unbounded();
+    pub fn open_channel(&mut self, buffer_size: usize) -> MarketStream {
+        let (sender, receiver) = 
+            if buffer_size == 0 {
+                unbounded()
+            }
+            else {
+                bounded(buffer_size)
+            };
         self.add_channel(sender);
 
         MarketStream { reciver: receiver }
@@ -82,30 +98,16 @@ impl MultiChannel {
         let mut has_error: bool = false;
 
         for channel in self.channels.iter_mut() {
-            if channel.sender.is_full() {
-                log::warn!("channel is full");
-                continue;
-            }
-
-            let result = channel.sender.try_send(message.clone());
+            let result = channel.sender.send(message.clone());
 
             if result.is_err() {
-                match result.unwrap_err() {
-                    TrySendError::Full(_) => {
-                        log::warn!("channel is full");
-                    }
-                    TrySendError::Disconnected(_) => {
-                        log::error!("channel is disconnected");
-                        channel.valid = false;
-                        has_error = true;
-                    }
-                }
+                has_error = true;
             }
         }
 
         // remove invalid channels
         if has_error {
-            log::warn!("removing invalid channels");
+            log::warn!("Send ERROR: removing invalid channels");
             self.channels.retain(|x| x.valid);
         }
 
@@ -122,7 +124,7 @@ mod channel_test {
     #[test]
     fn test_channel() {
         let mut channel = MultiChannel::new();
-        let receiver = channel.open_channel();
+        let receiver = channel.open_channel(0);
 
         let message = MarketMessage {
             trade: None,
@@ -140,7 +142,7 @@ mod channel_test {
         init_log();
         init_debug_log();
         let mut channel = MultiChannel::new();
-        let _receiver = channel.open_channel();
+        let _receiver = channel.open_channel(0);
 
         for _ in 0..1024 {
             let message = MarketMessage {
@@ -164,7 +166,7 @@ mod channel_test {
     fn test_channel_disconnect() {
         init_log();
         let mut channel = MultiChannel::new();
-        let receiver = channel.open_channel();
+        let receiver = channel.open_channel(0);
 
         let message = MarketMessage {
             trade: None,
