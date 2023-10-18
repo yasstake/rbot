@@ -8,7 +8,9 @@ use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
 use rusqlite::ffi::SQLITE_FCNTL_CKSM_FILE;
 use rust_decimal::prelude::ToPrimitive;
 
-use crate::common::{MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, SEC};
+use crate::common::{
+    MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, SEC,
+};
 use crate::exchange::binance::config;
 
 use crossbeam_channel::Receiver;
@@ -32,23 +34,41 @@ impl Runner {
         }
     }
 
-    pub fn back_test(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64, time_from: MicroSec, time_to: MicroSec) -> Result<(), PyErr> {
+    pub fn back_test(
+        &mut self,
+        market: PyObject,
+        agent: &PyAny,
+        interval_sec: i64,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> Result<Py<Session>, PyErr> {
         let stream = Self::open_backtest_stream(&market, time_from, time_to);
         let reciever = stream.reciver;
-        self.run(market, &reciever, agent, true, interval_sec)
+        self.run(market, &reciever, agent, true, interval_sec, true)
     }
 
-    pub fn dry_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
+    pub fn dry_run(
+        &mut self,
+        market: PyObject,
+        agent: &PyAny,
+        interval_sec: i64,
+    ) -> Result<Py<Session>, PyErr> {
         Python::with_gil(|py| {
             market.call_method0(py, "start_market_stream").unwrap();
         });
 
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
-        self.run(market, &reciever, agent, true, interval_sec)
+        self.run(market, &reciever, agent, true, interval_sec, false)
     }
 
-    pub fn real_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
+    pub fn real_run(
+        &mut self,
+        market: PyObject,
+        agent: &PyAny,
+        interval_sec: i64,
+        log_memory: bool,
+    ) -> Result<Py<Session>, PyErr> {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
@@ -57,27 +77,41 @@ impl Runner {
             market.call_method0(py, "start_user_stream").unwrap();
         });
 
-        self.run(market, &reciever, agent, false, interval_sec)
+        self.run(market, &reciever, agent, false, interval_sec, false)
     }
-
 }
 
-impl Runner {
-    pub fn run(&mut self, market: PyObject, receiver: &Receiver<MarketMessage>, agent: &PyAny, dummy: bool, interval_sec: i64) -> Result<(), PyErr> {
+const WARMUP_STEPS: i64 = 100;
 
+impl Runner {
+    pub fn run(
+        &mut self,
+        market: PyObject,
+        receiver: &Receiver<MarketMessage>,
+        agent: &PyAny,
+        dummy: bool,
+        interval_sec: i64,
+        log_memory: bool,
+    ) -> Result<Py<Session>, PyErr> {
         let result = Python::with_gil(|py| {
             let config = market.getattr(py, "market_config").unwrap();
             let config = config.extract::<MarketConfig>(py).unwrap();
 
-            // TODO: implement reflet session name based on agent name
-            let mut session = Session::new(market, dummy, &config, None);
-            session.open_log(&session.session_name.clone());
+            let mut session = Session::new(market, dummy, &config, None, log_memory);
+
+            if !log_memory {
+                // TODO: ERROR handling
+                session.open_log(&session.session_name.clone()).unwrap();
+            }
+
             let py_session = Py::new(py, session).unwrap();
 
             // TODO: implment on_clock;
             let has_on_clock = has_method(agent, "on_clock");
             let has_on_tick = has_method(agent, "on_tick");
             let has_on_update = has_method(agent, "on_update");
+
+            let mut warm_up_loop: i64 = WARMUP_STEPS;
 
             loop {
                 let message = receiver.recv();
@@ -90,48 +124,78 @@ impl Runner {
                 let message = message.unwrap();
 
                 if dummy {
-                    let r = self.dummy_on_message(
-                        &py,
-                        agent,
-                        &py_session,
-                        &message,
-                        has_on_clock,
-                        has_on_tick,
-                        has_on_update,
-                        interval_sec
-                    );
+                    let r = if 0 < warm_up_loop {
+                        self.dummy_on_message(
+                            &py,
+                            agent,
+                            &py_session,
+                            &message,
+                            false,
+                            false,
+                            false,
+                            interval_sec,
+                        )
+                    } else {
+                        self.dummy_on_message(
+                            &py,
+                            agent,
+                            &py_session,
+                            &message,
+                            has_on_clock,
+                            has_on_tick,
+                            has_on_update,
+                            interval_sec,
+                        )
+                    };
 
                     if r.is_err() {
                         return Err(r.unwrap_err());
                     }
                 } else {
-                    let r = self.on_message(
-                        &py,
-                        agent,
-                        &py_session,
-                        &message,
-                        has_on_clock,
-                        has_on_tick,
-                        has_on_update,
-                        interval_sec                        
-                    );
+                    let r = if 0 < warm_up_loop {
+                        self.on_message(
+                            &py,
+                            agent,
+                            &py_session,
+                            &message,
+                            false,
+                            false,
+                            false,
+                            interval_sec,
+                        )
+                    } else {
+                        self.on_message(
+                            &py,
+                            agent,
+                            &py_session,
+                            &message,
+                            has_on_clock,
+                            has_on_tick,
+                            has_on_update,
+                            interval_sec,
+                        )
+                    };
 
                     if r.is_err() {
                         return Err(r.unwrap_err());
                     }
                 }
+
+                if message.trade.is_some() {
+                    warm_up_loop = warm_up_loop - 1;                    
+                }
             }
-            Ok(())
+
+            Ok(py_session)
         });
 
         if result.is_err() {
             return Err(result.unwrap_err());
         } else {
             println!("Done running agent");
-            Ok(())
+            Ok(result.unwrap())
         }
     }
-
 
     pub fn on_message(
         self: &mut Self,
@@ -142,9 +206,8 @@ impl Runner {
         has_on_clock: bool,
         has_on_tick: bool,
         has_on_update: bool,
-        interval_sec: i64
+        interval_sec: i64,
     ) -> Result<(), PyErr> {
-
         if has_on_clock && message.trade.is_some() {
             self.on_clock(py, agent, py_session, message, interval_sec)?;
         }
@@ -191,27 +254,24 @@ impl Runner {
             }
         }
 
-
         Ok(())
     }
-
 
     fn on_clock(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,        
+        agent: &PyAny,
         py_session: &Py<Session>,
         message: &MarketMessage,
-        interval_sec: i64
-    ) -> Result<(), PyErr>
-    {
+        interval_sec: i64,
+    ) -> Result<(), PyErr> {
         let trade = message.trade.as_ref().unwrap();
 
         let new_clock = FLOOR_SEC(trade.time, interval_sec);
 
         if self.current_clock < new_clock {
             self.current_clock = new_clock;
-            let session = py_session.borrow_mut(*py);                            
+            let session = py_session.borrow_mut(*py);
             agent.call_method1("on_clock", (session, self.current_clock))?;
         }
 
@@ -227,9 +287,8 @@ impl Runner {
         has_on_clock: bool,
         has_on_tick: bool,
         has_on_update: bool,
-        window_sec: i64
+        window_sec: i64,
     ) -> Result<(), PyErr> {
-
         if has_on_clock && message.trade.is_some() {
             self.on_clock(py, agent, py_session, message, window_sec)?;
         }
@@ -272,11 +331,8 @@ impl Runner {
             }
         }
 
-
         Ok(())
     }
-
-
 
     /// get market stream from Market object
     /// Every market object shold implement `channel` attribute
@@ -291,17 +347,19 @@ impl Runner {
     }
 
     /// TODO: return error
-    pub fn open_backtest_stream(market: &PyObject, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+    pub fn open_backtest_stream(
+        market: &PyObject,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> MarketStream {
         Python::with_gil(|py| {
-            let stream = 
-                market.call_method1(py, "open_backtest_channel", (time_from, time_to));
+            let stream = market.call_method1(py, "open_backtest_channel", (time_from, time_to));
 
             if stream.is_ok() {
                 let stream = stream.unwrap();
                 let stream = stream.extract::<MarketStream>(py).unwrap();
                 stream
-            }
-            else {
+            } else {
                 let err = stream.unwrap_err();
                 log::error!("Error in open_backtest_channel: {:?}", err);
                 panic!("Error in open_backtest_channel: {:?}", err);

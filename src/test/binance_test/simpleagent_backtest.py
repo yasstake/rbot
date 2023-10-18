@@ -7,12 +7,7 @@ from rbot import init_debug_log
 from rbot import init_log
 from rbot import OrderSide
 from rbot import time_string
-from rbot import HHMM
-from rbot import SEC
 from rbot import OrderStatus
-
-OFFSET = 0.0
-
 
 
 class MyAgent:
@@ -56,8 +51,8 @@ from time import sleep
 
 
 def run():
-    runner.back_test(market, agent, 3600, 0, 0)
-
+    session = runner.back_test(market, agent, 3600, 0, 0)
+    print(session.log)
 
 run()
 

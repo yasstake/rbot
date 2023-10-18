@@ -3,12 +3,11 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::{fs::OpenOptions, path::Path};
 
-use polars_core::utils::arrow::array::ord;
-use pyo3::{pyclass, pymethods, types::PyTuple, PyAny, PyObject, Python};
+use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use serde::de;
+use serde_derive::Serialize;
 
 use crate::exchange::BoardItem;
 use crate::{
@@ -22,9 +21,56 @@ use crate::{
 use super::{has_method, OrderList};
 use pyo3::prelude::*;
 
-use crate::common::Trade;
+use crate::common::{Trade, ordervec_to_dataframe};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
+
+#[pyclass]
+#[derive(Debug)]
+pub struct ExecuteLog {
+    on_memory: bool,
+    memory: Vec<Order>,
+    log_file: Option<std::fs::File>,    
+}
+
+impl ExecuteLog {
+    pub fn new(on_memory: bool, log_file: Option<std::fs::File>) -> Self {
+        Self {
+            on_memory,
+            memory: vec![],
+            log_file,
+        }
+    }
+
+    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
+        let log_file = Path::new(path).with_extension("log");
+
+        self.log_file = Some(
+            OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(log_file)?,
+        );
+        Ok(())
+    }
+
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error>{
+        if self.on_memory {
+            self.memory.push(order.clone());
+        } else {
+            if let Some(file) = &mut self.log_file {
+                let s = serde_json::to_string(order)?;
+                file.write_all(s.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get(&self) -> Vec<Order> {
+        self.memory.clone()
+    }
+}
 
 #[pyclass(name = "Session")]
 #[derive(Debug)]
@@ -55,7 +101,7 @@ pub struct Session {
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
 
-    log_file: Option<std::fs::File>,
+    log: ExecuteLog,
 }
 
 #[pymethods]
@@ -66,6 +112,7 @@ impl Session {
         dummy: bool,
         market_config: &MarketConfig,
         session_name: Option<&str>,
+        log_memory: bool,
     ) -> Self {
         let session_name = match session_name {
             Some(name) => name.to_string(),
@@ -108,7 +155,7 @@ impl Session {
 
             dummy_q: Mutex::new(VecDeque::new()),
 
-            log_file: None,
+            log: ExecuteLog::new(log_memory, None),
         };
 
         session.load_order_list().unwrap();
@@ -255,6 +302,18 @@ impl Session {
     #[getter]
     pub fn get_sell_edge(&self) -> f64 {
         self.sell_edge.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn get_log(&self) -> Vec<Order> {
+        self.log.get()
+    }
+
+    #[getter]
+    pub fn get_log_df(&self) -> PyResult<PyDataFrame> {
+        let df = ordervec_to_dataframe(self.get_log());
+
+        Ok(PyDataFrame(df))
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
@@ -568,7 +627,7 @@ impl Session {
 
         self.update_balance(order);
 
-        self.log(&order.__str__());
+        self.log(&order);
     }
 
     fn new_order_id(&mut self, side: &OrderSide) -> String {
@@ -632,26 +691,16 @@ impl Session {
         self.free_foreign_sum += order.free_foreign_change;
         self.lock_foreign_sum += order.lock_foreign_change;
     }
+}
 
-    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
-        let log_file = Path::new(path).with_extension("log");
 
-        self.log_file = Some(
-            OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(log_file)?,
-        );
-        Ok(())
+impl Session {    
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
+        self.log.log(order)
     }
 
-    pub fn log(&mut self, message: &str) -> Result<(), std::io::Error> {
-        if let Some(file) = &mut self.log_file {
-            writeln!(file, "{}", message)?;
-            //file.write_all(format!("{}", message)?.as_bytes())?;
-        }
-
-        Ok(())
+    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
+        self.log.open_log(path)
     }
 }
 
