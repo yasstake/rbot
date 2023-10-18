@@ -464,8 +464,8 @@ impl BinanceMarket {
         let mut table_db = self.db.connection.clone_connection();
 
         thread::spawn(move || {
+            let mut channel = sender.lock().unwrap();            
             table_db.select(time_from, time_to, |trade| {
-                let mut channel = sender.lock().unwrap();
                 let message: MarketMessage = trade.into();
                 let r = channel.send(message);
         
@@ -473,6 +473,7 @@ impl BinanceMarket {
                     log::error!("Error in channel.send: {:?}", r);
                 }
             });
+            channel.close();
         });
 
         return channel;

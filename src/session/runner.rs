@@ -39,6 +39,10 @@ impl Runner {
     }
 
     pub fn dry_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
+        Python::with_gil(|py| {
+            market.call_method0(py, "start_market_stream").unwrap();
+        });
+
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
         self.run(market, &reciever, agent, true, interval_sec)
@@ -47,6 +51,12 @@ impl Runner {
     pub fn real_run(&mut self, market: PyObject, agent: &PyAny, interval_sec: i64) -> Result<(), PyErr> {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
+
+        Python::with_gil(|py| {
+            market.call_method0(py, "start_market_stream").unwrap();
+            market.call_method0(py, "start_user_stream").unwrap();
+        });
+
         self.run(market, &reciever, agent, false, interval_sec)
     }
 
@@ -58,10 +68,15 @@ impl Runner {
         let result = Python::with_gil(|py| {
             let config = market.getattr(py, "market_config").unwrap();
             let config = config.extract::<MarketConfig>(py).unwrap();
+
+
             // TODO: implement reflet session name based on agent name
             let mut session = Session::new(market, dummy, &config, None);
             session.open_log(&session.session_name.clone());
             let py_session = Py::new(py, session).unwrap();
+
+
+            
 
             // TODO: implment on_clock;
             let has_on_clock = has_method(agent, "on_clock");
@@ -72,7 +87,7 @@ impl Runner {
                 let message = receiver.recv();
 
                 if message.is_err() {
-                    log::error!("Error in stream.recv: {:?}", message);
+                    log::info!("Data stream is closed {:?}", message);
                     break;
                 }
 
