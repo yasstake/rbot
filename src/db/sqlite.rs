@@ -31,6 +31,7 @@ use std::thread;
 use crossbeam_channel::Sender;
 
 use super::df::convert_timems_to_datetime;
+use super::df::vap_df;
 
 pub trait TradeTableQuery {
     fn open(name: &str) -> Result<Self, Error>
@@ -723,6 +724,31 @@ impl TradeTable {
         return Ok(df);
     }
 
+    pub fn py_vap(
+
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec
+        , price_unit: i64
+    ) -> PyResult<PyDataFrame> {
+        let df = self.vap(from_time, to_time, price_unit);
+
+        let py_df = PyDataFrame(df);
+
+        Ok(py_df)
+    }
+
+    pub fn vap(
+        &mut self,
+        from_time: MicroSec,
+        to_time: MicroSec,
+        price_unit: i64
+    ) -> DataFrame {
+        self.update_cache_df(from_time, to_time);                        
+        let df = vap_df(&self.cache_df, from_time, to_time, price_unit);
+
+        df
+    }
 
     pub fn py_select_trades_polars(
         &mut self,

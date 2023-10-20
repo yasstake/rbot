@@ -283,6 +283,16 @@ impl BinanceMarket {
         return self.db.py_ohlcv_polars(from_time, to_time, window_sec);
     }
 
+    pub fn vap(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        price_unit: i64,
+    ) -> PyResult<PyDataFrame> {
+        return self.db.py_vap(time_from, time_to, price_unit);
+    }
+    
+
     pub fn info(&mut self) -> String {
         return self.db.info();
     }
