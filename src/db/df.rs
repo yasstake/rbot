@@ -10,11 +10,12 @@ use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
+use polars_core::export::num::Float;
 use polars_core::prelude::SortOptions;
+use polars_lazy::dsl::FunctionOutputField;
 use polars_lazy::prelude::IntoLazy;
 use polars_lazy::prelude::{col, LazyFrame};
 use polars_time::ClosedWindow;
-
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -392,6 +393,86 @@ pub fn ohlcvv_from_ohlcvv_df(
     }
 }
 
+/// Calc Value At Price
+/// group by unit price and order_side
+pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
+    let df = select_df_lazy(df, start_time, end_time);
+
+    let vap = df
+        .groupby([KEY::price, KEY::order_side])
+        .agg([col(KEY::size).sum().alias(KEY::size)])
+        .collect()
+        .unwrap();
+
+    vap
+}
+
+use polars::prelude::DataType;
+
+/// Calc Value At Price
+/// group by unit price and order_side
+pub fn vap_df_bak2(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
+    let df = select_df_lazy(df, start_time, end_time);
+
+    //    let floor_price = col(KEY::price)
+    //    .map(|v: f64| (v / 10.0).floor() * 10.0, Arc::new(DataType::Float64) as Arc<dyn FunctionOutputField>);
+
+    //.div(10.0).alias("floor_price").cast(&DataType::Float64);
+
+    //    let floor_price =
+    //col(KEY::price).div(10.0).alias("floor_price").cast(&DataType::Float64);
+
+    let floor_price = col(KEY::price).floor();
+
+    let vap_gb = df.groupby([floor_price, col(KEY::order_side)]);
+
+    let vap = vap_gb
+        .agg([col(KEY::size).sum().alias(KEY::size)])
+        .collect()
+        .unwrap();
+
+    vap
+}
+
+use std::ops::Div;
+
+/// Calc Value At Price
+/// group by unit price and order_side
+pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i64) -> DataFrame {
+    let df = select_df_lazy(df, start_time, end_time);
+
+    let floor_price = col(KEY::price).floor();
+    let vap_gb = df.groupby([col(KEY::order_side), floor_price]);
+
+    let mut vap = vap_gb
+        .agg([col(KEY::size).sum().alias(KEY::size)])
+        .collect()
+        .unwrap();
+
+    if size != 0 {
+        let price = 
+            (vap.column(KEY::price).unwrap() / size).floor().unwrap() * size;
+
+        vap.with_column(price);
+
+        vap = vap.lazy()
+            .groupby([col(KEY::order_side), col(KEY::price)])
+            .agg([col(KEY::size).sum().alias(KEY::size)])
+            .sort(KEY::price, 
+                SortOptions {
+                    descending: false,
+                    nulls_last: false,
+                    maintain_order: true,
+                    multithreaded: true,
+                },
+            )
+            .collect()
+            .unwrap();
+    }
+
+    vap
+}
+
 pub struct TradeBuffer {
     pub time_stamp: Vec<MicroSec>,
     pub price: Vec<f64>,
@@ -497,6 +578,7 @@ pub fn convert_timems_to_datetime(df: &mut DataFrame) -> &DataFrame {
 
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[cfg(test)]
 mod test_df {
@@ -641,7 +723,6 @@ mod test_df {
         println!("{:?}", r3);
     }
 
-
     #[test]
     fn test_make_ohlcv_datetime() {
         use polars::datatypes::TimeUnit;
@@ -660,10 +741,8 @@ mod test_df {
         let vol = Series::new(KEY::vol, Vec::<f64>::new());
         let count = Series::new(KEY::count, Vec::<f64>::new());
 
-
-
         let df = DataFrame::new(vec![t, open, high, low, close, vol, count]).unwrap();
-    
+
         println!("{:?}", df);
     }
 
@@ -673,12 +752,10 @@ mod test_df {
 
         println!("{:?}", df);
 
-
         let time = df.column("time_stamp").unwrap().i64().unwrap().clone();
         let mut date_time = time.into_datetime(TimeUnit::Microseconds, None);
         let df = df.with_column(date_time).unwrap();
 
         println!("{:?}", df);
     }
-
 }
