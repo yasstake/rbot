@@ -16,6 +16,8 @@ jobs:
       run: sudo apt-get update
     - name: get-python
       run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
+    - name: Install Perl and necessary modules
+      run: sudo apt-get install -y perl perl-core
     - name: Install OpenSSL dependencies
       run: sudo apt-get install -y libssl-dev pkg-config      
     - uses: messense/maturin-action@v1
