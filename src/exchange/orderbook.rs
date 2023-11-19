@@ -7,7 +7,8 @@ use pyo3::{PyResult, Py, Python, pyclass};
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::{Serialize, Deserializer, Deserialize, de};
+use serde::{Deserializer, de, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 
 pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
