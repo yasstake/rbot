@@ -76,3 +76,11 @@ src/test/.ipynb_checkpoints/*
 src/test/manual/.ipynb_checkpoints/*
 
 test.db
+
+# Ignore all .ipynb_checkpoints folders
+**/.ipynb_checkpoints
+
+google-cloud-sdk/
+
+/log/*
+

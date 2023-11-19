@@ -10,12 +10,11 @@ use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
-use polars_core::export::num::Float;
 use polars_core::prelude::SortOptions;
-use polars_lazy::dsl::FunctionOutputField;
 use polars_lazy::prelude::IntoLazy;
 use polars_lazy::prelude::{col, LazyFrame};
 use polars_time::ClosedWindow;
+
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -164,7 +163,7 @@ pub fn ohlcv_df(
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
-        truncate: true,                    // タイムスタンプを切り下げてまとめる。
+        // truncate: true,                    // タイムスタンプを切り下げてまとめる。
         include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         start_by: StartBy::DataPoint,
@@ -184,7 +183,7 @@ pub fn ohlcv_df(
                 multithreaded: true,
             },
         )
-        .groupby_dynamic(col(KEY::time_stamp), [], option)
+        .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
             col(KEY::price).max().alias(KEY::high),
@@ -227,7 +226,7 @@ pub fn ohlcvv_df(
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
-        truncate: true,                    // タイムスタンプを切り下げてまとめる。
+        // truncate: true,                    // タイムスタンプを切り下げてまとめる。
         include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
@@ -245,7 +244,7 @@ pub fn ohlcvv_df(
                 multithreaded: true,
             },
         )
-        .groupby_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
+        .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
             col(KEY::price).max().alias(KEY::high),
@@ -290,7 +289,7 @@ pub fn ohlcv_from_ohlcvv_df(
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
-        truncate: true,                    // タイムスタンプを切り下げてまとめる。
+        // truncate: true,                    // タイムスタンプを切り下げてまとめる。
         include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
@@ -308,7 +307,7 @@ pub fn ohlcv_from_ohlcvv_df(
                 multithreaded: true,
             },
         )
-        .groupby_dynamic(col(KEY::time_stamp), [], option)
+        .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::open)
                 .sort_by([KEY::start_time], [false])
@@ -352,7 +351,7 @@ pub fn ohlcvv_from_ohlcvv_df(
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
-        truncate: true,                    // タイムスタンプを切り下げてまとめる。
+        // truncate: true,                    // タイムスタンプを切り下げてまとめる。
         include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
@@ -370,7 +369,7 @@ pub fn ohlcvv_from_ohlcvv_df(
                 multithreaded: true,
             },
         )
-        .groupby_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
+        .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
             col(KEY::high).max().alias(KEY::high),
@@ -399,7 +398,7 @@ pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> D
     let df = select_df_lazy(df, start_time, end_time);
 
     let vap = df
-        .groupby([KEY::price, KEY::order_side])
+        .group_by([KEY::price, KEY::order_side])
         .agg([col(KEY::size).sum().alias(KEY::size)])
         .collect()
         .unwrap();
@@ -424,7 +423,7 @@ pub fn vap_df_bak2(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> 
 
     let floor_price = col(KEY::price).floor();
 
-    let vap_gb = df.groupby([floor_price, col(KEY::order_side)]);
+    let vap_gb = df.group_by([floor_price, col(KEY::order_side)]);
 
     let vap = vap_gb
         .agg([col(KEY::size).sum().alias(KEY::size)])
@@ -441,8 +440,9 @@ use std::ops::Div;
 pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i64) -> DataFrame {
     let df = select_df_lazy(df, start_time, end_time);
 
-    let floor_price = col(KEY::price).floor();
-    let vap_gb = df.groupby([col(KEY::order_side), floor_price]);
+    let floor_price = col(KEY::price);
+    let floor_price = floor_price.floor();
+    let vap_gb = df.group_by([col(KEY::order_side), floor_price]);
 
     let mut vap = vap_gb
         .agg([col(KEY::size).sum().alias(KEY::size)])
@@ -456,7 +456,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
         vap.with_column(price);
 
         vap = vap.lazy()
-            .groupby([col(KEY::order_side), col(KEY::price)])
+            .group_by([col(KEY::order_side), col(KEY::price)])
             .agg([col(KEY::size).sum().alias(KEY::size)])
             .sort(KEY::price, 
                 SortOptions {
@@ -594,7 +594,7 @@ mod test_df {
             start_by: StartBy::DataPoint,
             period: Duration::new(DAYS(1)), // データ取得の幅（グループ間隔と同じでOK)
             offset: Duration::parse("0m"),
-            truncate: true,                    // タイムスタンプを切り下げてまとめる。
+            // truncate: true,                    // タイムスタンプを切り下げてまとめる。
             include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
             closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
 
@@ -622,7 +622,7 @@ mod test_df {
                     maintain_order: false,
                 },
             )
-            .groupby_dynamic(
+            .group_by_dynamic(
                 col("date"),
                 //[col("category")],
                 [],
