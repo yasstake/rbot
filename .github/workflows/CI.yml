@@ -23,7 +23,7 @@ jobs:
         sudo cpan App::cpanminus
         sudo cpanm IPC::Cmd      
     - name: Install OpenSSL dependencies
-      run: sudo apt-get install -y libssl-dev pkg-config      
+      run: sudo apt-get install -y libssl-dev pkg-config build-essential      
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
