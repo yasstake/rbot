@@ -28,11 +28,6 @@ jobs:
         manylinux: auto
         command: build
         args: --release -o dist --find-interpreter --features "extension-module"
-    - name: Upload wheels
-      uses: actions/upload-artifact@v3
-      with:
-        name: wheels
-        path: dist
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
@@ -47,6 +42,11 @@ jobs:
             # If we're running on debian-based system.
             apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd perl-FindBin
           fi
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
   windows:
     runs-on: windows-latest
     steps:
