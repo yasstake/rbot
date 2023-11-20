@@ -233,63 +233,63 @@ impl BinanceMarket {
 
     pub fn select_trades_a(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_select_trades(from_time, to_time);
+        return self.db.py_select_trades(start_time, end_time);
     }
 
     pub fn ohlcvv_a(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_ohlcvv(from_time, to_time, window_sec);
+        return self.db.py_ohlcvv(start_time, end_time, window_sec);
     }
 
     pub fn ohlcv_a(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_ohlcv(from_time, to_time, window_sec);
+        return self.db.py_ohlcv(start_time, end_time, window_sec);
     }
 
     pub fn select_trades(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
     ) -> PyResult<PyDataFrame> {
-        return self.db.py_select_trades_polars(from_time, to_time);
+        return self.db.py_select_trades_polars(start_time, end_time);
     }
 
     pub fn ohlcvv(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        return self.db.py_ohlcvv_polars(from_time, to_time, window_sec);
+        return self.db.py_ohlcvv_polars(start_time, end_time, window_sec);
     }
 
     pub fn ohlcv(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        return self.db.py_ohlcv_polars(from_time, to_time, window_sec);
+        return self.db.py_ohlcv_polars(start_time, end_time, window_sec);
     }
 
     pub fn vap(
         &mut self,
-        time_from: MicroSec,
-        time_to: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         price_unit: i64,
     ) -> PyResult<PyDataFrame> {
-        return self.db.py_vap(time_from, time_to, price_unit);
+        return self.db.py_vap(start_time, end_time, price_unit);
     }
     
 

@@ -195,10 +195,10 @@ const API_INTERVAL_LIMIT: i64 = 100 * 1000;
 
 pub fn insert_trade_db(
     config: &BinanceConfig,
-    from_time: MicroSec,
+    start_time: MicroSec,
     tx: Sender<Vec<Trade>>,
 ) -> Result<(BinanceMessageId, MicroSec), String> {
-    return process_old_trade_from(config, from_time, &mut |trades| {
+    return process_old_trade_from(config, start_time, &mut |trades| {
         tx.send(trades).unwrap();
         Ok(())
     });
