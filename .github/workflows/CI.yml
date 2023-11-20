@@ -13,6 +13,8 @@ jobs:
     steps:
     - name: apt-get-update
       run: sudo apt-get update
+    - name: upgrade
+      run: sudo apt-get upgrade -y
     - name: Install Perl and necessary modules
       run: sudo apt-get install -y perl
     - name: Install Perl IPC::Cmd module
@@ -21,15 +23,17 @@ jobs:
         sudo cpanm IPC::Cmd      
     - name: Install OpenSSL dependencies
       run: sudo apt-get install -y libssl-dev pkg-config build-essential libfindbin-libs-perl     
+    - name: install open ssl
+      run: sudo apt-get install -y openssl
     - name: get-python
       run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
-    - uses: actions/checkout@v3
-    - uses: messense/maturin-action@v1
+    - uses: actions/checkout@v4
+    - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
         command: sdist
         args: -o dist
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
         command: build
