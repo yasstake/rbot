@@ -36,7 +36,7 @@ jobs:
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
-            yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-IPC-Cmd
+            yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-IPC-Cmd perl-FindBin
 
             # If we're running on i686 we need to symlink libatomic
             # in order to build openssl with -latomic flag.
@@ -45,7 +45,7 @@ jobs:
             fi
           else
             # If we're running on debian-based system.
-            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd
+            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd perl-FindBin
           fi
   windows:
     runs-on: windows-latest
