@@ -48,35 +48,35 @@ pub mod KEY {
     pub const count: &str = "count";
 }
 
-/// Cutoff from_time to to_time(not include)
-pub fn select_df(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
+/// Cutoff start_time to end_time(not include)
+pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
     log::debug!(
         "Select from {} -> {}",
-        time_string(from_time),
-        time_string(to_time)
+        time_string(start_time),
+        time_string(end_time)
     );
-    if from_time == 0 && to_time == 0 {
+    if start_time == 0 && end_time == 0 {
         log::debug!("preserve select df");
         return df.clone();
     }
 
     let mask: ChunkedArray<BooleanType>;
 
-    if from_time == 0 {
-        mask = df.column(KEY::time_stamp).unwrap().lt(to_time).unwrap();
-    } else if to_time == 0 {
+    if start_time == 0 {
+        mask = df.column(KEY::time_stamp).unwrap().lt(end_time).unwrap();
+    } else if end_time == 0 {
         mask = df
             .column(KEY::time_stamp)
             .unwrap()
-            .gt_eq(from_time)
+            .gt_eq(start_time)
             .unwrap();
     } else {
         mask = df
             .column(KEY::time_stamp)
             .unwrap()
-            .gt_eq(from_time)
+            .gt_eq(start_time)
             .unwrap()
-            & df.column(KEY::time_stamp).unwrap().lt(to_time).unwrap();
+            & df.column(KEY::time_stamp).unwrap().lt(end_time).unwrap();
     }
 
     let df = df.filter(&mask).unwrap();
@@ -84,30 +84,29 @@ pub fn select_df(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> Data
     return df;
 }
 
-pub fn select_df_lazy(df: &DataFrame, from_time: MicroSec, to_time: MicroSec) -> LazyFrame {
+pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> LazyFrame {
     log::debug!(
         "Select from {} -> {}",
-        time_string(from_time),
-        time_string(to_time)
+        time_string(start_time),
+        time_string(end_time)
     );
 
     let mut df = df.clone().lazy();
 
-    if from_time == 0 && to_time == 0 {
+    if start_time == 0 && end_time == 0 {
         log::debug!("preserve select df");
         return df;
     }
 
-    if from_time == 0 {
-        // mask = df.column(KEY::time_stamp).unwrap().lt(to_time).unwrap();
-        df = df.filter(col(KEY::time_stamp).lt(to_time));
-    } else if to_time == 0 {
-        df = df.filter(col(KEY::time_stamp).gt_eq(from_time));
+    if start_time == 0 {
+        df = df.filter(col(KEY::time_stamp).lt(end_time));
+    } else if end_time == 0 {
+        df = df.filter(col(KEY::time_stamp).gt_eq(start_time));
     } else {
         df = df.filter(
             col(KEY::time_stamp)
-                .gt_eq(from_time)
-                .and(col(KEY::time_stamp).lt(to_time)),
+                .gt_eq(start_time)
+                .and(col(KEY::time_stamp).lt(end_time)),
         );
     }
 
