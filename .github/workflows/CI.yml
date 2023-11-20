@@ -11,27 +11,42 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
     - name: apt-get-update
       run: sudo apt-get update
+    - name: upgrade
+      run: sudo apt-get upgrade -y
     - name: get-python
       run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
-    - uses: messense/maturin-action@v1
+    - uses: actions/checkout@v4
+    - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
         command: sdist
         args: -o dist
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
         command: build
         args: --release -o dist --find-interpreter --features "extension-module"
+        before-script-linux: |
+          # If we're running on rhel centos, install needed packages.
+          if command -v yum &> /dev/null; then
+            yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-IPC-Cmd
+
+            # If we're running on i686 we need to symlink libatomic
+            # in order to build openssl with -latomic flag.
+            if [[ ! -d "/usr/lib64" ]]; then
+                ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+            fi
+          else
+            # If we're running on debian-based system.
+            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd
+          fi
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
         name: wheels
         path: dist
-
   windows:
     runs-on: windows-latest
     steps:
