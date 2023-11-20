@@ -3,8 +3,10 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::{fs::OpenOptions, path::Path};
 
+
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
+
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use serde_derive::Serialize;
@@ -107,6 +109,7 @@ pub struct Session {
 #[pymethods]
 impl Session {
     #[new]
+    #[pyo3(signature = (market, dummy, market_config, session_name=None, log_memory=false))]
     pub fn new(
         market: PyObject,
         dummy: bool,

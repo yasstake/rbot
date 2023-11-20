@@ -32,11 +32,7 @@ pub struct TimeChunk {
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     New, // 処理中
-    #[strum(
-        ascii_case_insensitive,
-        serialize = "PartiallyFilled",
-        serialize = "PARTIALLY_FILLED"
-    )]
+    #[strum(ascii_case_insensitive,)]
     PartiallyFilled, // 一部約定
     #[strum(ascii_case_insensitive)]
     Filled,
