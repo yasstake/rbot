@@ -1,4 +1,4 @@
-// Copyright(c) 2022. yasstake. All rights reserved.
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use crossbeam_channel::unbounded;
 use numpy::IntoPyArray;
@@ -41,17 +41,14 @@ pub trait TradeTableQuery {
     fn drop_table(&self);
     fn vaccum(&self);
     fn recreate_table(&self);
-    /*
-        fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, mut f: F)
-            where F: FnMut(&Trade);
-    */
-    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: F)
+
+    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, f: F)
     where
         F: FnMut(&Trade);
 
-    // fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
+    // fn select<F>(&mut self, start_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
     fn select_all_statement(&self) -> Statement;
-    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>);
+    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>);
     fn start_time(&self) -> Result<MicroSec, Error>;
     fn end_time(&self) -> Result<MicroSec, Error>;
 }
@@ -246,20 +243,20 @@ impl TradeTableQuery for TradeTableDb {
 
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
-    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, mut f: F)
+    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, mut f: F)
     where
         F: FnMut(&Trade),
     {
         let sql: &str;
         let param: Vec<i64>;
 
-        if 0 < to_time {
+        if 0 < end_time {
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
-            param = vec![from_time, to_time];
+            param = vec![start_time, end_time];
         } else {
             //sql = "select time_stamp, action, price, size, liquid, id from trades where $1 <= time_stamp order by time_stamp";
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
-            param = vec![from_time];
+            param = vec![start_time];
         }
 
         let mut statement = self.connection.prepare(sql).unwrap();
@@ -301,16 +298,16 @@ impl TradeTableQuery for TradeTableDb {
         return statement;
     }
 
-    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
+    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>) {
         let sql: &str;
         let param: Vec<i64>;
 
-        if 0 < to_time {
+        if 0 < end_time {
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
-            param = vec![from_time, to_time];
+            param = vec![start_time, end_time];
         } else {
             sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
-            param = vec![from_time];
+            param = vec![start_time];
         }
 
         let statement = self.connection.prepare(sql).unwrap();
@@ -439,18 +436,18 @@ impl TradeTable {
         self.cache_duration = 0;
     }
 
-    pub fn select_df_from_db(&mut self, from_time: MicroSec, to_time: MicroSec) -> DataFrame {
+    pub fn select_df_from_db(&mut self, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
         let mut buffer = TradeBuffer::new();
 
-        self.select(from_time, to_time, |trade| {
+        self.select(start_time, end_time, |trade| {
             buffer.push_trade(trade);
         });
 
         return buffer.to_dataframe();
     }
 
-    pub fn load_df(&mut self, from_time: MicroSec, to_time: MicroSec) {
-        self.cache_df = self.select_df_from_db(from_time, to_time);
+    pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) {
+        self.cache_df = self.select_df_from_db(start_time, end_time);
     }
 
     pub fn update_cache_all(&mut self) {
@@ -464,16 +461,16 @@ impl TradeTable {
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
 
-    pub fn update_cache_df(&mut self, from_time: MicroSec, mut to_time: MicroSec) {
-        log::debug!("update_cache_df {} -> {}", from_time, to_time);
+    pub fn update_cache_df(&mut self, start_time: MicroSec, mut end_time: MicroSec) {
+        log::debug!("update_cache_df {} -> {}", start_time, end_time);
 
         let df_start_time: i64;
 
-        if to_time == 0 {
-            to_time = NOW();
+        if end_time == 0 {
+            end_time = NOW();
         }
 
-        let cache_time = to_time - from_time;
+        let cache_time = end_time - start_time;
         if self.cache_duration < cache_time {
             log::debug!("update cache duration {}", self.cache_duration);
             self.cache_duration = cache_time;
@@ -486,17 +483,17 @@ impl TradeTable {
             _ => {
                 log::debug!(
                     "cache update all {} -> {}",
-                    time_string(from_time),
-                    time_string(to_time)
+                    time_string(start_time),
+                    time_string(end_time)
                 );
                 // no cache / update all
-                self.load_df(from_time, to_time);
+                self.load_df(start_time, end_time);
 
                 // update ohlcv
                 self.cache_ohlcvv = ohlcvv_df(
                     &self.cache_df,
-                    TradeTable::ohlcv_start(from_time),
-                    to_time,
+                    TradeTable::ohlcv_start(start_time),
+                    end_time,
                     TradeTable::OHLCV_WINDOW_SEC,
                 );
                 return;
@@ -506,8 +503,8 @@ impl TradeTable {
         let df_end_time = end_time_df(&self.cache_df).unwrap();
 
         // load data and merge cache
-        if from_time < df_start_time {
-            let df1 = &self.select_df_from_db(from_time, df_start_time);
+        if start_time < df_start_time {
+            let df1 = &self.select_df_from_db(start_time, df_start_time);
             log::debug!(
                 "load data before cache df1={:?} df2={:?}",
                 df1.shape(),
@@ -516,7 +513,7 @@ impl TradeTable {
             self.cache_df = merge_df(&df1, &self.cache_df);
 
             // update ohlcv
-            let ohlcv1_start = TradeTable::ohlcv_start(from_time);
+            let ohlcv1_start = TradeTable::ohlcv_start(start_time);
             let ohlcv1_end = TradeTable::ohlcv_start(df_start_time);
 
             log::debug!(
@@ -537,14 +534,14 @@ impl TradeTable {
             }
         } else {
             // expire cache ducarion * 2
-            if df_start_time < from_time - self.cache_duration * 2 {
-                self.expire_cache_df(from_time - self.cache_duration);
+            if df_start_time < start_time - self.cache_duration * 2 {
+                self.expire_cache_df(start_time - self.cache_duration);
             }
         }
 
-        if df_end_time < to_time {
+        if df_end_time < end_time {
             // 2日先までキャッシュを先読み
-            let df2 = &self.select_df_from_db(df_end_time, to_time + DAYS(2));
+            let df2 = &self.select_df_from_db(df_end_time, end_time + DAYS(2));
 
             log::debug!(
                 "load data AFTER cache df1={:?} df2={:?}",
@@ -554,7 +551,7 @@ impl TradeTable {
             self.cache_df = merge_df(&self.cache_df, &df2);
 
             // update ohlcv
-            let ohlcv2_start = TradeTable::ohlcv_start(from_time);
+            let ohlcv2_start = TradeTable::ohlcv_start(start_time);
             //let ohlcv2_end = TradeTable::ohlcv_start(to_time);
 
             log::debug!("cache update diff after {} ", time_string(ohlcv2_start),);
@@ -572,28 +569,28 @@ impl TradeTable {
 
     pub fn ohlcvv_df(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         time_window_sec: i64,
     ) -> DataFrame {
-        self.update_cache_df(from_time, to_time);
+        self.update_cache_df(start_time, end_time);
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
-            ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, from_time, to_time, time_window_sec)
+            ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
         } else {
-            ohlcvv_df(&self.cache_df, from_time, to_time, time_window_sec)
+            ohlcvv_df(&self.cache_df, start_time, end_time, time_window_sec)
         }
     }
 
     pub fn ohlcvv_array(
         &mut self,
-        mut from_time: MicroSec,
-        to_time: MicroSec,
+        mut start_time: MicroSec,
+        end_time: MicroSec,
         time_window_sec: i64,
     ) -> ndarray::Array2<f64> {
-        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcvv_df(from_time, to_time, time_window_sec);
+        let df = self.ohlcvv_df(start_time, end_time, time_window_sec);
 
         let array: ndarray::Array2<f64> = df
             .select(&[
@@ -617,11 +614,11 @@ impl TradeTable {
 
     pub fn py_ohlcvv(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        let array = self.ohlcvv_array(from_time, to_time, window_sec);
+        let array = self.ohlcvv_array(start_time, end_time, window_sec);
 
         let r = Python::with_gil(|py| {
             let py_array2: &PyArray2<f64> = array.into_pyarray(py);
@@ -635,13 +632,13 @@ impl TradeTable {
 
     pub fn py_ohlcvv_polars(
         &mut self,
-        mut from_time: MicroSec,
-        to_time: MicroSec,
+        mut start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcvv_df(from_time, to_time, window_sec);
+        let mut df = self.ohlcvv_df(start_time, end_time, window_sec);
         
         let df = convert_timems_to_datetime(&mut df).clone();
 
@@ -651,28 +648,28 @@ impl TradeTable {
 
     pub fn ohlcv_df(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         time_window_sec: i64,
     ) -> DataFrame {
-        self.update_cache_df(from_time, to_time);
+        self.update_cache_df(start_time, end_time);
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
-            ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, from_time, to_time, time_window_sec)
+            ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
         } else {
-            ohlcv_df(&self.cache_df, from_time, to_time, time_window_sec)
+            ohlcv_df(&self.cache_df, start_time, end_time, time_window_sec)
         }
     }
 
     pub fn ohlcv_array(
         &mut self,
-        mut from_time: MicroSec,
-        to_time: MicroSec,
+        mut start_time: MicroSec,
+        end_time: MicroSec,
         time_window_sec: i64,
     ) -> ndarray::Array2<f64> {
-        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcv_df(from_time, to_time, time_window_sec);
+        let df = self.ohlcv_df(start_time, end_time, time_window_sec);
 
         let array: ndarray::Array2<f64> = df
             .select(&[
@@ -693,11 +690,11 @@ impl TradeTable {
 
     pub fn py_ohlcv(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        let array = self.ohlcv_array(from_time, to_time, window_sec);
+        let array = self.ohlcv_array(start_time, end_time, window_sec);
 
         let r = Python::with_gil(|py| {
             let py_array2: &PyArray2<f64> = array.into_pyarray(py);
@@ -711,13 +708,13 @@ impl TradeTable {
 
     pub fn py_ohlcv_polars(
         &mut self,
-        mut from_time: MicroSec,
-        to_time: MicroSec,
+        mut start_time: MicroSec,
+        end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        from_time = TradeTable::ohlcv_start(from_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcv_df(from_time, to_time, window_sec);
+        let mut df = self.ohlcv_df(start_time, end_time, window_sec);
         let df = convert_timems_to_datetime(&mut df).clone();        
         let df = PyDataFrame(df);
 
@@ -727,11 +724,11 @@ impl TradeTable {
     pub fn py_vap(
 
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec
+        start_time: MicroSec,
+        end_time: MicroSec
         , price_unit: i64
     ) -> PyResult<PyDataFrame> {
-        let df = self.vap(from_time, to_time, price_unit);
+        let df = self.vap(start_time, end_time, price_unit);
 
         let py_df = PyDataFrame(df);
 
@@ -740,22 +737,22 @@ impl TradeTable {
 
     pub fn vap(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         price_unit: i64
     ) -> DataFrame {
-        self.update_cache_df(from_time, to_time);                        
-        let df = vap_df(&self.cache_df, from_time, to_time, price_unit);
+        self.update_cache_df(start_time, end_time);                        
+        let df = vap_df(&self.cache_df, start_time, end_time, price_unit);
 
         df
     }
 
     pub fn py_select_trades_polars(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
     ) -> PyResult<PyDataFrame> {
-        let mut df  = self.select_df_from_db(from_time, to_time);
+        let mut df  = self.select_df_from_db(start_time, end_time);
         let df = convert_timems_to_datetime(&mut df).clone();        
         let df = PyDataFrame(df);
 
@@ -765,10 +762,10 @@ impl TradeTable {
 
     pub fn py_select_trades(
         &mut self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        let array = self.select_array(from_time, to_time);
+        let array = self.select_array(start_time, end_time);
 
         let r = Python::with_gil(|py| {
             let py_array2: &PyArray2<f64> = array.into_pyarray(py);
@@ -779,10 +776,10 @@ impl TradeTable {
         return Ok(r);
     }
 
-    pub fn select_array(&mut self, from_time: MicroSec, to_time: MicroSec) -> ndarray::Array2<f64> {
-        self.update_cache_df(from_time, to_time);
+    pub fn select_array(&mut self, start_time: MicroSec, end_time: MicroSec) -> ndarray::Array2<f64> {
+        self.update_cache_df(start_time, end_time);
 
-        let trades = self.select_df_from_db(from_time, to_time);
+        let trades = self.select_df_from_db(start_time, end_time);
 
         let array: ndarray::Array2<f64> = trades
             .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
@@ -873,34 +870,25 @@ impl TradeTable {
     /// Find un-downloaded data time chunks.
     pub fn select_gap_chunks(
         &self,
-        from_time: MicroSec,
-        mut to_time: MicroSec,
+        start_time: MicroSec,
+        mut end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
-        if to_time == 0 {
-            to_time = NOW();
+        if end_time == 0 {
+            end_time = NOW();
         }
 
-        let mut chunk = self.find_time_chunk_from(from_time, to_time, allow_size);
+        let mut chunk = self.find_time_chunk_from(start_time, end_time, allow_size);
         log::debug!("chunk before {:?}", chunk);
         // find in db
-        let mut c = self.select_time_chunks_in_db(from_time, to_time, allow_size);
+        let mut c = self.select_time_chunks_in_db(start_time, end_time, allow_size);
         chunk.append(&mut c);
         log::debug!("chunk in db {:?}", chunk);
 
         // find after db time
-        let mut c = self.find_time_chunk_to(from_time, to_time, allow_size);
+        let mut c = self.find_time_chunk_to(start_time, end_time, allow_size);
         chunk.append(&mut c);
         log::debug!("chunk after {:?}", chunk);
-
-        /*
-        if chunk.len() == 0 && from_time != to_time {
-            return vec![TimeChunk {
-                start: from_time,
-                end: to_time,
-            }];
-        }
-        */
 
         return chunk;
     }
@@ -909,8 +897,8 @@ impl TradeTable {
     /// If db has no data, returns []
     pub fn find_time_chunk_from(
         &self,
-        from_time: MicroSec,
-        _to_time: MicroSec,
+        start_time: MicroSec,
+        _end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
         let db_start_time = match self.start_time() {
@@ -920,14 +908,14 @@ impl TradeTable {
             }
         };
 
-        if from_time + allow_size <= db_start_time {
+        if start_time + allow_size <= db_start_time {
             log::debug!(
                 "before db {:?}-{:?}",
-                time_string(from_time),
+                time_string(start_time),
                 time_string(db_start_time)
             );
             vec![TimeChunk {
-                start: from_time,
+                start: start_time,
                 end: db_start_time,
             }]
         } else {
@@ -937,8 +925,8 @@ impl TradeTable {
 
     pub fn find_time_chunk_to(
         &self,
-        from_time: MicroSec,
-        to_time: MicroSec,
+        start_time: MicroSec,
+        end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
         let mut db_end_time = match self.end_time() {
@@ -948,19 +936,19 @@ impl TradeTable {
             }
         };
 
-        if db_end_time < from_time {
-            db_end_time = from_time;
+        if db_end_time < start_time {
+            db_end_time = start_time;
         }
 
-        if db_end_time + allow_size < to_time {
+        if db_end_time + allow_size < end_time {
             log::debug!(
                 "after db {:?}-{:?}",
                 time_string(db_end_time),
-                time_string(to_time)
+                time_string(end_time)
             );
             vec![TimeChunk {
                 start: db_end_time,
-                end: to_time,
+                end: end_time,
             }]
         } else {
             vec![]
@@ -970,8 +958,8 @@ impl TradeTable {
     /// TODO: if NO db data, returns []
     pub fn select_time_chunks_in_db(
         &self,
-        from_time: MicroSec,
-        _to_time: MicroSec,
+        start_time: MicroSec,
+        _end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
         let mut chunks: Vec<TimeChunk> = vec![];
@@ -985,7 +973,7 @@ impl TradeTable {
         "#;
 
         let mut statement = self.connection.connection.prepare(sql).unwrap();
-        let param = vec![from_time, allow_size];
+        let param = vec![start_time, allow_size];
 
         let chunk_iter = statement
             .query_map(params_from_iter(param.iter()), |row| {
@@ -1051,7 +1039,7 @@ impl TradeTable {
     pub fn make_time_days_chunk_from_days(
         &self,
         ndays: i64,
-        to_time: MicroSec,
+        start_time: MicroSec,
         force: bool,
     ) -> Vec<i64> {
         let from_time = FLOOR_DAY(NOW()) - DAYS(ndays);  
@@ -1059,7 +1047,7 @@ impl TradeTable {
         let time_gap = if force {
             vec![TimeChunk {
                 start: from_time,
-                end: to_time,
+                end: start_time,
             }]
         } else {
             let start_time = self.start_time().unwrap_or(NOW());
@@ -1075,11 +1063,11 @@ impl TradeTable {
                 });
             }
 
-            if end_time < to_time {
-                log::debug!("download after {} {}", end_time, to_time);
+            if end_time < start_time {
+                log::debug!("download after {} {}", end_time, start_time);
                 time_chunk.push(TimeChunk {
                     start: end_time,
-                    end: to_time,
+                    end: start_time,
                 });
             }
 
@@ -1163,19 +1151,19 @@ impl TradeTableQuery for TradeTable {
     /// assert_eq!(trades.len(), 1);
     /// assert_eq!(trades[0].timestamp, from_time);
     /// ```
-    fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: F)
+    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, f: F)
     where
         F: FnMut(&Trade),
     {
-        self.connection.select(from_time, to_time, f);
+        self.connection.select(start_time, end_time, f);
     }
 
     // fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
     fn select_all_statement(&self) -> Statement {
         return self.connection.select_all_statement();
     }
-    fn select_statement(&self, from_time: MicroSec, to_time: MicroSec) -> (Statement, Vec<i64>) {
-        return self.connection.select_statement(from_time, to_time);
+    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>) {
+        return self.connection.select_statement(start_time, end_time);
     }
 
     fn start_time(&self) -> Result<MicroSec, Error> {

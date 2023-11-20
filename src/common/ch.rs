@@ -3,11 +3,9 @@ use super::order::Trade;
 use super::AccountStatus;
 use anyhow::Result;
 use crossbeam_channel::bounded;
-// use crossbeam_channel::bounded;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
-use crossbeam_channel::TrySendError;
 use pyo3::pyclass;
 
 #[pyclass]
