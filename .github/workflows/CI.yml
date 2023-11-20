@@ -15,16 +15,6 @@ jobs:
       run: sudo apt-get update
     - name: upgrade
       run: sudo apt-get upgrade -y
-    - name: Install Perl and necessary modules
-      run: sudo apt-get install -y perl
-    - name: Install Perl IPC::Cmd module
-      run: |
-        sudo cpan App::cpanminus
-        sudo cpanm IPC::Cmd      
-    - name: Install OpenSSL dependencies
-      run: sudo apt-get install -y libssl-dev pkg-config build-essential libfindbin-libs-perl     
-    - name: install open ssl
-      run: sudo apt-get install -y openssl
     - name: get-python
       run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
     - uses: actions/checkout@v4
@@ -43,7 +33,20 @@ jobs:
       with:
         name: wheels
         path: dist
+        before-script-linux: |
+          # If we're running on rhel centos, install needed packages.
+          if command -v yum &> /dev/null; then
+            yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic
 
+            # If we're running on i686 we need to symlink libatomic
+            # in order to build openssl with -latomic flag.
+            if [[ ! -d "/usr/lib64" ]]; then
+                ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+            fi
+          else
+            # If we're running on debian-based system.
+            apt update -y && apt-get install -y libssl-dev openssl pkg-config
+          fi
   windows:
     runs-on: windows-latest
     steps:
