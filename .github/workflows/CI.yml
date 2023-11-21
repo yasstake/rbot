@@ -63,20 +63,34 @@ jobs:
         name: wheels
         path: dist
 
-  macos:
+  macos-intel:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: PyO3/maturin-action@v1
-      with:
-        command: build
-        args: --release -o dist --find-interpreter
-    - name: Upload wheels
-      uses: actions/upload-artifact@v3
-      with:
-        name: wheels
-        path: dist
+      - uses: actions/checkout@v3
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -o dist --find-interpreter
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
 
+  macos-arm64:
+    runs-on: macos-latest-xlarge
+    steps:
+      - uses: actions/checkout@v3
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -o dist --find-interpreter
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
+                  
 #  release:
 #    name: Release
 #    runs-on: ubuntu-latest
