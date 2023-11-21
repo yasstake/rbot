@@ -76,7 +76,7 @@ thiserror = {version="1.0.50"}
 
  [dependencies.pyo3]
  version = "0.20.0"
-  features = ["rust_decimal", "macros"]
+  features = ["rust_decimal", "macros", "extension-module"]
 
  [features]
  extension-module = ["pyo3/extension-module"]

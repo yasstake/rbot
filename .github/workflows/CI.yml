@@ -53,7 +53,7 @@ jobs:
     - name: SQLITE install
       run:  choco install sqlite -y    
     - uses: actions/checkout@v3
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         command: build
         args: --release -o dist --find-interpreter
@@ -67,10 +67,10 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: --release -o dist --universal2 --find-interpreter
+        args: --release -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
