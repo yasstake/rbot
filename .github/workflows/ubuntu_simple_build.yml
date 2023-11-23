@@ -10,14 +10,7 @@ jobs:
     steps:
     - name: apt-get-update
       run: sudo apt-get update
-    - name: upgrade
-      run: sudo apt-get upgrade -y
     - uses: actions/checkout@v4
-    - uses: PyO3/maturin-action@v1
-      with:
-        manylinux: auto
-        command: sdist
-        args: -o dist
     - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
