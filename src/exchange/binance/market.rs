@@ -3,6 +3,8 @@
 use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
+use polars_core::utils::arrow::array::Array;
+use polars_lazy::dsl::col;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
@@ -20,6 +22,7 @@ use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{MarketConfig, MultiChannel};
 use crate::common::{Order, OrderSide, Trade};
 use crate::common::{HHMM, NOW, TODAY};
+use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableQuery};
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 
@@ -50,8 +53,6 @@ pub struct BinanceAccount {
     pub subaccount: String,
 }
 
-// TODO: 0.5は固定値なので、変更できるようにする。BTC以外の場合もあるはず。
-const BOARD_PRICE_UNIT: f64 = 0.01;
 
 #[derive(Debug)]
 pub struct BinanceOrderBook {
@@ -65,10 +66,7 @@ impl BinanceOrderBook {
         return BinanceOrderBook {
             config: config.clone(),
             last_update_id: 0,
-            board: OrderBook::new(
-                "BTCBUSD".to_string(),
-                Decimal::from_f64(BOARD_PRICE_UNIT).unwrap(),
-            ),
+            board: OrderBook::new(&config.market_config),
         };
     }
 
@@ -124,6 +122,35 @@ impl BinanceOrderBook {
         self.last_update_id = snapshot.last_update_id;
 
         self.board.update(&snapshot.bids, &snapshot.asks, true);
+    }
+
+    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+        let r = self.board.get_board();
+        if r.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in get_board: {:?}",
+                r
+            )));
+        }
+
+        let (mut bids, mut asks) = r.unwrap();
+
+        if bids.is_empty() || asks.is_empty() {
+            return Ok((PyDataFrame(bids), PyDataFrame(asks)));
+        }
+
+        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
+        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
+
+        if asks_edge < bids_edge{
+            log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
+
+            self.reflesh_board();
+
+            (bids, asks) = self.board.get_board().unwrap();
+        }
+
+        return Ok((PyDataFrame(bids), PyDataFrame(asks)));
     }
 }
 
@@ -296,35 +323,10 @@ impl BinanceMarket {
     pub fn info(&mut self) -> String {
         return self.db.info();
     }
-
+    
     #[getter]
-    pub fn get_asks_a(&self) -> PyResult<Py<PyArray2<f64>>> {
-        return self.board.lock().unwrap().board.get_asks_pyarray();
-    }
-
-    #[getter]
-    pub fn get_asks(&self) -> PyResult<PyDataFrame> {
-        return self.board.lock().unwrap().board.get_asks_pydataframe();
-    }
-
-    #[getter]
-    pub fn get_asks_vec(&self) -> Vec<BoardItem> {
-        return self.board.lock().unwrap().board.get_asks();
-    }
-
-    #[getter]
-    pub fn get_bids_a(&self) -> PyResult<Py<PyArray2<f64>>> {
-        return self.board.lock().unwrap().board.get_bids_pyarray();
-    }
-
-    #[getter]
-    pub fn get_bids_vec(&self) -> Vec<BoardItem> {
-        return self.board.lock().unwrap().board.get_bids();
-    }
-
-    #[getter]
-    pub fn get_bids(&self) -> PyResult<PyDataFrame> {
-        return self.board.lock().unwrap().board.get_bids_pydataframe();
+    pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+        return self.board.lock().unwrap().get_board();
     }
 
     #[getter]
