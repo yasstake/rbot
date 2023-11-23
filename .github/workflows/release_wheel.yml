@@ -1,11 +1,7 @@
-name: CI
+name: build and release wheels
 
 on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
+  workflow_dispatch:    
 
 jobs:
   linux:
