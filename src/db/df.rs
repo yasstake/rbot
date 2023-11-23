@@ -11,10 +11,11 @@ use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
 use polars_core::prelude::SortOptions;
-use polars_lazy::prelude::IntoLazy;
+use polars_lazy::dsl::{lit, AggExpr, Expr};
+use polars_lazy::frame::pivot::pivot;
 use polars_lazy::prelude::{col, LazyFrame};
+use polars_lazy::prelude::{IntoLazy, Literal, LiteralValue};
 use polars_time::ClosedWindow;
-
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -34,13 +35,13 @@ pub mod KEY {
     pub const high: &str = "high";
     pub const low: &str = "low";
     pub const close: &str = "close";
-    pub const vol: &str = "vol";
+    pub const volume: &str = "volume";
     #[allow(unused)]
-    pub const sell_vol: &str = "sell_vol";
+    pub const sell_volume: &str = "sell_volume";
     #[allow(unused)]
     pub const sell_count: &str = "sell_count";
     #[allow(unused)]
-    pub const buy_vol: &str = "buy_vol";
+    pub const buy_volume: &str = "buy_volume";
     #[allow(unused)]
     pub const buy_count: &str = "buy_count";
     pub const start_time: &str = "start_time";
@@ -163,7 +164,7 @@ pub fn ohlcv_df(
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
         // truncate: true,                    // タイムスタンプを切り下げてまとめる。
-        include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         start_by: StartBy::DataPoint,
         check_sorted: false,
@@ -188,7 +189,7 @@ pub fn ohlcv_df(
             col(KEY::price).max().alias(KEY::high),
             col(KEY::price).min().alias(KEY::low),
             col(KEY::price).last().alias(KEY::close),
-            col(KEY::size).sum().alias(KEY::vol),
+            col(KEY::size).sum().alias(KEY::volume),
             col(KEY::price).count().alias(KEY::count),
         ])
         .collect();
@@ -226,7 +227,7 @@ pub fn ohlcvv_df(
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
         // truncate: true,                    // タイムスタンプを切り下げてまとめる。
-        include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
     };
@@ -249,7 +250,7 @@ pub fn ohlcvv_df(
             col(KEY::price).max().alias(KEY::high),
             col(KEY::price).min().alias(KEY::low),
             col(KEY::price).last().alias(KEY::close),
-            col(KEY::size).sum().alias(KEY::vol),
+            col(KEY::size).sum().alias(KEY::volume),
             col(KEY::price).count().alias(KEY::count),
             col(KEY::time_stamp).min().alias(KEY::start_time),
             col(KEY::time_stamp).max().alias(KEY::end_time),
@@ -289,7 +290,7 @@ pub fn ohlcv_from_ohlcvv_df(
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
         // truncate: true,                    // タイムスタンプを切り下げてまとめる。
-        include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
     };
@@ -318,7 +319,7 @@ pub fn ohlcv_from_ohlcvv_df(
                 .sort_by([KEY::end_time], [false])
                 .last()
                 .alias(KEY::close),
-            col(KEY::vol).sum().alias(KEY::vol),
+            col(KEY::volume).sum().alias(KEY::volume),
             col(KEY::count).sum().alias(KEY::count),
         ])
         .collect();
@@ -351,7 +352,7 @@ pub fn ohlcvv_from_ohlcvv_df(
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
         // truncate: true,                    // タイムスタンプを切り下げてまとめる。
-        include_boundaries: false,         // データの下限と上限を結果に含めるかどうか？(falseでOK)
+        include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         ..Default::default()
     };
@@ -374,7 +375,7 @@ pub fn ohlcvv_from_ohlcvv_df(
             col(KEY::high).max().alias(KEY::high),
             col(KEY::low).min().alias(KEY::low),
             col(KEY::close).last().alias(KEY::close),
-            col(KEY::vol).sum().alias(KEY::vol),
+            col(KEY::volume).sum().alias(KEY::volume),
             col(KEY::count).sum().alias(KEY::count),
             col(KEY::start_time).min().alias(KEY::start_time),
             col(KEY::end_time).max().alias(KEY::end_time),
@@ -432,44 +433,43 @@ pub fn vap_df_bak2(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> 
     vap
 }
 
-use std::ops::Div;
-
 /// Calc Value At Price
 /// group by unit price and order_side
 pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i64) -> DataFrame {
     let df = select_df_lazy(df, start_time, end_time);
 
     let floor_price = col(KEY::price);
-    let floor_price = floor_price.floor();
+
+    let floor_price = (floor_price.floor_div(size.into()) * size.into()).floor();
     let vap_gb = df.group_by([col(KEY::order_side), floor_price]);
 
     let mut vap = vap_gb
-        .agg([col(KEY::size).sum().alias(KEY::size)])
+        .agg([col(KEY::size).sum().alias(KEY::volume)])
         .collect()
         .unwrap();
 
-    if size != 0 {
-        let price = 
-            (vap.column(KEY::price).unwrap() / size).floor().unwrap() * size;
+    let vap = pivot(
+        &vap,
+        [KEY::volume],
+        [KEY::price],
+        [KEY::order_side],
+        false,
+        //Some(col(KEY::volume).sum()),
+        None,
+        None,
+    )
+    .unwrap();
 
-        vap.with_column(price);
+    let vap = vap.sort([KEY::price], false, true).unwrap();    
 
-        vap = vap.lazy()
-            .group_by([col(KEY::order_side), col(KEY::price)])
-            .agg([col(KEY::size).sum().alias(KEY::size)])
-            .sort(KEY::price, 
-                SortOptions {
-                    descending: false,
-                    nulls_last: false,
-                    maintain_order: true,
-                    multithreaded: true,
-                },
-            )
-            .collect()
-            .unwrap();
-    }
+    let price = vap.column(KEY::price).unwrap().clone();
+    let buy_vol = vap.column("true").unwrap().fill_null(FillNullStrategy::Zero).unwrap().rename(KEY::buy_volume).clone();
+    let sell_vol = vap.column("false").unwrap().fill_null(FillNullStrategy::Zero).unwrap().rename(KEY::sell_volume).clone();
+    let total_vol = (&buy_vol + &sell_vol).rename(KEY::volume).clone();
 
-    vap
+    let df = DataFrame::new(vec![price, buy_vol, sell_vol, total_vol]).unwrap();
+
+    df
 }
 
 pub struct TradeBuffer {
@@ -530,7 +530,7 @@ pub fn make_empty_ohlcvv() -> DataFrame {
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
-    let vol = Series::new(KEY::vol, Vec::<f64>::new());
+    let vol = Series::new(KEY::volume, Vec::<f64>::new());
     let count = Series::new(KEY::count, Vec::<f64>::new());
     let start_time = Series::new(KEY::start_time, Vec::<MicroSec>::new());
     let end_time = Series::new(KEY::end_time, Vec::<MicroSec>::new());
@@ -549,7 +549,7 @@ pub fn make_empty_ohlcv() -> DataFrame {
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
-    let vol = Series::new(KEY::vol, Vec::<f64>::new());
+    let vol = Series::new(KEY::volume, Vec::<f64>::new());
     let count = Series::new(KEY::count, Vec::<f64>::new());
 
     let df = DataFrame::new(vec![time, open, high, low, close, vol, count]).unwrap();
@@ -648,7 +648,7 @@ mod test_df {
             KEY::high => &[1.0, 2.0, 3.0],
             KEY::low => &[1.0, 2.0, 3.0],
             KEY::close => &[1.0, 2.0, 3.0],
-            KEY::vol => &[1.0, 2.0, 3.0],
+            KEY::volume => &[1.0, 2.0, 3.0],
             KEY::count => &[1.0, 2.0, 3.0],
             KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3)],
             KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
@@ -737,7 +737,7 @@ mod test_df {
         let high = Series::new(KEY::high, Vec::<f64>::new());
         let low = Series::new(KEY::low, Vec::<f64>::new());
         let close = Series::new(KEY::close, Vec::<f64>::new());
-        let vol = Series::new(KEY::vol, Vec::<f64>::new());
+        let vol = Series::new(KEY::volume, Vec::<f64>::new());
         let count = Series::new(KEY::count, Vec::<f64>::new());
 
         let df = DataFrame::new(vec![t, open, high, low, close, vol, count]).unwrap();
