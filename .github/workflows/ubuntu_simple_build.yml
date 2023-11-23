@@ -13,7 +13,7 @@ jobs:
     - name: upgrade
       run: sudo apt-get upgrade -y
     - name: get-python
-      run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.11 python3.12
+      run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.12
     - uses: actions/checkout@v4
     - uses: PyO3/maturin-action@v1
       with:
@@ -24,7 +24,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter --features "extension-module"
+        args: --release -o dist --find-interpreter --features "extension-module" -i python3.12
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
