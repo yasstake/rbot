@@ -38,6 +38,8 @@ pub struct MarketConfig {
     pub foreign_currency: String,
 
     pub market_order_price_slip: Decimal,
+
+    pub board_depth: u32
 }
 
 
@@ -60,6 +62,7 @@ impl MarketConfig {
             home_currency: home_currency.to_string(),
             foreign_currency: foreign_currency.to_string(),
             market_order_price_slip: dec![0.0],
+            board_depth: 1000,
         }
     }
 }

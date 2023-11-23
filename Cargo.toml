@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.2.1"
+version = "0.2.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -36,10 +36,11 @@ directories= "5.0.1"
 #polars-time = {version="0.33.2"}
 #pyo3-polars = {version="0.7.0"}
 
-polars = {version="0.35"}
+polars = {version="0.35", features=["lazy"]}
 polars-core = {version = "0.35", features=["ndarray", "temporal", "dtype-time", "object", "round_series"]}
-polars-lazy = {version="0.35", features=["dynamic_group_by", "round_series"]}
+polars-lazy = {version="0.35", features=["dynamic_group_by", "round_series", "pivot"]}
 polars-time = {version="0.35"}
+polars-ops = {version = "0.35"}
 pyo3-polars = {version="0.9"}
 
 
@@ -76,7 +77,7 @@ thiserror = {version="1.0.50"}
 
  [dependencies.pyo3]
  version = "0.20.0"
-  features = ["rust_decimal", "macros"]
+  features = ["rust_decimal", "macros", "extension-module"]
 
  [features]
  extension-module = ["pyo3/extension-module"]

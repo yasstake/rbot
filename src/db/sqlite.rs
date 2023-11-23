@@ -600,7 +600,7 @@ impl TradeTable {
                 KEY::high,
                 KEY::low,
                 KEY::close,
-                KEY::vol,
+                KEY::volume,
                 // KEY::count,
                 KEY::start_time,
                 KEY::end_time,
@@ -678,7 +678,7 @@ impl TradeTable {
                 KEY::high,
                 KEY::low,
                 KEY::close,
-                KEY::vol,
+                KEY::volume,
                 // KEY::count,
             ])
             .unwrap()
