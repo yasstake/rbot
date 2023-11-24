@@ -1,18 +1,11 @@
-use std::borrow::BorrowMut;
-use std::f32::consts::E;
-use std::sync::Arc;
-use std::thread;
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
-use rusqlite::ffi::SQLITE_FCNTL_CKSM_FILE;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{
-    MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, SEC,
+    MarketConfig, MarketMessage, MarketStream, MicroSec, FLOOR_SEC, SEC,
 };
-use crate::exchange::binance::config;
-
 use crossbeam_channel::Receiver;
 
 use super::{has_method, Session};

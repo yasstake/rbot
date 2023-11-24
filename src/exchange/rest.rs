@@ -1,39 +1,19 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
 // Abloultely no warranty.
 
-//pub mod bb;
-//pub mod binance;
-//pub mod orderbook;
-
-//pub use orderbook::*;
-
-// pub mod ftx;
-
-use core::panic;
 use std::{
     fs::File,
     io::{copy, BufReader, Cursor, Write},
-    net::TcpStream,
     path::Path,
 };
 
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use reqwest::Method;
-use serde_json::Value;
 use tempfile::tempdir;
-use url::Url;
 use zip::ZipArchive;
-
-
-use crate::common::{Trade,MicroSec, HHMM, MICRO_SECOND, NOW, SEC};
-
+use crate::common::Trade;
 use crossbeam_channel::Sender;
-// use crossbeam_channel::Receiver;
-
-use tungstenite::Message;
-use tungstenite::{connect, stream::MaybeTlsStream};
-use tungstenite::{http::request, protocol::WebSocket};
 
 
 pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
@@ -524,8 +504,6 @@ pub fn check_exist(url: &str) -> bool {
 
 #[cfg(test)]
 mod test_exchange {
-    use serde_json::json;
-
     use super::*;
     use crate::common::init_debug_log;
 

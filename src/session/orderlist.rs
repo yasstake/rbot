@@ -1,7 +1,7 @@
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+
 use crate::common::{Order, OrderSide, OrderStatus, Trade};
-use polars_lazy::dsl::first;
-use pyo3::{pyclass, pymethods, PyResult};
-use pyo3_polars::PyDataFrame;
+use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::Serialize;
@@ -149,7 +149,7 @@ impl OrderList {
     /// For Buy Trade, it consumes the Sell order list which below the trade price only.
     /// For Sell Trade, it consumes the Buy order list which above the trade price only.
 
-    pub fn consume_trade(&mut self, mut trade: &Trade) -> Vec<Order> {
+    pub fn consume_trade(&mut self, trade: &Trade) -> Vec<Order> {
         // first check if the order is in the list. If not return emply list.
         let order_len = self.len();
 

@@ -1,19 +1,17 @@
-use std::str::FromStr;
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::str::FromStr;
 use pyo3::{pyclass, pymethods};
-use pyo3_polars::error::SchemaFieldNotFound;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use serde::de::{self, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
-use strum_macros::Display;
 
 use crate::{
     common::{
-        AccountChange, MarketMessage, MicroSec,
-        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize, string_to_status,
+        MarketMessage, 
+        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
     },
-    exchange::{string_to_decimal, BoardItem, binance},
+    exchange::{string_to_decimal, BoardItem},
 };
 
 use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
@@ -265,6 +263,7 @@ struct BinanceOrderResponse will parse below json.
     ]
   }
 */
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderFill {
@@ -351,7 +350,7 @@ impl From<BinanceOrderResponse> for Vec<Order> {
     }
 }
 
-
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderResponse {
@@ -408,6 +407,7 @@ BinaceCanceOrderResponse will parse below json.
 }
 */
 
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceCancelOrderResponse {
@@ -454,7 +454,7 @@ impl From<BinanceCancelOrderResponse> for Order {
             order.clientOrderId,
             order_side,
             order_type,
-            OrderStatus::Canceled,
+            order_status,
             order.price,
             order.origQty,
         )
@@ -486,6 +486,7 @@ BiannceListOrderResponse will parse json below
 
 */
 
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceListOrdersResponse {
@@ -928,6 +929,7 @@ impl From<&BinanceExecutionReport> for Order {
     */
 }
 
+#[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
 pub enum BinanceUserStreamMessage {
@@ -1034,6 +1036,7 @@ BinanceAccountInformation is parse json as blow
 }
 
 */
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BinanceAccountInformation {
@@ -1194,6 +1197,7 @@ BinanceOrderStatus is parse json as blow
   "selfTradePreventionMode": "NONE"
 }
 */
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderStatus {
@@ -1313,7 +1317,7 @@ impl BinanceOrderStatus {
 mod binance_message_test {
     use super::*;
     use crate::exchange::binance::message::{
-        BinanceCancelOrderResponse, BinanceExecutionReport, BinanceOrderResponse,
+        BinanceCancelOrderResponse, BinanceOrderResponse,
         BinancePublicWsMessage, BinanceTradeMessage, BinanceWsBoardUpdate, BinanceWsTradeMessage,
     };
 

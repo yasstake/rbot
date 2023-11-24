@@ -1,4 +1,4 @@
-// Copyright(c) 2022. yasstake. All rights reserved.
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use chrono::Datelike;
 use csv::StringRecord;
@@ -26,7 +26,7 @@ use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond
 
 use super::message::BinanceUserStreamMessage;
 use super::message::{
-    BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
+    BinanceListOrdersResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
     BinanceAccountInformation
 };
 use super::rest::{cancel_order, get_balance};
@@ -392,10 +392,19 @@ impl BinanceMarket {
                     match message.clone() {
                         BinancePublicWsMessage::Trade(trade) => {
                             log::debug!("Trade: {:?}", trade);
-                            db_channel.send(vec![trade.to_trade()]);
+                            let r = db_channel.send(vec![trade.to_trade()]);
+                            
+                            if r.is_err() {
+                                log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
+                            }
 
                             let multi_agent_channel = agent_channel.borrow_mut();
-                            multi_agent_channel.lock().unwrap().send(message.into());
+                            
+                            let r = multi_agent_channel.lock().unwrap().send(message.into());
+
+                            if r.is_err() {
+                                log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
+                            }
                         }
                         BinancePublicWsMessage::BoardUpdate(board_update) => {
                             board.lock().unwrap().update(&board_update);
@@ -783,9 +792,6 @@ impl BinanceMarket {
             }
         }
     }
-
-    fn write_message_to_channel(&mut self, message: MarketMessage) {
-    }
 }
 
 #[cfg(test)]
@@ -799,7 +805,6 @@ mod binance_test {
     #[test]
     fn test_make_historical_data_url_timestamp() {
         init_log();
-        let market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         println!(
             "{}",
             BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 1)
