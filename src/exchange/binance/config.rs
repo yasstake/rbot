@@ -32,7 +32,9 @@ pub struct BinanceConfig {
     pub user_data_stream_path: String,
 
     // key & secret
+    #[pyo3(set)]
     pub api_key: String,
+    #[pyo3(set)]
     pub api_secret: String,
 
     #[pyo3(get)]
