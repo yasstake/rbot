@@ -25,10 +25,11 @@ use session::Runner;
 //use sim::back::BackTester;
 //use sim::session::DummySession;
 
-
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     m.add_function(wrap_pyfunction!(init_log, m)?)?;
     m.add_function(wrap_pyfunction!(init_debug_log, m)?)?;
 

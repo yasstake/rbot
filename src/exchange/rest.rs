@@ -55,7 +55,7 @@ pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
     log::debug!(
         "Response code = {} / download size {}",
         response.status().as_str(),
-        response.content_length().unwrap()
+        response.content_length().unwrap_or_default()   // if error, return 0
     );
 
     let fname = response

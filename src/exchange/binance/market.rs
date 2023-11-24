@@ -3,8 +3,6 @@
 use chrono::Datelike;
 use csv::StringRecord;
 use numpy::PyArray2;
-use polars_core::utils::arrow::array::Array;
-use polars_lazy::dsl::col;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
@@ -12,10 +10,10 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
-use std::thread::{sleep, JoinHandle, Thread, self};
+use std::thread::{sleep, JoinHandle, self};
 use std::time::Duration;
 
-use crate::common::{convert_pyresult_vec, MarketMessage};
+use crate::common::{convert_pyresult_vec, MarketMessage, time_string};
 use crate::common::DAYS;
 use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
@@ -37,8 +35,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook, BoardItem,
-};
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook};
 
 use crate::exchange::binance::config::BinanceConfig;
 
@@ -158,7 +155,7 @@ impl BinanceOrderBook {
 #[pyclass(name = "BinanceMarket")]
 pub struct BinanceMarket {
     pub config: BinanceConfig,
-    name: String,
+    symbol: String,
     pub db: TradeTable,
     pub board: Arc<Mutex<BinanceOrderBook>>,
     pub public_handler: Option<JoinHandle<()>>,
@@ -188,11 +185,11 @@ impl BinanceMarket {
 
         db.create_table_if_not_exists();
 
-        let name = config.trade_symbol.clone();
+        let symbol = config.trade_symbol.clone();
 
         return BinanceMarket {
             config: config.clone(),
-            name: name.clone(),
+            symbol: symbol,
             db,
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
             public_handler: None,
@@ -217,23 +214,25 @@ impl BinanceMarket {
         match self.get_latest_archive_timestamp() {
             Ok(timestamp) => latest_date = timestamp,
             Err(e) => {
-                latest_date = NOW() - DAYS(1);
+                latest_date = NOW() - DAYS(2);
             }
         }
+
+        log::info!("archive latest_date: {}", time_string(latest_date));
 
         // download from archive
         let days_gap = self
             .db
             .make_time_days_chunk_from_days(ndays, latest_date, force);
         let urls: Vec<String> = make_download_url_list(
-            self.name.as_str(),
+            self.symbol.as_str(),
             days_gap,
             Self::make_historical_data_url_timestamp,
         );
         let tx = self.db.start_thread();
         let download_rec = download_log(urls, tx, false, BinanceMarket::rec_to_trade);
 
-        self.repave_today();
+        // self.repave_today();
 
         log::info!("downloaded: {}", download_rec);
 
@@ -241,6 +240,8 @@ impl BinanceMarket {
     }
 
     pub fn repave_today(&mut self) {
+        log::info!("repave_today log download");
+        
         let latest_date;
 
         match self.get_latest_archive_timestamp() {
@@ -251,7 +252,11 @@ impl BinanceMarket {
         }
 
         let tx = self.db.start_thread();
-        insert_trade_db(&self.config, latest_date, tx.clone());
+        let r = insert_trade_db(&self.config, latest_date, tx.clone());
+
+        if r.is_err() {
+            log::error!("Error in insert_trade_db: {:?}", r);
+        }
     }
 
     pub fn cache_all_data(&mut self) {
@@ -339,7 +344,7 @@ impl BinanceMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return format!("<b>Binance DB ({})</b>{}", self.name, self.db._repr_html_());
+        return format!("<b>Binance DB ({})</b>{}", self.symbol, self.db._repr_html_());
     }
 
     // TODO: implment retry logic
@@ -430,7 +435,7 @@ impl BinanceMarket {
                 log::debug!("UserStream: {:?}", message);
                 let mutl_agent_channel = agent_channel.borrow_mut();
                 let m = message.convert_to_market_message(&cfg);
-                mutl_agent_channel.lock().unwrap().send(m);
+                let _ = mutl_agent_channel.lock().unwrap().send(m);
             },
         ));
 
@@ -740,7 +745,7 @@ impl BinanceMarket {
         loop {
             latest -= i * DAYS(1);
 
-            let url = Self::make_historical_data_url_timestamp(self.name.as_str(), latest);
+            let url = Self::make_historical_data_url_timestamp(self.symbol.as_str(), latest);
 
             if check_exist(url.as_str()) {
                 log::debug!("{} exists", url);
