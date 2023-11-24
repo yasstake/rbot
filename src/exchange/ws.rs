@@ -1,36 +1,15 @@
-//pub mod bb;
-//pub mod binance;
-//pub mod orderbook;
-
-//pub use orderbook::*;
-
-// pub mod ftx;
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use core::panic;
-use std::{
-    fs::File,
-    io::{copy, BufReader, Cursor, Write},
-    net::TcpStream,
-    path::Path,
-};
-
-use csv::{self, StringRecord};
-use flate2::bufread::GzDecoder;
-use reqwest::Method;
+use std::net::TcpStream;
 use serde_json::Value;
-use tempfile::tempdir;
 use url::Url;
-use zip::ZipArchive;
 
 
-use crate::common::{Trade,MicroSec, HHMM, MICRO_SECOND, NOW, SEC};
-
-use crossbeam_channel::Sender;
-// use crossbeam_channel::Receiver;
-
+use crate::common::{MicroSec, MICRO_SECOND, NOW};
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
-use tungstenite::{http::request, protocol::WebSocket};
+use tungstenite::protocol::WebSocket;
 
 
 pub struct WebSocketClient {
