@@ -1,18 +1,17 @@
-use std::str::FromStr;
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::str::FromStr;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use serde::de::{self, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
-use strum_macros::Display;
 
 use crate::{
     common::{
-        AccountChange, MarketMessage, MicroSec,
-        {Order, OrderFill, OrderSide, OrderStatus, OrderType, Trade}, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize, string_to_status,
+        MarketMessage, 
+        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
     },
-    exchange::{string_to_decimal, BoardItem, binance},
+    exchange::{string_to_decimal, BoardItem},
 };
 
 use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
@@ -264,6 +263,7 @@ struct BinanceOrderResponse will parse below json.
     ]
   }
 */
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderFill {
@@ -350,7 +350,7 @@ impl From<BinanceOrderResponse> for Vec<Order> {
     }
 }
 
-
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderResponse {
@@ -407,6 +407,7 @@ BinaceCanceOrderResponse will parse below json.
 }
 */
 
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceCancelOrderResponse {
@@ -453,7 +454,7 @@ impl From<BinanceCancelOrderResponse> for Order {
             order.clientOrderId,
             order_side,
             order_type,
-            OrderStatus::Canceled,
+            order_status,
             order.price,
             order.origQty,
         )
@@ -485,6 +486,7 @@ BiannceListOrderResponse will parse json below
 
 */
 
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceListOrdersResponse {
@@ -927,6 +929,7 @@ impl From<&BinanceExecutionReport> for Order {
     */
 }
 
+#[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
 pub enum BinanceUserStreamMessage {
@@ -1033,29 +1036,62 @@ BinanceAccountInformation is parse json as blow
 }
 
 */
+#[allow(non_snake_case)]
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BinanceAccountInformation {
-    makerCommission: i64,
-    takerCommission: i64,
-    buyerCommission: i64,
-    sellerCommission: i64,
-    commissionRates: BinanceCommissionRates,
-    canTrade: bool,
-    canWithdraw: bool,
-    canDeposit: bool,
-    brokered: bool,
-    requireSelfTradePrevention: bool,
-    preventSor: bool,
-    updateTime: u64,
-    accountType: String,
-    balances: Vec<BinanceAccountBalance>,
-    permissions: Vec<String>,
-    uid: i64,
+    #[pyo3(get)]
+    pub makerCommission: i64,
+    #[pyo3(get)]    
+    pub takerCommission: i64,
+    #[pyo3(get)]    
+    pub buyerCommission: i64,
+    #[pyo3(get)]    
+    pub sellerCommission: i64,
+    #[pyo3(get)]    
+    pub commissionRates: BinanceCommissionRates,
+    #[pyo3(get)]    
+    pub canTrade: bool,
+    #[pyo3(get)]    
+    pub canWithdraw: bool,
+    #[pyo3(get)]    
+    pub canDeposit: bool,
+    #[pyo3(get)]    
+    pub brokered: bool,
+    #[pyo3(get)]    
+    pub requireSelfTradePrevention: bool,
+    #[pyo3(get)]    
+    pub preventSor: bool,
+    #[pyo3(get)]    
+    pub updateTime: u64,
+    #[pyo3(get)]    
+    pub accountType: String,
+    #[pyo3(get)]
+    pub balances: Vec<BinanceAccountBalance>,
+    #[pyo3(get)]    
+    pub permissions: Vec<String>,
+    #[pyo3(get)]    
+    pub uid: i64,
 }
+
+
 
 #[pymethods]
 impl BinanceAccountInformation {
+    pub fn __getitem__(&self, asset: String) -> BinanceAccountBalance {
+        for balance in &self.balances {
+            if balance.asset.to_uppercase() == asset.to_uppercase() {
+                return balance.clone();
+            }
+        }
+
+        BinanceAccountBalance {
+            asset: "".to_string(),
+            free: dec![0.0],
+            locked: dec![0.0],
+        }
+    }
+
     pub fn __repr__(&self) -> String {
         serde_json::to_string(self).unwrap()
         // format!("{:?}", self)
@@ -1063,21 +1099,77 @@ impl BinanceAccountInformation {
 }
 
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BinanceCommissionRates {
-    maker: Decimal,
-    taker: Decimal,
-    buyer: Decimal,
-    seller: Decimal,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BinanceAccountBalances {
+    #[pyo3(get)]    
+    pub balances: Vec<BinanceAccountBalance>,
+}
+
+#[pymethods]
+impl BinanceAccountBalances {
+    /*
+    #[getter]
+    pub fn __getitem__(&self, asset: String) -> BinanceAccountBalance {
+        print!("asset: {}", asset);
+
+        for balance in &self.balances {
+            if balance.asset == asset {
+                return balance.clone();
+            }
+        }
+
+        BinanceAccountBalance {
+            asset: "".to_string(),
+            free: dec![0.0],
+            locked: dec![0.0],
+        }
+    }
+*/
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
 }
 
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BinanceAccountBalance {
-    asset: String,
-    free: Decimal,
-    locked: Decimal,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BinanceCommissionRates {
+    #[pyo3(get)]    
+    maker: Decimal,
+    #[pyo3(get)]    
+    taker: Decimal,
+    #[pyo3(get)]    
+    buyer: Decimal,
+    #[pyo3(get)]    
+    seller: Decimal,
 }
+
+#[pymethods]
+impl BinanceCommissionRates {
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(self).unwrap()
+        // format!("{:?}", self)
+    }
+}
+
+
+#[pyclass]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BinanceAccountBalance {
+    #[pyo3(get)]    
+    pub asset: String,
+    #[pyo3(get)]
+    pub free: Decimal,
+    #[pyo3(get)]    
+    pub locked: Decimal,
+}
+
+#[pymethods]
+impl BinanceAccountBalance {
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
+}
+
 
 /*
 BinanceOrderStatus is parse json as blow
@@ -1105,6 +1197,7 @@ BinanceOrderStatus is parse json as blow
   "selfTradePreventionMode": "NONE"
 }
 */
+#[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceOrderStatus {
@@ -1224,7 +1317,7 @@ impl BinanceOrderStatus {
 mod binance_message_test {
     use super::*;
     use crate::exchange::binance::message::{
-        BinanceCancelOrderResponse, BinanceExecutionReport, BinanceOrderResponse,
+        BinanceCancelOrderResponse, BinanceOrderResponse,
         BinancePublicWsMessage, BinanceTradeMessage, BinanceWsBoardUpdate, BinanceWsTradeMessage,
     };
 

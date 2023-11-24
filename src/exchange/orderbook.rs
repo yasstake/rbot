@@ -1,19 +1,20 @@
+// Copyright(c) 2023. yasstake. All rights reserved.
+// Abloultely no warranty.
+
 use std::{collections::HashMap, sync::Mutex};
 
-use ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2};
+
 use polars_core::{
     prelude::{DataFrame, NamedFrom},
     series::Series,
 };
-use pyo3::{pyclass, Py, PyResult, Python};
-use pyo3_polars::PyDataFrame;
+use pyo3::pyclass;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{de, Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{common::MarketConfig, exchange::binance::Market};
+use crate::common::MarketConfig;
 
 pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where

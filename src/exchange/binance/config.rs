@@ -1,11 +1,11 @@
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::json;
 
 use crate::{fs::db_full_path, common::MarketConfig};
-
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
@@ -41,12 +41,14 @@ pub struct BinanceConfig {
 
 #[pymethods]
 impl BinanceConfig {
+    #[allow(non_snake_case)]
     #[classattr]
     pub fn BTCUSDT() -> Self {
         return BinanceConfig::SPOT("BTC", "USDT");
     }
 
     #[classattr]
+    #[allow(non_snake_case)]    
     pub fn TEST_BTCUSDT() -> Self {
         let mut config = BinanceConfig::TESTSPOT("BTC", "USDT");
 
@@ -56,6 +58,7 @@ impl BinanceConfig {
         return config;
     }
 
+    #[allow(non_snake_case)]    
     #[staticmethod]
     pub fn TESTSPOT(foreign_symbol: &str, home_symbol: &str) -> Self {
         let mut config = BinanceConfig::SPOT(foreign_symbol, home_symbol);
@@ -70,12 +73,7 @@ impl BinanceConfig {
         return config;
     }
 
-
-    // TODO: implement        
-    pub fn load_key(&mut self, file: &str) {
-
-    }
-
+    #[allow(non_snake_case)]    
     #[staticmethod]
     pub fn SPOT(foreign_symbol: &str, home_symbol: &str) -> Self {
 
@@ -100,7 +98,7 @@ impl BinanceConfig {
             "".to_string()
         };
 
-        let mut market_config = MarketConfig::new(
+        let market_config = MarketConfig::new(
             home_symbol,
             foreign_symbol,
             2,
@@ -160,16 +158,16 @@ impl BinanceConfig {
     pub fn __repr__(&self) -> String {
         let mut printobj = self.clone();
 
-        if printobj.api_key.len() > 4 {
-            printobj.api_key = format!("{}*******************", printobj.api_key[0..4].to_string());
+        if printobj.api_key.len() > 2 {
+            printobj.api_key = format!("{}*******************", printobj.api_key[0..2].to_string());
         } else {
             printobj.api_key = "!! NO KEY !!".to_string();
         }
 
-        if printobj.api_secret.len() > 4 {
+        if printobj.api_secret.len() > 2 {
             printobj.api_secret = format!(
                 "{}*******************",
-                printobj.api_secret[0..4].to_string()
+                printobj.api_secret[0..2].to_string()
             );
         } else {
             printobj.api_secret = "!! NO SECRET !!".to_string();

@@ -1,29 +1,26 @@
+// Copyright(c) 2022-2023. yasstake. All rights reserved.
+
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Mutex;
 use std::{fs::OpenOptions, path::Path};
-
 
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use serde_derive::Serialize;
 
-use crate::exchange::BoardItem;
-use crate::{
-    common::{
-        date_string, hour_string, min_string, AccountStatus, MarketConfig, MarketStream, MicroSec,
-        OrderSide, OrderStatus, NOW,
-    },
-    exchange::binance::Market,
+use crate::common::{
+    date_string, hour_string, min_string, AccountStatus, MarketConfig, MarketStream, MicroSec,
+    OrderSide, OrderStatus, NOW,
 };
+use crate::exchange::BoardItem;
 
-use super::{has_method, OrderList};
+use super::OrderList;
 use pyo3::prelude::*;
 
-use crate::common::{Trade, ordervec_to_dataframe};
+use crate::common::{ordervec_to_dataframe, Trade};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
 
@@ -32,7 +29,7 @@ use crate::common::{Order, OrderType};
 pub struct ExecuteLog {
     on_memory: bool,
     memory: Vec<Order>,
-    log_file: Option<std::fs::File>,    
+    log_file: Option<std::fs::File>,
 }
 
 impl ExecuteLog {
@@ -56,7 +53,7 @@ impl ExecuteLog {
         Ok(())
     }
 
-    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error>{
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
         if self.on_memory {
             self.memory.push(order.clone());
         } else {
@@ -299,7 +296,7 @@ impl Session {
 
     #[getter]
     pub fn get_buy_edge(&self) -> f64 {
-        self.buy_edge.to_f64().unwrap()        
+        self.buy_edge.to_f64().unwrap()
     }
 
     #[getter]
@@ -371,7 +368,11 @@ impl Session {
         }
     }
 
-    pub fn real_market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+    pub fn real_market_order(
+        &mut self,
+        side: OrderSide,
+        size: Decimal,
+    ) -> Result<Py<PyAny>, PyErr> {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
@@ -384,7 +385,6 @@ impl Session {
                 .call_method1(py, "market_order", (side, size, local_id))
         })
     }
-
 
     pub fn dummy_market_order(
         &mut self,
@@ -399,7 +399,7 @@ impl Session {
         let execute_price = if side == OrderSide::Buy {
             self.sell_edge + self.market_config.market_order_price_slip
         } else {
-            self.buy_edge - self.market_config.market_order_price_slip            
+            self.buy_edge - self.market_config.market_order_price_slip
         };
 
         let mut order = Order::new(
@@ -589,16 +589,15 @@ impl Session {
 
         if tick.order_side == OrderSide::Buy {
             self.sell_edge = tick.price;
-            if self.sell_edge <= self.buy_edge{
+            if self.sell_edge <= self.buy_edge {
                 self.buy_edge = self.sell_edge - self.market_config.price_unit;
             }
         } else if tick.order_side == OrderSide::Sell {
             self.buy_edge = tick.price;
-            if self.sell_edge <= self.buy_edge{
+            if self.sell_edge <= self.buy_edge {
                 self.sell_edge = self.buy_edge + self.market_config.price_unit;
             }
         }
-
 
         if self.dummy == false {
             return vec![];
@@ -696,8 +695,7 @@ impl Session {
     }
 }
 
-
-impl Session {    
+impl Session {
     pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
         self.log.log(order)
     }

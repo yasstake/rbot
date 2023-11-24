@@ -11,10 +11,10 @@ use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
 use polars_core::prelude::SortOptions;
-use polars_lazy::dsl::{lit, AggExpr, Expr};
+
 use polars_lazy::frame::pivot::pivot;
 use polars_lazy::prelude::{col, LazyFrame};
-use polars_lazy::prelude::{IntoLazy, Literal, LiteralValue};
+use polars_lazy::prelude::IntoLazy;
 use polars_time::ClosedWindow;
 
 #[allow(non_upper_case_globals)]
@@ -406,7 +406,6 @@ pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> D
     vap
 }
 
-use polars::prelude::DataType;
 
 /// Calc Value At Price
 /// group by unit price and order_side
@@ -443,7 +442,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
     let floor_price = (floor_price.floor_div(size.into()) * size.into()).floor();
     let vap_gb = df.group_by([col(KEY::order_side), floor_price]);
 
-    let mut vap = vap_gb
+    let vap = vap_gb
         .agg([col(KEY::size).sum().alias(KEY::volume)])
         .collect()
         .unwrap();
@@ -577,12 +576,11 @@ pub fn convert_timems_to_datetime(df: &mut DataFrame) -> &DataFrame {
 
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 
 #[cfg(test)]
 mod test_df {
     use super::*;
-    use crate::{common::DAYS, db::df};
+    use crate::common::DAYS;
 
     #[test]
     fn test_simple_dynamic_group() {
@@ -725,11 +723,11 @@ mod test_df {
     #[test]
     fn test_make_ohlcv_datetime() {
         use polars::datatypes::TimeUnit;
-        use polars::datatypes::TimeZone;
 
-        let mut time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
 
-        let mut t64 = time.i64().unwrap().clone();
+        let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+
+        let t64 = time.i64().unwrap().clone();
         let date_time = t64.into_datetime(TimeUnit::Microseconds, None);
 
         let t = Series::new("time", date_time);
@@ -752,7 +750,7 @@ mod test_df {
         println!("{:?}", df);
 
         let time = df.column("time_stamp").unwrap().i64().unwrap().clone();
-        let mut date_time = time.into_datetime(TimeUnit::Microseconds, None);
+        let date_time = time.into_datetime(TimeUnit::Microseconds, None);
         let df = df.with_column(date_time).unwrap();
 
         println!("{:?}", df);
