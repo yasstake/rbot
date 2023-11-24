@@ -27,8 +27,9 @@ use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond
 use super::message::BinanceUserStreamMessage;
 use super::message::{
     BinanceListOrdersResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
+    BinanceAccountInformation
 };
-use super::rest::cancel_order;
+use super::rest::{cancel_order, get_balance};
 use super::rest::cancell_all_orders;
 use super::rest::open_orders;
 use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_status, trade_list};
@@ -49,7 +50,6 @@ pub struct BinanceAccount {
     pub secret_key: String,
     pub subaccount: String,
 }
-
 
 #[derive(Debug)]
 pub struct BinanceOrderBook {
@@ -349,6 +349,7 @@ impl BinanceMarket {
 
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
+
         let endpoint = &self.config.public_ws_endpoint;
         let subscribe_message: Value =
             serde_json::from_str(&self.config.public_subscribe_message).unwrap();
@@ -414,6 +415,7 @@ impl BinanceMarket {
         log::info!("start_market_stream");
     }
 
+    /*
     // TODO: 単に待っているだけなので、終了処理を実装する。
     pub fn stop_market_stream(&mut self) {
         match self.public_handler.take() {
@@ -423,6 +425,7 @@ impl BinanceMarket {
             None => {}
         }
     }
+    */
 
     pub fn start_user_stream(&mut self) {
         let mut agent_channel = self.channel.clone();
@@ -442,6 +445,7 @@ impl BinanceMarket {
         log::info!("start_user_stream");
     }
 
+    /*
     pub fn stop_user_stream(&mut self) {
         match self.user_handler.take() {
             Some(h) => {
@@ -450,6 +454,7 @@ impl BinanceMarket {
             None => {}
         }
     }
+    */
 
     pub fn is_user_stream_running(&self) -> bool {
         if let Some(handler) = &self.user_handler {
@@ -496,29 +501,32 @@ impl BinanceMarket {
         return channel;
     }
 
+    /*
     #[pyo3(signature = (side, price, size, client_order_id=None))]
     pub fn new_limit_order_raw(
         &self,
-        side: OrderSide,
+        side: &str,
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
         let price_scale = self.config.market_config.price_scale;
         let size_scale = self.config.market_config.size_scale;
+        let order_side = OrderSide::from(side);
 
         let price = price.round_dp(price_scale);
         let size = size.round_dp(size_scale);
 
-        let response = new_limit_order(&self.config, side, price, size, client_order_id);
+        let response = new_limit_order(&self.config, order_side, price, size, client_order_id);
 
         convert_pyresult(response)
     }
+    */
 
     #[pyo3(signature = (side, price, size, client_order_id=None))]
     pub fn limit_order(
         &self,
-        side: OrderSide,
+        side: &str,
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
@@ -528,8 +536,9 @@ impl BinanceMarket {
 
         let size_scale = self.config.market_config.size_scale;
         let size_dp = size.round_dp(size_scale);
+        let order_side = OrderSide::from(side);
 
-        let response = new_limit_order(&self.config, side, price_dp, size_dp, client_order_id);
+        let response = new_limit_order(&self.config, order_side, price_dp, size_dp, client_order_id);
 
         if response.is_err() {
             log::error!(
@@ -559,30 +568,36 @@ impl BinanceMarket {
         convert_pyresult(response)
     }
 
+    /*
     pub fn new_market_order_raw(
         &self,
-        side: OrderSide,
+        side: &str,
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<BinanceOrderResponse> {
         let size_scale = self.config.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
-        let response = new_market_order(&self.config, side, size, client_order_id);
+        let order_side = OrderSide::from(side);
+
+        let response = new_market_order(&self.config, order_side, size, client_order_id);
 
         convert_pyresult(response)
     }
+    */
 
     pub fn market_order(
         &self,
-        side: OrderSide,
+        side: &str,
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
         let size_scale = self.config.market_config.size_scale;
         let size = size.round_dp(size_scale);
+        
+        let order_side = OrderSide::from(side);
 
-        let response = new_market_order(&self.config, side, size, client_order_id);
+        let response = new_market_order(&self.config, order_side, size, client_order_id);
 
         if response.is_err() {
             log::error!(
@@ -649,6 +664,13 @@ impl BinanceMarket {
     #[getter]
     pub fn get_market_config(&self) -> MarketConfig {
         return self.config.market_config.clone();
+    }
+
+    #[getter]
+    pub fn get_account(&self) -> PyResult<BinanceAccountInformation> {
+        let status = get_balance(&self.config);
+
+        convert_pyresult(status)
     }
 }
 
