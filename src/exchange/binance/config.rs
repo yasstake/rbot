@@ -160,16 +160,16 @@ impl BinanceConfig {
     pub fn __repr__(&self) -> String {
         let mut printobj = self.clone();
 
-        if printobj.api_key.len() > 4 {
-            printobj.api_key = format!("{}*******************", printobj.api_key[0..4].to_string());
+        if printobj.api_key.len() > 2 {
+            printobj.api_key = format!("{}*******************", printobj.api_key[0..2].to_string());
         } else {
             printobj.api_key = "!! NO KEY !!".to_string();
         }
 
-        if printobj.api_secret.len() > 4 {
+        if printobj.api_secret.len() > 2 {
             printobj.api_secret = format!(
                 "{}*******************",
-                printobj.api_secret[0..4].to_string()
+                printobj.api_secret[0..2].to_string()
             );
         } else {
             printobj.api_secret = "!! NO SECRET !!".to_string();
