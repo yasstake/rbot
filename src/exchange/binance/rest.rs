@@ -701,12 +701,15 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
 
 use crate::exchange::binance::message::BinanceListOrdersResponse;
 
+
+/// https://binance-docs.github.io/apidocs/spot/en/#current-open-orders-user_data 
 pub fn open_orders(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
     let path = "/api/v3/openOrders";
     let query = format!("symbol={}", config.trade_symbol);
 
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
+
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
     let path = "/api/v3/myTrades";
@@ -719,15 +722,13 @@ pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersRespons
     ))
 }
 
-
+#[allow(non_snake_case, unused_variables)]
 #[cfg(test)]
 mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
     use crate::common::{init_debug_log, time_string, HHMM, Order};
-
-    use crate::common::init_log;
 
     #[test]
     fn test_trade_list() {
@@ -965,7 +966,7 @@ mod tests {
 
     #[test]
     fn test_binance_cancel_all_orders() {
-        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+        let config = BinanceConfig::TEST_BTCUSDT();
 
         let result = cancell_all_orders(&config);
 
@@ -1008,16 +1009,17 @@ mod tests {
 
     #[test]
     fn test_order_status() {
-        let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
+        let config = BinanceConfig::TEST_BTCUSDT();
 
         let message = order_status(&config).unwrap();
         println!("message: {:?}", message);
     }
 
+
     #[test]
     fn test_open_orders() {
         init_debug_log();
-        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+        let config = BinanceConfig::TEST_BTCUSDT();
 
         let message = open_orders(&config).unwrap();
         println!("message: {:?}", message);
@@ -1031,7 +1033,7 @@ mod tests {
     #[test]
     fn test_order_list() {
         init_debug_log();
-        let config = BinanceConfig::TESTSPOT("BTC", "USDT");
+        let config = BinanceConfig::TEST_BTCUSDT();
 
         let message = trade_list(&config).unwrap();
         println!("message: {:?}", message);
