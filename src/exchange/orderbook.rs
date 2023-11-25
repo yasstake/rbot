@@ -175,11 +175,11 @@ impl OrderBookRaw {
         self.asks.clear();
     }
 
-    pub fn get_asks_pydataframe(&mut self) -> Result<DataFrame, ()> {
+    pub fn get_asks_dataframe(&mut self) -> Result<DataFrame, ()> {
         self.asks.to_dataframe()
     }
 
-    pub fn get_bids_pydataframe(&mut self) -> Result<DataFrame, ()> {
+    pub fn get_bids_dataframe(&mut self) -> Result<DataFrame, ()> {
         self.bids.to_dataframe()
     }
 
@@ -214,20 +214,10 @@ impl OrderBook {
         self.board.lock().unwrap().clear();
     }
 
-    /*
-    pub fn get_asks_pydataframe(&self) -> PyResult<PyDataFrame> {
-        self.board.lock().unwrap().get_asks_pydataframe()
-    }
-
-    pub fn get_bids_pydataframe(&self) -> PyResult<PyDataFrame> {
-        self.board.lock().unwrap().get_bids_pydataframe()
-    }
-    */
-
     pub fn get_board(&self) -> Result<(DataFrame, DataFrame), ()> {
         let mut board = self.board.lock().unwrap();
-        let bids = board.get_bids_pydataframe()?;
-        let asks = board.get_asks_pydataframe()?;
+        let bids = board.get_bids_dataframe()?;
+        let asks = board.get_asks_dataframe()?;
         Ok((bids, asks))
     }
 
