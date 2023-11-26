@@ -149,6 +149,10 @@ impl BinanceOrderBook {
 
         return Ok((PyDataFrame(bids), PyDataFrame(asks)));
     }
+
+    fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+        Ok(self.board.get_edge_price())
+    }
 }
 
 #[derive(Debug)]
@@ -161,16 +165,6 @@ pub struct BinanceMarket {
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
     pub channel: Arc<Mutex<MultiChannel>>,
-}
-
-pub trait Market {
-    fn limit_order(&self);
-}
-
-impl Market for BinanceMarket {
-    fn limit_order(&self) {
-        // todo!()
-    }
 }
 
 #[pymethods]
@@ -263,32 +257,6 @@ impl BinanceMarket {
         self.db.update_cache_all();
     }
 
-    pub fn select_trades_a(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_select_trades(start_time, end_time);
-    }
-
-    pub fn ohlcvv_a(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_ohlcvv(start_time, end_time, window_sec);
-    }
-
-    pub fn ohlcv_a(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> PyResult<Py<PyArray2<f64>>> {
-        return self.db.py_ohlcv(start_time, end_time, window_sec);
-    }
-
     pub fn select_trades(
         &mut self,
         start_time: MicroSec,
@@ -335,8 +303,18 @@ impl BinanceMarket {
     }
 
     #[getter]
+    pub fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+        self.board.lock().unwrap().get_edge_price()
+    }
+
+    #[getter]
     pub fn get_file_name(&self) -> String {
         return self.db.get_file_name();
+    }
+
+    #[getter]
+    pub fn get_market_config(&self) -> MarketConfig {
+        return self.config.market_config.clone();
     }
 
     pub fn vaccum(&self) {
@@ -360,7 +338,7 @@ impl BinanceMarket {
         websocket.connect();
 
         let db_channel = self.db.start_thread();
-        let board = self.board.clone();
+        let mut board = self.board.clone();
 
         let mut agent_channel = self.channel.clone();
 
@@ -668,11 +646,6 @@ impl BinanceMarket {
         let status = trade_list(&self.config);
 
         convert_pyresult(status)
-    }
-
-    #[getter]
-    pub fn get_market_config(&self) -> MarketConfig {
-        return self.config.market_config.clone();
     }
 
     #[getter]

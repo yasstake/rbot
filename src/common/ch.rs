@@ -7,6 +7,7 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use pyo3::pyclass;
+use pyo3::pymethods;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +22,9 @@ pub struct MarketMessage {
     */
 }
 
+#[pymethods]
 impl MarketMessage {
+    #[new]
     pub fn new() -> Self {
         Self {
             trade: None,
@@ -29,7 +32,17 @@ impl MarketMessage {
             account: None,
         }
     }
+
+    #[staticmethod]
+    pub fn from_trade(trade: Trade) -> Self {
+        Self {
+            trade: Some(trade),
+            order: None,
+            account: None,
+        }
+    }
 }
+
 
 
 #[pyclass]

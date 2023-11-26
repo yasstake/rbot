@@ -87,10 +87,7 @@ impl Runner {
         log_memory: bool,
     ) -> Result<Py<Session>, PyErr> {
         let result = Python::with_gil(|py| {
-            let config = market.getattr(py, "market_config").unwrap();
-            let config = config.extract::<MarketConfig>(py).unwrap();
-
-            let mut session = Session::new(market, dummy, &config, None, log_memory);
+            let mut session = Session::new(market, dummy, None, log_memory);
 
             if !log_memory {
                 // TODO: ERROR handling
