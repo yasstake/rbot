@@ -200,7 +200,7 @@ impl OrderList {
             } else {
                 // Order is filled.
                 self.list[0].status = OrderStatus::Filled;
-                self.list[0].execute_size = self.list[0].order_size;
+                self.list[0].execute_size = self.list[0].remain_size;
                 self.list[0].remain_size = 0.into();                
                 self.list[0].execute_price = trade.price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;                

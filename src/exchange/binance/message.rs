@@ -9,12 +9,12 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     common::{
         MarketMessage, 
-        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
+        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
     },
     exchange::{string_to_decimal, BoardItem},
 };
 
-use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
+use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
 
 pub type BinanceMessageId = u64;
 
