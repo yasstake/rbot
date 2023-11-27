@@ -104,7 +104,7 @@ impl OrderList {
         self.sort();
     }
 
-    /// Removes the given order from the list and returns true if successful, false otherwise.
+    /// Removes the given order from the list and returns Order if successful, otherwise None.
     pub fn remove(&mut self, order_id: &str) -> Option<Order> {
         match self.index_by_id(order_id) {
             Some(index) => {

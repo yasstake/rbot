@@ -224,6 +224,13 @@ impl OrderBook {
         self.board.lock().unwrap().clear();
     }
 
+    pub fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
+        let mut board = self.board.lock().unwrap();
+        let bids = board.bids.get();
+        let asks = board.asks.get();
+        Ok((bids, asks))
+    }
+
     pub fn get_board(&self) -> Result<(DataFrame, DataFrame), ()> {
         let mut board = self.board.lock().unwrap();
         let bids = board.get_bids_dataframe()?;

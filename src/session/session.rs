@@ -8,7 +8,6 @@ use std::{fs::OpenOptions, path::Path};
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
 
-use reqwest::header::LAST_MODIFIED;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
@@ -22,6 +21,35 @@ use pyo3::prelude::*;
 use crate::common::{ordervec_to_dataframe, Trade};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
+
+#[derive(Debug, Clone, PartialEq)]
+#[pyclass]
+pub enum ExecuteMode {
+    Real,
+    Dummy,
+    Dry
+}
+
+#[pymethods]
+impl ExecuteMode {
+    #[new]
+    pub fn new(mode: &str) -> Self {
+        match mode {
+            "real" => ExecuteMode::Real,
+            "dummy" => ExecuteMode::Dummy,
+            "dry" => ExecuteMode::Dry,
+            _ => ExecuteMode::Dummy
+        }
+    }
+
+    pub fn __str__(&self)  -> String {
+        match self {
+            ExecuteMode::Real => "real",
+            ExecuteMode::Dummy => "dummy",
+            ExecuteMode::Dry => "dry"
+        }.to_string()
+    }
+}
 
 #[pyclass]
 #[derive(Debug)]
@@ -73,12 +101,12 @@ impl ExecuteLog {
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
+    execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
     account: AccountStatus,
     market: PyObject,
     current_timestamp: MicroSec,
-    dummy: bool,
     pub session_name: String,
     order_number: i64,
     transaction_number: i64,
@@ -106,10 +134,10 @@ pub struct Session {
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (market, dummy, session_name=None, log_memory=true))]
+    #[pyo3(signature = (market, execute_mode, session_name=None, log_memory=true))]
     pub fn new(
         market: PyObject,
-        dummy: bool,
+        execute_mode: ExecuteMode,
         session_name: Option<&str>,
         log_memory: bool,
     ) -> Self {
@@ -135,12 +163,12 @@ impl Session {
         });
 
         let mut session = Self {
+            execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
             account: AccountStatus::default(),
             market,
             current_timestamp: 0,
-            dummy,
             session_name,
             order_number: 0,
             transaction_number: 0,
@@ -290,7 +318,7 @@ impl Session {
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
-        if self.dummy {
+        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {
             self.dummy_cancel_order(order_id)
         } else {
             self.real_cancel_order(order_id)
@@ -334,7 +362,7 @@ impl Session {
     }
 
     pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        if self.dummy {
+        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
             return self.dummy_market_order(side, size);
         } else {
             return self.real_market_order(side, size);
@@ -359,6 +387,23 @@ impl Session {
         })
     }
 
+    pub fn calc_dummy_execute_price(&mut self, side: OrderSide, size: Decimal) -> Decimal {
+        // 板がないので、最後の約定価格＋スリッページで約定したことにする（オーダーは分割されないと想定）
+        if self.execute_mode != ExecuteMode::Dummy {
+            let execute_price = if side == OrderSide::Buy {
+                self.asks_edge + self.market_config.market_order_price_slip
+            } else {
+                self.bids_edge - self.market_config.market_order_price_slip
+            };
+   
+            return execute_price;
+        }
+        else {
+            log::error!("calc_dummy_execute_price: unknown mode: {:?}", self.execute_mode);
+            return dec![0.0]; 
+        }
+    }
+
     pub fn dummy_market_order(
         &mut self,
         side: String,
@@ -370,11 +415,7 @@ impl Session {
         let local_id = self.new_order_id(&side);
         let order_side = OrderSide::from(&side); 
 
-        let execute_price = if order_side == OrderSide::Buy {
-            self.asks_edge + self.market_config.market_order_price_slip
-        } else {
-            self.bids_edge - self.market_config.market_order_price_slip
-        };
+        let execute_price = self.calc_dummy_execute_price(order_side, size);
 
         let mut order = Order::new(
             self.market_config.symbol(),
@@ -397,12 +438,10 @@ impl Session {
         order.execute_price = execute_price;
         order.quote_vol = order.execute_price * order.execute_size;
 
-        order.update_balance(&self.market_config);
-
         let orders = vec![order];
+        self.push_dummy_q(&orders);
 
         Python::with_gil(|py| {
-            self.push_dummy_q(&orders);
             return Ok(orders.into_py(py));
         })
     }
@@ -413,7 +452,7 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        if self.dummy {
+        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
             return self.dummy_limit_order(side, price, size);
         } else {
             return self.real_limit_order(side, price, size);
@@ -518,18 +557,6 @@ impl Session {
 
         order.is_maker = true;
 
-        /*
-        order.update_balance(&self.market_config);
-
-        if order_side == OrderSide::Buy {
-            self.buy_orders.update_or_insert(&order);
-        } else if order_side == OrderSide::Sell {
-            self.sell_orders.update_or_insert(&order);
-        } else {
-            log::error!("Unknown order side: {:?}", side);
-        }
-        */
-
         self.push_dummy_q(&vec![order.clone()]);
 
         return Ok(vec![order]);
@@ -545,15 +572,17 @@ impl Session {
 
             // ダミーモードの場合は約定キューからの処理が発生する。
             if 0 < result.len() {
-                for order in result.iter() {
-                    self.on_order_update(&order);
+                for order in result.iter_mut() {
+                    order.update_balance(&self.market_config);
+                    self.on_order_update(order);
                 }
             }
         }
 
         if let Some(order) = &message.order {
+            let mut order = order.clone();
             log::debug!("on_message: order={:?}", order);
-            self.on_order_update(order);
+            self.on_order_update(&mut order);
         }
 
         if let Some(account) = &message.account {
@@ -642,7 +671,7 @@ impl Session {
             }
         }
 
-        if self.dummy == true {
+        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {
             return self.execute_dummuy_tick(tick);            
         }
         else {
@@ -654,7 +683,9 @@ impl Session {
         self.account = account.clone();
     }
 
-    pub fn on_order_update(&mut self, order: &Order) {
+    pub fn on_order_update(&mut self, order: &mut Order) {
+        order.update_balance(&self.market_config);
+
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
                 self.buy_orders.remove(&order.order_id);
@@ -684,7 +715,7 @@ impl Session {
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
         // when dummy mode, order list is start with empty.
-        if self.dummy == true {
+        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
             return Ok(());
         }
 
