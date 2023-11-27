@@ -8,25 +8,41 @@ use crate::common::{
 };
 use crossbeam_channel::Receiver;
 
-use super::{has_method, Session};
+use super::{has_method, Session, ExecuteMode};
 
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Runner {
     name: String,
+    has_on_clock: bool,
+    has_on_tick: bool,
+    has_on_update: bool,
     current_clock: MicroSec,
+    loop_count: i64,
 }
 
 #[pymethods]
 impl Runner {
     #[new]
     pub fn new() -> Self {
+
         Self {
             name: "Runner".to_string(),
+            has_on_tick: false,
+            has_on_clock: false,
+            has_on_update: false,
             current_clock: 0,
+            loop_count: -1,     // -1 means infinite loop
         }
     }
 
+    pub fn update_agent_info(&mut self, agent: &PyAny) {
+        self.has_on_clock = has_method(agent, "on_clock");
+        self.has_on_tick = has_method(agent, "on_tick");
+        self.has_on_update = has_method(agent, "on_update");
+    }
+
+    #[pyo3(signature = (market, agent, interval_sec, time_from, time_to, loop_count=-1))]
     pub fn back_test(
         &mut self,
         market: PyObject,
@@ -34,34 +50,47 @@ impl Runner {
         interval_sec: i64,
         time_from: MicroSec,
         time_to: MicroSec,
+        loop_count: i64,
     ) -> Result<Py<Session>, PyErr> {
+        self.update_agent_info(agent);
         let stream = Self::open_backtest_stream(&market, time_from, time_to);
         let reciever = stream.reciver;
-        self.run(market, &reciever, agent, true, interval_sec, true)
+        self.loop_count = loop_count;
+        self.run(market, &reciever, agent, ExecuteMode::Dummy, interval_sec, true)
     }
 
+    #[pyo3(signature = (market, agent, interval_sec, log_memory=false, loop_count=-1))]
     pub fn dry_run(
         &mut self,
         market: PyObject,
         agent: &PyAny,
         interval_sec: i64,
+        log_memory: bool,
+        loop_count: i64,        
     ) -> Result<Py<Session>, PyErr> {
+        self.update_agent_info(agent);
         Python::with_gil(|py| {
             market.call_method0(py, "start_market_stream").unwrap();
         });
 
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
-        self.run(market, &reciever, agent, true, interval_sec, false)
+
+        self.loop_count = loop_count;
+
+        self.run(market, &reciever, agent, ExecuteMode::Dry, interval_sec, log_memory)
     }
 
+    #[pyo3(signature = (market, agent, interval_sec, log_memory=false, loop_count=-1))]
     pub fn real_run(
         &mut self,
         market: PyObject,
         agent: &PyAny,
         interval_sec: i64,
         log_memory: bool,
+        loop_count: i64,        
     ) -> Result<Py<Session>, PyErr> {
+        self.update_agent_info(agent);
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
@@ -69,8 +98,8 @@ impl Runner {
             market.call_method0(py, "start_market_stream").unwrap();
             market.call_method0(py, "start_user_stream").unwrap();
         });
-
-        self.run(market, &reciever, agent, false, interval_sec, false)
+        self.loop_count = loop_count;
+        self.run(market, &reciever, agent, ExecuteMode::Real, interval_sec, log_memory)
     }
 }
 
@@ -82,12 +111,12 @@ impl Runner {
         market: PyObject,
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
-        dummy: bool,
+        execute_mode: ExecuteMode,
         interval_sec: i64,
         log_memory: bool,
     ) -> Result<Py<Session>, PyErr> {
         let result = Python::with_gil(|py| {
-            let mut session = Session::new(market, dummy, None, log_memory);
+            let mut session = Session::new(market, execute_mode.clone(), None, log_memory);
 
             if !log_memory {
                 // TODO: ERROR handling
@@ -96,14 +125,18 @@ impl Runner {
 
             let py_session = Py::new(py, session).unwrap();
 
-            // TODO: implment on_clock;
-            let has_on_clock = has_method(agent, "on_clock");
-            let has_on_tick = has_method(agent, "on_tick");
-            let has_on_update = has_method(agent, "on_update");
 
             let mut warm_up_loop: i64 = WARMUP_STEPS;
 
             loop {
+                if self.loop_count == 0 {
+                    break;
+                }
+                else {
+                    self.loop_count = self.loop_count - 1;
+                }
+
+
                 let message = receiver.recv();
 
                 if message.is_err() {
@@ -113,16 +146,14 @@ impl Runner {
 
                 let message = message.unwrap();
 
-                if dummy {
+                if execute_mode == ExecuteMode::Dummy || execute_mode == ExecuteMode::Dry {
                     let r = if 0 < warm_up_loop {
+                        // warm up loop (do not call agent methods)
                         self.dummy_on_message(
                             &py,
                             agent,
                             &py_session,
                             &message,
-                            false,
-                            false,
-                            false,
                             interval_sec,
                         )
                     } else {
@@ -131,9 +162,6 @@ impl Runner {
                             agent,
                             &py_session,
                             &message,
-                            has_on_clock,
-                            has_on_tick,
-                            has_on_update,
                             interval_sec,
                         )
                     };
@@ -143,14 +171,12 @@ impl Runner {
                     }
                 } else {
                     let r = if 0 < warm_up_loop {
+                        // warm up loop (do not call agent methods)
                         self.on_message(
                             &py,
                             agent,
                             &py_session,
                             &message,
-                            false,
-                            false,
-                            false,
                             interval_sec,
                         )
                     } else {
@@ -159,10 +185,7 @@ impl Runner {
                             agent,
                             &py_session,
                             &message,
-                            has_on_clock,
-                            has_on_tick,
-                            has_on_update,
-                            interval_sec,
+                            interval_sec
                         )
                     };
 
@@ -193,12 +216,9 @@ impl Runner {
         agent: &PyAny,
         py_session: &Py<Session>,
         message: &MarketMessage,
-        has_on_clock: bool,
-        has_on_tick: bool,
-        has_on_update: bool,
         interval_sec: i64,
     ) -> Result<(), PyErr> {
-        if has_on_clock && message.trade.is_some() {
+        if self.has_on_clock && message.trade.is_some() {
             self.on_clock(py, agent, py_session, message, interval_sec)?;
         }
 
@@ -225,7 +245,7 @@ impl Runner {
             let trade = message.trade.as_ref().unwrap();
 
             let session = py_session.borrow_mut(*py);
-            if has_on_tick {
+            if self.has_on_tick {
                 let price = trade.price.to_f64().unwrap();
                 let size = trade.size.to_f64().unwrap();
 
@@ -239,7 +259,7 @@ impl Runner {
 
             let session = py_session.borrow_mut(*py);
 
-            if has_on_update {
+            if self.has_on_update {
                 agent.call_method1("on_update", (session, py_order))?;
             }
         }
@@ -274,12 +294,9 @@ impl Runner {
         agent: &PyAny,
         py_session: &Py<Session>,
         message: &MarketMessage,
-        has_on_clock: bool,
-        has_on_tick: bool,
-        has_on_update: bool,
         window_sec: i64,
     ) -> Result<(), PyErr> {
-        if has_on_clock && message.trade.is_some() {
+        if self.has_on_clock && message.trade.is_some() {
             self.on_clock(py, agent, py_session, message, window_sec)?;
         }
 
@@ -302,7 +319,7 @@ impl Runner {
             }
         }
 
-        if has_on_tick && message.trade.is_some() {
+        if self.has_on_tick && message.trade.is_some() {
             let trade = message.trade.as_ref().unwrap();
 
             let session = py_session.borrow_mut(*py);
@@ -313,7 +330,7 @@ impl Runner {
             agent.call_method1("on_tick", (session, trade.order_side, price, size))?;
         }
 
-        if has_on_update {
+        if self.has_on_update {
             for order in orders {
                 let py_order = Py::new(*py, order.clone()).unwrap();
                 let session = py_session.borrow_mut(*py);

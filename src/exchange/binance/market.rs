@@ -1,19 +1,21 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use chrono::Datelike;
+use chrono::{Datelike, format};
 use csv::StringRecord;
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_json::Value;
+use tungstenite::client;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle, self};
 use std::time::Duration;
 
-use crate::common::{convert_pyresult_vec, MarketMessage, time_string};
+use crate::common::{convert_pyresult_vec, MarketMessage, time_string, OrderType, OrderStatus};
 use crate::common::DAYS;
 use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
@@ -36,7 +38,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook};
+    check_exist, download_log, make_download_url_list, AutoConnectClient, OrderBook, BoardItem};
 
 use crate::exchange::binance::config::BinanceConfig;
 
@@ -119,6 +121,12 @@ impl BinanceOrderBook {
         self.last_update_id = snapshot.last_update_id;
 
         self.board.update(&snapshot.bids, &snapshot.asks, true);
+    }
+
+    fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
+        let (bids, asks) = self.board.get_board_vec().unwrap();
+
+        Ok((bids, asks))
     }
 
     fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
@@ -299,7 +307,12 @@ impl BinanceMarket {
     
     #[getter]
     pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        return self.board.lock().unwrap().get_board();
+        self.board.lock().unwrap().get_board()
+    }
+
+    #[getter]
+    pub fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
+        Ok(self.board.lock().unwrap().get_board_vec().unwrap())
     }
 
     #[getter]
@@ -607,6 +620,80 @@ impl BinanceMarket {
         }
 
         convert_pyresult(response)
+    }
+
+
+    pub fn dummy_market_order(
+        &self,
+        create_time: MicroSec,
+        order_id: &str,
+        client_order_id: &str,
+        side: OrderSide,
+        size: Decimal,
+        transaction_id: &str,
+    ) -> Vec<Order> {
+        let (bids, asks) = self.board.lock().unwrap().get_board_vec().unwrap();
+
+        let board = if side == OrderSide::Buy {
+            asks
+        } else {
+            bids
+        };
+
+        let mut orders: Vec<Order> = vec![];
+        let mut split_index = 0;
+
+        let mut remain_size = size;
+
+        // TODO: consume boards
+        for item in board {
+            if remain_size <= dec![0.0] {
+                break;
+            }
+
+            let execute_size;
+            let order_status;
+            split_index += 1;
+
+            if remain_size <= item.size {
+                order_status = OrderStatus::Filled;                
+                execute_size = remain_size;
+                remain_size = dec![0.0];
+            }
+            else {
+                order_status = OrderStatus::PartiallyFilled;                
+                execute_size = item.size;
+                remain_size -= item.size;
+            }
+
+            let mut order = Order::new(
+                self.config.market_config.symbol(),
+                create_time,
+                order_id.to_string(),
+                client_order_id.to_string(),
+                side,
+                OrderType::Market,
+                order_status,
+                dec![0.0],
+                size,
+            );
+
+            order.transaction_id = format!("{}-{}", transaction_id, split_index);
+            order.update_time = create_time;
+            order.is_maker = false;
+            order.execute_price = item.price;
+            order.execute_size = execute_size;
+            order.remain_size = remain_size;
+            order.quote_vol = order.execute_price * order.execute_size;
+
+            orders.push(order);
+        }
+
+        if remain_size > dec![0.0] {
+            log::error!("remain_size > 0.0: {:?}", remain_size);
+        }
+
+        return orders;
     }
 
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
