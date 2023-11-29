@@ -1,4 +1,6 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
 
 use std::str::FromStr;
 use pyo3::{pyclass, pymethods};
@@ -9,12 +11,12 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     common::{
         MarketMessage, 
-        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, string_to_side, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
+        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
     },
     exchange::{string_to_decimal, BoardItem},
 };
 
-use super::{super::string_to_f64, binance_to_microsec, BinanceConfig, Market};
+use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
 
 pub type BinanceMessageId = u64;
 
@@ -34,6 +36,7 @@ pub enum BinancePublicWsMessage {
     BoardUpdate(BinanceWsBoardUpdate),
 }
 
+
 impl Into<MarketMessage> for BinancePublicWsMessage {
     fn into(self) -> MarketMessage {
         match self {
@@ -42,7 +45,7 @@ impl Into<MarketMessage> for BinancePublicWsMessage {
                 order: None,
                 account: None,
             },
-            BinancePublicWsMessage::BoardUpdate(board_update) => {
+            BinancePublicWsMessage::BoardUpdate(_board_update) => {
                 // TODO: implment
                 log::warn!("BinancePublicWsMessage::BoardUpdate is not implemented yet");
 
@@ -51,6 +54,7 @@ impl Into<MarketMessage> for BinancePublicWsMessage {
         }
     }
 }
+
 
 #[pyclass]
 //  {"result":null,"id":1}
@@ -949,7 +953,7 @@ impl BinanceUserStreamMessage {
                 let status = binance_account_update_to_account_status(config, account);
                 message.account = Some(status);
             }
-            BinanceUserStreamMessage::balanceUpdate(balance) => {
+            BinanceUserStreamMessage::balanceUpdate(_balance) => {
                 log::error!("not implemented");
             }
             BinanceUserStreamMessage::executionReport(order) => {
@@ -1462,7 +1466,7 @@ mod binance_message_test {
 
     #[test]
     fn test_binance_execution_report() {
-        let execution: BinanceUserStreamMessage = serde_json::from_str(
+        let _execution: BinanceUserStreamMessage = serde_json::from_str(
             r#"
             {"e":"outboundAccountPosition","E":1694430911241,"u":1694430911240,"B":[{"a":"BTC","f":"1.16500000","l":"0.00000000"},{"a":"BUSD","f":"9599.07923000","l":"25.00000000"}]}
             "#).unwrap();
@@ -1472,7 +1476,7 @@ mod binance_message_test {
     fn test_binance_list_orders_response() {
         let list = r#"[{"symbol":"BNBBTC","id":28457,"orderId":100234,"orderListId":-1,"price":"4.00000100","qty":"12.00000000","quoteQty":"48.000012","commission":"10.10000000","commissionAsset":"BNB","time":1499865549590,"isBuyer":true,"isMaker":false,"isBestMatch":true}]"#;
 
-        let list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
+        let _list: Vec<BinanceListOrdersResponse> = serde_json::from_str(list).unwrap();
     }
 
 

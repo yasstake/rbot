@@ -37,7 +37,7 @@ impl WebSocketClient {
             panic!("Can't connect to {}", self.url);
         }
 
-        let (mut socket, response) = result.unwrap();
+        let (socket, response) = result.unwrap();
 
         log::debug!("Connected to the server");
         log::debug!("Response HTTP code: {}", response.status());
@@ -73,20 +73,20 @@ impl WebSocketClient {
     pub fn send_ping(&mut self) {
         log::debug!("*>PING*>");
         let connection = self.connection.as_mut().unwrap();
-        connection.write(Message::Ping(vec![]));
+        let _ = connection.write(Message::Ping(vec![]));
         self.flush();
     }
 
     pub fn send_pong(&mut self, message: Vec<u8>) {
         log::debug!("*>PONG*>: {:?}", message);
         let connection = self.connection.as_mut().unwrap();
-        connection.write(Message::Pong(message));
+        let _ = connection.write(Message::Pong(message));
         self.flush();
     }
 
     pub fn close(&mut self) {
         let connection = self.connection.as_mut().unwrap();
-        connection.close(None);
+        let _ = connection.close(None);
     }
 
     pub fn flush(&mut self) {
@@ -316,7 +316,6 @@ mod test_exchange_ws {
     use serde_json::json;
 
     use super::*;
-    use crate::common::init_debug_log;
     use std::thread::sleep;
     use std::thread::spawn;
     use std::time::Duration;

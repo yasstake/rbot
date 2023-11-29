@@ -1,16 +1,16 @@
-// Copyright(c) 2022. yasstake. All rights reserved.
+// Copyright(c) 2022-3. yasstake. All rights reserved.
 
 use std::io::{stdout, Write};
 
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyResult, Python};
-use rusqlite::{params_from_iter};
+use rusqlite::params_from_iter;
 
 use crate::{
     common::{
         order::{log_order_result, make_log_buffer, OrderResult, OrderSide, OrderStatus, Trade},
         time::{time_string, MicroSec, CEIL, FLOOR, MICRO_SECOND, NOW, HHMM},
     },
-    db::{sqlite::TradeTableQuery},
+    db::sqlite::TradeTableQuery,
     sim::session::DummySession, exchange::open_db,
 };
 
@@ -200,7 +200,6 @@ impl BackTester {
         });
     }
 }
-
 
 
 
