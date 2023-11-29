@@ -12,17 +12,46 @@ use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use crate::common::{
-    date_string, hour_string, min_string, AccountStatus, MarketConfig, MarketStream, MicroSec,
+    date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec,
     OrderSide, OrderStatus, NOW,
 };
-use crate::exchange::BoardItem;
-
 use super::OrderList;
 use pyo3::prelude::*;
 
 use crate::common::{ordervec_to_dataframe, Trade};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
+
+#[derive(Debug, Clone, PartialEq)]
+#[pyclass]
+pub enum ExecuteMode {
+    Real,
+    BackTest,
+    Dry
+}
+
+#[pymethods]
+impl ExecuteMode {
+    #[new]
+    pub fn new(mode: &str) -> Self {
+        let mode = mode.to_uppercase();
+
+        match mode.as_str() {
+            "REAL" => ExecuteMode::Real,
+            "DUMMY" => ExecuteMode::BackTest,
+            "DRY" => ExecuteMode::Dry,
+            _ => ExecuteMode::BackTest
+        }
+    }
+
+    pub fn __str__(&self)  -> String {
+        match self {
+            ExecuteMode::Real => "Real",
+            ExecuteMode::BackTest => "Dummy",
+            ExecuteMode::Dry => "Dry"
+        }.to_string()
+    }
+}
 
 #[pyclass]
 #[derive(Debug)]
@@ -74,12 +103,12 @@ impl ExecuteLog {
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
+    execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
     account: AccountStatus,
     market: PyObject,
-    current_time: MicroSec,
-    dummy: bool,
+    current_timestamp: MicroSec,
     pub session_name: String,
     order_number: i64,
     transaction_number: i64,
@@ -93,8 +122,8 @@ pub struct Session {
     lock_home_sum: Decimal,
     lock_foreign_sum: Decimal,
 
-    sell_edge: Decimal,
-    buy_edge: Decimal,
+    asks_edge: Decimal,
+    bids_edge: Decimal,
 
     market_config: MarketConfig,
 
@@ -103,14 +132,14 @@ pub struct Session {
     log: ExecuteLog,
 }
 
+
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (market, dummy, market_config, session_name=None, log_memory=false))]
+    #[pyo3(signature = (market, execute_mode, session_name=None, log_memory=true))]
     pub fn new(
         market: PyObject,
-        dummy: bool,
-        market_config: &MarketConfig,
+        execute_mode: ExecuteMode,
         session_name: Option<&str>,
         log_memory: bool,
     ) -> Self {
@@ -128,13 +157,20 @@ impl Session {
             }
         };
 
+        let config = Python::with_gil(|py| {
+            let config = market.getattr(py, "market_config").unwrap();
+            let config: MarketConfig = config.extract(py).unwrap();
+
+            config
+        });
+
         let mut session = Self {
+            execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
             account: AccountStatus::default(),
             market,
-            current_time: 0,
-            dummy,
+            current_timestamp: 0,
             session_name,
             order_number: 0,
             transaction_number: 0,
@@ -148,10 +184,10 @@ impl Session {
             lock_home_sum: dec![0.0],
             lock_foreign_sum: dec![0.0],
 
-            sell_edge: dec![0.0],
-            buy_edge: dec![0.0],
+            asks_edge: dec![0.0],
+            bids_edge: dec![0.0],
 
-            market_config: market_config.clone(),
+            market_config: config,
 
             dummy_q: Mutex::new(VecDeque::new()),
 
@@ -163,10 +199,12 @@ impl Session {
         return session;
     }
 
+    // -----   market information -----
+    // call market with current_timestamp
     pub fn ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
         let window_sec = interval * count;
-        let time_from = self.current_time - SEC(window_sec);
-        let time_to = self.current_time;
+        let time_from = self.current_timestamp - SEC(window_sec);
+        let time_to = self.current_timestamp;
 
         Python::with_gil(|py| {
             let result = self
@@ -186,46 +224,18 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_current_time(&self) -> MicroSec {
-        self.current_time
+    pub fn get_current_timestamp(&self) -> MicroSec {
+        self.current_timestamp
     }
 
     #[getter]
-    pub fn get_bids_a(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.getattr(py, "bids_a"))
-    }
-
-    #[getter]
-    pub fn get_bids(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.getattr(py, "bids"))
-    }
-
-    #[getter]
-    pub fn get_bids_vec(&self) -> Result<Vec<BoardItem>, PyErr> {
-        Python::with_gil(|py| {
-            let asks = self.market.getattr(py, "bids_vec")?;
-            let asks: Vec<BoardItem> = asks.extract(py)?;
-            Ok(asks)
-        })
-    }
-
-    #[getter]
-    pub fn get_asks(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.getattr(py, "asks"))
-    }
-
-    #[getter]
-    pub fn get_asks_a(&self) -> Result<Py<PyAny>, PyErr> {
-        Python::with_gil(|py| self.market.getattr(py, "asks_a"))
-    }
-
-    #[getter]
-    pub fn get_asks_vec(&self) -> Result<Vec<BoardItem>, PyErr> {
-        Python::with_gil(|py| {
-            let asks = self.market.getattr(py, "asks_vec")?;
-            let asks: Vec<BoardItem> = asks.extract(py)?;
-            Ok(asks)
-        })
+    pub fn get_board(&self) -> Result<Py<PyAny>, PyErr> {
+        if self.execute_mode == ExecuteMode::BackTest {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "get_board is not supported in backtest mode",
+            ));
+        }
+        Python::with_gil(|py| self.market.getattr(py, "board"))
     }
 
     // account information
@@ -295,13 +305,11 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_buy_edge(&self) -> f64 {
-        self.buy_edge.to_f64().unwrap()
-    }
-
-    #[getter]
-    pub fn get_sell_edge(&self) -> f64 {
-        self.sell_edge.to_f64().unwrap()
+    pub fn get_last_price(&self) -> (f64, f64) {
+        (
+            self.bids_edge.to_f64().unwrap(),
+            self.asks_edge.to_f64().unwrap(),
+        )
     }
 
     #[getter]
@@ -317,7 +325,7 @@ impl Session {
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
-        if self.dummy {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             self.dummy_cancel_order(order_id)
         } else {
             self.real_cancel_order(order_id)
@@ -341,7 +349,7 @@ impl Session {
 
     pub fn dummy_cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
-            let mut order: Order = if let Some(order) = self.buy_orders.get_item_by_id(order_id) {
+            let mut order_to_cancel: Order = if let Some(order) = self.buy_orders.get_item_by_id(order_id) {
                 order
             } else if let Some(order) = self.sell_orders.get_item_by_id(&order_id) {
                 order
@@ -350,35 +358,35 @@ impl Session {
                 return Ok(Python::None(py));
             };
 
-            order.status = OrderStatus::Canceled;
-            self.update_balance(&order);
-            order.update_time = self.current_time;
+            order_to_cancel.status = OrderStatus::Canceled;
+            self.update_balance(&order_to_cancel);
+            order_to_cancel.update_time = self.current_timestamp;
 
-            self.push_dummy_q(&vec![order.clone()]);
+            self.push_dummy_q(&vec![order_to_cancel.clone()]);
 
-            return Ok(order.into_py(py));
+            return Ok(order_to_cancel.into_py(py));
         })
     }
 
-    pub fn market_order(&mut self, side: OrderSide, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        if self.dummy {
-            return self.dummy_market_order(side, size);
-        } else {
-            return self.real_market_order(side, size);
+    pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        match self.execute_mode {
+            ExecuteMode::Real => self.real_market_order(side, size),
+            ExecuteMode::BackTest => self.dummy_market_order(side, size),
+            ExecuteMode::Dry => self.dry_market_order(side, size),
         }
     }
 
     pub fn real_market_order(
         &mut self,
-        side: OrderSide,
+        side: String,
         size: Decimal,
     ) -> Result<Py<PyAny>, PyErr> {
+        log::debug!("market_order: side={:}, size={}", &side, size);
+
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
         let local_id = self.new_order_id(&side);
-
-        log::debug!("market_order: side={:?}, size={}", side, size);
 
         Python::with_gil(|py| {
             self.market
@@ -386,28 +394,63 @@ impl Session {
         })
     }
 
-    pub fn dummy_market_order(
+    pub fn calc_dummy_execute_price_by_slip(&mut self, side: OrderSide) -> Decimal {
+        // 板がないので、最後の約定価格＋スリッページで約定したことにする（オーダーは分割されないと想定）
+        if self.execute_mode != ExecuteMode::BackTest {
+            let execute_price = if side == OrderSide::Buy {
+                self.asks_edge + self.market_config.market_order_price_slip
+            } else {
+                self.bids_edge - self.market_config.market_order_price_slip
+            };
+   
+            return execute_price;
+        }
+        else {
+            log::error!("calc_dummy_execute_price: unknown mode: {:?}", self.execute_mode);
+            return dec![0.0]; 
+        }
+    }
+
+    pub fn dry_market_order(
         &mut self,
-        side: OrderSide,
+        side: String,
         size: Decimal,
     ) -> Result<Py<PyAny>, PyErr> {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
         let local_id = self.new_order_id(&side);
+        let order_side = OrderSide::from(&side); 
 
-        let execute_price = if side == OrderSide::Buy {
-            self.sell_edge + self.market_config.market_order_price_slip
-        } else {
-            self.buy_edge - self.market_config.market_order_price_slip
-        };
+        let transaction_id = self.dummy_transaction_id();
+
+        Python::with_gil(|py| {
+            self.market
+                .call_method1(py, "dry_market_order", 
+                (self.current_timestamp, local_id.clone(), local_id.clone(),
+                    order_side, size, transaction_id))
+        })
+    }
+
+    pub fn dummy_market_order(
+        &mut self,
+        side: String,
+        size: Decimal,
+    ) -> Result<Py<PyAny>, PyErr> {
+        let size_scale = self.market_config.size_scale;
+        let size = size.round_dp(size_scale);
+
+        let local_id = self.new_order_id(&side);
+        let order_side = OrderSide::from(&side); 
+
+        let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
 
         let mut order = Order::new(
             self.market_config.symbol(),
-            self.current_time,
+            self.current_timestamp,
             local_id.clone(),
             local_id.clone(),
-            side,
+            order_side,
             OrderType::Market,
             OrderStatus::Filled,
             dec![0.0],
@@ -415,7 +458,7 @@ impl Session {
         );
 
         order.transaction_id = self.dummy_transaction_id();
-        order.update_time = self.current_time;
+        order.update_time = self.current_timestamp;
         order.is_maker = false;
 
         order.execute_size = size;
@@ -423,23 +466,21 @@ impl Session {
         order.execute_price = execute_price;
         order.quote_vol = order.execute_price * order.execute_size;
 
-        order.update_balance(&self.market_config);
-
         let orders = vec![order];
+        self.push_dummy_q(&orders);
 
         Python::with_gil(|py| {
-            self.push_dummy_q(&orders);
             return Ok(orders.into_py(py));
         })
     }
 
     pub fn limit_order(
         &mut self,
-        side: OrderSide,
+        side: String,
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        if self.dummy {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {        
             return self.dummy_limit_order(side, price, size);
         } else {
             return self.real_limit_order(side, price, size);
@@ -448,7 +489,7 @@ impl Session {
 
     pub fn real_limit_order(
         &mut self,
-        side: OrderSide,
+        side: String,
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
@@ -508,7 +549,7 @@ impl Session {
 
     pub fn dummy_limit_order(
         &mut self,
-        side: OrderSide,
+        side: String,
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
@@ -521,6 +562,8 @@ impl Session {
         // first push order to order list
         let local_id = self.new_order_id(&side);
 
+        let order_side = OrderSide::from(&side);        
+
         log::debug!(
             "dummuy_limit_order: side={:?}, size={}, price={}",
             side,
@@ -530,10 +573,10 @@ impl Session {
 
         let mut order = Order::new(
             self.market_config.symbol(),
-            self.current_time,
+            self.current_timestamp,
             local_id.clone(),
             local_id.clone(),
-            side,
+            order_side,
             OrderType::Limit,
             OrderStatus::New,
             pricedp,
@@ -541,20 +584,12 @@ impl Session {
         );
 
         order.is_maker = true;
-        order.update_balance(&self.market_config);
-
-        if side == OrderSide::Buy {
-            self.buy_orders.update_or_insert(&order);
-        } else if side == OrderSide::Sell {
-            self.sell_orders.update_or_insert(&order);
-        } else {
-            log::error!("Unknown order side: {:?}", side);
-        }
 
         self.push_dummy_q(&vec![order.clone()]);
 
         return Ok(vec![order]);
     }
+
 
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
         let mut result = vec![];
@@ -563,16 +598,19 @@ impl Session {
             log::debug!("on_message: trade={:?}", trade);
             result = self.on_tick(trade);
 
+            // ダミーモードの場合は約定キューからの処理が発生する。
             if 0 < result.len() {
-                for order in result.iter() {
-                    self.on_order_update(&order);
+                for order in result.iter_mut() {
+                    order.update_balance(&self.market_config);
+                    self.on_order_update(order);
                 }
             }
         }
 
         if let Some(order) = &message.order {
+            let mut order = order.clone();
             log::debug!("on_message: order={:?}", order);
-            self.on_order_update(order);
+            self.on_order_update(&mut order);
         }
 
         if let Some(account) = &message.account {
@@ -583,34 +621,99 @@ impl Session {
         return result;
     }
 
-    // Message handling
-    pub fn on_tick(&mut self, tick: &Trade) -> Vec<Order> {
-        self.current_time = tick.time;
+
+    #[getter]
+    pub fn get_dummy_q(&self) -> Vec<Vec<Order>> {
+        let q = self.dummy_q.lock().unwrap();
+        q.iter().map(|x| x.clone()).collect()
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        let mut json = "{".to_string();
+        
+        json += "\"current_timestamp\":";
+        json += self.current_timestamp.to_string().as_str();
+        json += ", \"current_timestamp_str\": \"";
+        json += crate::common::time_string(self.current_timestamp).as_str();
+        json += "\",\n";
+
+        let last_price = self.get_last_price();
+
+        json += "\"last_price\": {";
+        json += "\"buy\":";
+        json += last_price.0.to_string().as_str();
+
+        json += ",\"sell\":";
+        json += last_price.1.to_string().as_str();
+
+        json += "},\n";
+
+        json += "\"orders\":";
+
+            // order list
+            json += "{\"buy\":";
+            json += self.buy_orders.__repr__().as_str();
+            json += ", \"sell\":";
+            json += self.sell_orders.__repr__().as_str();
+            json += "}, \n";
+        
+
+            // account information
+            json += "\"account\":";
+            json += self.account.__repr__().as_str();
+
+        json += "}";
+
+        json
+    }
+}
+
+impl Session {
+    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
+        self.log.log(order)
+    }
+
+    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
+        self.log.open_log(path)
+    }
+}
+
+impl Session {
+    /// 約定情報の処理
+    fn on_tick(&mut self, tick: &Trade) -> Vec<Order> {
+        self.current_timestamp = tick.time;
 
         if tick.order_side == OrderSide::Buy {
-            self.sell_edge = tick.price;
-            if self.sell_edge <= self.buy_edge {
-                self.buy_edge = self.sell_edge - self.market_config.price_unit;
+            self.asks_edge = tick.price;
+            if self.asks_edge <= self.bids_edge {
+                self.bids_edge = self.asks_edge - self.market_config.price_unit;
             }
         } else if tick.order_side == OrderSide::Sell {
-            self.buy_edge = tick.price;
-            if self.sell_edge <= self.buy_edge {
-                self.sell_edge = self.buy_edge + self.market_config.price_unit;
+            self.bids_edge = tick.price;
+            if self.asks_edge <= self.bids_edge {
+                self.asks_edge = self.bids_edge + self.market_config.price_unit;
             }
         }
 
-        if self.dummy == false {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
+            return self.execute_dummuy_tick(tick);            
+        }
+        else {
             return vec![];
         }
-
-        return self.execute_dummuy_tick(tick);
     }
 
     pub fn on_account_update(&mut self, account: &AccountStatus) {
         self.account = account.clone();
     }
 
-    pub fn on_order_update(&mut self, order: &Order) {
+    pub fn on_order_update(&mut self, order: &mut Order) {
+        order.update_balance(&self.market_config);
+
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
                 self.buy_orders.remove(&order.order_id);
@@ -629,22 +732,18 @@ impl Session {
 
         self.update_balance(order);
 
-        self.log(&order);
+        let _ = self.log(&order);
     }
 
-    fn new_order_id(&mut self, side: &OrderSide) -> String {
+    fn new_order_id(&mut self, side: &str) -> String {
         self.order_number += 1;
 
-        match side {
-            OrderSide::Buy => format!("{}-{:04}BUY", self.session_name, self.order_number),
-            OrderSide::Sell => format!("{}-{:04}SEL", self.session_name, self.order_number),
-            OrderSide::Unknown => format!("{}-{:04}UNK", self.session_name, self.order_number),
-        }
+        format!("{}-{:04}{:}", self.session_name, self.order_number, side)        
     }
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
         // when dummy mode, order list is start with empty.
-        if self.dummy == true {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {        
             return Ok(());
         }
 
@@ -693,19 +792,10 @@ impl Session {
         self.free_foreign_sum += order.free_foreign_change;
         self.lock_foreign_sum += order.lock_foreign_change;
     }
-}
 
-impl Session {
-    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
-        self.log.log(order)
-    }
 
-    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
-        self.log.open_log(path)
-    }
-}
 
-impl Session {
+
     fn push_dummy_q(&mut self, message: &Vec<Order>) {
         let mut q = self.dummy_q.lock().unwrap();
         q.push_back(message.clone());
@@ -721,10 +811,11 @@ impl Session {
         format!("{}-{:04}", self.session_name, self.transaction_number)
     }
 
-    fn update_dummy_orders(&mut self, orders: &mut Vec<Order>, is_maker: bool) {
+    /// update order balance information accroding to market config
+    fn update_dummy_orders(&mut self, orders: &mut Vec<Order>) {
         for o in orders {
+            o.update_time = self.current_timestamp;
             o.update_balance(&self.market_config);
-            o.is_maker = is_maker;
 
             if o.status == OrderStatus::Filled || o.status == OrderStatus::PartiallyFilled {
                 if o.transaction_id == "" {
@@ -735,11 +826,12 @@ impl Session {
     }
 
     fn execute_dummuy_tick(&mut self, tick: &Trade) -> Vec<Order> {
-        let orders = self.pop_dummy_q();
 
+        // process dummy order queue
+        let orders = self.pop_dummy_q();
         if let Some(mut order_vec) = orders {
             log::debug!("pop dummy order: {:?}", order_vec);
-            self.update_dummy_orders(&mut order_vec, false);
+            self.update_dummy_orders(&mut order_vec);
 
             return order_vec;
         }
@@ -747,13 +839,13 @@ impl Session {
         // consume order
         if tick.order_side == OrderSide::Buy {
             let mut os = self.sell_orders.consume_trade(tick);
-            self.update_dummy_orders(&mut os, true);
+            self.update_dummy_orders(&mut os);
             log::debug!("consume_trade Buy: {:?}, {:?}", tick, os);
 
             return os;
         } else if tick.order_side == OrderSide::Sell {
             let mut os = self.buy_orders.consume_trade(tick);
-            self.update_dummy_orders(&mut os, true);
+            self.update_dummy_orders(&mut os);
             log::debug!("consume_trade Sell: {:?}, {:?}", tick, os);
 
             return os;

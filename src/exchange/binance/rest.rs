@@ -250,7 +250,7 @@ where
     let start_time = server_time(config);
 
     loop {
-        let mut start_timer = NOW();
+        let start_timer = NOW();
 
         log::debug!("from_id: {}", from_id);
 
@@ -309,7 +309,7 @@ pub fn get_board_snapshot(config: &BinanceConfig) -> Result<BinanceRestBoard, St
     }
 }
 
-use chrono::format::format;
+
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
 use serde_json::Value;
@@ -397,7 +397,7 @@ pub fn binance_put_key(config: &BinanceConfig, path: &str, body: &str) -> Result
 }
 
 pub fn binance_post_key(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
-    let url = format!("{}{}", config.rest_endpoint, path);
+    //let url = format!("{}{}", config.rest_endpoint, path);
 
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
@@ -408,7 +408,7 @@ pub fn binance_post_key(config: &BinanceConfig, path: &str, body: &str) -> Resul
 }
 
 pub fn binance_post_sign(config: &BinanceConfig, path: &str, body: &str) -> Result<Value, String> {
-    let url = format!("{}{}", config.rest_endpoint, path);
+    //let url = format!("{}{}", config.rest_endpoint, path);
 
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
@@ -426,7 +426,7 @@ pub fn binance_delete_sign(
     path: &str,
     body: &str,
 ) -> Result<Value, String> {
-    let url = format!("{}{}", config.rest_endpoint, path);
+    // let url = format!("{}{}", config.rest_endpoint, path);
 
     let mut headers = vec![];
     headers.push(("X-MBX-APIKEY", config.api_key.as_str()));
@@ -441,7 +441,7 @@ pub fn binance_delete_sign(
 
 use hex;
 
-fn sign_with_timestamp(secret_key: &String, mut message: &String) -> String {
+fn sign_with_timestamp(secret_key: &String, message: &String) -> String {
     let time = (NOW() / 1_000) as u64;
 
     let message = format!("{}&recvWindow={}&timestamp={}", message, 6000, time);

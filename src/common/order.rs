@@ -32,7 +32,7 @@ pub struct TimeChunk {
 pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     New, // 処理中
-    #[strum(ascii_case_insensitive,)]
+    #[strum(ascii_case_insensitive)]
     PartiallyFilled, // 一部約定
     #[strum(ascii_case_insensitive)]
     Filled,
@@ -133,7 +133,6 @@ impl From<&str> for OrderSide {
         string_to_side(side)
     }
 }
-
 
 #[pymethods]
 impl OrderSide {
@@ -271,6 +270,7 @@ impl Into<MarketMessage> for &Trade {
     }
 }
 
+/*
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderFill {
@@ -301,6 +301,7 @@ impl OrderFill {
         };
     }
 }
+*/
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -790,10 +791,7 @@ impl Order {
         }
     }
 
-    /// The lock is freed and shift the balance.
-    fn update_balance_filled(&mut self, config: &MarketConfig) {
-        let filled_size = self.execute_size;
-        let filled_quote_vol = self.execute_size * self.execute_price;
+    fn update_commision(&mut self, config: &MarketConfig) {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
 
@@ -804,29 +802,67 @@ impl Order {
             self.commission_home = dec![0.0];
             self.commission_foreign = commission;
         }
+    }
+
+    /// The lock is freed and shift the balance.
+    fn update_balance_filled(&mut self, config: &MarketConfig) {
+        self.update_commision(config);
+
+        let filled_size = self.execute_size;
+        let filled_quote_vol = self.execute_size * self.execute_price;
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
-            self.home_change = -filled_quote_vol;
-            self.foreign_change = filled_size;
+            self.home_change = (-filled_quote_vol) - self.commission_home;
+            self.foreign_change = filled_size - self.commission_foreign;
 
-            self.free_home_change = -filled_quote_vol;
-            self.free_foreign_change = filled_size;
+            // update foreign
+            self.free_foreign_change = self.foreign_change;
+            self.lock_foreign_change = dec![0.0];            
+
             if self.is_maker {
-                self.lock_home_change = -filled_quote_vol;
-                self.lock_foreign_change = dec![0.0];
+                // Maker -> homeでlockしたものがforeignに変化する。freeは変化しない。                
+                self.lock_home_change = - filled_quote_vol;
+                self.free_home_change = dec![0.0];                
+            }
+            else {
+                // Taker -> lockは０。freeだったものからforeignに変化する。
+                self.lock_home_change = dec![0.0];
+                self.free_home_change = self.home_change;
             }
         } else {
             // Sell
-            self.home_change = filled_quote_vol;
-            self.foreign_change = -filled_size;
+            // move foreign to home
+            self.foreign_change = (-filled_size) - self.commission_foreign;            
+            self.home_change = filled_quote_vol - self.commission_home;
 
-            self.free_home_change = filled_quote_vol;
-            self.free_foreign_change = -filled_size;
+            // update home
+            self.free_home_change = self.home_change;
+            self.lock_home_change = dec![0.0];
+
             if self.is_maker {
-                self.lock_home_change = dec![0.0];
                 self.lock_foreign_change = -filled_size;
+                self.free_foreign_change = dec![0.0];
             }
+            else {
+                self.lock_foreign_change = dec![0.0];
+                self.free_foreign_change = self.foreign_change;
+            }
+        }
+
+        // home_change = home_free_change + home_locked_change - commission_home
+        if self.home_change != (self.free_home_change + self.lock_home_change - self.commission_home) {
+            println!(
+                "Order.update_balance_filled: home_change != (free_home_change + lock_home_change). order={:?}",
+                self
+            )
+        }
+
+        if self.foreign_change != (self.free_foreign_change + self.lock_foreign_change - self.commission_foreign) {
+            println!(
+                "Order.update_balance_filled: foreign_change != (free_foreign_change + lock_foreign_change). order={:?}",
+                self
+            )
         }
     }
 

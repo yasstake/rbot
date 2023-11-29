@@ -183,6 +183,16 @@ impl OrderBookRaw {
         self.bids.to_dataframe()
     }
 
+    pub fn get_edge_price(&mut self) -> (Decimal, Decimal) {
+        let bids = self.bids.get();
+        let asks = self.asks.get();
+
+        let bid_price = bids.first().unwrap().price;
+        let ask_price = asks.first().unwrap().price;
+
+        return (bid_price, ask_price);
+    }
+
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
         if force {
             self.clear();
@@ -214,11 +224,22 @@ impl OrderBook {
         self.board.lock().unwrap().clear();
     }
 
+    pub fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
+        let mut board = self.board.lock().unwrap();
+        let bids = board.bids.get();
+        let asks = board.asks.get();
+        Ok((bids, asks))
+    }
+
     pub fn get_board(&self) -> Result<(DataFrame, DataFrame), ()> {
         let mut board = self.board.lock().unwrap();
         let bids = board.get_bids_dataframe()?;
         let asks = board.get_asks_dataframe()?;
         Ok((bids, asks))
+    }
+
+    pub fn get_edge_price(&self) -> (Decimal, Decimal) {
+        self.board.lock().unwrap().get_edge_price()
     }
 
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
