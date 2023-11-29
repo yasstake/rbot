@@ -1,5 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+#![allow(non_snake_case)]
+
 use std::str::FromStr;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;

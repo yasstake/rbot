@@ -27,9 +27,6 @@ fn get_recent_trades(symbol: &str) -> Result<Vec<Trade>, String>
 
 #[cfg(test)]
 mod bybit_rest_test {
-    use super::*;
-
-
     pub const SERVER: &str = "https://api.bybit.com";    
     use crate::exchange::rest_get;
 

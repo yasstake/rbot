@@ -1,4 +1,5 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
+#![allow(non_snake_case)]
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use pyo3::prelude::*;
@@ -21,7 +22,6 @@ pub fn to_naive_datetime(microsecond: MicroSec) -> NaiveDateTime {
     return datetime.unwrap();
 }
 
-#[allow(non_snake_case)]
 #[pyfunction]
 pub fn FLOOR_SEC(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     let unit_sec_micro = SEC(unit_sec);
@@ -31,17 +31,18 @@ pub fn FLOOR_SEC(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     return floor;
 }
 
-#[allow(non_snake_case)]
 pub fn FLOOR_DAY(timestamp: MicroSec) -> MicroSec {
     return FLOOR_SEC(timestamp, 24 * 60 * 60);
 }
 
-#[allow(non_snake_case)]
+pub fn FLOOR_HOUR(timestamp: MicroSec) -> MicroSec {
+    return FLOOR_SEC(timestamp, 60 * 60);
+}
+
 pub fn TODAY() -> MicroSec {
     return FLOOR_DAY(NOW());
 }
 
-#[allow(non_snake_case)]
 pub fn CEIL(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
     let unit_sec_micro = SEC(unit_sec);
 
@@ -86,34 +87,27 @@ pub fn parse_time(t: &str) -> MicroSec {
     return datetime.unwrap().timestamp_micros();
 }
 
-#[allow(non_snake_case)]
 #[pyfunction]
 pub fn DAYS(days: i64) -> MicroSec {
     return (24 * 60 * 60 * MICRO_SECOND * days) as MicroSec;
 }
 
-#[allow(non_snake_case)]
 #[pyfunction]
 pub fn DAYS_BEFORE(days: i64) -> MicroSec {
     return NOW() - DAYS(days);
 }
 
-
-
-#[allow(non_snake_case)]
 #[pyfunction]
 pub fn HHMM(hh: i64, mm: i64) -> MicroSec {
     return ((hh * 60 * 60) * MICRO_SECOND + MIN(mm)) as MicroSec;
 }
 
 #[pyfunction]
-#[allow(non_snake_case)]
 pub fn MIN(min: i64) -> MicroSec {
     return min * MICRO_SECOND * 60;
 }
 
 #[pyfunction]
-#[allow(non_snake_case)]
 pub fn SEC(sec: i64) -> MicroSec {
     return sec * MICRO_SECOND as MicroSec;
 }
@@ -123,7 +117,7 @@ pub fn SEC(sec: i64) -> MicroSec {
 /// ```
 /// println!("{:?}", NOW());
 /// ```
-#[allow(non_snake_case)]
+
 #[pyfunction]
 pub fn NOW() -> MicroSec {
     return Utc::now().timestamp_micros();

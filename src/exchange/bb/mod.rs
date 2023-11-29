@@ -1,6 +1,10 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 // ABSOLUTELY NO WARRANTY
 
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 pub mod message;
 pub mod rest;
 pub mod ws;
@@ -41,7 +45,7 @@ pub struct BBMarket {
 #[pymethods]
 impl BBMarket {
     #[new]
-    pub fn new(market_name: &str, dummy: bool) -> Self {
+    pub fn new(market_name: &str) -> Self {
         // TODO: SPOTにのみ対応しているのを変更する。
         let db_name = Self::db_path(&market_name).unwrap();
 

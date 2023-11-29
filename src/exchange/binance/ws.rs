@@ -1,20 +1,6 @@
-use futures::future::Join;
-use reqwest::Url;
-use rust_decimal_macros::dec;
-use serde_json::json;
-use tungstenite::WebSocket;
-use tungstenite::connect;
-use tungstenite::Message;
-use tungstenite::stream::MaybeTlsStream;
-
-use std::net::TcpStream;
 use std::thread;
 use std::thread::JoinHandle;
-use std::thread::sleep;
-use std::time::Duration;
 
-use crate::common::init_debug_log;
-use crate::common::OrderSide;
 use crate::common::MICRO_SECOND;
 use crate::common::MicroSec;
 use crate::common::NOW;
@@ -22,7 +8,7 @@ use crate::exchange::AutoConnectClient;
 
 use crate::exchange::binance::message::BinanceUserStreamMessage;
 use crate::exchange::binance::rest::extend_listen_key;
-use crate::exchange::binance::rest::new_limit_order;
+
 
 use super::BinanceConfig;
 use super::rest::create_listen_key;
@@ -103,6 +89,12 @@ where
 fn test_listen_userdata_stream() {
     use crate::exchange::binance::BinanceConfig;
     use crate::exchange::binance::ws::listen_userdata_stream;
+    use crate::exchange::binance::rest::new_limit_order;
+    use crate::common::init_debug_log;
+    use crate::common::OrderSide;
+    use std::thread::sleep;
+    use std::time::Duration;
+    use rust_decimal_macros::dec;
 
     let config = BinanceConfig::TESTSPOT("BTC", "BUSD");
     init_debug_log();

@@ -2,13 +2,10 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orderlist::OrderList;
     use rust_decimal_macros::dec;
 
-    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, AccountChange, Trade, init_debug_log}};
-
-    use super::*;
+    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, Trade, init_debug_log}};
 
     #[test]
     fn test_order_list() {
