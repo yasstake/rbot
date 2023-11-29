@@ -1,15 +1,13 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use chrono::{Datelike, format};
+use chrono::Datelike;
 use csv::StringRecord;
-use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::Value;
-use tungstenite::client;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle, self};
@@ -209,13 +207,14 @@ impl BinanceMarket {
         self.db.reset_cache_duration();
     }
 
+    #[pyo3(signature = (ndays, force = false))]
     pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         let latest_date;
 
         match self.get_latest_archive_timestamp() {
             Ok(timestamp) => latest_date = timestamp,
-            Err(e) => {
+            Err(_) => {
                 latest_date = NOW() - DAYS(2);
             }
         }
@@ -248,7 +247,7 @@ impl BinanceMarket {
 
         match self.get_latest_archive_timestamp() {
             Ok(timestamp) => latest_date = timestamp,
-            Err(e) => {
+            Err(_) => {
                 latest_date = NOW() - DAYS(1);
             }
         }
@@ -351,7 +350,7 @@ impl BinanceMarket {
         websocket.connect();
 
         let db_channel = self.db.start_thread();
-        let mut board = self.board.clone();
+        let board = self.board.clone();
 
         let mut agent_channel = self.channel.clone();
 
@@ -623,7 +622,7 @@ impl BinanceMarket {
     }
 
 
-    pub fn dummy_market_order(
+    pub fn dry_market_order(
         &self,
         create_time: MicroSec,
         order_id: &str,

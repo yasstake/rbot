@@ -18,8 +18,6 @@ class MyAgent:
 
     def on_tick(self, session, side, price, size):
         print("tick: ", session.current_time, side, price, size)
-        
-        market.limit_order(OrderSide.Sell, price + 100, 0.001)        
         pass
     
     def on_update(self, session, updated_order):
@@ -45,23 +43,13 @@ market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
 
 print(BinanceConfig.TEST_BTCUSDT)
 
-market.start_market_stream()
-market.start_user_stream()
+#market.start_market_stream()
+#market.start_user_stream()
     
 agent = MyAgent()
 runner = Runner()
 
-from threading import Thread
-from time import sleep
-
-
-def run():
-    runner.run(market, agent)
-
-
-run()
-
-
+runner.back_test(market, agent, interval_sec=60, start_time=0, end_time=0, verbose=True)
 
 
     

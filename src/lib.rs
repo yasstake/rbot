@@ -20,7 +20,7 @@ use exchange::binance::{BinanceMarket, BinanceConfig};
 use exchange::bb::BBMarket;
 
 use common::*;
-use session::Session;
+use session::{Session, ExecuteMode};
 use session::Runner;
 //use sim::back::BackTester;
 //use sim::session::DummySession;
@@ -56,12 +56,10 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Trade>()?;
     m.add_class::<BoardItem>()?;
 
-
     m.add_class::<Session>()?;
     m.add_class::<Runner>()?;
-//    m.add_class::<DummySession>()?;
-//    m.add_class::<BackTester>()?;
-
+    m.add_class::<ExecuteMode>()?;
+    
     // Binance
     m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;

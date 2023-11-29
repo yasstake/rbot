@@ -26,7 +26,7 @@ use crate::common::{Order, OrderType};
 #[pyclass]
 pub enum ExecuteMode {
     Real,
-    Dummy,
+    BackTest,
     Dry
 }
 
@@ -34,19 +34,21 @@ pub enum ExecuteMode {
 impl ExecuteMode {
     #[new]
     pub fn new(mode: &str) -> Self {
-        match mode {
-            "real" => ExecuteMode::Real,
-            "dummy" => ExecuteMode::Dummy,
-            "dry" => ExecuteMode::Dry,
-            _ => ExecuteMode::Dummy
+        let mode = mode.to_uppercase();
+
+        match mode.as_str() {
+            "REAL" => ExecuteMode::Real,
+            "DUMMY" => ExecuteMode::BackTest,
+            "DRY" => ExecuteMode::Dry,
+            _ => ExecuteMode::BackTest
         }
     }
 
     pub fn __str__(&self)  -> String {
         match self {
-            ExecuteMode::Real => "real",
-            ExecuteMode::Dummy => "dummy",
-            ExecuteMode::Dry => "dry"
+            ExecuteMode::Real => "Real",
+            ExecuteMode::BackTest => "Dummy",
+            ExecuteMode::Dry => "Dry"
         }.to_string()
     }
 }
@@ -228,6 +230,11 @@ impl Session {
 
     #[getter]
     pub fn get_board(&self) -> Result<Py<PyAny>, PyErr> {
+        if self.execute_mode == ExecuteMode::BackTest {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "get_board is not supported in backtest mode",
+            ));
+        }
         Python::with_gil(|py| self.market.getattr(py, "board"))
     }
 
@@ -318,7 +325,7 @@ impl Session {
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
-        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             self.dummy_cancel_order(order_id)
         } else {
             self.real_cancel_order(order_id)
@@ -362,10 +369,10 @@ impl Session {
     }
 
     pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
-            return self.dummy_market_order(side, size);
-        } else {
-            return self.real_market_order(side, size);
+        match self.execute_mode {
+            ExecuteMode::Real => self.real_market_order(side, size),
+            ExecuteMode::BackTest => self.dummy_market_order(side, size),
+            ExecuteMode::Dry => self.dry_market_order(side, size),
         }
     }
 
@@ -387,9 +394,9 @@ impl Session {
         })
     }
 
-    pub fn calc_dummy_execute_price(&mut self, side: OrderSide, size: Decimal) -> Decimal {
+    pub fn calc_dummy_execute_price_by_slip(&mut self, side: OrderSide) -> Decimal {
         // 板がないので、最後の約定価格＋スリッページで約定したことにする（オーダーは分割されないと想定）
-        if self.execute_mode != ExecuteMode::Dummy {
+        if self.execute_mode != ExecuteMode::BackTest {
             let execute_price = if side == OrderSide::Buy {
                 self.asks_edge + self.market_config.market_order_price_slip
             } else {
@@ -404,6 +411,27 @@ impl Session {
         }
     }
 
+    pub fn dry_market_order(
+        &mut self,
+        side: String,
+        size: Decimal,
+    ) -> Result<Py<PyAny>, PyErr> {
+        let size_scale = self.market_config.size_scale;
+        let size = size.round_dp(size_scale);
+
+        let local_id = self.new_order_id(&side);
+        let order_side = OrderSide::from(&side); 
+
+        let transaction_id = self.dummy_transaction_id();
+
+        Python::with_gil(|py| {
+            self.market
+                .call_method1(py, "dry_market_order", 
+                (self.current_timestamp, local_id.clone(), local_id.clone(),
+                    order_side, size, transaction_id))
+        })
+    }
+
     pub fn dummy_market_order(
         &mut self,
         side: String,
@@ -415,7 +443,7 @@ impl Session {
         let local_id = self.new_order_id(&side);
         let order_side = OrderSide::from(&side); 
 
-        let execute_price = self.calc_dummy_execute_price(order_side, size);
+        let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
 
         let mut order = Order::new(
             self.market_config.symbol(),
@@ -452,7 +480,7 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {        
             return self.dummy_limit_order(side, price, size);
         } else {
             return self.real_limit_order(side, price, size);
@@ -671,7 +699,7 @@ impl Session {
             }
         }
 
-        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             return self.execute_dummuy_tick(tick);            
         }
         else {
@@ -715,7 +743,7 @@ impl Session {
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
         // when dummy mode, order list is start with empty.
-        if self.execute_mode == ExecuteMode::Dummy || self.execute_mode == ExecuteMode::Dry {        
+        if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {        
             return Ok(());
         }
 
