@@ -250,7 +250,7 @@ where
     let start_time = server_time(config);
 
     loop {
-        let mut start_timer = NOW();
+        let start_timer = NOW();
 
         log::debug!("from_id: {}", from_id);
 

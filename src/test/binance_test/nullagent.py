@@ -12,12 +12,14 @@ class MyAgent:
     def __init__(self):
         pass
     
-    def on_clock(self):
+    def on_clock(self, session, clock):
+        #print("clock: ", time_string(session.current_timestamp), time_string(clock))
         pass
 
 
     def on_tick(self, session, side, price, size):
-        print("tick: ", session.current_time, side, price, size)
+
+        #print("tick: ", time_string(session.current_timestamp), side, price, size)
         pass
     
     def on_update(self, session, updated_order):
@@ -40,16 +42,18 @@ class MyAgent:
         pass
     
 market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
+market.download(30)
 
 print(BinanceConfig.TEST_BTCUSDT)
 
-#market.start_market_stream()
+market.start_market_stream()
 #market.start_user_stream()
     
 agent = MyAgent()
 runner = Runner()
 
-runner.back_test(market, agent, interval_sec=60, start_time=0, end_time=0, verbose=True)
+#runner.back_test(market, agent, interval_sec=60, start_time=0, end_time=0, verbose=True)
+runner.dry_run(market, agent, interval_sec=60, verbose=True)
 
 
     
