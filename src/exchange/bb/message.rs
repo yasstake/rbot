@@ -7,6 +7,7 @@ use serde_derive::Serialize;
 use serde_derive::Deserialize;
 use serde_json::Value;
 
+use crate::common::LogStatus;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::exchange::string_to_i64;
@@ -37,8 +38,6 @@ impl BybitTradeMessage {
         trade
     }
 }
-
-
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,6 +73,7 @@ impl BybitTrade {
             } else {
                 OrderSide::Sell
             },
+            status: LogStatus::Unknown,
             id: self.exec_id.to_string(),
         };
     }

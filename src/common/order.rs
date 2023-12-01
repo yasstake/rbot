@@ -197,6 +197,58 @@ impl From<&String> for OrderType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
+#[pyclass]
+pub enum LogStatus {
+    UnFix,           // データはWebSocketなどから取得されたが、まだ確定していない
+    FixBlockStart,   // データが確定(アーカイブ）し、ブロックの開始を表す
+    FixArchiveBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（アーカイブファイル）
+    FixBlockEnd,     // データが確定(アーカイブ）し、ブロックの終了を表す
+    FixRestApiStart,
+    FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
+    FixRestApiEnd,
+    Unknown, // 未知のステータス / 未確定のステータス
+}
+
+impl Default for LogStatus {
+    fn default() -> Self {
+        LogStatus::UnFix
+    }
+}
+
+impl From<&str> for LogStatus {
+    fn from(status: &str) -> Self {
+        match status.to_uppercase().as_str() {
+            "U" => LogStatus::UnFix,
+            "S" => LogStatus::FixBlockStart,
+            "A" => LogStatus::FixArchiveBlock,
+            "E" => LogStatus::FixBlockEnd,
+            "s" => LogStatus::FixRestApiStart,
+            "a" => LogStatus::FixRestApiBlock,
+            "e" => LogStatus::FixRestApiEnd,
+            _ => {
+                log::error!("Unknown log status: {:?}", status);
+                LogStatus::Unknown
+            }
+        }
+    }
+}
+
+impl LogStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            LogStatus::UnFix => "U".to_string(),
+            LogStatus::FixBlockStart => "S".to_string(),
+            LogStatus::FixArchiveBlock => "A".to_string(),
+            LogStatus::FixBlockEnd => "E".to_string(),
+            LogStatus::FixRestApiStart => "s".to_string(),
+            LogStatus::FixRestApiBlock => "a".to_string(),
+            LogStatus::FixRestApiEnd => "e".to_string(),
+            LogStatus::Unknown => "X".to_string(),
+        }
+    }
+}
+
 // Represent one Trade execution.
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -210,6 +262,8 @@ pub struct Trade {
     pub price: Decimal,
     /// The size of the trade.
     pub size: Decimal,
+    /// trade status
+    pub status: LogStatus,
     /// The unique identifier for the trade.
     pub id: String,
 }
@@ -222,6 +276,7 @@ impl Trade {
         order_side: OrderSide,
         price: Decimal,
         size: Decimal,
+        status: LogStatus,
         id: String,
     ) -> Self {
         return Trade {
@@ -229,14 +284,15 @@ impl Trade {
             order_side,
             price,
             size,
+            status,
             id,
         };
     }
 
     pub fn to_csv(&self) -> String {
         format!(
-            "{:?}, {:?}, {:?}, {:?}, {:?}\n",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{:?}, {:?}, {:?}, {:?}, {:?}, {:?}\n",
+            self.time, self.order_side, self.price, self.size, self.status, self.id
         )
     }
 
@@ -818,14 +874,13 @@ impl Order {
 
             // update foreign
             self.free_foreign_change = self.foreign_change;
-            self.lock_foreign_change = dec![0.0];            
+            self.lock_foreign_change = dec![0.0];
 
             if self.is_maker {
-                // Maker -> homeでlockしたものがforeignに変化する。freeは変化しない。                
-                self.lock_home_change = - filled_quote_vol;
-                self.free_home_change = dec![0.0];                
-            }
-            else {
+                // Maker -> homeでlockしたものがforeignに変化する。freeは変化しない。
+                self.lock_home_change = -filled_quote_vol;
+                self.free_home_change = dec![0.0];
+            } else {
                 // Taker -> lockは０。freeだったものからforeignに変化する。
                 self.lock_home_change = dec![0.0];
                 self.free_home_change = self.home_change;
@@ -833,7 +888,7 @@ impl Order {
         } else {
             // Sell
             // move foreign to home
-            self.foreign_change = (-filled_size) - self.commission_foreign;            
+            self.foreign_change = (-filled_size) - self.commission_foreign;
             self.home_change = filled_quote_vol - self.commission_home;
 
             // update home
@@ -843,22 +898,25 @@ impl Order {
             if self.is_maker {
                 self.lock_foreign_change = -filled_size;
                 self.free_foreign_change = dec![0.0];
-            }
-            else {
+            } else {
                 self.lock_foreign_change = dec![0.0];
                 self.free_foreign_change = self.foreign_change;
             }
         }
 
         // home_change = home_free_change + home_locked_change - commission_home
-        if self.home_change != (self.free_home_change + self.lock_home_change - self.commission_home) {
+        if self.home_change
+            != (self.free_home_change + self.lock_home_change - self.commission_home)
+        {
             println!(
                 "Order.update_balance_filled: home_change != (free_home_change + lock_home_change). order={:?}",
                 self
             )
         }
 
-        if self.foreign_change != (self.free_foreign_change + self.lock_foreign_change - self.commission_foreign) {
+        if self.foreign_change
+            != (self.free_foreign_change + self.lock_foreign_change - self.commission_foreign)
+        {
             println!(
                 "Order.update_balance_filled: foreign_change != (free_foreign_change + lock_foreign_change). order={:?}",
                 self
