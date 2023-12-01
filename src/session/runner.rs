@@ -1,9 +1,6 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::{
-    io::{stdout, Write},
-    os::unix::process::CommandExt,
-};
+use std::io::{stdout, Write};
 
 use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;

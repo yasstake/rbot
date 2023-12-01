@@ -191,7 +191,6 @@ impl OrderList {
                 self.list[0].execute_price = trade.price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;
 
-                remain_size = 0.into();
                 filled_orders.push(self.list[0].clone());
 
                 // TODO: calc fills and profit

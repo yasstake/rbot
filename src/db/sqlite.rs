@@ -8,13 +8,15 @@ use polars_core::prelude::IndexOrder;
 use pyo3::{Py, PyResult, Python};
 use pyo3_polars::PyDataFrame;
 use rusqlite::params_from_iter;
-use rusqlite::{params, Connection, Error, Result, Statement, Transaction};
-use rust_decimal::Decimal;
+use rusqlite::{params, Connection, Error, Result, Transaction};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
+use crate::common::LogStatus;
+use crate::common::OrderSide;
+use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
-use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_SEC, FLOOR_DAY, NOW};
 use crate::db::df::merge_df;
 use crate::db::df::ohlcvv_df;
 use crate::db::df::ohlcvv_from_ohlcvv_df;
@@ -22,36 +24,15 @@ use crate::db::df::select_df;
 use crate::db::df::start_time_df;
 use crate::db::df::TradeBuffer;
 use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_df};
-use crate::common::OrderSide;
 
 use crate::db::df::KEY;
 use polars::prelude::Float64Type;
 
-use std::thread;
 use crossbeam_channel::Sender;
+use std::thread;
 
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
-
-pub trait TradeTableQuery {
-    fn open(name: &str) -> Result<Self, Error>
-    where
-        Self: Sized;
-    fn create_table_if_not_exists(&self);
-    fn drop_table(&self);
-    fn vaccum(&self);
-    fn recreate_table(&self);
-
-    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, f: F)
-    where
-        F: FnMut(&Trade);
-
-    // fn select<F>(&mut self, start_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
-    fn select_all_statement(&self) -> Statement;
-    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>);
-    fn start_time(&self) -> Result<MicroSec, Error>;
-    fn end_time(&self) -> Result<MicroSec, Error>;
-}
 
 #[derive(Debug)]
 pub struct TradeTableDb {
@@ -61,7 +42,6 @@ pub struct TradeTableDb {
 
 impl TradeTableDb {
     pub fn clone_connection(&self) -> TradeTableDb {
-
         let conn = Connection::open(&self.file_name).unwrap();
         let db = TradeTableDb {
             file_name: self.file_name.clone(),
@@ -75,8 +55,8 @@ impl TradeTableDb {
     pub fn insert_transaction(tx: &Transaction, trades: &Vec<Trade>) -> Result<i64, Error> {
         let mut insert_len = 0;
 
-        let sql = r#"insert or replace into trades (time_stamp, action, price, size, id)
-                                values (?1, ?2, ?3, ?4, ?5) "#;
+        let sql = r#"insert or replace into trades (time_stamp, action, price, size, status, id)
+                                values (?1, ?2, ?3, ?4, ?5, ?6) "#;
 
         for rec in trades {
             let result = tx.execute(
@@ -86,6 +66,7 @@ impl TradeTableDb {
                     rec.order_side.to_string(),
                     rec.price.to_f64().unwrap(),
                     rec.size.to_f64().unwrap(),
+                    rec.status.to_string(),
                     rec.id
                 ],
             );
@@ -95,7 +76,7 @@ impl TradeTableDb {
                     insert_len += size;
                 }
                 Err(e) => {
-                    println!("insert error {}", e);
+                    log::error!("insert error {}", e);
                     return Err(e);
                 }
             }
@@ -106,7 +87,10 @@ impl TradeTableDb {
 
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         // create transaction with immidate mode
-        let tx = self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Deferred).unwrap();
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .unwrap();
 
         let insert_len = Self::insert_transaction(&tx, trades)?;
 
@@ -132,8 +116,7 @@ impl TradeTableDb {
                 if mode == "wal" {
                     log::debug!("wal mode already set");
                     return true;
-                }
-                else {
+                } else {
                     return false;
                 }
             }
@@ -165,7 +148,6 @@ impl TradeTableDb {
         match result {
             Ok(_result) => {
                 println!("set wal mode result success");
-
             }
             Err(e) => {
                 println!("set wal mode error = {}", e);
@@ -173,16 +155,52 @@ impl TradeTableDb {
         }
 
         println!("set wal mode end");
-        
+
         let _ = conn.close();
-        return true;        
+        return true;
     }
+
+    /*
+    pub fn select_start_end_rec(&self, date: MicroSec) -> Result<Vec<Trade>, Error> {
+        let date_start = FLOOR_DAY(date);
+        let date_end = date_start + DAYS(1);
+
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and time_stamp < $2 and (status = "S" or status = "E")"#;
+
+        let mut trades: Vec<Trade> = vec![];
+
+        let statement = self.connection.prepare(sql).unwrap();
+
+        let result = statement.query_map([date_start, date_end], |row| {
+            let time_stamp: i64 = row.get(0).unwrap();
+            let bs_str: String = row.get(1).unwrap();
+            let bs: OrderSide = OrderSide::from(&bs_str);
+            let price: f64 = row.get(2).unwrap();
+            let price = Decimal::from_f64(price).unwrap();
+            let size: f64 = row.get(3).unwrap();
+            let size = Decimal::from_f64(size).unwrap();
+            let status_str: String = row.get(4).unwrap();
+            let status = LogStatus::from(status_str.as_str());
+            let id: String = row.get(5).unwrap();
+
+            let trade = Trade::new(time_stamp, bs, price, size, status, id);
+                
+            trades.push(trade);
+        });
+
+        if result.is_err() {
+            log::error!("select start end rec error {:?}", result);
+            return Err(result.unwrap_err());
+        }
+
+        Ok(trades)
+    }
+    */
 }
 
-impl TradeTableQuery for TradeTableDb {
+impl TradeTableDb {
     fn open(name: &str) -> Result<Self, Error> {
         log::debug!("open database {}", name);
-        Self::set_wal_mode(name);
 
         let result = Connection::open(name);
         log::debug!("Database open path = {}", name);
@@ -195,7 +213,7 @@ impl TradeTableQuery for TradeTableDb {
                 };
 
                 Ok(db)
-            },
+            }
             Err(e) => {
                 log::debug!("{:?}", e);
                 return Err(e);
@@ -203,47 +221,70 @@ impl TradeTableQuery for TradeTableDb {
         }
     }
 
-
-    fn create_table_if_not_exists(&self) {
+    fn create_table_if_not_exists(&self) -> Result<(), Error> {
         let _r = self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
             time_stamp    INTEGER,
             action  TEXT,
             price   NUMBER,
             size    NUMBER,
+            status  TEXT,
             id      TEXT primary key
         )",
             (),
         );
 
-        let _r = self.connection.execute(
+        let r = self.connection.execute(
             "CREATE index if not exists time_index on trades(time_stamp)",
             (),
         );
+        if r.is_err() {
+            log::error!("create table error {:?}", r);
+            r.unwrap();
+        }
 
-        let _r = self.connection.execute(
-            "PRAGMA  journal_mode=wal",
-            (),
-        );
+        let r = self.connection.pragma_update(None, "journal_mode", "wal"); 
+        if r.is_err() {
+            log::error!("set wal mode error {:?}", r);
+            r.unwrap();
+        }
+
+        Ok(())
     }
 
-    fn drop_table(&self) {
-        let _r = self.connection.execute("drop table trades", ());
+    fn drop_table(&self) -> Result<(), Error> {
+        let r = self.connection.execute("drop table trades", ());
+
+        if r.is_err() {
+            log::error!("drop table error {:?}", r);
+            r.unwrap();
+        }
+
+        Ok(())
     }
 
-    fn vaccum(&self) {
-        let _r = self.connection.execute("VACCUM", ());
+    fn vaccum(&self) -> Result<(), Error> {
+        let r = self.connection.execute("VACCUM", ());
+
+        if r.is_err() {
+            log::error!("vaccum error {:?}", r);
+            r.unwrap();
+        }
+
+        Ok(())
     }
 
-    fn recreate_table(&self) {
-        self.create_table_if_not_exists();
-        self.drop_table();
-        self.create_table_if_not_exists();
+    fn recreate_table(&self) -> Result<(), Error> {
+        self.create_table_if_not_exists()?;
+        self.drop_table()?;
+        self.create_table_if_not_exists()?;
+
+        Ok(())
     }
 
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
-    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, mut f: F)
+    pub fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, mut f: F)
     where
         F: FnMut(&Trade),
     {
@@ -251,11 +292,11 @@ impl TradeTableQuery for TradeTableDb {
         let param: Vec<i64>;
 
         if 0 < end_time {
-            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
+            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
             param = vec![start_time, end_time];
         } else {
             //sql = "select time_stamp, action, price, size, liquid, id from trades where $1 <= time_stamp order by time_stamp";
-            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
+            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp order by time_stamp";
             param = vec![start_time];
         }
 
@@ -267,13 +308,16 @@ impl TradeTableQuery for TradeTableDb {
             .query_map(params_from_iter(param.iter()), |row| {
                 let bs_str: String = row.get_unwrap(1);
                 let bs: OrderSide = bs_str.as_str().into();
+                let status_str: String = row.get_unwrap(4);
+                let status = LogStatus::from(status_str.as_str());
 
                 Ok(Trade {
                     time: row.get_unwrap(0),
                     price: Decimal::from_f64(row.get_unwrap(2)).unwrap(),
                     size: Decimal::from_f64(row.get_unwrap(3)).unwrap(),
                     order_side: bs,
-                    id: row.get_unwrap(4),
+                    status: status,
+                    id: row.get_unwrap(5),
                 })
             })
             .unwrap();
@@ -290,10 +334,45 @@ impl TradeTableQuery for TradeTableDb {
         }
     }
 
+    pub fn select_query(&mut self, sql: &str, param: Vec<i64>) -> Vec<Trade> {
+        let mut statement = self.connection.prepare(sql).unwrap();
+        let mut trades: Vec<Trade> = vec![];
+
+        let _transaction_iter = statement
+            .query_map(params_from_iter(param.iter()), |row| {
+                let bs_str: String = row.get_unwrap(1);
+                let bs: OrderSide = bs_str.as_str().into();
+                let status_str: String = row.get_unwrap(4);
+                let status = LogStatus::from(status_str.as_str());
+
+                Ok(Trade {
+                    time: row.get_unwrap(0),
+                    price: Decimal::from_f64(row.get_unwrap(2)).unwrap(),
+                    size: Decimal::from_f64(row.get_unwrap(3)).unwrap(),
+                    order_side: bs,
+                    status: status,
+                    id: row.get_unwrap(5),
+                })
+            })
+            .unwrap();
+
+        for trade in _transaction_iter {
+            match trade {
+                Ok(t) => {
+                    trades.push(t);
+                }
+                Err(e) => log::error!("{:?}", e),
+            }
+        }
+
+        return trades;
+    }
+
+    /*
     fn select_all_statement(&self) -> Statement {
         let statement = self
             .connection
-            .prepare("select time_stamp, action, price, size, id from trades order by time_stamp")
+            .prepare("select time_stamp, action, price, size, status, id from trades order by time_stamp")
             .unwrap();
         return statement;
     }
@@ -303,10 +382,10 @@ impl TradeTableQuery for TradeTableDb {
         let param: Vec<i64>;
 
         if 0 < end_time {
-            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
+            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
             param = vec![start_time, end_time];
         } else {
-            sql = "select time_stamp, action, price, size, id from trades where $1 <= time_stamp order by time_stamp";
+            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp order by time_stamp";
             param = vec![start_time];
         }
 
@@ -338,6 +417,7 @@ impl TradeTableQuery for TradeTableDb {
 
         return r;
     }
+    */
 }
 
 #[derive(Debug)]
@@ -360,7 +440,7 @@ impl TradeTable {
             let handle = self.handle.take().unwrap();
 
             if handle.is_finished() == false {
-                println!("thread is already started");
+                log::debug!("thread is already started");
 
                 // check self.tx is valid and return clone of self.tx
                 if self.tx.is_some() {
@@ -376,7 +456,7 @@ impl TradeTable {
         self.tx = Some(tx);
 
         let handle = thread::spawn(move || {
-            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();                                                    
+            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
             loop {
                 match rx.recv() {
                     Ok(trades) => {
@@ -629,7 +709,6 @@ impl TradeTable {
         return Ok(r);
     }
 
-
     pub fn py_ohlcvv_polars(
         &mut self,
         mut start_time: MicroSec,
@@ -639,12 +718,11 @@ impl TradeTable {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcvv_df(start_time, end_time, window_sec);
-        
+
         let df = convert_timems_to_datetime(&mut df).clone();
 
         return Ok(PyDataFrame(df));
     }
-
 
     pub fn ohlcv_df(
         &mut self,
@@ -705,7 +783,6 @@ impl TradeTable {
         return Ok(r);
     }
 
-
     pub fn py_ohlcv_polars(
         &mut self,
         mut start_time: MicroSec,
@@ -715,18 +792,17 @@ impl TradeTable {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcv_df(start_time, end_time, window_sec);
-        let df = convert_timems_to_datetime(&mut df).clone();        
+        let df = convert_timems_to_datetime(&mut df).clone();
         let df = PyDataFrame(df);
 
         return Ok(df);
     }
 
     pub fn py_vap(
-
         &mut self,
         start_time: MicroSec,
-        end_time: MicroSec
-        , price_unit: i64
+        end_time: MicroSec,
+        price_unit: i64,
     ) -> PyResult<PyDataFrame> {
         let df = self.vap(start_time, end_time, price_unit);
 
@@ -735,13 +811,8 @@ impl TradeTable {
         Ok(py_df)
     }
 
-    pub fn vap(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        price_unit: i64
-    ) -> DataFrame {
-        self.update_cache_df(start_time, end_time);                        
+    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> DataFrame {
+        self.update_cache_df(start_time, end_time);
         let df = vap_df(&self.cache_df, start_time, end_time, price_unit);
 
         df
@@ -752,13 +823,12 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> PyResult<PyDataFrame> {
-        let mut df  = self.select_df_from_db(start_time, end_time);
-        let df = convert_timems_to_datetime(&mut df).clone();        
+        let mut df = self.select_df_from_db(start_time, end_time);
+        let df = convert_timems_to_datetime(&mut df).clone();
         let df = PyDataFrame(df);
 
         return Ok(df);
     }
-
 
     pub fn py_select_trades(
         &mut self,
@@ -776,7 +846,11 @@ impl TradeTable {
         return Ok(r);
     }
 
-    pub fn select_array(&mut self, start_time: MicroSec, end_time: MicroSec) -> ndarray::Array2<f64> {
+    pub fn select_array(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> ndarray::Array2<f64> {
         self.update_cache_df(start_time, end_time);
 
         let trades = self.select_df_from_db(start_time, end_time);
@@ -1042,7 +1116,7 @@ impl TradeTable {
         start_time: MicroSec,
         force: bool,
     ) -> Vec<i64> {
-        let from_time = FLOOR_DAY(NOW()) - DAYS(ndays);  
+        let from_time = FLOOR_DAY(NOW()) - DAYS(ndays);
 
         let time_gap = if force {
             vec![TimeChunk {
@@ -1086,8 +1160,8 @@ impl TradeTable {
     }
 }
 
-impl TradeTableQuery for TradeTable {
-    fn open(name: &str) -> Result<Self, Error> {
+impl TradeTable {
+    pub fn open(name: &str) -> Result<Self, Error> {
         let result = TradeTableDb::open(name);
         log::debug!("Database open path = {}", name);
 
@@ -1114,19 +1188,22 @@ impl TradeTableQuery for TradeTable {
         }
     }
 
-    fn create_table_if_not_exists(&self) {
-        self.connection.create_table_if_not_exists();
+    pub fn create_table_if_not_exists(&self) -> Result<(), Error> {
+        self.connection.create_table_if_not_exists()
     }
-    fn drop_table(&self) {
-        self.connection.drop_table();
+
+    pub fn drop_table(&self) -> Result<(), Error> {
+        self.connection.drop_table()
     }
-    fn vaccum(&self) {
-        self.connection.vaccum();
+
+    pub fn vaccum(&self) -> Result<(), Error> {
+        self.connection.vaccum()
     }
-    fn recreate_table(&self) {
-        self.connection.recreate_table();
+
+    pub fn recreate_table(&self) -> Result<(), Error> {
+        self.connection.recreate_table()
     }
-    
+
     /// Selects trades from the database within the specified time range and applies the given closure to each trade.
     ///
     /// # Arguments
@@ -1158,22 +1235,6 @@ impl TradeTableQuery for TradeTable {
         self.connection.select(start_time, end_time, f);
     }
 
-    // fn select<F>(&mut self, from_time: MicroSec, to_time: MicroSec, f: dyn FnMut(&Trade));
-    fn select_all_statement(&self) -> Statement {
-        return self.connection.select_all_statement();
-    }
-    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>) {
-        return self.connection.select_statement(start_time, end_time);
-    }
-
-    fn start_time(&self) -> Result<MicroSec, Error> {
-        self.connection.start_time()
-    }
-
-    /// select max(end) time_stamp in db
-    fn end_time(&self) -> Result<MicroSec, Error> {
-        self.connection.end_time()
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1184,6 +1245,7 @@ impl TradeTableQuery for TradeTable {
 mod test_transaction_table {
     use rust_decimal_macros::dec;
 
+    use crate::common::init_debug_log;
     use crate::common::init_log;
     use crate::common::time_string;
     use crate::common::DAYS;
@@ -1195,27 +1257,56 @@ mod test_transaction_table {
 
     #[test]
     fn test_open() {
-        let _result = TradeTable::open("test.db");
+        let result = TradeTable::open("test.db");
+
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_create_table_and_drop() {
         let tr = TradeTable::open("test.db").unwrap();
 
-        tr.create_table_if_not_exists();
-        tr.drop_table();
+        let r = tr.create_table_if_not_exists();
+        assert!(r.is_ok());
+        
+        let r = tr.drop_table();
+        assert!(r.is_ok());
     }
 
     #[test]
     fn test_insert_table() {
+        init_debug_log();
         let mut tr = TradeTable::open("test.db").unwrap();
-        tr.recreate_table();
+        let r = tr.recreate_table();
+        assert!(r.is_ok());
 
-        let rec1 = Trade::new(1, OrderSide::Buy, dec![10.0], dec![10.0], "abc1".to_string());
-        let rec2 = Trade::new(2, OrderSide::Buy, dec![10.1], dec![10.2], "abc2".to_string());
-        let rec3 = Trade::new(3, OrderSide::Buy, dec![10.2], dec![10.1], "abc3".to_string());
+        let rec1 = Trade::new(
+            1,
+            OrderSide::Buy,
+            dec![10.0],
+            dec![10.0],
+            LogStatus::UnFix,
+            "abc1".to_string(),
+        );
+        let rec2 = Trade::new(
+            2,
+            OrderSide::Buy,
+            dec![10.1],
+            dec![10.2],
+            LogStatus::UnFix,
+            "abc2".to_string(),
+        );
+        let rec3 = Trade::new(
+            3,
+            OrderSide::Buy,
+            dec![10.2],
+            dec![10.1],
+            LogStatus::UnFix,
+            "abc3".to_string(),
+        );
 
-        let _r = tr.insert_records(&vec![rec1, rec2, rec3]);
+        let r = tr.insert_records(&vec![rec1, rec2, rec3]);
+        assert!(r.is_ok());
     }
 
     #[test]
@@ -1223,16 +1314,17 @@ mod test_transaction_table {
         test_insert_table();
 
         let mut table = TradeTable::open("test.db").unwrap();
-        println!("0-0");
 
         table.select(0, 0, |row| println!("{:?}", row));
     }
 
     #[test]
     fn test_select_array() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        init_debug_log();
 
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let db = TradeTable::open("test.db");
+        assert!(db.is_ok());
+        let mut db = db.unwrap();
 
         let array = db.select_array(0, 0);
 
@@ -1241,16 +1333,15 @@ mod test_transaction_table {
 
     #[test]
     fn test_info() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
-
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        init_debug_log();
+        let mut db = TradeTable::open("test.db").unwrap();
         println!("{}", db.info());
     }
 
     #[test]
     fn test_start_time() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        init_debug_log();
+        let db = TradeTable::open("test.db").unwrap();
 
         let start_time = db.start_time();
 
@@ -1261,8 +1352,8 @@ mod test_transaction_table {
 
     #[test]
     fn test_end_time() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        init_debug_log();
+        let db = TradeTable::open("test.db").unwrap();
 
         let end_time = db.end_time();
 
@@ -1426,30 +1517,49 @@ mod test_transaction_table {
 
     #[test]
     fn test_start_thread() {
-        let mut table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
+        let mut table =
+            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
         let tx = table.start_thread();
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
+        let v = vec![Trade {
+            time: 1,
+            order_side: OrderSide::Buy,
+            price: dec![1.0],
+            size: dec![1.0],
+            status: LogStatus::UnFix,
+            id: "I".to_string(),
+        }];
         tx.send(v).unwrap();
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "I".to_string()}];
+        let v = vec![Trade {
+            time: 1,
+            order_side: OrderSide::Buy,
+            price: dec![1.0],
+            size: dec![1.0],
+            status: LogStatus::UnFix,
+            id: "I".to_string(),
+        }];
         tx.send(v).unwrap();
 
-        let tx = table.start_thread();  
+        let tx = table.start_thread();
 
-        let v = vec![Trade{ time: 1, order_side: OrderSide::Buy, price: dec![1.0], size: dec![1.0], id: "B".to_string()}];
+        let v = vec![Trade {
+            time: 1,
+            order_side: OrderSide::Buy,
+            price: dec![1.0],
+            size: dec![1.0],
+            status: LogStatus::UnFix,
+            id: "B".to_string(),
+        }];
         tx.send(v).unwrap();
 
-//        sleep(Duration::from_millis(5000));      
+        //        sleep(Duration::from_millis(5000));
     }
 
     #[test]
     fn test_wal_mode() {
-        //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap(); 
+        //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
         TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap());
     }
-
 }
-
-
