@@ -5,7 +5,7 @@ mod tests {
     use orderlist::OrderList;
     use rust_decimal_macros::dec;
 
-    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, Trade, init_debug_log}};
+    use crate::{session::orderlist, common::{OrderSide, Order, NOW, OrderType, OrderStatus, Trade, init_debug_log, LogStatus}};
 
     #[test]
     fn test_order_list() {
@@ -146,7 +146,9 @@ mod tests {
         // if buy trades comes in the buy trades list, its araises error log, and returns empty list.
         let trade = Trade::new(
             NOW(), OrderSide::Buy,
-            dec![150.0], dec![10.0], "ordr1".to_string());
+            dec![150.0], dec![10.0], 
+            LogStatus::UnFix,            
+            "ordr1".to_string());
 
             let filled_orders = order_list.consume_trade(&trade);
 
@@ -155,7 +157,9 @@ mod tests {
         // if sell trades and equal to the highest buy order price, it will do nothing.
         let trade2 = Trade::new(
             NOW(), OrderSide::Sell,
-            dec![250.0], dec![250.0], "ordr2".to_string());
+            dec![250.0], dec![250.0], 
+            LogStatus::UnFix,            
+            "ordr2".to_string());
 
 
         let filled_orders = order_list.consume_trade(&trade2);
@@ -164,7 +168,9 @@ mod tests {
         // Partially filled.
         let trade3 = Trade::new(
             NOW(), OrderSide::Sell,
-            dec![249.9], dec![10.0], "ordr3".to_string());
+            dec![249.9], dec![10.0],
+            LogStatus::UnFix,
+            "ordr3".to_string());
 
         let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 1);
@@ -176,7 +182,9 @@ mod tests {
         // Filled filled.
         let trade3 = Trade::new(
             NOW(), OrderSide::Sell,
-            dec![199.0], dec![100.0], "ordr3".to_string());
+            dec![199.0], dec![100.0], 
+            LogStatus::UnFix,
+            "ordr3".to_string());
 
         let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 2);
@@ -188,9 +196,6 @@ mod tests {
         assert_eq!(filled_orders[1].remain_size, dec![0.0]);
 
         assert_eq!(order_list.remain_size(), dec![25.0]);
-
-
-
 
 /*
 

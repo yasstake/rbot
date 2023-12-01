@@ -17,14 +17,14 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
 
-use crate::common::{OrderSide, Trade, DAYS};
+use crate::common::{OrderSide, Trade, DAYS, LogStatus};
 use crate::common::NOW;
 use crate::common::{to_naive_datetime, MicroSec};
-use crate::db::sqlite::{TradeTable, TradeTableQuery};
+use crate::db::sqlite::TradeTable;
 use crate::fs::db_full_path;
 
 
-use super::{download_log, make_download_url_list};
+use super::{download_logs, make_download_url_list};
 
 // TODO: implement ByBit Config.
 #[pyclass]
@@ -83,14 +83,23 @@ impl BBMarket {
         self.db.update_cache_all();
     }
 
-    pub fn download(&mut self, ndays: i64, force: bool) -> i64 {
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> PyResult<i64> {
         let latest_time = NOW() - DAYS(1);
         let days_gap = self.db.make_time_days_chunk_from_days(ndays, latest_time, force);
         let urls: Vec<String> = make_download_url_list(self.name.as_str(), days_gap, Self::make_historical_data_url_timestamp);
         let tx = self.db.start_thread();
-        let download_rec = download_log(urls, tx, true, BBMarket::rec_to_trade);
-
-        return download_rec;
+        
+        match download_logs(urls, tx, true, verbose, BBMarket::rec_to_trade) {
+            Ok(records) => {
+                return Ok(records);
+            }
+            Err(e) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "download: {:?}",
+                    e
+                )));
+            }
+        }
     }
 
     pub fn select_trades_a(
@@ -220,7 +229,7 @@ impl BBMarket {
 
         let size = Decimal::from_f64(size).unwrap();
 
-        let trade = Trade::new(timestamp, order_side, price, size, id);
+        let trade = Trade::new(timestamp, order_side, price, size, LogStatus::FixArchiveBlock, id);
 
         return trade;
     }

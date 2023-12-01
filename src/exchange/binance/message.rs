@@ -11,7 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     common::{
         MarketMessage, 
-        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize,
+        Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize, LogStatus,
     },
     exchange::{string_to_decimal, BoardItem},
 };
@@ -93,6 +93,7 @@ impl BinanceTradeMessage {
             } else {
                 OrderSide::Sell
             },
+            status: LogStatus::UnFix,
             id: self.id.to_string(),
         };
     }
@@ -138,6 +139,7 @@ impl BinanceWsTradeMessage {
             } else {
                 OrderSide::Sell
             },
+            status: LogStatus::UnFix,
             id: self.t.to_string(),
         };
     }

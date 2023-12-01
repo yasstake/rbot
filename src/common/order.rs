@@ -197,6 +197,52 @@ impl From<&String> for OrderType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
+#[pyclass]
+pub enum LogStatus {
+    UnFix,          // データはWebSocketなどから取得されたが、まだ確定していない
+    FixBlockStart,  // データが確定(アーカイブ）し、ブロックの開始を表す
+    FixArchiveBlock,// データが確定(アーカイブ）し、ブロックの中間を表す（アーカイブファイル）
+    FixRestApiBlock,// データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
+    FixBlockEnd,    // データが確定(アーカイブ）し、ブロックの終了を表す
+    Unknown         // 未知のステータス / 未確定のステータス
+}
+
+impl Default for LogStatus {
+    fn default() -> Self {
+        LogStatus::UnFix
+    }
+}
+
+impl From<&str> for LogStatus {
+    fn from(status: &str) -> Self {
+        match status.to_uppercase().as_str() {
+            "U" => LogStatus::UnFix,
+            "S" => LogStatus::FixBlockStart,
+            "A" => LogStatus::FixArchiveBlock,
+            "R" => LogStatus::FixRestApiBlock,
+            "E" => LogStatus::FixBlockEnd,
+            _ => {
+                log::error!("Unknown log status: {:?}", status);
+                LogStatus::Unknown
+            }
+        }
+    }
+}
+
+impl LogStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            LogStatus::UnFix => "U".to_string(),
+            LogStatus::FixBlockStart => "S".to_string(),
+            LogStatus::FixArchiveBlock => "A".to_string(),
+            LogStatus::FixRestApiBlock => "R".to_string(),
+            LogStatus::FixBlockEnd => "E".to_string(),
+            LogStatus::Unknown => "X".to_string(),
+        }
+    }
+}
+
 // Represent one Trade execution.
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -210,6 +256,8 @@ pub struct Trade {
     pub price: Decimal,
     /// The size of the trade.
     pub size: Decimal,
+    /// trade status
+    pub status: LogStatus,
     /// The unique identifier for the trade.
     pub id: String,
 }
@@ -222,6 +270,7 @@ impl Trade {
         order_side: OrderSide,
         price: Decimal,
         size: Decimal,
+        status: LogStatus,
         id: String,
     ) -> Self {
         return Trade {
@@ -229,14 +278,15 @@ impl Trade {
             order_side,
             price,
             size,
+            status,
             id,
         };
     }
 
     pub fn to_csv(&self) -> String {
         format!(
-            "{:?}, {:?}, {:?}, {:?}, {:?}\n",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{:?}, {:?}, {:?}, {:?}, {:?}, {:?}\n",
+            self.time, self.order_side, self.price, self.size, self.status, self.id
         )
     }
 
