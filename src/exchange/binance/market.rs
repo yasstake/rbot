@@ -24,7 +24,7 @@ use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 
-use super::message::BinanceUserStreamMessage;
+use super::message::{BinanceUserStreamMessage, BinanceMessageId};
 use super::message::{
     BinanceListOrdersResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
     BinanceAccountInformation
@@ -32,7 +32,7 @@ use super::message::{
 use super::rest::{cancel_order, get_balance};
 use super::rest::cancell_all_orders;
 use super::rest::open_orders;
-use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_status, trade_list};
+use super::rest::{new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
@@ -285,28 +285,122 @@ impl BinanceMarket {
             }
         }
 
+        // download from rest API
+        download_rec += self.download_latest(force, verbose);
+
         download_rec
     }
 
+    #[pyo3(signature = (force=false, verbose = false))]
+    pub fn download_latest(&mut self, force:bool, verbose: bool) -> i64 {
+        if verbose {
+            println!("start download from rest API");
+        }
 
-    pub fn repave_today(&mut self) {
-        log::info!("repave_today log download");
-        
-        let latest_date;
+        let mut start_id: BinanceMessageId = 0;
 
-        match self.get_latest_archive_date() {
-            Ok(timestamp) => latest_date = timestamp,
-            Err(_) => {
-                latest_date = NOW() - DAYS(2);
+        if force {
+            let (fix_id, _fix_time) = self.latest_fix_time();
+            start_id = fix_id;
+        }
+        else {
+            let (stable_id, _stable_time)= self.latest_stable_time(verbose);
+            start_id = stable_id;
+        }
+
+        let ch = self.db.start_thread();
+
+        let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
+        {
+            ch.send(row.clone()).unwrap();
+
+            Ok(())
+        }).unwrap();
+
+        if verbose {
+            println!("REST downloaded: {}", record_number);
+        }
+
+        return record_number;
+    }
+
+    #[pyo3(signature = (verbose = false))]
+    pub fn latest_stable_time(&mut self, verbose: bool) -> (BinanceMessageId, MicroSec) {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" or status = "a" order by time_stamp desc"#;
+
+        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(4)]);
+
+        if r.len() == 0 {
+            log::warn!("no record");
+            return (0, 0);
+        }
+
+        let id: BinanceMessageId = r[0].id.parse().unwrap();
+
+        if verbose {
+            println!("latest_stable_message: {:?}({:?}) / message id={:?}", r[0].time, time_string(r[0].time), r[0].id);
+        }
+
+        return (id, r[0].time);
+    }
+
+    pub fn latest_fix_time(&mut self) -> (BinanceMessageId, MicroSec) {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" order by time_stamp desc"#;
+
+        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(2)]);
+
+        if r.len() == 0 {
+            log::warn!("no record");
+            return (0, 0);
+        }
+
+        let id: BinanceMessageId = r[0].id.parse().unwrap();
+
+        return (id, r[0].time);
+    }
+
+    #[pyo3(signature = (allow_gap_rec=50))]
+    pub fn analyze_db(&mut self, allow_gap_rec: u64) -> i64 {
+        let mut first_id: BinanceMessageId = 0;
+        let mut first_time: MicroSec = 0;
+
+        let mut last_id: BinanceMessageId = 0;
+        let mut last_time: MicroSec = 0;
+
+        let mut gap_count: i64 = 0;
+        let mut record_count: i64 = 0;
+
+        self.db.connection.select(0, 0, |trade|{
+            if first_id == 0 {
+                first_id = trade.id.parse::<BinanceMessageId>().unwrap();
+                first_time = trade.time;
             }
-        }
 
-        let tx = self.db.start_thread();
-        let r = insert_trade_db(&self.config, latest_date, tx.clone());
+            let id = trade.id.clone();
+            let id = id.parse::<BinanceMessageId>().unwrap();
 
-        if r.is_err() {
-            log::error!("Error in insert_trade_db: {:?}", r);
-        }
+            let time = trade.time;
+
+            if last_id != 0 && id + allow_gap_rec < last_id {
+                println!("MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]", 
+                    time_string(last_time), last_id,
+                    time_string(time), id,
+                    last_id - id - 1);
+                gap_count += 1;
+            }
+
+            last_id = id;
+            last_time = time;
+        });
+
+        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap]", 
+            time_string(first_time), first_id,
+            time_string(last_time), last_id,
+            last_id - first_id + 1,
+            gap_count
+        );
+
+        gap_count
     }
 
     pub fn cache_all_data(&mut self) {
@@ -791,7 +885,7 @@ impl BinanceMarket {
     }
 }
 
-use crate::exchange::binance::rest::get_board_snapshot;
+use crate::exchange::binance::rest::{get_board_snapshot, download_historical_trades_from_id};
 
 const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trades";
 
@@ -929,7 +1023,7 @@ impl BinanceMarket {
 mod binance_test {
     use std::{thread::sleep, time::Duration};
 
-    use crate::common::{init_debug_log, init_log, time_string};
+    use crate::{common::{init_debug_log, init_log, time_string}, exchange::binance::rest::{download_historical_trades, download_historical_trades_from_id}};
 
     use super::*;
 
@@ -1046,6 +1140,80 @@ mod binance_test {
         let valid = market.validate_db_by_date(date);
 
         println!("valid: {}", valid);
+    }
+
+    #[test]
+    fn test_latest_fixed_db_time() {
+        let mut market = BinanceMarket::new(&BinanceConfig::TEST_BTCUSDT());
+        //let market = BinanceMarket::new("BTCBUSD", true);
+
+        let r = market.latest_fix_time();
+        println!("FIXTIME: {:?}", time_string(r.1));
+
+        let r = market.latest_stable_time(true);
+        println!("STABLETIME: {:?}", time_string(r.1));
+    }
+
+    #[test]
+    fn test_download_historical_data() {
+        init_debug_log();
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
+        //let market = BinanceMarket::new("BTCBUSD", true);
+
+        let r = market.latest_stable_time(true);
+        println!("STABLETIME: {:?}", time_string(r.1));
+
+        /*
+        let ((fid, ftime), (eid, etime)) = download_historical_trades(&BinanceConfig::BTCUSDT(), r.0, &mut |row|Ok({
+            println!("{:?}", row);
+        })).unwrap();
+        */
+
+        let ((fid, ftime), (eid, etime), rec_no) = download_historical_trades(&BinanceConfig::BTCUSDT(), 1, &mut |row|Ok({
+            println!("{:?}", row);
+        })).unwrap();
+
+        println!("{} / {}", fid, time_string(ftime));
+        println!("{} / {}", eid, time_string(etime));
+        println!("{}", rec_no);
+    }
+
+    #[test]
+    fn test_download_historical_data2() {
+//        init_debug_log();
+let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
+//let market = BinanceMarket::new("BTCBUSD", true);
+
+        let (stable_id, stable_time)= market.latest_stable_time(true);
+        println!("STABLETIME: {:?}", time_string(stable_time));
+
+        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |row|Ok({
+            // println!("{:?}", row);
+        })).unwrap();
+
+        println!("{}", rec_no);
+    }
+
+    #[test]
+    fn test_analyze_db() {
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
+
+        let mut last_id: BinanceMessageId = 0;
+        let mut last_time: MicroSec = 0;
+
+        market.db.connection.select(0, 0, |trade|{
+            let id = trade.id.clone();
+            let id = id.parse::<BinanceMessageId>().unwrap();
+
+            let time = trade.time;
+
+            if last_id != 0 && id != last_id + 1{
+                println!("{} / {}", time, time_string(time));
+            }
+
+            last_id = id;
+            last_time = time;
+        });
     }
 
 }

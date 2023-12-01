@@ -40,13 +40,15 @@ class MyAgent:
     def on_account_update(self, session, account):
         print("account update: ", session.current_time, account)
         pass
-    
-market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
-market.download(5, force=True, verbose=True)
 
-print(BinanceConfig.TEST_BTCUSDT)
-
+   
+market = BinanceMarket(BinanceConfig.BTCUSDT)
 market.start_market_stream()
+
+
+market.download(5, force=False, verbose=True)
+
+market.analyze_db()
 #market.start_user_stream()
     
 agent = MyAgent()
