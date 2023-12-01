@@ -53,7 +53,7 @@ impl BBMarket {
 
         let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
 
-        db.create_table_if_not_exists();
+        let _ = db.create_table_if_not_exists();
 
         return BBMarket {
             name: market_name.to_string(),
@@ -166,7 +166,7 @@ impl BBMarket {
     }
 
     fn vaccum(&self) {
-        self.db.vaccum();
+        let _ = self.db.vaccum();
     }
 
     pub fn _repr_html_(&self) -> String {

@@ -36,7 +36,7 @@ use super::rest::{insert_trade_db, new_limit_order, new_market_order, order_stat
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, download_logs, make_download_url_list, AutoConnectClient, OrderBook, BoardItem, download_log};
+    check_exist, AutoConnectClient, OrderBook, BoardItem, download_log};
 
 use crate::exchange::binance::config::BinanceConfig;
 
@@ -183,7 +183,10 @@ impl BinanceMarket {
 
         let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
 
-        db.create_table_if_not_exists();
+        let r = db.create_table_if_not_exists();
+        if r.is_err() {
+            log::error!("Error in create_table_if_not_exists: {:?}", r);
+        }
 
         let symbol = config.trade_symbol.clone();
 
@@ -376,7 +379,7 @@ impl BinanceMarket {
     }
 
     pub fn vaccum(&self) {
-        self.db.vaccum();
+        let _ = self.db.vaccum();
     }
 
     pub fn _repr_html_(&self) -> String {

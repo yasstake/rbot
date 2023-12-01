@@ -247,7 +247,7 @@ where
     let mut count = 0;
 
     // TODO: check implementation
-    let start_time = server_time(config);
+    // let start_time = server_time(config);
 
     loop {
         let start_timer = NOW();

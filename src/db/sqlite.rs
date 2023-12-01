@@ -8,7 +8,7 @@ use polars_core::prelude::IndexOrder;
 use pyo3::{Py, PyResult, Python};
 use pyo3_polars::PyDataFrame;
 use rusqlite::params_from_iter;
-use rusqlite::{params, Connection, Error, Result, Statement, Transaction};
+use rusqlite::{params, Connection, Error, Result, Transaction};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -368,6 +368,7 @@ impl TradeTableDb {
         return trades;
     }
 
+    /*
     fn select_all_statement(&self) -> Statement {
         let statement = self
             .connection
@@ -416,6 +417,7 @@ impl TradeTableDb {
 
         return r;
     }
+    */
 }
 
 #[derive(Debug)]
