@@ -3,7 +3,7 @@
 
 use std::{
     fs::File,
-    io::{copy, BufReader, Cursor, Write},
+    io::{copy, BufReader, Cursor, Write, stdout},
     path::Path,
 };
 
@@ -394,6 +394,7 @@ where
     log::debug!("download rec = {}", download_rec);
     if verbose {
         println!(" download complete rec = {}", download_rec);
+        let _ = stdout().flush();
     }
 
     return Ok(download_rec);

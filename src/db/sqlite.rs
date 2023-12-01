@@ -440,7 +440,7 @@ impl TradeTable {
             let handle = self.handle.take().unwrap();
 
             if handle.is_finished() == false {
-                println!("thread is already started");
+                log::debug!("thread is already started");
 
                 // check self.tx is valid and return clone of self.tx
                 if self.tx.is_some() {

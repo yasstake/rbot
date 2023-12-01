@@ -1,10 +1,10 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::io;
+use std::io::Write;
+use std::io::stdout;
 use std::thread::sleep;
 use std::time::Duration;
-
-// use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 
 use super::message::BinanceAccountInformation;
 use super::message::BinanceCancelOrderResponse;
@@ -14,17 +14,18 @@ use super::message::BinanceOrderStatus;
 use super::message::BinanceRestBoard;
 use super::message::BinanceTradeMessage;
 use super::BinanceConfig;
-use crate::common::time_string;
+use crate::common::LogStatus;
 use crate::common::MicroSec;
 use crate::common::OrderSide;
 use crate::common::Trade;
-use crate::common::HHMM;
 use crate::common::NOW;
+use crate::common::time_string;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
 use crate::exchange::rest_put;
 
+/*
 /// Processes recent trades for a given symbol and applies a function to the resulting vector of trades.
 ///
 /// # Arguments
@@ -53,8 +54,9 @@ where
         Err(e) => Err(e),
     }
 }
+*/
 
-/// Processes a Binance trade message and returns the first trade ID and time.
+/// Processes a Binance trade message and returns the first (trade ID and time) and last.
 ///
 /// # Arguments
 ///
@@ -93,32 +95,37 @@ where
 pub fn process_binance_trade_message<F>(
     message: &str,
     f: &mut F,
-) -> Result<(BinanceMessageId, MicroSec), String>
+) -> Result<((BinanceMessageId, MicroSec), (BinanceMessageId, MicroSec), i64), String>
 where
-    F: FnMut(Vec<Trade>) -> Result<(), String>,
+    F: FnMut(&Vec<Trade>) -> Result<(), String>,
 {
     let result = serde_json::from_str::<Vec<BinanceTradeMessage>>(message);
 
     match result {
         Ok(message) => {
             let mut trades: Vec<Trade> = vec![];
-            let mut first_id: u64 = 0;
-            let mut first_time: MicroSec = 0;
 
             for m in message {
-                let t = m.to_trade();
-
-                if m.id < first_id || first_id == 0 {
-                    first_id = m.id;
-                    first_time = t.time;
-                }
-
+                let mut t = m.to_trade();
+                t.status = LogStatus::FixRestApiBlock;
                 trades.push(t);
             }
 
-            (*f)(trades)?;
+            let l = trades.len();
 
-            return Ok((first_id, first_time));
+            if l == 0 {
+                return Ok(((0, 0), (0, 0), 0));
+            }
+
+            (*f)(&trades)?;
+
+            let first_id = trades[0].id.parse::<BinanceMessageId>().unwrap();
+            let first_time = trades[0].time;
+
+            let last_id: BinanceMessageId = trades[l - 1].id.parse::<BinanceMessageId>().unwrap();
+            let last_time: MicroSec = trades[l - 1].time;
+
+            return Ok(((first_id, first_time), (last_id, last_time), l as i64));
         }
         Err(e) => {
             println!("Error: {:?}", e);
@@ -139,48 +146,20 @@ where
 ///
 /// A `Result` containing a tuple of `BinanceMessageId` and `MicroSec` structs on success, or an error message on failure.
 ///
-/// # Example
-///
-/// ```
-/// use rbot::exchange::binance::rest::process_old_trade;
-///
-/// let symbol = "BTCUSDT";
-/// let from_id = 0;        // 0 means the latest trade
-///
-/// let result = process_old_trade(symbol, from_id, |trades| {
-///     Ok(())
-/// });
-///
-/// match result {
-///     Ok((message_id, microsec)) => {
-///        println!("message_id: {}, microsec: {}", message_id, microsec);
-///     }
-///     Err(e) => {
-///         // Handle error
-///     }
-/// }
-/// ```
-pub fn process_old_trade<F>(
+pub fn download_historical_trades<F>(
     config: &BinanceConfig,
-    from_id: u64,
+    from_id: BinanceMessageId,
     f: &mut F,
-) -> Result<(BinanceMessageId, MicroSec), String>
+) -> Result<((BinanceMessageId, MicroSec), (BinanceMessageId, MicroSec), i64), String>
 where
-    F: FnMut(Vec<Trade>) -> Result<(), String>,
+    F: FnMut(&Vec<Trade>) -> Result<(), String>,
 {
     let path: String;
 
-    if from_id == 0 {
-        path = format!(
-            "/api/v3/historicalTrades?symbol={}&limit=1000",
-            config.trade_symbol
-        );
-    } else {
-        path = format!(
-            "/api/v3/historicalTrades?symbol={}&fromId={}&limit=1000",
-            config.trade_symbol, from_id
-        );
-    }
+    path = format!(
+        "/api/v3/historicalTrades?symbol={}&fromId={}&limit=1000",
+        config.trade_symbol, from_id
+    );
 
     let result = rest_get(&config.rest_endpoint, path.as_str(), vec![], None, None);
 
@@ -194,7 +173,7 @@ where
 
 const PAGE_SIZE: u64 = 1000;
 const API_INTERVAL_LIMIT: i64 = 100 * 1000;
-
+/*
 pub fn insert_trade_db(
     config: &BinanceConfig,
     start_time: MicroSec,
@@ -205,10 +184,52 @@ pub fn insert_trade_db(
         Ok(())
     });
 }
+*/
 
+pub fn download_historical_trades_from_id<F>(
+    config: &BinanceConfig,
+    mut start_id: BinanceMessageId,
+    verbose: bool,
+    f: &mut F,    
+) -> Result<i64, String> 
+where
+    F: FnMut(&Vec<Trade>) -> Result<(), String>,
+{
+    let s_id : BinanceMessageId = 0;
+    let s_time: MicroSec = 0;
+    let e_id: BinanceMessageId = 0;
+    let e_time: MicroSec = 0;    
+
+    let duration = Duration::from_millis(100);
+
+    let mut records: i64 = 0;
+
+    loop {
+        let ((s_id, s_time), (e_id, e_time), count) = download_historical_trades(config, start_id, f)?;
+        log::debug!("s_id: {} / s_time: {} / e_id: {} / e_time: {}", s_id, s_time, e_id, e_time);
+        if s_id == e_id {
+            break;
+        }
+
+        records += count;
+
+        start_id = e_id + 1;
+
+        if verbose {
+            print!("Download Historical API {} - {}\r", time_string(s_time), time_string(e_time));
+            io::stdout().flush().unwrap();
+        }
+
+        sleep(duration);
+    }
+
+    Ok(records)
+}
+
+/*
 pub fn process_old_trade_from<F>(
     config: &BinanceConfig,
-    from_time: MicroSec,
+    from_: MicroSec,
     f: &mut F,
 ) -> Result<(BinanceMessageId, MicroSec), String>
 where
@@ -234,7 +255,8 @@ where
         }
     }
 }
-
+*/
+/*
 fn _process_old_trade_from<F>(
     config: &BinanceConfig,
     from_time: MicroSec,
@@ -254,7 +276,7 @@ where
 
         log::debug!("from_id: {}", from_id);
 
-        let result = process_old_trade(&config, from_id, f);
+        let result = download_historical_trades(&config, from_id, f);
 
         match result {
             Ok((trade_id, trade_time)) => {
@@ -291,6 +313,7 @@ where
         }
     }
 }
+*/
 
 pub fn get_board_snapshot(config: &BinanceConfig) -> Result<BinanceRestBoard, String> {
     let path = format!("/api/v3/depth?symbol={}&limit=1000", config.trade_symbol);
@@ -308,7 +331,6 @@ pub fn get_board_snapshot(config: &BinanceConfig) -> Result<BinanceRestBoard, St
         }
     }
 }
-
 
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -534,7 +556,6 @@ where
     }
 }
 
-
 /// Creates a new limit order on Binance exchange.
 ///
 /// # Arguments
@@ -549,10 +570,10 @@ where
 ///
 /// A `Result` containing a `BinanceOrderResponse` object if the order was successfully placed,
 /// or an error message as a `String` if the order failed.
-/// 
+///
 /// For SPOT:
 /// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
-/// 
+///
 /// For MARGIN:
 /// https://binance-docs.github.io/apidocs/spot/en/#margin-account-new-order-trade
 pub fn new_limit_order(
@@ -566,7 +587,7 @@ pub fn new_limit_order(
     let side = order_side_string(side);
     let mut body = format!(
         "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
-        config.trade_symbol, side, size, price 
+        config.trade_symbol, side, size, price
     );
 
     if cliend_order_id.is_some() {
@@ -576,7 +597,6 @@ pub fn new_limit_order(
 
     parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
 }
-
 
 /// Creates a new market order on Binance exchange.
 ///
@@ -593,7 +613,7 @@ pub fn new_limit_order(
 ///
 /// For SPOT:
 /// https://binance-docs.github.io/apidocs/spot/en/#new-order-trade
-/// 
+///
 /// For MARGIN:
 /// https://binance-docs.github.io/apidocs/spot/en/#margin-account-new-order-trade
 pub fn new_market_order(
@@ -652,11 +672,10 @@ pub fn cancell_all_orders(
     ))
 }
 
-
 /// Get Balance from user account
 /// for SPOT
-/// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data/// 
-/// 
+/// https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data///
+///
 /// for MARGIN
 /// https://binance-docs.github.io/apidocs/spot/en/#margin-account-balance-user_data
 pub fn get_balance(config: &BinanceConfig) -> Result<BinanceAccountInformation, String> {
@@ -701,15 +720,13 @@ pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, S
 
 use crate::exchange::binance::message::BinanceListOrdersResponse;
 
-
-/// https://binance-docs.github.io/apidocs/spot/en/#current-open-orders-user_data 
+/// https://binance-docs.github.io/apidocs/spot/en/#current-open-orders-user_data
 pub fn open_orders(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
     let path = "/api/v3/openOrders";
     let query = format!("symbol={}", config.trade_symbol);
 
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
-
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
     let path = "/api/v3/myTrades";
@@ -728,7 +745,7 @@ mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
-    use crate::common::{init_debug_log, time_string, HHMM, Order};
+    use crate::common::{init_debug_log, time_string, Order, HHMM};
 
     #[test]
     fn test_trade_list() {
@@ -762,6 +779,7 @@ mod tests {
         assert_eq!(trade.is_ok(), true);
     }
 
+    /*
     #[test]
     fn test_process_recent_trade() {
         let config = BinanceConfig::BTCUSDT();
@@ -793,7 +811,7 @@ mod tests {
 
         let mut latest_time = 0;
 
-        let result = process_old_trade(&config, 0, &mut |trades| {
+        let result = download_historical_trades(&config, 0, &mut |trades| {
             println!("trades: {:?}", trades);
             latest_time = trades.last().unwrap().time;
 
@@ -817,7 +835,7 @@ mod tests {
 
         let mut latest_time = 0;
 
-        let result = process_old_trade(&config, 0, &mut |trades| {
+        let result = download_historical_trades(&config, 0, &mut |trades| {
             latest_time = trades.last().unwrap().time;
 
             Ok(())
@@ -877,6 +895,8 @@ mod tests {
         );
         println!("latest_time: {}", time_string(latest_time));
     }
+
+    */
 
     #[test]
     fn test_server_time() {
@@ -1015,7 +1035,6 @@ mod tests {
         println!("message: {:?}", message);
     }
 
-
     #[test]
     fn test_open_orders() {
         init_debug_log();
@@ -1048,7 +1067,6 @@ mod tests {
         let balance = get_balance(&config).unwrap();
         println!("{:?}", balance);
 
-
         // make limit order
         let order = new_limit_order(
             &config,
@@ -1056,7 +1074,8 @@ mod tests {
             Decimal::from_f64(24_000.0).unwrap(),
             Decimal::from_f64(0.001).unwrap(),
             Some(&"LimitOrder-test"),
-        ).unwrap();
+        )
+        .unwrap();
 
         // cancel
 
@@ -1069,6 +1088,5 @@ mod tests {
             let result = cancel_order(&config, &order.order_id);
             println!("result: {:?}", result);
         }
-
     }
 }
