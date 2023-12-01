@@ -42,7 +42,7 @@ class MyAgent:
         pass
     
 market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
-market.download(30)
+market.download(5, force=True, verbose=True)
 
 print(BinanceConfig.TEST_BTCUSDT)
 

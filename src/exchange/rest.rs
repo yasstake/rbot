@@ -7,14 +7,13 @@ use std::{
     path::Path,
 };
 
+use crate::common::{LogStatus, Trade};
+use crossbeam_channel::Sender;
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
 use reqwest::Method;
 use tempfile::tempdir;
 use zip::ZipArchive;
-use crate::common::Trade;
-use crossbeam_channel::Sender;
-
 
 pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
@@ -35,8 +34,12 @@ pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
     log::debug!(
         "Response code = {} / download size {}",
         response.status().as_str(),
-        response.content_length().unwrap_or_default()   // if error, return 0
+        response.content_length().unwrap_or_default() // if error, return 0
     );
+
+    if ! response.status().is_success() {
+        return Err(format!("Err: response code {}", response.status().as_str()));
+    }
 
     let fname = response
         .url()
@@ -91,15 +94,15 @@ where
 
     let result = log_download_tmp(url, tmp_dir.path());
 
-    let file_path: String;
-    match result {
+    let file_path = match result {
         Ok(path) => {
-            file_path = path;
+            path
         }
         Err(e) => {
+            log::error!("download error {}", e.to_string());
             return Err(e);
         }
-    }
+    };
 
     log::debug!("let's extract = {}", file_path);
 
@@ -290,71 +293,120 @@ where
     urls
 }
 
-pub fn download_log<F>(urls: Vec<String>, tx: Sender<Vec<Trade>>, has_header: bool, f: F) -> i64
+pub fn download_logs<F>(
+    urls: Vec<String>,
+    tx: Sender<Vec<Trade>>,
+    has_header: bool,
+    verbose: bool,
+    f: F,
+) -> Result<i64, String>
 where
     F: Fn(&StringRecord) -> Trade,
 {
     let mut download_rec = 0;
 
     for url in urls {
-        log::debug!("download url = {}", url);
-
-        let mut buffer: Vec<Trade> = vec![];
-
-        let result = log_download(url.as_str(), has_header, |rec| {
-            let trade = f(&rec);
-
-            buffer.push(trade);
-
-            if 2000 < buffer.len() {
-                let result = tx.send(buffer.to_vec());
-
-                match result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                    }
-                }
-                buffer.clear();
+        match download_log(&url, &tx, has_header, verbose, &f) {
+            Ok(count) => {
+                download_rec += count;
             }
-        });
+            Err(e) => {
+                log::error!("download error {}", e);
+                if verbose {
+                    println!("skip log url={} / {}", url, e);
+                }
+            }
+        }
+    }
 
-        if buffer.len() != 0 {
+    return Ok(download_rec);
+}
+
+pub fn download_log<F>(
+    url: &String,
+    tx: &Sender<Vec<Trade>>,
+    has_header: bool,
+    verbose: bool,
+    f: &F,
+) -> Result<i64, String>
+where
+    F: Fn(&StringRecord) -> Trade,
+{
+    if verbose {
+        print!("log download (url = {})", url);
+    }
+    let mut download_rec = 0;
+
+    let mut buffer: Vec<Trade> = vec![];
+    let mut is_first_record = true;
+
+    let result = log_download(url.as_str(), has_header, |rec| {
+        let mut trade = f(&rec);
+        trade.status = LogStatus::FixArchiveBlock;
+
+        buffer.push(trade);
+
+        if 2000 < buffer.len() {
+            if is_first_record {
+                buffer[0].status = LogStatus::FixBlockStart;
+                is_first_record = false;
+            }
+
             let result = tx.send(buffer.to_vec());
+
             match result {
                 Ok(_) => {}
                 Err(e) => {
                     log::error!("{:?}", e);
                 }
             }
-
             buffer.clear();
         }
+    });
 
+    let buffer_len = buffer.len();
+
+    if buffer_len != 0 {
+        buffer[buffer_len - 1].status = LogStatus::FixBlockEnd;
+
+        let result = tx.send(buffer.to_vec());
         match result {
-            Ok(count) => {
-                log::debug!("Downloaded rec = {} ", count);
-                download_rec += count;
-            }
+            Ok(_) => {}
             Err(e) => {
-                log::error!("extract err = {}", e.as_str());
+                log::error!("{:?}", e);
             }
+        }
+
+        buffer.clear();
+    }
+
+    match result {
+        Ok(count) => {
+            log::debug!("Downloaded rec = {} ", count);
+            download_rec += count;
+        }
+        Err(e) => {
+            log::error!("extract err = {}", e.as_str());
+            return Err(format!("extract err = {}", e.as_str()));
         }
     }
 
     log::debug!("download rec = {}", download_rec);
+    if verbose {
+        println!(" download complete rec = {}", download_rec);
+    }
 
-    return download_rec;
+    return Ok(download_rec);
 }
 
 pub fn do_rest_request(
     method: Method,
     url: &str,
     headers: Vec<(&str, &str)>,
-    body: &str
+    body: &str,
 ) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
-    
+
     let mut request_builder = client.request(method.clone(), url);
 
     // make request builder as a common function.
@@ -362,7 +414,7 @@ pub fn do_rest_request(
         request_builder = request_builder.header(key, value);
     }
 
-    if body !=  "" {
+    if body != "" {
         request_builder = request_builder.body(body.to_string());
     }
 
@@ -382,7 +434,7 @@ pub fn do_rest_request(
         "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
         response.status().as_str(),
         response.content_length(),
-        method, 
+        method,
         url,
         body
     );
@@ -395,7 +447,7 @@ pub fn rest_get(
     path: &str,
     headers: Vec<(&str, &str)>,
     param: Option<&str>,
-    body: Option<&str>
+    body: Option<&str>,
 ) -> Result<String, String> {
     let mut url = format!("{}{}", server, path);
     if param.is_some() {
@@ -442,7 +494,6 @@ pub fn rest_put(
 
     do_rest_request(Method::PUT, &url, headers, body)
 }
-
 
 pub fn restapi<F>(server: &str, path: &str, f: F) -> Result<(), String>
 where
@@ -556,5 +607,4 @@ mod test_exchange {
         .unwrap();
         println!("{}", s);
     }
-
 }
