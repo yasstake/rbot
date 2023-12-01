@@ -254,38 +254,36 @@ impl BinanceMarket {
             println!("archive latest_date: {}", time_string(latest_date));
         }
 
-        // download from archive
-        let days_gap = self
-            .db
-            .make_time_days_chunk_from_days(ndays, latest_date, force);
-        let urls: Vec<String> = make_download_url_list(
-            self.symbol.as_str(),
-            days_gap,
-            Self::make_historical_data_url_timestamp,
-        );
-        let tx = self.db.start_thread();
-        let result= download_logs(urls, tx, false, verbose, BinanceMarket::rec_to_trade);
+        let mut download_rec: i64 = 0;
 
-        let download_rec = match result {
-            Ok(download_rec) => {
-                log::info!("downloaded: {}", download_rec);
+        for i in 0..ndays {
+            let date = latest_date - i * DAYS(1);
+
+            if ! force && self.validate_db_by_date(date) {
+                log::info!("{} is valid", time_string(date));
+                
                 if verbose {
-                    println!("downloaded: {}", download_rec);
+                    println!("{} skip download", time_string(date));
                 }
-                download_rec
+                continue;
             }
-            Err(e) => {
-                log::error!("Error in download_logs: {:?}", e);
-                if verbose {
-                    println!("Error in download_logs: {:?}", e);
+
+            match self.download_log(date, verbose) {
+                Ok(rec) => {
+                    log::info!("downloaded: {}", download_rec);
+                    download_rec += rec;
+                },
+                Err(e) => {
+                    log::error!("Error in download_log: {:?}", e);
+                    if verbose {
+                        println!("Error in download_log: {:?}", e);
+                    }
                 }
-                0
             }
-        };
+        }
 
         download_rec
     }
-
 
 
     pub fn repave_today(&mut self) {
@@ -855,7 +853,6 @@ impl BinanceMarket {
         let mut i = 0;
 
         loop {
-            latest -= i * DAYS(1);
 
             let has_archive = self.has_archive(latest);
 
@@ -869,6 +866,8 @@ impl BinanceMarket {
             if has_archive {
                 return Ok(latest);
             }
+
+            latest -= DAYS(1);
             i += 1;
 
             if 5 < i {
@@ -890,11 +889,34 @@ impl BinanceMarket {
     }
 
     /// Check if database is valid at the date
-    fn validate_db(&self, date: MicroSec) -> bool {
+    /// TODO: implement
+    fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
         let start_time = FLOOR_DAY(date);
         let end_time = start_time + DAYS(1);
 
-        
+        // startからendまでのレコードにS,Eが1つづつあるかどうかを確認する。
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 and (status = "S" or status = "E") order by time_stamp"#;
+        let trades = self.db.connection.select_query(sql, vec![start_time, end_time]);
+
+        if trades.len() != 2 {
+            log::debug!("S,E is not 2 {}", trades.len());
+            return false;
+        }
+
+        let first = trades[0].clone();
+        let last = trades[1].clone();
+
+        // Sから始まりEでおわることを確認
+        if first.status != LogStatus::FixBlockStart && last.status != LogStatus::FixBlockEnd {
+            log::debug!("S,E is not S,E");
+            return false;
+        }
+
+        // S, Eのレコードの間が十分にあること（トラフィックにもよるが２２時間を想定）
+        if last.time - first.time < HHMM(20, 0) {
+            log::debug!("batch is too short");
+            return false;
+        }
 
         true
     }
@@ -1003,38 +1025,24 @@ mod binance_test {
         let market = BinanceMarket::new(&BinanceConfig::TEST_BTCUSDT());
         //let market = BinanceMarket::new("BTCBUSD", true);
 
+        init_debug_log();
+
         println!("{}", time_string(market.get_latest_archive_date().unwrap()));
     }
 
     #[test]
-    fn test_select_start_end_rec() {
+    fn test_validate_db_by_days() {
         let mut market = BinanceMarket::new(&BinanceConfig::TEST_BTCUSDT());
         //let market = BinanceMarket::new("BTCBUSD", true);
 
-        let mut date = market.get_latest_archive_date().unwrap();
+        let date = market.get_latest_archive_date().unwrap();
 
         println!("{}", time_string(date));
-        market.download(1, false, true);
+        // market.download(1, false, true);
 
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 and (status = "S" or status = "E")"#;
+        let valid = market.validate_db_by_date(date);
 
-
-        let trades = market.db.connection.select_query(sql, vec![date, date + DAYS(1)]);
-        
-        println!("{:?}", trades);
-
-        /*
-        let trades = 
-        market.db.connection.select_start_end_rec(date);
-
-        println!("{:?}", trades);
-
-        let trades = 
-        market.db.connection.select_start_end_rec(date - DAYS(1));
-        
-
-        println!("{:?}", trades);
-*/        
+        println!("valid: {}", valid);
     }
 
 }
