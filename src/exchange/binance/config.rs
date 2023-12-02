@@ -10,6 +10,8 @@ use crate::{fs::db_full_path, common::MarketConfig};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
 pub struct BinanceConfig {
+    pub test_net: bool,
+
     pub exchange_name: String,
     pub trade_category: String,
     pub trade_symbol: String,
@@ -65,6 +67,7 @@ impl BinanceConfig {
     pub fn TESTSPOT(foreign_symbol: &str, home_symbol: &str) -> Self {
         let mut config = BinanceConfig::SPOT(foreign_symbol, home_symbol);
 
+        config.test_net = true;
         config.trade_category = "TESTSPOT".to_string();
         config.rest_endpoint = "https://testnet.binance.vision".to_string();
         config.public_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
@@ -109,6 +112,7 @@ impl BinanceConfig {
 
 
         return BinanceConfig {
+            test_net: false,
             exchange_name: "BN".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
@@ -176,5 +180,14 @@ impl BinanceConfig {
         }
 
         serde_json::to_string(&printobj).unwrap()
+    }
+
+    pub fn short_info(&self) -> String {
+        if self.test_net {
+            return format!("---TEST NET--- {}", self.trade_symbol);
+        }
+        else {
+            return format!("*** LIVE NET *** {}", self.trade_symbol);
+        }
     }
 }

@@ -165,8 +165,8 @@ impl BBMarket {
         return self.db.get_file_name();
     }
 
-    fn vaccum(&self) {
-        let _ = self.db.vaccum();
+    fn vacuum(&self) {
+        let _ = self.db.vacuum();
     }
 
     pub fn _repr_html_(&self) -> String {
