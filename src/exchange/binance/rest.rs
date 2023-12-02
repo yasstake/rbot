@@ -103,8 +103,8 @@ where
 
     match result {
         Ok(message) => {
-            let mut trades: Vec<Trade> = vec![];
-
+            let mut trades: Vec<Trade> = vec![];            
+            
             for m in message {
                 let mut t = m.to_trade();
                 t.status = LogStatus::FixRestApiBlock;
@@ -117,13 +117,16 @@ where
                 return Ok(((0, 0), (0, 0), 0));
             }
 
-            (*f)(&trades)?;
-
             let first_id = trades[0].id.parse::<BinanceMessageId>().unwrap();
             let first_time = trades[0].time;
+            trades[0].status = LogStatus::FixRestApiStart;
 
             let last_id: BinanceMessageId = trades[l - 1].id.parse::<BinanceMessageId>().unwrap();
             let last_time: MicroSec = trades[l - 1].time;
+            trades[l - 1].status = LogStatus::FixRestApiEnd;
+
+
+            (*f)(&trades)?;
 
             return Ok(((first_id, first_time), (last_id, last_time), l as i64));
         }
