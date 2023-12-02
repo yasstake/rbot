@@ -41,21 +41,29 @@ class MyAgent:
         print("account update: ", session.current_time, account)
         pass
 
+
    
 market = BinanceMarket(BinanceConfig.BTCUSDT)
-market.start_market_stream()
+#market.start_market_stream()
 
-
-market.download(5, force=False, verbose=True)
+#init_debug_log()
 
 market.analyze_db()
-#market.start_user_stream()
+
+market.download(2, force=False, verbose=True)
+
+market.analyze_db()
+market.start_market_stream()
+
+from time import sleep
+
+sleep(10)
     
-agent = MyAgent()
-runner = Runner()
+#agent = MyAgent()
+#runner = Runner()
 
 #runner.back_test(market, agent, interval_sec=60, start_time=0, end_time=0, verbose=True)
-runner.dry_run(market, agent, interval_sec=60, verbose=True)
+#runner.dry_run(market, agent, interval_sec=60, verbose=True)
 
 
     

@@ -177,6 +177,8 @@ pub struct BinanceMarket {
 impl BinanceMarket {
     #[new]
     pub fn new(config: &BinanceConfig) -> Self {
+        println!("\nBinance {:?}\n", config.short_info());
+
         let db_name = Self::db_path(&config).unwrap();
 
         log::debug!("create TradeTable: {}", db_name);
@@ -201,6 +203,16 @@ impl BinanceMarket {
         };
     }
 
+    pub fn drop_table(&mut self) -> PyResult<()> {
+        match self.db.drop_table() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in drop_table: {:?}",
+                e
+            ))),
+        }
+    }
+    
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.db.get_cache_duration();
@@ -301,11 +313,11 @@ impl BinanceMarket {
 
         if force {
             let (fix_id, _fix_time) = self.latest_fix_time();
-            start_id = fix_id;
+            start_id = fix_id + 1;
         }
         else {
             let (stable_id, _stable_time)= self.latest_stable_time(verbose);
-            start_id = stable_id;
+            start_id = stable_id + 1;
         }
 
         let ch = self.db.start_thread();
@@ -326,7 +338,7 @@ impl BinanceMarket {
 
     #[pyo3(signature = (verbose = false))]
     pub fn latest_stable_time(&mut self, verbose: bool) -> (BinanceMessageId, MicroSec) {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" or status = "a" order by time_stamp desc"#;
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" or status = "e" order by time_stamp desc"#;
 
         let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(4)]);
 
@@ -391,14 +403,20 @@ impl BinanceMarket {
 
             last_id = id;
             last_time = time;
+            record_count += 1;
         });
 
-        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap]", 
+        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}", 
             time_string(first_time), first_id,
             time_string(last_time), last_id,
             last_id - first_id + 1,
-            gap_count
+            gap_count,
+            record_count
         );
+
+        if 1 < gap_count {
+            println!("WARNING database has {} gaps. Download with force option, or drop-and-create database.", gap_count);
+        }
 
         gap_count
     }
@@ -472,8 +490,8 @@ impl BinanceMarket {
         return self.config.market_config.clone();
     }
 
-    pub fn vaccum(&self) {
-        let _ = self.db.vaccum();
+    pub fn vacuum(&self) {
+        let _ = self.db.vacuum();
     }
 
     pub fn _repr_html_(&self) -> String {

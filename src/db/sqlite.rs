@@ -15,6 +15,7 @@ use rust_decimal::Decimal;
 
 use crate::common::LogStatus;
 use crate::common::OrderSide;
+use crate::common::SEC;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
 use crate::db::df::merge_df;
@@ -51,6 +52,22 @@ impl TradeTableDb {
         return db;
     }
 
+    pub fn delete_unstable_data(tx: &Transaction, start_time: MicroSec, end_time: MicroSec) {
+        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and status = "U""#;
+
+        let result = tx.execute(sql, params![start_time, end_time]);
+
+        match result {
+            Ok(rec_size) => {
+                log::debug!("delete unstable data [{}]\n", rec_size);
+            }
+            Err(e) => {
+                log::error!("delete unstable data error {}", e);
+            }
+        }
+    }
+
+    // TODO: delete before insert data.
     // insert records with param transaction and trades
     pub fn insert_transaction(tx: &Transaction, trades: &Vec<Trade>) -> Result<i64, Error> {
         let mut insert_len = 0;
@@ -86,12 +103,22 @@ impl TradeTableDb {
     }
 
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
+        let trades_len = trades.len();
+        let start_time = trades[0].time - SEC(5);
+        let end_time = trades[trades_len - 1].time;        
+        
         // create transaction with immidate mode
         let tx = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .unwrap();
 
+        // when fix data comes, delete unstable data first
+        if trades_len!= 0 && trades[0].status != LogStatus::UnFix {
+            Self::delete_unstable_data(&tx, start_time, end_time);
+        }
+
+        // then insert data
         let insert_len = Self::insert_transaction(&tx, trades)?;
 
         let result = tx.commit();
@@ -257,18 +284,22 @@ impl TradeTableDb {
 
         if r.is_err() {
             log::error!("drop table error {:?}", r);
-            r.unwrap();
         }
+
+        print!("database is dropped. To use database, restart the program.");
+        print!("to delete completely, delete the database file from OS.");
+        print!("DB file = {}", self.file_name);
+
+        self.vacuum()?;
 
         Ok(())
     }
 
-    fn vaccum(&self) -> Result<(), Error> {
-        let r = self.connection.execute("VACCUM", ());
+    fn vacuum(&self) -> Result<(), Error> {
+        let r = self.connection.execute("VACUUM", ());
 
         if r.is_err() {
-            log::error!("vaccum error {:?}", r);
-            r.unwrap();
+            log::error!("vacuum error {:?}", r);
         }
 
         Ok(())
@@ -480,14 +511,14 @@ impl TradeTable {
     pub fn is_thread_running(&self) -> bool {
         if let Some(handler) = self.handle.as_ref() {
             if handler.is_finished() {
-                println!("thread is finished");
+                log::debug!("thread is finished");
                 return false;
             } else {
-                println!("thread is running");
+                log::debug!("thread is running");
                 return true;
             }
         } else {
-            println!("thread is not started");
+            log::debug!("thread is not started");
             return false;
         }
     }
@@ -1193,11 +1224,15 @@ impl TradeTable {
     }
 
     pub fn drop_table(&self) -> Result<(), Error> {
+        if self.is_thread_running() {
+            println!("WARNING: thread is running, may cause dead lock. Execute drop_table() before start_market_stream().");
+        }
+
         self.connection.drop_table()
     }
 
-    pub fn vaccum(&self) -> Result<(), Error> {
-        self.connection.vaccum()
+    pub fn vacuum(&self) -> Result<(), Error> {
+        self.connection.vacuum()
     }
 
     pub fn recreate_table(&self) -> Result<(), Error> {

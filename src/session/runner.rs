@@ -51,7 +51,7 @@ impl Runner {
             has_account_update: false,
             start_timestamp: 0,
             loop_duration: -1, // -1 means infinite loop
-            print_interval: SEC(10),
+            print_interval: SEC(5),
             execute_mode: ExecuteMode::BackTest,
             current_timestamp: 0,
             current_clock: 0,
