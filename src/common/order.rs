@@ -421,6 +421,16 @@ impl Default for AccountStatus {
 
 #[pymethods]
 impl AccountStatus {
+    pub fn apply_order(&mut self, order: &Order) {
+        self.foreign += order.foreign_change;
+        self.foreign_free += order.free_foreign_change;
+        self.foreign_locked += order.lock_foreign_change;
+
+        self.home += order.home_change;
+        self.home_free += order.free_home_change;
+        self.home_locked += order.lock_home_change;
+    }
+
     pub fn __str__(&self) -> String {
         self.__repr__()
     }

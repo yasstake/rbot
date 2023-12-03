@@ -2,12 +2,12 @@
 
 use std::io::{stdout, Write};
 
-use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
+use pyo3::{pyclass, pymethods, types::PyTuple, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{
-    time_string, AccountStatus, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC,
-    NOW, SEC,
+    flush_log, time_string, AccountStatus, MarketMessage, MarketStream, MicroSec, Order, Trade,
+    FLOOR_SEC, NOW, SEC,
 };
 use crossbeam_channel::Receiver;
 
@@ -16,12 +16,14 @@ use super::{has_method, ExecuteMode, Session};
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Runner {
+    has_on_init: bool,
     has_on_clock: bool,
     has_on_tick: bool,
     has_on_update: bool,
+
     has_account_update: bool,
     start_timestamp: i64,
-    loop_duration: i64,
+    execute_time: i64,
     verbose: bool,
 
     print_interval: MicroSec,
@@ -45,12 +47,13 @@ impl Runner {
     #[new]
     pub fn new() -> Self {
         Self {
+            has_on_init: false,
             has_on_tick: false,
             has_on_clock: false,
             has_on_update: false,
             has_account_update: false,
             start_timestamp: 0,
-            loop_duration: -1, // -1 means infinite loop
+            execute_time: -1, // -1 means infinite loop
             print_interval: SEC(5),
             execute_mode: ExecuteMode::BackTest,
             current_timestamp: 0,
@@ -84,12 +87,17 @@ impl Runner {
     }
 
     pub fn update_agent_info(&mut self, agent: &PyAny) {
+        self.has_on_init = has_method(agent, "on_init");
         self.has_on_clock = has_method(agent, "on_clock");
         self.has_on_tick = has_method(agent, "on_tick");
         self.has_on_update = has_method(agent, "on_update");
         self.has_account_update = has_method(agent, "on_account_update");
 
         if self.verbose {
+            println!(
+                "has_on_init:        {}",
+                if self.has_on_init { "YES" } else { " no  " }
+            );
             println!(
                 "has_on_clock:       {}",
                 if self.has_on_clock { "YES" } else { " no  " }
@@ -110,42 +118,39 @@ impl Runner {
                     " no  "
                 }
             );
+            flush_log();
         }
     }
 
-    #[pyo3(signature = (market, agent, interval_sec, start_time=0, end_time=0, loop_duration=0, verbose=false))]
+    #[pyo3(signature = (market, agent, *, start_time=0, end_time=0, execute_time=0, verbose=false))]
     pub fn back_test(
         &mut self,
         market: PyObject,
         agent: &PyAny,
-        interval_sec: i64,
         start_time: MicroSec,
         end_time: MicroSec,
-        loop_duration: i64,
+        execute_time: i64,
         verbose: bool,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_agent_info(agent);
         let stream = Self::open_backtest_stream(&market, start_time, end_time);
         let reciever = stream.reciver;
-        self.loop_duration = loop_duration;
+        self.execute_time = execute_time;
         self.print_interval = SEC(60 * 60);
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        self.run(market, &reciever, agent, interval_sec, true)
+        self.run(market, &reciever, agent, true)
     }
 
-    #[pyo3(signature = (market, agent, interval_sec, log_memory=false, loop_duration=0, verbose=false))]
+    #[pyo3(signature = (market, agent, *, log_memory=false, execute_time=0, verbose=false))]
     pub fn dry_run(
         &mut self,
         market: PyObject,
         agent: &PyAny,
-        interval_sec: i64,
         log_memory: bool,
-        loop_duration: i64,
+        execute_time: i64,
         verbose: bool,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_agent_info(agent);
         Python::with_gil(|py| {
             market.call_method0(py, "start_market_stream").unwrap();
         });
@@ -153,24 +158,22 @@ impl Runner {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
-        self.loop_duration = loop_duration;
+        self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Dry;
 
-        self.run(market, &reciever, agent, interval_sec, log_memory)
+        self.run(market, &reciever, agent, log_memory)
     }
 
-    #[pyo3(signature = (market, agent, interval_sec, log_memory=false, loop_duration=0, verbose=false))]
+    #[pyo3(signature = (market, agent, *,log_memory=false, execute_time=0, verbose=false))]
     pub fn real_run(
         &mut self,
         market: PyObject,
         agent: &PyAny,
-        interval_sec: i64,
         log_memory: bool,
-        loop_duration: i64,
+        execute_time: i64,
         verbose: bool,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_agent_info(agent);
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
@@ -178,11 +181,11 @@ impl Runner {
             market.call_method0(py, "start_market_stream").unwrap();
             market.call_method0(py, "start_user_stream").unwrap();
         });
-        self.loop_duration = loop_duration;
+        self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
 
-        self.run(market, &reciever, agent, interval_sec, log_memory)
+        self.run(market, &reciever, agent, log_memory)
     }
 }
 
@@ -194,9 +197,10 @@ impl Runner {
         market: PyObject,
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
-        interval_sec: i64,
         log_memory: bool,
     ) -> Result<Py<Session>, PyErr> {
+        self.update_agent_info(agent);
+
         let result = Python::with_gil(|py| {
             if self.verbose {
                 println!("--- start run ---{:?} mode ---", self.execute_mode);
@@ -213,8 +217,17 @@ impl Runner {
             let mut warm_up_loop: i64 = WARMUP_STEPS;
 
             self.reset_count();
-
             let loop_start_time = NOW();
+
+            if self.has_on_init {
+                self.call_agent_on_init(&py, agent, &py_session)?;
+            }
+
+            let interval_sec = self.get_clock_interval(&py, &py_session)?;
+
+            if self.has_on_clock && interval_sec == 0 {
+                print!("*** WARNING: on_clock is set but clock_interval is 0. (on_clock will not be called ***");
+            }
 
             loop {
                 let message = receiver.recv();
@@ -230,7 +243,7 @@ impl Runner {
                     // in warm up loop, we don't call agent, just update session
                     let mut session = py_session.borrow_mut(py);
                     session.on_message(&message);
-                    self.current_timestamp = session.get_current_timestamp();
+                    self.current_timestamp = session.get_timestamp();
 
                     if message.trade.is_some() {
                         warm_up_loop = warm_up_loop - 1;
@@ -239,6 +252,8 @@ impl Runner {
                     if self.verbose {
                         print!("\rwarm up loop: {}", warm_up_loop)
                     }
+
+                    drop(session);
 
                     continue;
                 }
@@ -257,8 +272,8 @@ impl Runner {
                     if self.verbose {
                         println!("start_timestamp: {}", time_string(self.start_timestamp));
                     }
-                } else if 0 < self.loop_duration
-                    && SEC(self.loop_duration) < self.current_timestamp - self.start_timestamp
+                } else if 0 < self.execute_time
+                    && SEC(self.execute_time) < self.current_timestamp - self.start_timestamp
                 {
                     break;
                 }
@@ -288,7 +303,9 @@ impl Runner {
                 let elapsed = (NOW() - loop_start_time) / 1_000_000;
                 println!("Elapsed time: {} sec", elapsed);
                 println!("Loop count: {}", self.loop_count);
-                println!("Loop per sec: {}", self.loop_count / elapsed);
+                if 0 < elapsed {
+                    println!("Loop per sec: {}", self.loop_count / elapsed);
+                }
             }
 
             Ok(py_session)
@@ -357,7 +374,7 @@ impl Runner {
         // on clockはSession更新前に呼ぶ
         // こうすることでsession.curent_timestampより先の値でon_clockが呼ばれる.
         // これは、on_clockが呼ばれた時点で、ohlcの更新が終わっていることを保証するため.
-        if self.has_on_clock && message.trade.is_some() {
+        if self.has_on_clock && message.trade.is_some() && interval_sec != 0 {
             let trade = message.trade.as_ref().unwrap();
             let new_clock = FLOOR_SEC(trade.time, interval_sec);
 
@@ -370,8 +387,8 @@ impl Runner {
 
         // on_clockの後にsessionを更新する。
         let mut session = py_session.borrow_mut(*py);
-        session.on_message(&message);
-        self.current_timestamp = session.get_current_timestamp();
+        let orders = session.on_message(&message);
+        self.current_timestamp = session.get_timestamp();
         drop(session);
 
         if self.has_account_update && message.account.is_some() {
@@ -385,90 +402,68 @@ impl Runner {
             self.call_agent_on_tick(py, agent, py_session, trade)?;
         }
 
-        if self.has_on_update && message.order.is_some() {
-            let order = message.order.as_ref().unwrap();
-            self.call_agent_on_update(py, agent, py_session, order)?;
+        if orders.len() != 0
+            && (self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry)
+        {
+            let mut account_change = false;
+
+            if self.has_on_update {
+                for order in &orders {
+                    if self.update_psudo_account_by_order(py, py_session, order) {
+                        account_change = true;
+                    }
+
+                    self.call_agent_on_update(py, agent, py_session, order)?;
+                }
+            }
+
+            if account_change {
+                self.call_agent_on_account_update_dummy(py, agent, py_session)?;
+            }
+        }
+        else if self.has_on_update && message.account.is_some() {
+            let account = message.account.as_ref().unwrap();
+            self.call_agent_on_account_update(py, agent, py_session, account)?;
         }
 
         Ok(())
     }
 
-    /*
-    fn on_clock(
+    pub fn update_psudo_account_by_order(
+        &mut self,
+        py: &Python,
+        py_session: &Py<Session>,
+        order: &Order,
+    ) -> bool {
+        let mut session = py_session.borrow_mut(*py);
+
+        session.update_psudo_account_by_order(order)
+    }
+
+    fn get_clock_interval(
+        self: &mut Self,
+        py: &Python,
+        py_session: &Py<Session>,
+    ) -> Result<i64, PyErr> {
+        let session = py_session.borrow_mut(*py);
+        let interval_sec = session.get_clock_interval();
+
+        Ok(interval_sec)
+    }
+
+    fn call_agent_on_init(
         self: &mut Self,
         py: &Python,
         agent: &PyAny,
         py_session: &Py<Session>,
-        message: &MarketMessage,
-        interval_sec: i64,
     ) -> Result<(), PyErr> {
-        let trade = message.trade.as_ref().unwrap();
+        let session = py_session.borrow_mut(*py);
 
-        let new_clock = FLOOR_SEC(trade.time, interval_sec);
-
-        if self.current_clock < new_clock {
-            self.current_clock = new_clock;
-            let session = py_session.borrow_mut(*py);
-            agent.call_method1("on_clock", (session, self.current_clock))?;
-        }
+        agent.call_method1("on_init", (session,))?;
 
         Ok(())
     }
-    */
-    /*
-        pub fn dummy_on_message(
-            self: &mut Self,
-            py: &Python,
-            agent: &PyAny,
-            py_session: &Py<Session>,
-            message: &MarketMessage,
-            window_sec: i64,
-        ) -> Result<(), PyErr> {
-            if self.has_on_clock && message.trade.is_some() {
-                self.on_clock(py, agent, py_session, message, window_sec)?;
-            }
 
-            let mut session = py_session.borrow_mut(*py);
-            let orders = session.on_message(&message);
-            drop(session);
-
-            log::debug!("dummy_on_message: {:?}, {:?}", message, orders);
-
-            if message.account.is_some() {
-                let session = py_session.borrow_mut(*py);
-
-                let account = message.account.as_ref().unwrap();
-                let py_account = Py::new(*py, account.clone()).unwrap();
-
-                let result = agent.call_method1("on_account_update", (session, py_account));
-
-                if result.is_err() {
-                    return Err(result.unwrap_err());
-                }
-            }
-
-            if self.has_on_tick && message.trade.is_some() {
-                let trade = message.trade.as_ref().unwrap();
-
-                let session = py_session.borrow_mut(*py);
-
-                let price = trade.price.to_f64().unwrap();
-                let size = trade.size.to_f64().unwrap();
-
-                agent.call_method1("on_tick", (session, trade.order_side, price, size))?;
-            }
-
-            if self.has_on_update {
-                for order in orders {
-                    let py_order = Py::new(*py, order.clone()).unwrap();
-                    let session = py_session.borrow_mut(*py);
-                    agent.call_method1("on_update", (session, py_order))?;
-                }
-            }
-
-            Ok(())
-        }
-    */
     fn call_agent_on_tick(
         self: &mut Self,
         py: &Python,
@@ -523,8 +518,27 @@ impl Runner {
         py_session: &Py<Session>,
         account: &AccountStatus,
     ) -> Result<(), PyErr> {
-        let session = py_session.borrow_mut(*py);
+        let mut session = py_session.borrow_mut(*py);
+        session.account = account.clone();
         let py_account = Py::new(*py, account.clone()).unwrap();
+
+        agent.call_method1("on_account_update", (session, py_account))?;
+        self.on_account_update_count += 1;
+
+        Ok(())
+    }
+
+    /// When backtest, the account infomation is from session.
+    fn call_agent_on_account_update_dummy(
+        self: &mut Self,
+        py: &Python,
+        agent: &PyAny,
+        py_session: &Py<Session>,
+    ) -> Result<(), PyErr> {
+        let session = py_session.borrow_mut(*py);
+        let account = session.get_account();
+
+        let py_account = Py::new(*py, account).unwrap();
 
         agent.call_method1("on_account_update", (session, py_account))?;
         self.on_account_update_count += 1;
