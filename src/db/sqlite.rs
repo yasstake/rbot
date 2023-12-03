@@ -16,6 +16,7 @@ use rust_decimal::Decimal;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
 use crate::common::SEC;
+use crate::common::flush_log;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
 use crate::db::df::merge_df;
@@ -280,15 +281,16 @@ impl TradeTableDb {
     }
 
     fn drop_table(&self) -> Result<(), Error> {
+        println!("database is dropped. To use database, restart the program.");
+        println!("To delete completely, delete the database file from OS.");
+        println!("DB file = {}", self.file_name);
+        flush_log();
+
         let r = self.connection.execute("drop table trades", ());
 
         if r.is_err() {
             log::error!("drop table error {:?}", r);
         }
-
-        print!("database is dropped. To use database, restart the program.");
-        print!("to delete completely, delete the database file from OS.");
-        print!("DB file = {}", self.file_name);
 
         self.vacuum()?;
 
@@ -1225,7 +1227,8 @@ impl TradeTable {
 
     pub fn drop_table(&self) -> Result<(), Error> {
         if self.is_thread_running() {
-            println!("WARNING: thread is running, may cause dead lock. Execute drop_table() before start_market_stream().");
+            println!("WARNING: thread is running, may cause dead lock");
+            println!("Execute drop_table() before download() or start_market_stream().");
         }
 
         self.connection.drop_table()

@@ -1,8 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::io;
-use std::io::Write;
-use std::io::stdout;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -19,6 +16,7 @@ use crate::common::MicroSec;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::NOW;
+use crate::common::flush_log;
 use crate::common::time_string;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
@@ -220,7 +218,7 @@ where
 
         if verbose {
             print!("Download Historical API {} - {}\r", time_string(s_time), time_string(e_time));
-            io::stdout().flush().unwrap();
+            flush_log();
         }
 
         sleep(duration);
