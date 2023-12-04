@@ -177,10 +177,7 @@ impl Runner {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
-        Python::with_gil(|py| {
-            market.call_method0(py, "start_market_stream").unwrap();
-            market.call_method0(py, "start_user_stream").unwrap();
-        });
+
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
@@ -200,6 +197,40 @@ impl Runner {
         log_memory: bool,
     ) -> Result<Py<Session>, PyErr> {
         self.update_agent_info(agent);
+
+        // prepare market data
+        // 1. start market & user stream
+        // 2. download market data
+        let r = Python::with_gil(|py| {
+            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {    
+                let r = market.call_method0(py, "start_market_stream");
+                if r.is_err() {
+                    return Err(r.unwrap_err());
+                }
+            }
+
+            if self.execute_mode == ExecuteMode::Real {
+                let r = market.call_method0(py, "start_user_stream");
+                if r.is_err() {
+                    return Err(r.unwrap_err());
+                }
+            }
+
+            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {    
+                let r = market.call_method1(py, "download", (1,));
+                if r.is_err() {
+                    return Err(r.unwrap_err());
+                }
+            }
+
+            Ok(())
+        });
+
+        if r.is_err() {
+            return Err(r.unwrap_err());
+        }
+
+
 
         let result = Python::with_gil(|py| {
             if self.verbose {
@@ -306,6 +337,10 @@ impl Runner {
                 if 0 < elapsed {
                     println!("Loop per sec: {}", self.loop_count / elapsed);
                 }
+                println!("on_tick count: {}", self.on_tick_count);
+                println!("on_clock count: {}", self.on_clock_count);
+                println!("on_update count: {}", self.on_update_count);
+                println!("on_account_update count: {}", self.on_account_update_count);
             }
 
             Ok(py_session)
@@ -391,17 +426,25 @@ impl Runner {
         self.current_timestamp = session.get_timestamp();
         drop(session);
 
-        if self.has_account_update && message.account.is_some() {
-            let account = message.account.as_ref().unwrap();
-            self.call_agent_on_account_update(py, agent, py_session, account)?;
-        }
-
         if self.has_on_tick && message.trade.is_some() {
             let trade = message.trade.as_ref().unwrap();
             self.current_timestamp = trade.time;
             self.call_agent_on_tick(py, agent, py_session, trade)?;
         }
 
+        if self.has_on_update && message.order.is_some() {
+            let order = message.order.as_ref().unwrap();
+            self.call_agent_on_update(py, agent, py_session, order)?;            
+        }
+
+        // IN Real run, account message is from user stream.
+        // AccountUpdateはFilledかPartiallyFilledのみ発生。
+        if self.has_account_update && message.account.is_some() {
+            let account = message.account.as_ref().unwrap();
+            self.call_agent_on_account_update(py, agent, py_session, account)?;
+        }
+
+        // otherwise, account message is created from session for simulation.
         if orders.len() != 0
             && (self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry)
         {
@@ -420,10 +463,6 @@ impl Runner {
             if account_change {
                 self.call_agent_on_account_update_dummy(py, agent, py_session)?;
             }
-        }
-        else if self.has_on_update && message.account.is_some() {
-            let account = message.account.as_ref().unwrap();
-            self.call_agent_on_account_update(py, agent, py_session, account)?;
         }
 
         Ok(())
@@ -519,7 +558,10 @@ impl Runner {
         account: &AccountStatus,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
-        session.account = account.clone();
+        session.set_real_account(account);
+
+        log::debug!("call_agent_on_account_update: {:?}", &account);
+
         let py_account = Py::new(*py, account.clone()).unwrap();
 
         agent.call_method1("on_account_update", (session, py_account))?;
@@ -537,6 +579,7 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let session = py_session.borrow_mut(*py);
         let account = session.get_account();
+        log::debug!("call_agent_on_account_update_dummy: {:?}", &account);
 
         let py_account = Py::new(*py, account).unwrap();
 
