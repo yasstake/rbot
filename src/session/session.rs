@@ -14,7 +14,7 @@ use rust_decimal_macros::dec;
 use super::OrderList;
 use crate::common::{
     date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec, OrderSide,
-    OrderStatus, NOW,
+    OrderStatus, NOW, time_string,
 };
 use pyo3::prelude::*;
 
@@ -107,8 +107,8 @@ pub struct Session {
     execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
-    pub account: AccountStatus,
-    pub psudo_account: AccountStatus,
+    real_account: AccountStatus,
+    psudo_account: AccountStatus,
     market: PyObject,
     current_timestamp: MicroSec,
     pub session_name: String,
@@ -173,7 +173,7 @@ impl Session {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
-            account: AccountStatus::default(),
+            real_account: AccountStatus::default(),
             psudo_account: AccountStatus::default(),
             market,
             current_timestamp: 0,
@@ -251,7 +251,7 @@ impl Session {
     // account information
     #[getter]
     pub fn get_account(&self) -> AccountStatus {
-        self.account.clone()
+        self.real_account.clone()
     }
 
     // order information
@@ -325,6 +325,11 @@ impl Session {
     #[getter]
     pub fn get_psudo_position(&self) -> f64 {
         self.position.to_f64().unwrap()
+    }
+
+    #[getter]
+    pub fn get_psudo_account(&self) -> AccountStatus {
+        self.psudo_account.clone()
     }
 
     #[getter]
@@ -409,20 +414,20 @@ impl Session {
     pub fn calc_dummy_execute_price_by_slip(&mut self, side: OrderSide) -> Decimal {
         // 板がないので、最後の約定価格＋スリッページで約定したことにする（オーダーは分割されないと想定）
         if self.execute_mode != ExecuteMode::BackTest {
-            let execute_price = if side == OrderSide::Buy {
-                self.asks_edge + self.market_config.market_order_price_slip
-            } else {
-                self.bids_edge - self.market_config.market_order_price_slip
-            };
-
-            return execute_price;
-        } else {
             log::error!(
-                "calc_dummy_execute_price: unknown mode: {:?}",
+                "calc_dummy_execute_price: dummy_execute_price should be used in BackTest mode, current mode= {:?}",
                 self.execute_mode
             );
             return dec![0.0];
         }
+
+        let execute_price = if side == OrderSide::Buy {
+            self.asks_edge + self.market_config.market_order_price_slip
+        } else {
+            self.bids_edge - self.market_config.market_order_price_slip
+        };
+
+        return execute_price;
     }
 
     pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
@@ -637,7 +642,11 @@ impl Session {
     pub fn update_psudo_account_by_order(&mut self, order: &Order) -> bool {
         self.psudo_account.apply_order(order);
 
-        true
+        if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     #[getter]
@@ -656,6 +665,7 @@ impl Session {
         q.iter().map(|x| x.clone()).collect()
     }
 
+
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -663,22 +673,10 @@ impl Session {
     pub fn __repr__(&self) -> String {
         let mut json = "{".to_string();
 
-        json += "\"current_timestamp\":";
-        json += self.current_timestamp.to_string().as_str();
-        json += ", \"current_timestamp_str\": \"";
-        json += crate::common::time_string(self.current_timestamp).as_str();
-        json += "\",\n";
+        json += &format!("\"timestamp\":{},", self.current_timestamp);
+        json += &format!("\"timestamp_str\": {},\n", time_string(self.current_timestamp));
 
-        let last_price = self.get_last_price();
-
-        json += "\"last_price\": {";
-        json += "\"buy\":";
-        json += last_price.0.to_string().as_str();
-
-        json += ",\"sell\":";
-        json += last_price.1.to_string().as_str();
-
-        json += "},\n";
+        // let (last_sell_price, last_buy_price) = self.get_last_price();
 
         json += "\"orders\":";
         // order list
@@ -689,14 +687,11 @@ impl Session {
         json += "}, \n";
 
         // account information
-        json += "\"account\":";
-        json += self.account.__repr__().as_str();
+        json += &format!("\"account\":{}, ", self.real_account.__repr__());
 
-        json += ",\"psudo_account\":";
-        json += self.psudo_account.__repr__().as_str();
+        json += &format!("\"psudo_account\":{},",self.psudo_account.__repr__());
 
-        json += ",\"psudo_position\":";
-        json += self.position.to_string().as_str();
+        json += &format!("\"psudo_position\":{}", self.position);
         json += "}";
         json
     }
@@ -737,7 +732,7 @@ impl Session {
     }
 
     pub fn on_account_update(&mut self, account: &AccountStatus) {
-        self.account = account.clone();
+        self.real_account = account.clone();
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
@@ -812,11 +807,11 @@ impl Session {
     pub fn update_psudo_position(&mut self, order: &Order) {
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                self.position += order.order_size;
+                self.position += order.execute_size;
             }
         } else if order.order_side == OrderSide::Sell {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                self.position -= order.order_size;
+                self.position -= order.execute_size;
             }
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
@@ -879,5 +874,9 @@ impl Session {
             log::error!("Unknown order side: {:?}", tick.order_side);
             return vec![];
         }
+    }
+
+    pub fn set_real_account(&mut self, account: &AccountStatus) {
+        self.real_account = account.clone();
     }
 }

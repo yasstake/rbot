@@ -14,7 +14,7 @@ class MyAgent:
         pass
 
     def on_init(self, session):
-        session.clock_interval = 60 * 60 
+        session.clock_interval = 60
         print("init: ", session.timestamp)
 
         pass
@@ -22,8 +22,9 @@ class MyAgent:
     def on_clock(self, session, clock):
         bid_edge, ask_edge = session.last_price
         print("clock: ", time_string(session.timestamp), time_string(clock))
-        session.limit_order('Buy', bid_edge, 0.001)
-        session.limit_order('Sell', ask_edge, 0.001)        
+        #session.limit_order('Buy', bid_edge, 0.001)
+        session.market_order('Buy', 0.001)        
+        #session.limit_order('Sell', ask_edge, 0.001)        
         pass
 
 
@@ -33,38 +34,31 @@ class MyAgent:
         pass
     
     def on_update(self, session, updated_order):
-        print("update: ", updated_order.__str__())
-        print("account", session.account)
-        print("-------------------")
-    
+        print("ORDER update: ", updated_order.__str__())
+        
     def on_account_update(self, session, account):
-        print("account update: ", session.timestamp, account)
+        print("ACCOUNT update: ", session.timestamp, account, session.psudo_account)
         pass
 
-
+init_log()
    
-market = BinanceMarket(BinanceConfig.BTCUSDT)
-#market.start_market_stream()
+market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
+#market.download(1, force=False, verbose=True)
 
-#init_debug_log()
-
-#market.analyze_db()
-
-market.download(1, force=False, verbose=True)
-
-#market.analyze_db()
-#market.start_market_stream()
-
-from time import sleep
-
+market.cancel_all_orders()
     
 agent = MyAgent()
 runner = Runner()
 
-session = runner.back_test(market, agent, start_time=NOW()-DAYS(1), end_time=0, verbose=True)
+#init_debug_log()
+session = runner.back_test(market, agent, start_time=NOW()-DAYS(1), end_time=0, verbose=True,execute_time=60*3)
+#session = runner.dry_run(market, agent, verbose=True, execute_time=60)
+#session = runner.real_run(market, agent, verbose=True, execute_time=60)
+
 
 print(session)
-#runner.dry_run(market, agent, interval_sec=60, verbose=True)
+
+
 
 
     
