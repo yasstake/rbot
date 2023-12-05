@@ -518,7 +518,9 @@ pub struct Order {
     pub lock_foreign_change: Decimal,
 }
 
+#[pymethods]
 impl Order {
+    #[new]
     pub fn new(
         symbol: String,
         create_time: MicroSec,
@@ -560,10 +562,7 @@ impl Order {
             lock_foreign_change: dec![0.0],
         };
     }
-}
 
-#[pymethods]
-impl Order {
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
