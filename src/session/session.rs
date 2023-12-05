@@ -1,9 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use std::collections::VecDeque;
-use std::io::Write;
 use std::sync::Mutex;
-use std::{fs::OpenOptions, path::Path};
 
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use pyo3_polars::PyDataFrame;
@@ -11,7 +9,7 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
-use super::OrderList;
+use super::{OrderList, Logger};
 use crate::common::{
     date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec, OrderSide,
     OrderStatus, NOW, time_string,
@@ -21,6 +19,8 @@ use pyo3::prelude::*;
 use crate::common::{ordervec_to_dataframe, Trade};
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
+
+
 
 #[derive(Debug, Clone, PartialEq)]
 #[pyclass]
@@ -54,52 +54,7 @@ impl ExecuteMode {
     }
 }
 
-#[pyclass]
-#[derive(Debug)]
-pub struct ExecuteLog {
-    on_memory: bool,
-    memory: Vec<Order>,
-    log_file: Option<std::fs::File>,
-}
 
-impl ExecuteLog {
-    pub fn new(on_memory: bool, log_file: Option<std::fs::File>) -> Self {
-        Self {
-            on_memory,
-            memory: vec![],
-            log_file,
-        }
-    }
-
-    pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
-        let log_file = Path::new(path).with_extension("log");
-
-        self.log_file = Some(
-            OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(log_file)?,
-        );
-        Ok(())
-    }
-
-    pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
-        if self.on_memory {
-            self.memory.push(order.clone());
-        } else {
-            if let Some(file) = &mut self.log_file {
-                let s = serde_json::to_string(order)?;
-                file.write_all(s.as_bytes())?;
-                file.write_all(b"\n")?;
-            }
-        }
-        Ok(())
-    }
-
-    pub fn get(&self) -> Vec<Order> {
-        self.memory.clone()
-    }
-}
 
 #[pyclass(name = "Session")]
 #[derive(Debug)]
@@ -135,7 +90,7 @@ pub struct Session {
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
 
-    log: ExecuteLog,
+    log: Logger,
 }
 
 #[pymethods]
@@ -201,7 +156,7 @@ impl Session {
 
             dummy_q: Mutex::new(VecDeque::new()),
 
-            log: ExecuteLog::new(log_memory, None),
+            log: Logger::new(log_memory),
         };
 
         session.load_order_list().unwrap();
@@ -699,7 +654,7 @@ impl Session {
 
 impl Session {
     pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
-        self.log.log(order)
+        self.log.log_order(self.current_timestamp, order)
     }
 
     pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
