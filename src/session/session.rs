@@ -9,7 +9,7 @@ use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
-use super::{OrderList, Logger};
+use super::{OrderList, Logger, TimeIndicator};
 use crate::common::{
     date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec, OrderSide,
     OrderStatus, NOW, time_string,
@@ -55,7 +55,6 @@ impl ExecuteMode {
 }
 
 
-
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
@@ -66,6 +65,7 @@ pub struct Session {
     psudo_account: AccountStatus,
     market: PyObject,
     current_timestamp: MicroSec,
+    current_clock_time: MicroSec,
     pub session_name: String,
     order_number: i64,
     transaction_number: i64,
@@ -81,7 +81,7 @@ pub struct Session {
     lock_home_sum: Decimal,
     lock_foreign_sum: Decimal,
 
-    clock_interval: i64,
+    clock_interval_sec: i64,
 
     asks_edge: Decimal,
     bids_edge: Decimal,
@@ -132,6 +132,7 @@ impl Session {
             psudo_account: AccountStatus::default(),
             market,
             current_timestamp: 0,
+            current_clock_time: 0,
             session_name,
             order_number: 0,
             transaction_number: 0,
@@ -147,7 +148,7 @@ impl Session {
             lock_home_sum: dec![0.0],
             lock_foreign_sum: dec![0.0],
 
-            clock_interval: 0,
+            clock_interval_sec: 0,
 
             asks_edge: dec![0.0],
             bids_edge: dec![0.0],
@@ -191,6 +192,11 @@ impl Session {
     #[getter]
     pub fn get_timestamp(&self) -> MicroSec {
         self.current_timestamp
+    }
+
+    #[setter]
+    pub fn set_current_clock(&mut self, timestamp: MicroSec) {
+        self.current_clock_time = timestamp;
     }
 
     #[getter]
@@ -288,15 +294,18 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_log(&self) -> Vec<Order> {
-        self.log.get()
+    pub fn get_log(&self) -> Logger {
+        self.log.clone()
     }
 
-    #[getter]
-    pub fn get_log_df(&self) -> PyResult<PyDataFrame> {
-        let df = ordervec_to_dataframe(self.get_log());
+    
+    pub fn log_indicator(&mut self, name: String, value: f64) {
+        let timestamp = self.calc_log_timestamp();
 
-        Ok(PyDataFrame(df))
+        let r = self.log.log_indicator(timestamp, &name, value);
+        if r.is_err() {
+            log::error!("log_indicator error: {:?}", r);
+        }
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
@@ -335,7 +344,6 @@ impl Session {
                 };
 
             order_to_cancel.status = OrderStatus::Canceled;
-            self.update_psudo_position(&order_to_cancel);
             order_to_cancel.update_time = self.current_timestamp;
 
             self.push_dummy_q(&vec![order_to_cancel.clone()]);
@@ -605,13 +613,13 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_clock_interval(&self) -> i64 {
-        self.clock_interval
+    pub fn get_clock_interval_sec(&self) -> i64 {
+        self.clock_interval_sec
     }
 
     #[setter]
-    pub fn set_clock_interval(&mut self, interval: i64) {
-        self.clock_interval = interval;
+    pub fn set_clock_interval_sec(&mut self, interval: i64) {
+        self.clock_interval_sec = interval;
     }
 
     #[getter]
@@ -654,11 +662,33 @@ impl Session {
 
 impl Session {
     pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
-        self.log.log_order(self.current_timestamp, order)
+        let time = self.calc_log_timestamp();
+
+        self.log.log_order(time, order)
     }
 
     pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
         self.log.open_log(path)
+    }
+
+    pub fn log_position(&mut self) -> Result<(), std::io::Error> {
+        let time = self.calc_log_timestamp();
+
+        self.log.log_position(time, self.position.to_f64().unwrap())
+    }
+
+    pub fn log_account_status(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
+        let time = self.calc_log_timestamp();
+
+        self.log.log_account_status(time, account)
+    }
+
+    pub fn calc_log_timestamp(&self) -> MicroSec {
+        if self.current_timestamp < self.current_clock_time {
+            self.current_clock_time
+        } else {
+            self.current_timestamp
+        }
     }
 }
 
@@ -688,6 +718,10 @@ impl Session {
 
     pub fn on_account_update(&mut self, account: &AccountStatus) {
         self.real_account = account.clone();
+        if self.log_account_status(account).is_err() {
+            log::error!("log_account_status error");
+        };
+
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
@@ -709,9 +743,11 @@ impl Session {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
 
+        let _ = self.log(&order);
+
         self.update_psudo_position(order);
 
-        let _ = self.log(&order);
+
     }
 
     fn new_order_id(&mut self, side: &str) -> String {

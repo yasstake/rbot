@@ -485,7 +485,7 @@ impl Runner {
         py_session: &Py<Session>,
     ) -> Result<i64, PyErr> {
         let session = py_session.borrow_mut(*py);
-        let interval_sec = session.get_clock_interval();
+        let interval_sec = session.get_clock_interval_sec();
 
         Ok(interval_sec)
     }
@@ -542,7 +542,9 @@ impl Runner {
         py_session: &Py<Session>,
         clock: MicroSec,
     ) -> Result<(), PyErr> {
-        let session = py_session.borrow_mut(*py);
+        let mut session = py_session.borrow_mut(*py);
+
+        session.set_current_clock(self.current_clock);
 
         agent.call_method1("on_clock", (session, clock))?;
         self.on_clock_count += 1;
