@@ -2,7 +2,7 @@
 
 use std::io::{stdout, Write};
 
-use pyo3::{pyclass, pymethods, types::PyTuple, Py, PyAny, PyErr, PyObject, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{

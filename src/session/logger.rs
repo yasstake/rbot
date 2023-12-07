@@ -1,12 +1,11 @@
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, Read, Write},
-    path::Path,
+    io::{BufRead, BufReader, Write},
 };
 
 use polars_core::{frame::DataFrame, series::Series, prelude::NamedFrom, datatypes::TimeUnit};
-use pyo3::{prelude::*, ffi::_PyStatus_TYPE};
+use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 
@@ -453,9 +452,11 @@ impl Logger {
             LogMessage::Account(_) => {
                 self.account.push(log_record);
             }
+            /*
             _ => {
                 log::error!("not supported message type");
             }
+            */
         }
 
         Ok(())
@@ -666,7 +667,7 @@ mod tests {
         );
 
         logger.log_order(5, &order).unwrap();
-        logger.log_indicator(5, "test-key0", 0.0);
+        logger.log_indicator(5, "test-key0", 0.0).unwrap();
 
         let order = Order::new(
             "BTCUSD".to_string(),
@@ -681,11 +682,11 @@ mod tests {
         );
         logger.log_order(6, &order).unwrap();
 
-        logger.log_indicator(6, "test-key", 1.0);
-        logger.log_indicator(6, "test-key2", 1.0);
-        logger.log_indicator(7, "test-key2", 1.1);
-        logger.log_indicator(7, "test-key3", 1.1);
-        logger.log_indicator(8, "test-key-SUPER", 1.1);        
+        logger.log_indicator(6, "test-key", 1.0).unwrap();
+        logger.log_indicator(6, "test-key2", 1.0).unwrap();
+        logger.log_indicator(7, "test-key2", 1.1).unwrap();
+        logger.log_indicator(7, "test-key3", 1.1).unwrap();
+        logger.log_indicator(8, "test-key-SUPER", 1.1).unwrap();        
 
         logger.dump("/tmp/dump").unwrap();
         let mut l = Logger::new(true);
@@ -712,7 +713,7 @@ mod tests {
 
         logger.open_log("/tmp/test").unwrap();
 
-        logger.log_indicator(1, "test-key", 1.0);
+        logger.log_indicator(1, "test-key", 1.0).unwrap();
 
         let order = Order::new(
             "BTCUSD".to_string(),
@@ -728,8 +729,8 @@ mod tests {
 
         logger.log_order(1, &order).unwrap();
 
-        logger.log_indicator(2, "test-key2", 1.0);        
-        logger.log_indicator(2, "test-key3", 1.0);                
+        logger.log_indicator(2, "test-key2", 1.0).unwrap();        
+        logger.log_indicator(2, "test-key3", 1.0).unwrap();                
         logger.flush_buffer().unwrap();
 
         let mut logger2 = Logger::new(true);
@@ -738,7 +739,7 @@ mod tests {
         println!("{:?} / {:?}", logger.user_indicator.keys(), logger2.user_indicator.keys());
         assert!(logger.user_indicator.len() == logger2.user_indicator.len());
 
-        logger.dump("/tmp/dump");
+        logger.dump("/tmp/dump").unwrap();
         let mut logger3 = Logger::new(true);
         logger3.restore("/tmp/dump".to_string()).unwrap();
 

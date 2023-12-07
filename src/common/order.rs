@@ -842,9 +842,11 @@ impl Order {
         }
     }
 
+    /*
     fn calc_execute_vol(&self) -> Decimal {
         return self.execute_price * self.execute_size;
     }
+    */
 
     /*
     fn calc_home_lock_change(&self) -> Decimal {
@@ -1021,29 +1023,7 @@ impl Order {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
 
-    use crate::exchange::binance::BinanceConfig;
-
-    use super::*;
-
-    #[test]
-    fn test_update_balance_filled() {
-        let mut order = Order::new(
-            "".to_string(),
-            0,
-            "".to_string(),
-            "".to_string(),
-            OrderSide::Buy,
-            OrderType::Limit,
-            OrderStatus::New,
-            dec![1234.5],
-            dec![0.0001],
-        );
-    }
-}
 
 #[cfg(test)]
 mod order_tests {

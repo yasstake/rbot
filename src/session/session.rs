@@ -4,22 +4,20 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
-use pyo3_polars::PyDataFrame;
 
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
-use super::{OrderList, Logger, TimeIndicator};
+use super::{OrderList, Logger};
 use crate::common::{
     date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec, OrderSide,
     OrderStatus, NOW, time_string,
 };
 use pyo3::prelude::*;
 
-use crate::common::{ordervec_to_dataframe, Trade};
+use crate::common::Trade;
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
-
 
 
 #[derive(Debug, Clone, PartialEq)]
