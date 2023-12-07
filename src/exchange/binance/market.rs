@@ -314,7 +314,7 @@ impl BinanceMarket {
             flush_log();
         }
 
-        let mut start_id: BinanceMessageId = 0;
+        let start_id: u64;
 
         if force {
             let (fix_id, _fix_time) = self.latest_fix_time();
@@ -1219,8 +1219,8 @@ let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         let (stable_id, stable_time)= market.latest_stable_time(true);
         println!("STABLETIME: {:?}", time_string(stable_time));
 
-        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |row|Ok({
-            // println!("{:?}", row);
+        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |_row|Ok({
+            // println!("{:?}", _row);
         })).unwrap();
 
         println!("{}", rec_no);

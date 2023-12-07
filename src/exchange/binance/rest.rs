@@ -172,8 +172,6 @@ where
     }
 }
 
-const PAGE_SIZE: u64 = 1000;
-const API_INTERVAL_LIMIT: i64 = 100 * 1000;
 /*
 pub fn insert_trade_db(
     config: &BinanceConfig,
@@ -196,11 +194,6 @@ pub fn download_historical_trades_from_id<F>(
 where
     F: FnMut(&Vec<Trade>) -> Result<(), String>,
 {
-    let s_id : BinanceMessageId = 0;
-    let s_time: MicroSec = 0;
-    let e_id: BinanceMessageId = 0;
-    let e_time: MicroSec = 0;    
-
     let duration = Duration::from_millis(100);
 
     let mut records: i64 = 0;
@@ -746,7 +739,7 @@ mod tests {
     use rust_decimal::prelude::FromPrimitive;
 
     use super::*;
-    use crate::common::{init_debug_log, time_string, Order, HHMM};
+    use crate::common::{init_debug_log, time_string, Order};
 
     #[test]
     fn test_trade_list() {
