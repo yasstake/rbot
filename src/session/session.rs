@@ -13,7 +13,6 @@ use crate::common::{
     date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
     OrderSide, OrderStatus, NOW,
 };
-use crate::db::df::KEY::close;
 use pyo3::prelude::*;
 
 use crate::common::Trade;
@@ -310,7 +309,7 @@ impl Session {
     pub fn log_indicator(&mut self, name: String, value: f64) {
         let timestamp = self.calc_log_timestamp();
 
-        let r = self.log.log_indicator(timestamp, &name, value);
+        let r = self.log.log_indicator(timestamp, &name, value, None, None, None);
         if r.is_err() {
             log::error!("log_indicator error: {:?}", r);
         }
@@ -681,22 +680,24 @@ impl Session {
         self.log.open_log(path)
     }
 
-    pub fn log_position(&mut self) -> Result<(), std::io::Error> {
+    pub fn log_position(&mut self, position_change: Decimal, position: Decimal, order_id: &str, transaction_id: &str) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
-        self.log.log_position(time, self.position.to_f64().unwrap())
+        self.log.log_position(time, position_change.to_f64().unwrap(), position.to_f64().unwrap(),
+             order_id.to_string(), transaction_id.to_string())
+    }
+
+    pub fn log_profit(&mut self, profit: Decimal, profit_cusum: Decimal, order_id: &str, transaction_id: &str, ) -> Result<(), std::io::Error> {
+        let time = self.calc_log_timestamp();
+
+        self.log.log_profit(time, profit.to_f64().unwrap(), profit_cusum.to_f64().unwrap(),
+             order_id.to_string(), transaction_id.to_string())
     }
 
     pub fn log_account(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
         self.log.log_account(time, account)
-    }
-
-    pub fn log_profit(&mut self) -> Result<(), std::io::Error> {
-        let time = self.calc_log_timestamp();
-
-        self.log.log_profit(time, self.profit.to_f64().unwrap())
     }
 
     pub fn calc_log_timestamp(&self) -> MicroSec {
@@ -812,12 +813,15 @@ impl Session {
 
     // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
     pub fn update_psudo_position(&mut self, order: &Order) {
+        let mut position_change = dec![0.0];
+        let mut profit_change = dec![0.0];
+
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
                 if dec![0.0] <= self.position {
-                    self.open_position(order.execute_price, order.execute_size, order.home_change);
+                    position_change = self.open_position(order.execute_price, order.execute_size);
                 } else {
-                    self.close_position(order.execute_price, order.execute_size, order.home_change)
+                    (position_change, profit_change) = self.close_position(order.execute_price, order.execute_size);
                 }
             }
         } else if order.order_side == OrderSide::Sell {
@@ -826,16 +830,14 @@ impl Session {
                     || order.status == OrderStatus::PartiallyFilled
                 {
                     if dec![0.0] <= self.position {
-                        self.close_position(
+                        (position_change, profit_change) = self.close_position(
                             order.execute_price,
                             -order.execute_size,
-                            order.home_change,
-                        )
+                        );
                     } else {
-                        self.open_position(
+                        position_change = self.open_position(
                             order.execute_price,
                             -order.execute_size,
-                            order.home_change,
                         );
                     }
                 }
@@ -845,37 +847,59 @@ impl Session {
         }
 
         if self
-            .log
-            .log_position(self.calc_log_timestamp(), self.position.to_f64().unwrap())
+            .log_position(position_change, self.position, &order.order_id, &order.transaction_id)
             .is_err()
         {
             log::error!("log_position error");
         };
+
+        if self.log_profit(profit_change, self.profit, &order.order_id, &order.transaction_id).is_err() {
+            log::error!("log_profit error");
+        };
     }
 
-    pub fn open_position(&mut self, price: Decimal, position: Decimal, home_change: Decimal) {
-        let total_cost = self.average_price * self.position + home_change;
+    /// returns position change
+    pub fn open_position(&mut self, price: Decimal, position: Decimal) -> Decimal {
+        let total_cost = (self.average_price * self.position) + (price * position);
         let total_size = self.position + position;
 
         self.average_price = total_cost / total_size;
         self.position += position;
+
+        position
     }
 
-    pub fn close_position(&mut self, price: Decimal, position_change: Decimal, home_change: Decimal) {
+    /// retruns position change, and profit change
+    pub fn close_position(
+        &mut self,
+        price: Decimal,
+        position_change: Decimal,
+    ) -> (Decimal, Decimal)
+     {
         if position_change.abs() <= self.position.abs() {
             let close_position = -position_change;
             self.position -= close_position;
-            self.profit += home_change - (self.average_price * close_position);
+            let profit =  (price * close_position) - (self.average_price * close_position);
+            self.profit += profit;
+
+            (close_position, profit)
         } else {
-            let close_position = -self.position;
-            self.position -= close_position;
-            let new_position = position_change - close_position;
-            self.profit += (price*close_position) - (home_change - (price * close_position)) - (self.average_price * close_position);
+            let close_position = self.position;
+            let new_position = close_position + position_change;
+
+            // self.position += close_position;
+            let profit  =  (price * close_position) - (self.average_price * close_position);
+            self.profit += profit;
+            
+            log::debug!("close_position: close_pos={} / closed_pos={}", position_change, close_position);
+            log::debug!("close_position: old_pos={} / new_position={}", self.position, new_position);
 
             self.position = dec![0.0];
             self.average_price = dec![0.0];
-            self.open_position(price, new_position, home_change - self.profit);
-        };
+            self.open_position(price, new_position);
+
+            (position_change, profit)
+        }
     }
 
     /*
@@ -978,35 +1002,23 @@ mod session_tests {
     #[test]
     fn test_open_plus_position() {
         let mut session = new_session();
-        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        session.open_position(dec![100.0], dec![10.0]);
         assert_eq!(session.average_price, dec![100.0]);
         assert_eq!(session.position, dec![10.0]);
 
-        session.open_position(dec![200.0], dec![10.0], dec![2000.0]);
+        session.open_position(dec![200.0], dec![10.0]);
         assert_eq!(session.average_price, dec![150.0]);
         assert_eq!(session.position, dec![20.0]);
     }
 
-    fn test_open_plus_position2() {
-        let mut session = new_session();
-        session.open_position(dec![100.0], dec![10.0], dec![1100.0]);
-        assert_eq!(session.average_price, dec![110.0]);
-        assert_eq!(session.position, dec![10.0]);
-
-        session.open_position(dec![200.0], dec![10.0], dec![2000.0]);
-        assert_eq!(session.average_price, dec![155.0]);
-        assert_eq!(session.position, dec![20.0]);
-    }
-
-
     #[test]
     fn test_open_minus_position() {
         let mut session = new_session();
-        session.open_position(dec![100.0], dec![-10.0], dec![-1000.0]);
+        session.open_position(dec![100.0], dec![-10.0]);
         assert_eq!(session.average_price, dec![100.0]);
         assert_eq!(session.position, dec![-10.0]);
 
-        session.open_position(dec![200.0], dec![-10.0], dec![-2000.0]);
+        session.open_position(dec![200.0], dec![-10.0]);
         assert_eq!(session.average_price, dec![150.0]);
         assert_eq!(session.position, dec![-20.0]);
     }
@@ -1015,34 +1027,66 @@ mod session_tests {
     fn test_close_position_less_than_position() {
         //init_debug_log();
         let mut session = new_session();
-        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        session.open_position(dec![100.0], dec![10.0]);
         assert_eq!(session.average_price, dec![100.0]);
         assert_eq!(session.position, dec![10.0]);
 
-        session.close_position(dec![150.0], dec![-5.0], dec![750.0]);
-        assert_eq!(session.position, dec![5.0]);
-        assert_eq!(session.profit, dec![250.0]);
-
+        session.close_position(dec![150.0], dec![-5.0]);
         assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![5.0]);
 
+        // 150 * 5 - 100 * 5 = 250
+        assert_eq!(session.profit, dec![250.0]);
+    }
+
+    #[test]
+    fn test_close_position_less_than_position_minus() {
+        //init_debug_log();
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![-10.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-10.0]);
+
+        session.close_position(dec![150.0], dec![5.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-5.0]);
+
+        // 150 * 5 - 100 * 5 = 250
+        assert_eq!(session.profit, dec![-250.0]);
+    }
+
+    #[test]
+    fn test_close_position_greater_than_position() {
+        // init_debug_log();
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![10.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        // TODO: Fic profit calculation
+        session.close_position(dec![150.0], dec![-11.0]);
+        assert_eq!(session.profit, dec![500.0]);
+        assert_eq!(session.position, dec![-1.0]);
+        assert_eq!(session.average_price, dec![150.0]);
     }
 
 
 
     #[test]
-    fn test_close_position_greater_than_position() {
-        //init_debug_log();
+    fn test_close_position_greater_than_position_minus() {
+        init_debug_log();
         let mut session = new_session();
-        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        session.open_position(dec![100.0], dec![-10.0]);
         assert_eq!(session.average_price, dec![100.0]);
-        assert_eq!(session.position, dec![10.0]);
+        assert_eq!(session.position, dec![-10.0]);
 
         // TODO: Fic profit calculation
-        session.close_position(dec![150.0], dec![-11.0], dec![1650.0]);
-        assert_eq!(session.position, dec![-1.0]);
-        assert_eq!(session.profit, dec![100.0]);
+        session.close_position(dec![150.0], dec![11.0]);
+        assert_eq!(session.profit, dec![-500.0]);
+        assert_eq!(session.position, dec![1.0]);
         assert_eq!(session.average_price, dec![150.0]);
     }
+
 
     /*
     #[test]
