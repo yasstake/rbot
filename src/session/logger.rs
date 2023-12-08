@@ -4,12 +4,12 @@ use std::{
     io::{BufRead, BufReader, Write},
 };
 
-use polars_core::{frame::DataFrame, series::Series, prelude::NamedFrom, datatypes::TimeUnit};
+use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::common::{AccountStatus, MicroSec, Order, ordervec_to_dataframe};
+use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Indicator {
@@ -50,7 +50,7 @@ pub enum LogMessage {
     Account(AccountStatus),
     #[serde(rename = "i")]
     UserIndicator(Indicator),
-    #[serde(rename = "I")]    
+    #[serde(rename = "I")]
     SystemIndicator(Indicator),
 }
 
@@ -119,6 +119,61 @@ impl Into<Vec<SingleLogRecord>> for LogRecord {
     }
 }
 
+pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
+    let mut timestamp = Vec::<MicroSec>::new();
+
+    let mut home = Vec::<f64>::new();
+    let mut home_free = Vec::<f64>::new();
+    let mut home_locked = Vec::<f64>::new();
+
+    let mut foreign = Vec::<f64>::new();
+    let mut foreign_free = Vec::<f64>::new();
+    let mut foreign_locked = Vec::<f64>::new();
+
+    for rec in accounts {
+        match rec.data {
+            LogMessage::Account(account) => {
+                timestamp.push(rec.timestamp);                            
+                home.push(account.home.to_f64().unwrap());
+                home_free.push(account.home_free.to_f64().unwrap());
+                home_locked.push(account.home_locked.to_f64().unwrap());
+                foreign.push(account.foreign.to_f64().unwrap());
+                foreign_free.push(account.foreign_free.to_f64().unwrap());
+                foreign_locked.push(account.foreign_locked.to_f64().unwrap());
+            }
+            _ => {
+                panic!("not supported message type");
+            }
+        }
+    }
+
+    let timestamp = Series::new("timestamp", timestamp);
+
+    let home = Series::new("home", home);
+    let home_free = Series::new("home_free", home_free);
+    let home_locked = Series::new("home_locked", home_locked);
+
+    let foreign = Series::new("foreign", foreign);
+    let foreign_free = Series::new("foreign_free", foreign_free);
+    let foreign_locked = Series::new("foreign_locked", foreign_locked);
+
+    let mut df = DataFrame::new(vec![
+        timestamp,
+        home,
+        home_free,
+        home_locked,
+        foreign,
+        foreign_free,
+        foreign_locked,
+    ]).unwrap();
+
+    let time = df.column("timestamp").unwrap().i64().unwrap().clone();
+    let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+    let df = df.with_column(date_time).unwrap();
+
+    return df.clone();
+}
+
 impl Into<LogRecord> for Vec<SingleLogRecord> {
     fn into(self) -> LogRecord {
         let mut result = LogRecord::new(0);
@@ -142,7 +197,7 @@ pub struct Logger {
     current_time: MicroSec,
     order: Vec<SingleLogRecord>,
     user_indicator: HashMap<String, Vec<TimeIndicator>>,
-    system_indicator: HashMap<String, Vec<TimeIndicator>>,    
+    system_indicator: HashMap<String, Vec<TimeIndicator>>,
     account: Vec<SingleLogRecord>,
     log_file: Option<File>,
     log_buffer: Option<LogRecord>,
@@ -213,8 +268,12 @@ impl Logger {
 
         self.save_log_records(&self.order.clone())?;
 
-        self.save_indicator(&self.user_indicator.clone(),|i| {LogMessage::UserIndicator(i)})?;
-        self.save_indicator(&self.system_indicator.clone(), |i| {LogMessage::SystemIndicator(i)})?;
+        self.save_indicator(&self.user_indicator.clone(), |i| {
+            LogMessage::UserIndicator(i)
+        })?;
+        self.save_indicator(&self.system_indicator.clone(), |i| {
+            LogMessage::SystemIndicator(i)
+        })?;
 
         // save account status
         self.save_log_records(&self.account.clone())?;
@@ -232,7 +291,7 @@ impl Logger {
         let mut reader = BufReader::new(file);
 
         loop {
-            let mut buf = String::new();            
+            let mut buf = String::new();
             let count = reader.read_line(&mut buf)?;
             if count == 0 {
                 break;
@@ -271,7 +330,7 @@ impl Logger {
         &mut self,
         timestamp: MicroSec,
         key: &str,
-        value: f64
+        value: f64,
     ) -> Result<(), std::io::Error> {
         let indicator = Indicator {
             name: key.to_string(),
@@ -280,7 +339,7 @@ impl Logger {
         self.log_message(timestamp, &LogMessage::SystemIndicator(indicator))
     }
 
-    pub fn log_account_status(
+    pub fn log_account(
         &mut self,
         timestamp: MicroSec,
         status: &AccountStatus,
@@ -291,9 +350,17 @@ impl Logger {
     pub fn log_position(
         &mut self,
         timestamp: MicroSec,
-        position: f64
+        position: f64,
     ) -> Result<(), std::io::Error> {
         self.log_system_indicator(timestamp, "position", position)
+    }
+
+    pub fn log_profit(
+        &mut self,
+        timestamp: MicroSec,
+        profit: f64,
+    ) -> Result<(), std::io::Error> {
+        self.log_system_indicator(timestamp, "profit", profit)
     }
 
     #[getter]
@@ -319,17 +386,29 @@ impl Logger {
         Ok(PyDataFrame(df))
     }
 
+    #[getter]
+    pub fn get_account(&self) -> PyResult<PyDataFrame> {
+        let df = account_logrec_to_df(self.account.clone());
+
+        Ok(PyDataFrame(df))
+    }
+
+    #[getter]
+    pub fn get_profit(&self) -> PyResult<PyDataFrame> {
+        let df = Self::indicator_to_df(self.system_indicator.get("profit"), "profit");
+
+        Ok(PyDataFrame(df))
+    }
+
     pub fn __getitem__(&self, key: &str) -> PyResult<PyDataFrame> {
         let df = Self::indicator_to_df(self.user_indicator.get(key), key);
 
         Ok(PyDataFrame(df))
     }
-
 }
 
 impl Logger {
     pub fn indicator_to_df(indicator: Option<&Vec<TimeIndicator>>, value_name: &str) -> DataFrame {
-
         let mut timestamp: Vec<MicroSec> = vec![];
         let mut value: Vec<f64> = vec![];
 
@@ -353,9 +432,14 @@ impl Logger {
         df.clone()
     }
 
-    pub fn save_indicator<F>(&mut self, indicator: &HashMap<String, Vec<TimeIndicator>>, f: F) -> Result<(), std::io::Error>
-        where F: Fn(Indicator) -> LogMessage
-        {
+    pub fn save_indicator<F>(
+        &mut self,
+        indicator: &HashMap<String, Vec<TimeIndicator>>,
+        f: F,
+    ) -> Result<(), std::io::Error>
+    where
+        F: Fn(Indicator) -> LogMessage,
+    {
         // Save indicator
         for (key, time_indicator) in indicator {
             log::debug!("save indicator KEY= {:?}", key);
@@ -367,23 +451,19 @@ impl Logger {
                     value: i.value,
                 };
 
-                self.write_file(
-                    i.timestamp,
-                    &f(indicator)
-                )?;
+                self.write_file(i.timestamp, &f(indicator))?;
             }
         }
 
         Ok(())
     }
 
-
     pub fn clone(&self) -> Self {
         Self {
             on_memory: true,
             current_time: self.current_time,
             order: self.order.clone(),
-            user_indicator: self.user_indicator.clone(),  
+            user_indicator: self.user_indicator.clone(),
             system_indicator: self.system_indicator.clone(),
             account: self.account.clone(),
             log_file: None,
@@ -431,7 +511,8 @@ impl Logger {
                     indicator.push(time_indicator);
                 } else {
                     let indicator_vec = vec![time_indicator];
-                    self.user_indicator.insert(indicator.name.clone(), indicator_vec);
+                    self.user_indicator
+                        .insert(indicator.name.clone(), indicator_vec);
                 }
             }
             LogMessage::SystemIndicator(indicator) => {
@@ -446,17 +527,17 @@ impl Logger {
                     indicator.push(time_indicator);
                 } else {
                     let indicator_vec = vec![time_indicator];
-                    self.system_indicator.insert(indicator.name.clone(), indicator_vec);
+                    self.system_indicator
+                        .insert(indicator.name.clone(), indicator_vec);
                 }
             }
             LogMessage::Account(_) => {
                 self.account.push(log_record);
-            }
-            /*
-            _ => {
-                log::error!("not supported message type");
-            }
-            */
+            } /*
+              _ => {
+                  log::error!("not supported message type");
+              }
+              */
         }
 
         Ok(())
@@ -512,7 +593,6 @@ impl Logger {
 
         Ok(())
     }
-
 
     fn log_path(file_name: &str) -> String {
         let file_name = if file_name.ends_with(".log") {
@@ -686,7 +766,7 @@ mod tests {
         logger.log_indicator(6, "test-key2", 1.0).unwrap();
         logger.log_indicator(7, "test-key2", 1.1).unwrap();
         logger.log_indicator(7, "test-key3", 1.1).unwrap();
-        logger.log_indicator(8, "test-key-SUPER", 1.1).unwrap();        
+        logger.log_indicator(8, "test-key-SUPER", 1.1).unwrap();
 
         logger.dump("/tmp/dump").unwrap();
         let mut l = Logger::new(true);
@@ -729,21 +809,29 @@ mod tests {
 
         logger.log_order(1, &order).unwrap();
 
-        logger.log_indicator(2, "test-key2", 1.0).unwrap();        
-        logger.log_indicator(2, "test-key3", 1.0).unwrap();                
+        logger.log_indicator(2, "test-key2", 1.0).unwrap();
+        logger.log_indicator(2, "test-key3", 1.0).unwrap();
         logger.flush_buffer().unwrap();
 
         let mut logger2 = Logger::new(true);
         logger2.restore("/tmp/test".to_string()).unwrap();
 
-        println!("{:?} / {:?}", logger.user_indicator.keys(), logger2.user_indicator.keys());
+        println!(
+            "{:?} / {:?}",
+            logger.user_indicator.keys(),
+            logger2.user_indicator.keys()
+        );
         assert!(logger.user_indicator.len() == logger2.user_indicator.len());
 
         logger.dump("/tmp/dump").unwrap();
         let mut logger3 = Logger::new(true);
         logger3.restore("/tmp/dump".to_string()).unwrap();
 
-        println!("{:?} / {:?}", logger.user_indicator.keys(), logger3.user_indicator.keys());
+        println!(
+            "{:?} / {:?}",
+            logger.user_indicator.keys(),
+            logger3.user_indicator.keys()
+        );
         assert!(logger.user_indicator.len() == logger3.user_indicator.len());
     }
     /*

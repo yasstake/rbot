@@ -561,9 +561,9 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         session.set_real_account(account);
+        session.log_account(account);
 
         log::debug!("call_agent_on_account_update: {:?}", &account);
-
         let py_account = Py::new(*py, account.clone()).unwrap();
 
         agent.call_method1("on_account_update", (session, py_account))?;
@@ -579,8 +579,9 @@ impl Runner {
         agent: &PyAny,
         py_session: &Py<Session>,
     ) -> Result<(), PyErr> {
-        let session = py_session.borrow_mut(*py);
+        let mut session = py_session.borrow_mut(*py);
         let account = session.get_account();
+        session.log_account(&account);
         log::debug!("call_agent_on_account_update_dummy: {:?}", &account);
 
         let py_account = Py::new(*py, account).unwrap();
