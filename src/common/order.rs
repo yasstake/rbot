@@ -833,14 +833,14 @@ impl Order {
         return self.order_price * self.order_size;
     }
 
-    fn calc_home_lock_size(&self) -> Decimal {
+    fn calc_home_lock_size_new(&self) -> Decimal {
         match self.is_maker {
-            true => self.calc_quote_vol(),
+            true => self.calc_quote_vol() + self.commission_home,
             false => dec![0.0],
         }
     }
 
-    fn calc_foreign_lock_size(&self) -> Decimal {
+    fn calc_foreign_lock_size_new(&self) -> Decimal {
         match self.is_maker {
             true => self.order_size + self.commission_foreign,
             false => dec![0.0],
@@ -934,8 +934,8 @@ impl Order {
     fn update_balance_new(&mut self, config: &MarketConfig) {
         self.update_commision(config);
 
-        let home_lock_size = self.calc_home_lock_size();
-        let foreign_lock_size = self.calc_foreign_lock_size();
+        let home_lock_size = self.calc_home_lock_size_new();
+        let foreign_lock_size = self.calc_foreign_lock_size_new();
 
         //let home_change = self.calc_quote_vol();
         //let foreign_change = self.execute_size;
@@ -969,10 +969,15 @@ impl Order {
     fn update_balance_filled(&mut self, config: &MarketConfig) {
         self.update_commision(config);
 
-        let home_lock_size = self.calc_home_lock_size();
-        let foreign_lock_size = self.calc_foreign_lock_size();
+        let home_lock = self.calc_home_lock_size_new();
+        let foreign_lock = self.calc_foreign_lock_size_new();
 
-        let home_change = self.calc_quote_vol();
+        let filled_ratio = self.execute_size / self.order_size;
+
+        let home_lock_size_change = home_lock * filled_ratio;
+        let foreign_lock_size_change = foreign_lock * filled_ratio;
+
+        let home_change = self.execute_price * self.execute_size;
         let foreign_change = self.execute_size;
 
         if self.order_side == OrderSide::Buy {
@@ -980,7 +985,7 @@ impl Order {
             //self.commission_foreign = dec![0.0];
             self.home_change = -home_change;
             self.free_home_change = dec![0.0];            
-            self.lock_home_change = -home_lock_size;            
+            self.lock_home_change = -home_lock_size_change;            
 
             self.foreign_change = foreign_change;
             self.free_foreign_change = foreign_change;
@@ -995,15 +1000,15 @@ impl Order {
 
             self.foreign_change = -foreign_change;
             self.free_foreign_change = -foreign_change;
-            self.lock_foreign_change = -foreign_lock_size;
+            self.lock_foreign_change = -foreign_lock_size_change;
         }
     }
 
     //
     fn update_balance_canceled(&mut self, config: &MarketConfig) {
         self.update_commision(config);
-        let order_size = self.order_size;
-        let order_quote_vol = self.order_size * self.order_price;
+        let remain_size = self.remain_size;
+        let order_quote_vol = self.order_price * remain_size;
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
@@ -1022,9 +1027,9 @@ impl Order {
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
             self.free_home_change = dec![0.0];
-            self.free_foreign_change = order_size;
+            self.free_foreign_change = remain_size;
             self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = -order_size;
+            self.lock_foreign_change = -remain_size;
         }
     }
 }
