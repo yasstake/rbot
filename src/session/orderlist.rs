@@ -188,7 +188,7 @@ impl OrderList {
                 self.list[0].status = OrderStatus::PartiallyFilled;
                 self.list[0].execute_size = remain_size;
                 self.list[0].remain_size -= remain_size;
-                self.list[0].execute_price = trade.price;
+                self.list[0].execute_price = self.list[0].order_price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;
 
                 filled_orders.push(self.list[0].clone());
@@ -201,7 +201,7 @@ impl OrderList {
                 self.list[0].status = OrderStatus::Filled;
                 self.list[0].execute_size = self.list[0].remain_size;
                 self.list[0].remain_size = 0.into();                
-                self.list[0].execute_price = trade.price;
+                self.list[0].execute_price = self.list[0].order_price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;                
 
                 remain_size -= self.list[0].remain_size;

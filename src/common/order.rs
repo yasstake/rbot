@@ -408,13 +408,13 @@ pub struct AccountStatus {
 impl Default for AccountStatus {
     fn default() -> Self {
         return AccountStatus {
-            home: Decimal::new(0, 0),
-            home_free: Decimal::new(0, 0),
-            home_locked: Decimal::new(0, 0),
+            home: dec![0.0],
+            home_free: dec![0.0],
+            home_locked: dec![0.0],
 
-            foreign: Decimal::new(0, 0),
-            foreign_free: Decimal::new(0, 0),
-            foreign_locked: Decimal::new(0, 0),
+            foreign: dec![0.0],
+            foreign_free: dec![0.0],
+            foreign_locked: dec![0.0]
         };
     }
 }
@@ -463,6 +463,11 @@ impl AccountStatus {
         return self.foreign_locked.to_f64().unwrap();
     }
 }
+
+
+
+
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -769,6 +774,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
 
     let mut df = DataFrame::new(vec![
         symbol,
+        update_time,
         create_time,
         status,
         order_id,
@@ -779,7 +785,6 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         order_size,
         remain_size,
         transaction_id,
-        update_time,
         execute_price,
         execute_size,
         quote_vol,

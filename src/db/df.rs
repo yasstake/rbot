@@ -20,7 +20,7 @@ use polars_time::ClosedWindow;
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 pub mod KEY {
-    pub const time_stamp: &str = "time_stamp";
+    pub const time_stamp: &str = "timestamp";
 
     // for trade
     pub const price: &str = "price";

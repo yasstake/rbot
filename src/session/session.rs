@@ -8,17 +8,17 @@ use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
-use super::{OrderList, Logger};
+use super::{Logger, OrderList};
 use crate::common::{
-    date_string, hour_string, min_string, AccountStatus, MarketConfig, MicroSec, OrderSide,
-    OrderStatus, NOW, time_string,
+    date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
+    OrderSide, OrderStatus, NOW,
 };
+use crate::db::df::KEY::close;
 use pyo3::prelude::*;
 
 use crate::common::Trade;
 use crate::common::{MarketMessage, SEC};
 use crate::common::{Order, OrderType};
-
 
 #[derive(Debug, Clone, PartialEq)]
 #[pyclass]
@@ -52,7 +52,6 @@ impl ExecuteMode {
     }
 }
 
-
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
@@ -69,6 +68,8 @@ pub struct Session {
     transaction_number: i64,
 
     position: Decimal,
+    average_price: Decimal,
+    profit: Decimal,
 
     commission_home_sum: Decimal,
     commission_foreign_sum: Decimal,
@@ -136,6 +137,8 @@ impl Session {
             transaction_number: 0,
 
             position: dec![0.0],
+            average_price: dec![0.0],
+            profit: dec![0.0],
 
             commission_home_sum: dec![0.0],
             commission_foreign_sum: dec![0.0],
@@ -207,12 +210,6 @@ impl Session {
         Python::with_gil(|py| self.market.getattr(py, "board"))
     }
 
-    // account information
-    #[getter]
-    pub fn get_account(&self) -> AccountStatus {
-        self.real_account.clone()
-    }
-
     // order information
     #[getter]
     pub fn get_buy_orders(&self) -> Vec<Order> {
@@ -282,7 +279,7 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_psudo_position(&self) -> f64 {
+    pub fn get_position(&self) -> f64 {
         self.position.to_f64().unwrap()
     }
 
@@ -292,11 +289,24 @@ impl Session {
     }
 
     #[getter]
+    pub fn get_real_account(&self) -> AccountStatus {
+        self.real_account.clone()
+    }
+
+    #[getter]
+    pub fn get_account(&self) -> AccountStatus {
+        match self.execute_mode {
+            ExecuteMode::Real => self.real_account.clone(),
+            ExecuteMode::BackTest => self.psudo_account.clone(),
+            ExecuteMode::Dry => self.psudo_account.clone(),
+        }
+    }
+
+    #[getter]
     pub fn get_log(&self) -> Logger {
         self.log.clone()
     }
 
-    
     pub fn log_indicator(&mut self, name: String, value: f64) {
         let timestamp = self.calc_log_timestamp();
 
@@ -427,7 +437,7 @@ impl Session {
 
         let mut order = Order::new(
             self.market_config.symbol(),
-            self.current_timestamp,
+            self.calc_log_timestamp(),
             local_id.clone(),
             local_id.clone(),
             order_side,
@@ -553,7 +563,7 @@ impl Session {
 
         let mut order = Order::new(
             self.market_config.symbol(),
-            self.current_timestamp,
+            self.calc_log_timestamp(),
             local_id.clone(),
             local_id.clone(),
             order_side,
@@ -626,7 +636,6 @@ impl Session {
         q.iter().map(|x| x.clone()).collect()
     }
 
-
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -635,7 +644,10 @@ impl Session {
         let mut json = "{".to_string();
 
         json += &format!("\"timestamp\":{},", self.current_timestamp);
-        json += &format!("\"timestamp_str\": {},\n", time_string(self.current_timestamp));
+        json += &format!(
+            "\"timestamp_str\": {},\n",
+            time_string(self.current_timestamp)
+        );
 
         // let (last_sell_price, last_buy_price) = self.get_last_price();
 
@@ -650,7 +662,7 @@ impl Session {
         // account information
         json += &format!("\"account\":{}, ", self.real_account.__repr__());
 
-        json += &format!("\"psudo_account\":{},",self.psudo_account.__repr__());
+        json += &format!("\"psudo_account\":{},", self.psudo_account.__repr__());
 
         json += &format!("\"psudo_position\":{}", self.position);
         json += "}";
@@ -675,10 +687,16 @@ impl Session {
         self.log.log_position(time, self.position.to_f64().unwrap())
     }
 
-    pub fn log_account_status(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
+    pub fn log_account(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
-        self.log.log_account_status(time, account)
+        self.log.log_account(time, account)
+    }
+
+    pub fn log_profit(&mut self) -> Result<(), std::io::Error> {
+        let time = self.calc_log_timestamp();
+
+        self.log.log_profit(time, self.profit.to_f64().unwrap())
     }
 
     pub fn calc_log_timestamp(&self) -> MicroSec {
@@ -716,10 +734,10 @@ impl Session {
 
     pub fn on_account_update(&mut self, account: &AccountStatus) {
         self.real_account = account.clone();
-        if self.log_account_status(account).is_err() {
+
+        if self.log_account(account).is_err() {
             log::error!("log_account_status error");
         };
-
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
@@ -741,11 +759,11 @@ impl Session {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
 
-        let _ = self.log(&order);
+        if self.log(&order).is_err() {
+            log::error!("log order error{:?}", order);
+        };
 
         self.update_psudo_position(order);
-
-
     }
 
     fn new_order_id(&mut self, side: &str) -> String {
@@ -792,20 +810,85 @@ impl Session {
         return r;
     }
 
-    // TODO: check if this is correct
+    // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
     pub fn update_psudo_position(&mut self, order: &Order) {
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                self.position += order.execute_size;
+                if dec![0.0] <= self.position {
+                    self.open_position(order.execute_price, order.execute_size, order.home_change);
+                } else {
+                    self.close_position(order.execute_price, order.execute_size, order.home_change)
+                }
             }
         } else if order.order_side == OrderSide::Sell {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                self.position -= order.execute_size;
+                if order.status == OrderStatus::Filled
+                    || order.status == OrderStatus::PartiallyFilled
+                {
+                    if dec![0.0] <= self.position {
+                        self.close_position(
+                            order.execute_price,
+                            -order.execute_size,
+                            order.home_change,
+                        )
+                    } else {
+                        self.open_position(
+                            order.execute_price,
+                            -order.execute_size,
+                            order.home_change,
+                        );
+                    }
+                }
             }
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
+
+        if self
+            .log
+            .log_position(self.calc_log_timestamp(), self.position.to_f64().unwrap())
+            .is_err()
+        {
+            log::error!("log_position error");
+        };
     }
+
+    pub fn open_position(&mut self, price: Decimal, position: Decimal, home_change: Decimal) {
+        let total_cost = self.average_price * self.position + home_change;
+        let total_size = self.position + position;
+
+        self.average_price = total_cost / total_size;
+        self.position += position;
+    }
+
+    pub fn close_position(&mut self, price: Decimal, position_change: Decimal, home_change: Decimal) {
+        if position_change.abs() <= self.position.abs() {
+            let close_position = -position_change;
+            self.position -= close_position;
+            self.profit += home_change - (self.average_price * close_position);
+        } else {
+            let close_position = -self.position;
+            self.position -= close_position;
+            let new_position = position_change - close_position;
+            self.profit += (price*close_position) - (home_change - (price * close_position)) - (self.average_price * close_position);
+
+            self.position = dec![0.0];
+            self.average_price = dec![0.0];
+            self.open_position(price, new_position, home_change - self.profit);
+        };
+    }
+
+    /*
+    pub fn change_psudo_position(&mut self, price: Decimal, position_change: Decimal, home_change: Decimal) {
+        // position and position_change have same sign, Open position
+        if dec![0.0] <= self.position * position_change {
+            self.open_position(price, position_change, home_change);
+        }
+        else {
+            self.close_position(price, position_change, home_change);
+        }
+    }
+    */
 
     fn push_dummy_q(&mut self, message: &Vec<Order>) {
         let mut q = self.dummy_q.lock().unwrap();
@@ -868,4 +951,120 @@ impl Session {
     pub fn set_real_account(&mut self, account: &AccountStatus) {
         self.real_account = account.clone();
     }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use crate::{
+        common::init_debug_log,
+        exchange::binance::{self, BinanceConfig, BinanceMarket},
+    };
+
+    use super::*;
+
+    fn new_session() -> Session {
+        pyo3::prepare_freethreaded_python();
+
+        let config = BinanceConfig::BTCUSDT();
+        let binance = BinanceMarket::new(&config);
+
+        Python::with_gil(|py| {
+            let session = Session::new(binance.into_py(py), ExecuteMode::BackTest, None, true);
+
+            session
+        })
+    }
+
+    #[test]
+    fn test_open_plus_position() {
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        session.open_position(dec![200.0], dec![10.0], dec![2000.0]);
+        assert_eq!(session.average_price, dec![150.0]);
+        assert_eq!(session.position, dec![20.0]);
+    }
+
+    fn test_open_plus_position2() {
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![10.0], dec![1100.0]);
+        assert_eq!(session.average_price, dec![110.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        session.open_position(dec![200.0], dec![10.0], dec![2000.0]);
+        assert_eq!(session.average_price, dec![155.0]);
+        assert_eq!(session.position, dec![20.0]);
+    }
+
+
+    #[test]
+    fn test_open_minus_position() {
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![-10.0], dec![-1000.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-10.0]);
+
+        session.open_position(dec![200.0], dec![-10.0], dec![-2000.0]);
+        assert_eq!(session.average_price, dec![150.0]);
+        assert_eq!(session.position, dec![-20.0]);
+    }
+
+    #[test]
+    fn test_close_position_less_than_position() {
+        //init_debug_log();
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        session.close_position(dec![150.0], dec![-5.0], dec![750.0]);
+        assert_eq!(session.position, dec![5.0]);
+        assert_eq!(session.profit, dec![250.0]);
+
+        assert_eq!(session.average_price, dec![100.0]);
+
+    }
+
+
+
+    #[test]
+    fn test_close_position_greater_than_position() {
+        //init_debug_log();
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![10.0], dec![1000.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        // TODO: Fic profit calculation
+        session.close_position(dec![150.0], dec![-11.0], dec![1650.0]);
+        assert_eq!(session.position, dec![-1.0]);
+        assert_eq!(session.profit, dec![100.0]);
+        assert_eq!(session.average_price, dec![150.0]);
+    }
+
+    /*
+    #[test]
+    fn test_change_position() {
+        let mut session = new_session();
+
+        // buy 10
+        session.change_psudo_position(dec![100.0], dec![10.0], dec![1000.0]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![10.0]);
+
+        // buy more 10, with 200 price
+        session.change_psudo_position(dec![200.0], dec![10.0], dec![2000.0]);
+        assert_eq!(session.average_price, dec![150.0]);
+        assert_eq!(session.position, dec![20.0]);
+        assert_eq!(session.profit, dec![0.0]);
+
+        // sell 10
+        session.change_psudo_position(dec![200.0], dec![-10.0], dec![1500.0]);
+        assert_eq!(session.average_price, dec![150.0]);
+        assert_eq!(session.position, dec![10.0]);
+        assert_eq!(session.profit, dec![500.0]);
+    }
+    */
 }
