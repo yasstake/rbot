@@ -919,18 +919,20 @@ impl Session {
     pub fn close_position(
         &mut self,
         price: Decimal,
-        position_change: Decimal,
+        position: Decimal,
     ) -> (Decimal, Decimal) {
-        if position_change.abs() <= self.position.abs() {
-            let close_position = -position_change;
+        let first_position = self.position;
+        
+        let profit = if position.abs() <= self.position.abs() {
+            let close_position = -position;
             self.position -= close_position;
             let profit = (price * close_position) - (self.average_price * close_position);
             self.profit += profit;
 
-            (close_position, profit)
+            profit
         } else {
             let close_position = self.position;
-            let new_position = close_position + position_change;
+            let new_position = close_position + position;
 
             // self.position += close_position;
             let profit = (price * close_position) - (self.average_price * close_position);
@@ -938,7 +940,7 @@ impl Session {
 
             log::debug!(
                 "close_position: close_pos={} / closed_pos={}",
-                position_change,
+                position,
                 close_position
             );
             log::debug!(
@@ -951,8 +953,10 @@ impl Session {
             self.average_price = dec![0.0];
             self.open_position(price, new_position);
 
-            (position_change, profit)
-        }
+            profit
+        };
+
+        (self.position - first_position, profit)
     }
 
     /*
@@ -1032,7 +1036,7 @@ impl Session {
 mod session_tests {
     use crate::{
         common::init_debug_log,
-        exchange::binance::{self, BinanceConfig, BinanceMarket},
+        exchange::binance::{BinanceConfig, BinanceMarket},
     };
 
     use super::*;
@@ -1056,6 +1060,7 @@ mod session_tests {
         session.open_position(dec![100.0], dec![10.0]);
         assert_eq!(session.average_price, dec![100.0]);
         assert_eq!(session.position, dec![10.0]);
+        assert_eq!(session.profit, dec![0.0]);
 
         session.open_position(dec![200.0], dec![10.0]);
         assert_eq!(session.average_price, dec![150.0]);
@@ -1135,6 +1140,28 @@ mod session_tests {
         assert_eq!(session.position, dec![1.0]);
         assert_eq!(session.average_price, dec![150.0]);
     }
+
+    #[test]
+    fn test_close_position_break_outsample() {
+        //init_debug_log();
+        let mut session = new_session();
+        session.open_position(dec![100.0], dec![-0.00095]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-0.00095]);
+
+        session.open_position(dec![100.0], dec![-0.00905]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-0.01]);
+
+        session.close_position(dec![100.0], dec![0.00101]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![-0.00899]);
+
+        session.close_position(dec![100.0], dec![0.01899]);
+        assert_eq!(session.average_price, dec![100.0]);
+        assert_eq!(session.position, dec![0.01]);
+    }
+
 
     /*
     #[test]
