@@ -79,6 +79,8 @@ pub struct Session {
     lock_home_sum: Decimal,
     lock_foreign_sum: Decimal,
 
+    log_id: i64,
+
     clock_interval_sec: i64,
 
     asks_edge: Decimal,
@@ -147,6 +149,8 @@ impl Session {
             free_foreign_sum: dec![0.0],
             lock_home_sum: dec![0.0],
             lock_foreign_sum: dec![0.0],
+
+            log_id: 0,
 
             clock_interval_sec: 0,
 
@@ -309,7 +313,9 @@ impl Session {
     pub fn log_indicator(&mut self, name: String, value: f64) {
         let timestamp = self.calc_log_timestamp();
 
-        let r = self.log.log_indicator(timestamp, &name, value, None, None, None);
+        let r = self
+            .log
+            .log_indicator(timestamp, &name, value, None, None, None, None);
         if r.is_err() {
             log::error!("log_indicator error: {:?}", r);
         }
@@ -680,18 +686,44 @@ impl Session {
         self.log.open_log(path)
     }
 
-    pub fn log_position(&mut self, position_change: Decimal, position: Decimal, order_id: &str, transaction_id: &str) -> Result<(), std::io::Error> {
+    pub fn log_position(
+        &mut self,
+        log_id: i64,
+        position_change: Decimal,
+        position: Decimal,
+        order_id: &str,
+        transaction_id: &str,
+    ) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
-        self.log.log_position(time, position_change.to_f64().unwrap(), position.to_f64().unwrap(),
-             order_id.to_string(), transaction_id.to_string())
+        self.log.log_position(
+            time,
+            log_id,
+            position_change.to_f64().unwrap(),
+            position.to_f64().unwrap(),
+            order_id.to_string(),
+            transaction_id.to_string(),
+        )
     }
 
-    pub fn log_profit(&mut self, profit: Decimal, profit_cusum: Decimal, order_id: &str, transaction_id: &str, ) -> Result<(), std::io::Error> {
+    pub fn log_profit(
+        &mut self,
+        log_id: i64,
+        profit: Decimal,
+        profit_cusum: Decimal,
+        order_id: &str,
+        transaction_id: &str,
+    ) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
-        self.log.log_profit(time, profit.to_f64().unwrap(), profit_cusum.to_f64().unwrap(),
-             order_id.to_string(), transaction_id.to_string())
+        self.log.log_profit(
+            time,
+            log_id,
+            profit.to_f64().unwrap(),
+            profit_cusum.to_f64().unwrap(),
+            order_id.to_string(),
+            transaction_id.to_string(),
+        )
     }
 
     pub fn log_account(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
@@ -742,6 +774,8 @@ impl Session {
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
+        self.log_id += 1;
+        order.log_id = self.log_id;
         order.update_balance(&self.market_config);
 
         if order.order_side == OrderSide::Buy {
@@ -821,7 +855,8 @@ impl Session {
                 if dec![0.0] <= self.position {
                     position_change = self.open_position(order.execute_price, order.execute_size);
                 } else {
-                    (position_change, profit_change) = self.close_position(order.execute_price, order.execute_size);
+                    (position_change, profit_change) =
+                        self.close_position(order.execute_price, order.execute_size);
                 }
             }
         } else if order.order_side == OrderSide::Sell {
@@ -830,15 +865,11 @@ impl Session {
                     || order.status == OrderStatus::PartiallyFilled
                 {
                     if dec![0.0] <= self.position {
-                        (position_change, profit_change) = self.close_position(
-                            order.execute_price,
-                            -order.execute_size,
-                        );
+                        (position_change, profit_change) =
+                            self.close_position(order.execute_price, -order.execute_size);
                     } else {
-                        position_change = self.open_position(
-                            order.execute_price,
-                            -order.execute_size,
-                        );
+                        position_change =
+                            self.open_position(order.execute_price, -order.execute_size);
                     }
                 }
             }
@@ -847,13 +878,28 @@ impl Session {
         }
 
         if self
-            .log_position(position_change, self.position, &order.order_id, &order.transaction_id)
+            .log_position(
+                order.log_id,
+                position_change,
+                self.position,
+                &order.order_id,
+                &order.transaction_id,
+            )
             .is_err()
         {
             log::error!("log_position error");
         };
 
-        if self.log_profit(profit_change, self.profit, &order.order_id, &order.transaction_id).is_err() {
+        if self
+            .log_profit(
+                order.log_id,
+                profit_change,
+                self.profit,
+                &order.order_id,
+                &order.transaction_id,
+            )
+            .is_err()
+        {
             log::error!("log_profit error");
         };
     }
@@ -874,12 +920,11 @@ impl Session {
         &mut self,
         price: Decimal,
         position_change: Decimal,
-    ) -> (Decimal, Decimal)
-     {
+    ) -> (Decimal, Decimal) {
         if position_change.abs() <= self.position.abs() {
             let close_position = -position_change;
             self.position -= close_position;
-            let profit =  (price * close_position) - (self.average_price * close_position);
+            let profit = (price * close_position) - (self.average_price * close_position);
             self.profit += profit;
 
             (close_position, profit)
@@ -888,11 +933,19 @@ impl Session {
             let new_position = close_position + position_change;
 
             // self.position += close_position;
-            let profit  =  (price * close_position) - (self.average_price * close_position);
+            let profit = (price * close_position) - (self.average_price * close_position);
             self.profit += profit;
-            
-            log::debug!("close_position: close_pos={} / closed_pos={}", position_change, close_position);
-            log::debug!("close_position: old_pos={} / new_position={}", self.position, new_position);
+
+            log::debug!(
+                "close_position: close_pos={} / closed_pos={}",
+                position_change,
+                close_position
+            );
+            log::debug!(
+                "close_position: old_pos={} / new_position={}",
+                self.position,
+                new_position
+            );
 
             self.position = dec![0.0];
             self.average_price = dec![0.0];
@@ -936,9 +989,7 @@ impl Session {
             o.update_balance(&self.market_config);
 
             if o.status == OrderStatus::Filled || o.status == OrderStatus::PartiallyFilled {
-                if o.transaction_id == "" {
-                    o.transaction_id = self.dummy_transaction_id();
-                }
+                o.transaction_id = self.dummy_transaction_id();
             }
         }
     }
@@ -1070,8 +1121,6 @@ mod session_tests {
         assert_eq!(session.average_price, dec![150.0]);
     }
 
-
-
     #[test]
     fn test_close_position_greater_than_position_minus() {
         init_debug_log();
@@ -1086,7 +1135,6 @@ mod session_tests {
         assert_eq!(session.position, dec![1.0]);
         assert_eq!(session.average_price, dec![150.0]);
     }
-
 
     /*
     #[test]

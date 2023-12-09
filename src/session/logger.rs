@@ -8,11 +8,15 @@ use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, ser
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
 use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order};
 
+#[skip_serializing_none]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Indicator {
+    #[serde(rename = "i")]
+    pub id: i64,
     #[serde(rename = "k")]
     pub name: String,
     #[serde(rename = "ID")]
@@ -26,8 +30,11 @@ pub struct Indicator {
 }
 
 #[pyclass]
+#[skip_serializing_none]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct TimeIndicator {
+    #[serde(rename = "i")]
+    pub log_id: i64,
     #[serde(rename = "t")]
     pub timestamp: MicroSec,
     #[serde(rename = "ID")]
@@ -207,6 +214,7 @@ impl Into<LogRecord> for Vec<SingleLogRecord> {
 pub struct Logger {
     on_memory: bool,
     current_time: MicroSec,
+    order_serial: i64,
     order: Vec<SingleLogRecord>,
     user_indicator: HashMap<String, Vec<TimeIndicator>>,
     system_indicator: HashMap<String, Vec<TimeIndicator>>,
@@ -221,6 +229,7 @@ impl Logger {
     pub fn new(on_memory: bool) -> Self {
         Self {
             on_memory,
+            order_serial: 0,
             current_time: 0,
             order: vec![],
             user_indicator: HashMap::new(),
@@ -337,23 +346,25 @@ impl Logger {
     pub fn log_position(
         &mut self,
         timestamp: MicroSec,
+        log_id: i64,
         position_change: f64,                
         position: f64,
         order_id: String,        
         transaction_id: String,
     ) -> Result<(), std::io::Error> {
-        self.log_system_indicator(timestamp, "position", position_change, Some(position), Some(order_id), Some(transaction_id))             
+        self.log_system_indicator(timestamp, "position", position_change, Some(position), Some(order_id), Some(transaction_id), Some(log_id))             
     }
 
     pub fn log_profit(
         &mut self,
         timestamp: MicroSec,
+        log_id: i64,
         profit: f64,
         profit_sum: f64,
         order_id: String,
         transaction_id: String,
     ) -> Result<(), std::io::Error> {
-        self.log_system_indicator(timestamp, "profit", profit, Some(profit_sum), Some(order_id), Some(transaction_id))
+        self.log_system_indicator(timestamp, "profit", profit, Some(profit_sum), Some(order_id), Some(transaction_id), Some(log_id))
     }
 
     #[getter]
@@ -374,7 +385,7 @@ impl Logger {
 
     #[getter]
     pub fn get_position(&self) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.system_indicator.get("position"), "position_change", Some("position"), true);
+        let df = Self::indicator_to_df(self.system_indicator.get("position"), "position_change", Some("position"), true, true);
 
         Ok(PyDataFrame(df))
     }
@@ -388,25 +399,26 @@ impl Logger {
 
     #[getter]
     pub fn get_profit(&self) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.system_indicator.get("profit"), "profit", Some("sum"), true);
+        let df = Self::indicator_to_df(self.system_indicator.get("profit"), "profit", Some("sum"), true, true);
 
         Ok(PyDataFrame(df))
     }
 
     pub fn __getitem__(&self, key: &str) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.user_indicator.get(key), key, None, false);
+        let df = Self::indicator_to_df(self.user_indicator.get(key), key, None, false, false);
 
         Ok(PyDataFrame(df))
     }
 }
 
 impl Logger {
-    pub fn indicator_to_df(indicator: Option<&Vec<TimeIndicator>>, value_name: &str, value_name2: Option<&str>, has_transaction_id: bool) -> DataFrame {
+    pub fn indicator_to_df(indicator: Option<&Vec<TimeIndicator>>, value_name: &str, value_name2: Option<&str>, has_transaction_id: bool, has_log_id: bool) -> DataFrame {
         let mut timestamp: Vec<MicroSec> = vec![];
         let mut value: Vec<f64> = vec![];
         let mut value2: Vec<f64> = vec![];
         let mut order_id: Vec<String> = vec![];        
         let mut transaction_id: Vec<String> = vec![];        
+        let mut log_id:Vec<i64> = vec![];
 
         let has_value2 = value_name2.is_some();
 
@@ -438,6 +450,8 @@ impl Logger {
                         transaction_id.push("".to_string());
                     }
                 }
+
+                log_id.push(i.log_id);
             }
         }
 
@@ -458,7 +472,12 @@ impl Logger {
             column.push(order_id_series);
             column.push(transaction_id_series);
         }
-    
+
+        if has_log_id {
+            let log_id_series = Series::new("log_id", log_id);
+            column.push(log_id_series);
+        }
+
         let mut df = DataFrame::new(column).unwrap();
 
         let time = df.column("timestamp").unwrap().i64().unwrap().clone();
@@ -476,9 +495,11 @@ impl Logger {
         value2: Option<f64>,
         order_id: Option<String>,
         transaction_id: Option<String>,
+        id: Option<i64>
     ) -> Result<(), std::io::Error> {
         let indicator = Indicator {
             name: key.to_string(),
+            id: id.unwrap_or_default(),
             order_id: order_id,
             transaction_id: transaction_id,
             value: value,
@@ -495,9 +516,11 @@ impl Logger {
         value2: Option<f64>,
         order_id: Option<String>,
         transaction_id: Option<String>,
+        id: Option<i64>
     ) -> Result<(), std::io::Error> {
         let indicator = Indicator {
             name: key.to_string(),
+            id: id.unwrap_or_default(),            
             order_id: order_id,
             transaction_id: transaction_id,
             value: value,
@@ -522,6 +545,7 @@ impl Logger {
 
                 let indicator = Indicator {
                     name: key.to_string(),
+                    id: i.log_id,
                     value: i.value,
                     order_id: i.order_id.clone(),
                     transaction_id: i.transaction_id.clone(),
@@ -539,6 +563,7 @@ impl Logger {
         Self {
             on_memory: true,
             current_time: self.current_time,
+            order_serial: self.order_serial,
             order: self.order.clone(),
             user_indicator: self.user_indicator.clone(),
             system_indicator: self.system_indicator.clone(),
@@ -580,6 +605,7 @@ impl Logger {
                 log::debug!("store user indicator: {:?}", indicator);
                 let time_indicator = TimeIndicator {
                     timestamp: timestamp,
+                    log_id: indicator.id,
                     order_id: indicator.order_id,                    
                     transaction_id: indicator.transaction_id,
                     value: indicator.value,
@@ -599,6 +625,7 @@ impl Logger {
                 log::debug!("store SYSTEM indicator: {:?}", indicator);
                 let time_indicator = TimeIndicator {
                     timestamp: timestamp,
+                    log_id: indicator.id,
                     order_id: indicator.order_id,
                     transaction_id: indicator.transaction_id,
                     value: indicator.value,
@@ -727,6 +754,7 @@ mod tests {
 
         let indicator = Indicator {
             name: "test".to_string(),
+            id: 1,
             order_id: Some("order-1".to_string()),
             transaction_id: Some("transaction-1".to_string()),
             value: 1.0,
@@ -736,6 +764,7 @@ mod tests {
 
         let indicator = Indicator {
             name: "test2".to_string(),
+            id: 2,
             order_id: Some("order-1".to_string()),
             transaction_id: Some("transaction-1".to_string()),
             value: 2.0,
