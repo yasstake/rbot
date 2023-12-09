@@ -521,6 +521,7 @@ pub struct Order {
     pub free_foreign_change: Decimal,
     pub lock_home_change: Decimal,
     pub lock_foreign_change: Decimal,
+    pub log_id: i64,
 }
 
 #[pymethods]
@@ -565,6 +566,7 @@ impl Order {
             free_foreign_change: dec![0.0],
             lock_home_change: dec![0.0],
             lock_foreign_change: dec![0.0],
+            log_id: 0,
         };
     }
 
@@ -684,6 +686,7 @@ impl Into<MarketMessage> for &Order {
 }
 
 pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
+    let mut log_id = Vec::<i64>::new();
     let mut symbol = Vec::<String>::new();
     let mut create_time = Vec::<MicroSec>::new();
     let mut status = Vec::<String>::new();
@@ -713,6 +716,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let mut lock_foreign_change = Vec::<f64>::new();
 
     for order in orders {
+        log_id.push(order.log_id);
         symbol.push(order.symbol.clone());
         create_time.push(order.create_time);
         status.push(order.status.to_string());
@@ -743,6 +747,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         lock_foreign_change.push(order.lock_foreign_change.to_f64().unwrap());
     }
 
+    let log_id = Series::new("log_id", log_id);
     let symbol = Series::new("symbol", symbol);
     let create_time = Series::new("create_time", create_time);
     let status = Series::new("status", status);
@@ -773,6 +778,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
 
     let mut df = DataFrame::new(vec![
+        log_id,
         symbol,
         update_time,
         create_time,
