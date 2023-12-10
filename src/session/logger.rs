@@ -10,7 +10,7 @@ use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order};
+use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order, FeeType};
 
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -62,6 +62,17 @@ pub struct Position {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct Profit {
+    pub log_id: i64,
+    pub open_position: f64,
+    pub close_position: f64,
+    pub position: f64,
+    pub profit: f64,
+    pub fee: f64,
+    pub total_profit: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum LogMessage {
     #[serde(rename = "O")]
     Order(Order),
@@ -71,6 +82,8 @@ pub enum LogMessage {
     UserIndicator(Indicator),
     #[serde(rename = "I")]
     SystemIndicator(Indicator),
+    #[serde(rename = "P")]
+    Profit(Profit)
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -193,6 +206,7 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
     return df.clone();
 }
 
+
 impl Into<LogRecord> for Vec<SingleLogRecord> {
     fn into(self) -> LogRecord {
         let mut result = LogRecord::new(0);
@@ -219,6 +233,7 @@ pub struct Logger {
     user_indicator: HashMap<String, Vec<TimeIndicator>>,
     system_indicator: HashMap<String, Vec<TimeIndicator>>,
     account: Vec<SingleLogRecord>,
+    profit: Vec<SingleLogRecord>,
     log_file: Option<File>,
     log_buffer: Option<LogRecord>,
 }
@@ -235,6 +250,7 @@ impl Logger {
             user_indicator: HashMap::new(),
             system_indicator: HashMap::new(),
             account: vec![],
+            profit: vec![],
             log_file: None,
             log_buffer: None,
         }
@@ -299,6 +315,8 @@ impl Logger {
         // save account status
         self.save_log_records(&self.account.clone())?;
 
+        self.save_log_records(&self.profit.clone())?;
+
         self.flush_buffer()?;
 
         Ok(())
@@ -359,13 +377,28 @@ impl Logger {
         &mut self,
         timestamp: MicroSec,
         log_id: i64,
+        open_position: f64,
+        close_position: f64,
+        position: f64,
         profit: f64,
+        fee: f64,
         profit_sum: f64,
-        order_id: String,
-        transaction_id: String,
     ) -> Result<(), std::io::Error> {
-        self.log_system_indicator(timestamp, "profit", profit, Some(profit_sum), Some(order_id), Some(transaction_id), Some(log_id))
+        let profit = Profit{
+            log_id: log_id,
+            open_position: open_position,
+            close_position: close_position,
+            position: position,
+            profit: profit,
+            fee: fee,
+            total_profit: profit_sum,
+        };
+        
+        self.log_message(timestamp, &LogMessage::Profit(profit))
     }
+
+
+
 
     #[getter]
     pub fn get_orders(&self) -> PyResult<PyDataFrame> {
@@ -383,12 +416,14 @@ impl Logger {
         Ok(PyDataFrame(ordervec_to_dataframe(orders)))
     }
 
+    /*
     #[getter]
     pub fn get_position(&self) -> PyResult<PyDataFrame> {
         let df = Self::indicator_to_df(self.system_indicator.get("position"), "position_change", Some("position"), true, true);
 
         Ok(PyDataFrame(df))
     }
+    */
 
     #[getter]
     pub fn get_account(&self) -> PyResult<PyDataFrame> {
@@ -399,7 +434,7 @@ impl Logger {
 
     #[getter]
     pub fn get_profit(&self) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.system_indicator.get("profit"), "profit", Some("sum"), true, true);
+        let df = Self::profit_to_df(self.profit.clone());
 
         Ok(PyDataFrame(df))
     }
@@ -412,6 +447,61 @@ impl Logger {
 }
 
 impl Logger {
+    pub fn profit_to_df(records: Vec<SingleLogRecord>) -> DataFrame {
+        let mut log_id = Vec::<i64>::new();
+        let mut timestamp: Vec<MicroSec> = vec![];
+        let mut open_position: Vec<f64> = vec![];
+        let mut close_position: Vec<f64> = vec![];
+        let mut position: Vec<f64> = vec![];
+        let mut profit: Vec<f64> = vec![];
+        let mut fee: Vec<f64> = vec![];
+        let mut total_profit: Vec<f64> = vec![];
+
+        for rec in records {
+            match rec.data {
+                LogMessage::Profit(p) => {
+                    log_id.push(p.log_id);
+                    timestamp.push(rec.timestamp);
+                    open_position.push(p.open_position);
+                    close_position.push(p.close_position);
+                    position.push(p.position);
+                    profit.push(p.profit);
+                    fee.push(p.fee);
+                    total_profit.push(p.total_profit);
+                }
+                _ => {
+                    panic!("not supported message type");
+                }
+            }
+        }
+
+        let log_id  = Series::new("log_id", log_id);
+        let timestamp_series = Series::new("timestamp", timestamp);
+        let open_position_series = Series::new("open_position", open_position);
+        let close_position_series = Series::new("close_position", close_position);
+        let position_series = Series::new("position", position);
+        let profit_series = Series::new("profit", profit);
+        let fee_series = Series::new("fee", fee);
+        let total_profit_series = Series::new("total_profit", total_profit);
+
+        let mut df = DataFrame::new(vec![
+            log_id,
+            timestamp_series,
+            open_position_series,
+            close_position_series,
+            position_series,
+            profit_series,
+            fee_series,
+            total_profit_series,
+        ]).unwrap();
+
+        let time = df.column("timestamp").unwrap().i64().unwrap().clone();
+        let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+        let df = df.with_column(date_time).unwrap();
+
+        df.clone()
+    }
+
     pub fn indicator_to_df(indicator: Option<&Vec<TimeIndicator>>, value_name: &str, value_name2: Option<&str>, has_transaction_id: bool, has_log_id: bool) -> DataFrame {
         let mut timestamp: Vec<MicroSec> = vec![];
         let mut value: Vec<f64> = vec![];
@@ -568,6 +658,7 @@ impl Logger {
             user_indicator: self.user_indicator.clone(),
             system_indicator: self.system_indicator.clone(),
             account: self.account.clone(),
+            profit: self.profit.clone(),
             log_file: None,
             log_buffer: None,
         }
@@ -643,7 +734,11 @@ impl Logger {
             }
             LogMessage::Account(_) => {
                 self.account.push(log_record);
-            } /*
+            }
+            LogMessage::Profit(_) => {
+                self.profit.push(log_record);
+            }
+            /*
               _ => {
                   log::error!("not supported message type");
               }

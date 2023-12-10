@@ -103,13 +103,15 @@ impl BinanceConfig {
             "".to_string()
         };
 
-        let market_config = MarketConfig::new(
+        let mut market_config = MarketConfig::new(
             home_symbol,
             foreign_symbol,
             2,
             4,
         );
 
+        market_config.taker_fee = dec![0.0001];
+        market_config.maker_fee = dec![0.0001];
 
         return BinanceConfig {
             test_net: false,
