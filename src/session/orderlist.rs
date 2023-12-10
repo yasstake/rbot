@@ -56,6 +56,19 @@ impl OrderList {
         }
     }
 
+    pub fn get_old_orders(&self, expire_sec: i64) -> Vec<Order> {
+        let now = crate::common::NOW();
+        let mut old_orders: Vec<Order> = Vec::new();
+
+        for order in self.list.iter() {
+            if order.create_time + expire_sec * crate::common::MICRO_SECOND < now {
+                old_orders.push(order.clone());
+            }
+        }
+
+        old_orders
+    }
+
     /// Clears the list of orders.
     pub fn clear(&mut self) {
         self.list.clear();

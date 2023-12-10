@@ -7,14 +7,12 @@ use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use serde::de;
 
 use super::{Logger, OrderList};
 use crate::common::{
     date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
     OrderSide, OrderStatus, NOW,
 };
-use crate::db::df::KEY::open;
 use pyo3::prelude::*;
 
 use crate::common::Trade;
@@ -215,6 +213,11 @@ impl Session {
         Python::with_gil(|py| self.market.getattr(py, "board"))
     }
 
+    #[getter]
+    pub fn get_execute_mode(&self) -> String {
+        self.execute_mode.__str__()
+    }
+
     // order information
     #[getter]
     pub fn get_buy_orders(&self) -> Vec<Order> {
@@ -323,6 +326,28 @@ impl Session {
         }
     }
 
+    pub fn expire_order(&mut self, ttl_sec: i64) {
+
+        for order in self.buy_orders.get_old_orders(ttl_sec) {
+            if self.cancel_order(&order.order_id).is_ok() {
+                log::debug!("expire_orders: cancel order: {:?}", order);
+            }
+            else {
+                log::warn!("expire_orders: cancel order error: {:?}", order);
+            }
+
+        }
+
+        for order in self.sell_orders.get_old_orders(ttl_sec) {
+            if self.cancel_order(&order.order_id).is_ok() {
+                log::debug!("expire_orders: cancel order: {:?}", order);
+            }
+            else {
+                log::warn!("expire_orders: cancel order error: {:?}", order);
+            }
+        }
+    }
+    
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             self.dummy_cancel_order(order_id)

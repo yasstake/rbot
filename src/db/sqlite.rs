@@ -249,7 +249,34 @@ impl TradeTableDb {
         }
     }
 
+    fn is_table_exsit(&self) -> bool {
+        let sql = "select count(*) from sqlite_master where type='table' and name='trades'";
+
+        let result = self.connection.query_row(sql, [], |row| {
+            let count: i64 = row.get(0)?;
+            Ok(count)
+        });
+
+        match result {
+            Ok(count) => {
+                if count == 0 {
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            Err(e) => {
+                log::error!("is_table_exsit error {:?}", e);
+                return false;
+            }
+        }
+    }
+
     fn create_table_if_not_exists(&self) -> Result<(), Error> {
+        if self.is_table_exsit() {
+            return Ok(());
+        }
+
         let _r = self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
             time_stamp    INTEGER,
@@ -1600,4 +1627,21 @@ mod test_transaction_table {
 
         TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap());
     }
+
+    #[test]
+    fn test_table_is_exsit() {
+        //let db_name = db_full_path("BN", "SPOT", "BTCUSDT");
+        
+        let db = TradeTableDb::open("/tmp/rbottest.db").unwrap();
+
+        if db.is_table_exsit() {
+            print!("table is exist");
+        }
+        else {
+            print!("table is not exist");
+        }
+    }
+
+    
+
 }
