@@ -12,8 +12,14 @@ pub fn project_dir() -> PathBuf {
 }
 
 
-pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str) -> PathBuf {
-    let project_dir = project_dir();
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str) -> PathBuf {
+    let project_dir = if base_dir == "" {
+        project_dir()
+    }
+    else {
+        PathBuf::from(base_dir)
+    };
+
     let db_dir = project_dir.join("DB");
     let exchange_dir = db_dir.join(exchange_name);
     let _ = fs::create_dir_all(&exchange_dir);
@@ -39,8 +45,14 @@ mod test_fs {
 
     #[test]
     fn test_db_full_path() {
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP");
-
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
         println!("{:?}", db);
+
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp/");
+        println!("{:?}", db);
+
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "./");
+        println!("{:?}", db);
+
     }
 }

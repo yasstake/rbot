@@ -40,7 +40,10 @@ pub struct BinanceConfig {
     pub api_secret: String,
 
     #[pyo3(get)]
-    pub market_config: MarketConfig
+    pub market_config: MarketConfig,
+
+    #[pyo3(get, set)]
+    pub db_base_dir: String,
 }
 
 #[pymethods]
@@ -147,6 +150,7 @@ impl BinanceConfig {
             api_key,
             api_secret,
             market_config,
+            db_base_dir: "".to_string(),
         };
     }
 
@@ -158,7 +162,7 @@ impl BinanceConfig {
             exchange_name = format!("{}-TESTNET", exchange_name);
         }
 
-        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol);
+        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol, &self.db_base_dir);
 
         return db_path.to_str().unwrap().to_string();
     }
