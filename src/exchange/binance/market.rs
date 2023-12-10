@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{sleep, JoinHandle, self};
 use std::time::Duration;
 
-use crate::common::{convert_pyresult_vec, MarketMessage, time_string, OrderType, OrderStatus, LogStatus, FLOOR_DAY};
+use crate::common::{convert_pyresult_vec, MarketMessage, time_string, OrderType, OrderStatus, LogStatus, FLOOR_DAY, flush_log};
 use crate::common::DAYS;
 use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
@@ -232,6 +232,7 @@ impl BinanceMarket {
                 log::info!("downloaded: {}", download_rec);
                 if verbose {
                     println!("downloaded: {}", download_rec);
+                    flush_log();
                 }
                 Ok(download_rec)
             }
@@ -248,11 +249,12 @@ impl BinanceMarket {
         }
     }
 
-    #[pyo3(signature = (ndays, force = false, verbose=false))]
+    #[pyo3(signature = (ndays, *, force = false, verbose=true))]
     pub fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
+            flush_log();
         }
 
         let latest_date;
@@ -267,6 +269,7 @@ impl BinanceMarket {
         log::info!("archive latest_date: {}", time_string(latest_date));
         if verbose {
             println!("archive latest_date: {}", time_string(latest_date));
+            flush_log();
         }
 
         let mut download_rec: i64 = 0;
@@ -279,6 +282,7 @@ impl BinanceMarket {
                 
                 if verbose {
                     println!("{} skip download", time_string(date));
+                    flush_log();
                 }
                 continue;
             }
@@ -303,13 +307,14 @@ impl BinanceMarket {
         download_rec
     }
 
-    #[pyo3(signature = (force=false, verbose = false))]
+    #[pyo3(signature = (force=false, verbose = true))]
     pub fn download_latest(&mut self, force:bool, verbose: bool) -> i64 {
         if verbose {
             println!("start download from rest API");
+            flush_log();
         }
 
-        let mut start_id: BinanceMessageId = 0;
+        let start_id: u64;
 
         if force {
             let (fix_id, _fix_time) = self.latest_fix_time();
@@ -320,6 +325,14 @@ impl BinanceMarket {
             start_id = stable_id + 1;
         }
 
+        if start_id == 1 {
+            println!("ERROR: no record in database");
+            println!(" Try to reboot your program and download(days=2, force=True).");            
+            flush_log();
+
+            return 0;
+        }
+        
         let ch = self.db.start_thread();
 
         let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
@@ -330,7 +343,8 @@ impl BinanceMarket {
         }).unwrap();
 
         if verbose {
-            println!("REST downloaded: {}", record_number);
+            println!("\nREST downloaded: {}[rec]", record_number);
+            flush_log();
         }
 
         return record_number;
@@ -338,7 +352,7 @@ impl BinanceMarket {
 
     #[pyo3(signature = (verbose = false))]
     pub fn latest_stable_time(&mut self, verbose: bool) -> (BinanceMessageId, MicroSec) {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" or status = "e" order by time_stamp desc"#;
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and (status = "E" or status = "e") order by time_stamp desc"#;
 
         let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(4)]);
 
@@ -1205,8 +1219,8 @@ let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         let (stable_id, stable_time)= market.latest_stable_time(true);
         println!("STABLETIME: {:?}", time_string(stable_time));
 
-        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |row|Ok({
-            // println!("{:?}", row);
+        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |_row|Ok({
+            // println!("{:?}", _row);
         })).unwrap();
 
         println!("{}", rec_no);

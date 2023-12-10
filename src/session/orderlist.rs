@@ -56,6 +56,19 @@ impl OrderList {
         }
     }
 
+    pub fn get_old_orders(&self, expire_sec: i64) -> Vec<Order> {
+        let now = crate::common::NOW();
+        let mut old_orders: Vec<Order> = Vec::new();
+
+        for order in self.list.iter() {
+            if order.create_time + expire_sec * crate::common::MICRO_SECOND < now {
+                old_orders.push(order.clone());
+            }
+        }
+
+        old_orders
+    }
+
     /// Clears the list of orders.
     pub fn clear(&mut self) {
         self.list.clear();
@@ -188,7 +201,7 @@ impl OrderList {
                 self.list[0].status = OrderStatus::PartiallyFilled;
                 self.list[0].execute_size = remain_size;
                 self.list[0].remain_size -= remain_size;
-                self.list[0].execute_price = trade.price;
+                self.list[0].execute_price = self.list[0].order_price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;
 
                 filled_orders.push(self.list[0].clone());
@@ -201,7 +214,7 @@ impl OrderList {
                 self.list[0].status = OrderStatus::Filled;
                 self.list[0].execute_size = self.list[0].remain_size;
                 self.list[0].remain_size = 0.into();                
-                self.list[0].execute_price = trade.price;
+                self.list[0].execute_price = self.list[0].order_price;
                 self.list[0].quote_vol = self.list[0].execute_price * self.list[0].execute_size;                
 
                 remain_size -= self.list[0].remain_size;

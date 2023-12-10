@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use crate::common::{LogStatus, Trade};
+use crate::common::{LogStatus, Trade, flush_log};
 use crossbeam_channel::Sender;
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
@@ -334,6 +334,7 @@ where
 {
     if verbose {
         print!("log download (url = {})", url);
+        flush_log();
     }
     let mut download_rec = 0;
 
@@ -394,7 +395,7 @@ where
     log::debug!("download rec = {}", download_rec);
     if verbose {
         println!(" download complete rec = {}", download_rec);
-        let _ = stdout().flush();
+        flush_log();
     }
 
     return Ok(download_rec);

@@ -16,6 +16,7 @@ use rust_decimal::Decimal;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
 use crate::common::SEC;
+use crate::common::flush_log;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
 use crate::db::df::merge_df;
@@ -248,7 +249,34 @@ impl TradeTableDb {
         }
     }
 
+    fn is_table_exsit(&self) -> bool {
+        let sql = "select count(*) from sqlite_master where type='table' and name='trades'";
+
+        let result = self.connection.query_row(sql, [], |row| {
+            let count: i64 = row.get(0)?;
+            Ok(count)
+        });
+
+        match result {
+            Ok(count) => {
+                if count == 0 {
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            Err(e) => {
+                log::error!("is_table_exsit error {:?}", e);
+                return false;
+            }
+        }
+    }
+
     fn create_table_if_not_exists(&self) -> Result<(), Error> {
+        if self.is_table_exsit() {
+            return Ok(());
+        }
+
         let _r = self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
             time_stamp    INTEGER,
@@ -280,15 +308,16 @@ impl TradeTableDb {
     }
 
     fn drop_table(&self) -> Result<(), Error> {
+        println!("database is dropped. To use database, restart the program.");
+        println!("To delete completely, delete the database file from OS.");
+        println!("DB file = {}", self.file_name);
+        flush_log();
+
         let r = self.connection.execute("drop table trades", ());
 
         if r.is_err() {
             log::error!("drop table error {:?}", r);
         }
-
-        print!("database is dropped. To use database, restart the program.");
-        print!("to delete completely, delete the database file from OS.");
-        print!("DB file = {}", self.file_name);
 
         self.vacuum()?;
 
@@ -1225,7 +1254,8 @@ impl TradeTable {
 
     pub fn drop_table(&self) -> Result<(), Error> {
         if self.is_thread_running() {
-            println!("WARNING: thread is running, may cause dead lock. Execute drop_table() before start_market_stream().");
+            println!("WARNING: thread is running, may cause dead lock");
+            println!("Execute drop_table() before download() or start_market_stream().");
         }
 
         self.connection.drop_table()
@@ -1399,7 +1429,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13);
@@ -1419,7 +1449,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1433,7 +1463,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -1447,7 +1477,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunks() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1482,7 +1512,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -1522,7 +1552,7 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
@@ -1533,7 +1563,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
@@ -1544,7 +1574,7 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW());
@@ -1553,7 +1583,7 @@ mod test_transaction_table {
     #[test]
     fn test_start_thread() {
         let mut table =
-            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
+            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap()).unwrap();
         let tx = table.start_thread();
 
         let v = vec![Trade {
@@ -1595,6 +1625,23 @@ mod test_transaction_table {
     fn test_wal_mode() {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
-        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap());
+        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap());
     }
+
+    #[test]
+    fn test_table_is_exsit() {
+        //let db_name = db_full_path("BN", "SPOT", "BTCUSDT");
+        
+        let db = TradeTableDb::open("/tmp/rbottest.db").unwrap();
+
+        if db.is_table_exsit() {
+            print!("table is exist");
+        }
+        else {
+            print!("table is not exist");
+        }
+    }
+
+
+
 }

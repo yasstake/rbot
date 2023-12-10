@@ -12,7 +12,7 @@ use pyo3::pyclass;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{de, Deserialize, Deserializer};
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Serialize;
 
 use crate::common::MarketConfig;
 

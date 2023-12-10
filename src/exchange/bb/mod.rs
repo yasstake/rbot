@@ -63,7 +63,7 @@ impl BBMarket {
 
     #[staticmethod]
     pub fn db_path(market_name: &str) -> PyResult<String> {
-        let db_name = db_full_path("BB", "trade", market_name);
+        let db_name = db_full_path("BB", "trade", market_name, "");
 
         return Ok(db_name.as_os_str().to_str().unwrap().to_string());
     }
