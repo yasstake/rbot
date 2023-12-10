@@ -112,6 +112,8 @@ impl MultiChannel {
             let result = channel.sender.send(message.clone());
 
             if result.is_err() {
+                log::warn!("Send ERROR: {:?}. remove channel", result);                
+                channel.valid = false;
                 has_error = true;
             }
         }

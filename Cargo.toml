@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -23,6 +23,8 @@ rusqlite = {version = "0.30.0", features=["bundled"]}
 serde = {version="1.0"}
 serde_json = {version = "1.0"}
 serde_derive = {version = "1.0"}
+
+serde_with = {version = "3.4.0"}
 
 log = {version = "0.4"}
 env_logger = {version = "0.10.0"}

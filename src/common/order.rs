@@ -408,19 +408,29 @@ pub struct AccountStatus {
 impl Default for AccountStatus {
     fn default() -> Self {
         return AccountStatus {
-            home: Decimal::new(0, 0),
-            home_free: Decimal::new(0, 0),
-            home_locked: Decimal::new(0, 0),
+            home: dec![0.0],
+            home_free: dec![0.0],
+            home_locked: dec![0.0],
 
-            foreign: Decimal::new(0, 0),
-            foreign_free: Decimal::new(0, 0),
-            foreign_locked: Decimal::new(0, 0),
+            foreign: dec![0.0],
+            foreign_free: dec![0.0],
+            foreign_locked: dec![0.0]
         };
     }
 }
 
 #[pymethods]
 impl AccountStatus {
+    pub fn apply_order(&mut self, order: &Order) {
+        self.foreign += order.foreign_change;
+        self.foreign_free += order.free_foreign_change;
+        self.foreign_locked += order.lock_foreign_change;
+
+        self.home += order.home_change;
+        self.home_free += order.free_home_change;
+        self.home_locked += order.lock_home_change;
+    }
+
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -453,6 +463,11 @@ impl AccountStatus {
         return self.foreign_locked.to_f64().unwrap();
     }
 }
+
+
+
+
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -506,9 +521,12 @@ pub struct Order {
     pub free_foreign_change: Decimal,
     pub lock_home_change: Decimal,
     pub lock_foreign_change: Decimal,
+    pub log_id: i64,
 }
 
+#[pymethods]
 impl Order {
+    #[new]
     pub fn new(
         symbol: String,
         create_time: MicroSec,
@@ -548,12 +566,10 @@ impl Order {
             free_foreign_change: dec![0.0],
             lock_home_change: dec![0.0],
             lock_foreign_change: dec![0.0],
+            log_id: 0,
         };
     }
-}
 
-#[pymethods]
-impl Order {
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -670,6 +686,7 @@ impl Into<MarketMessage> for &Order {
 }
 
 pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
+    let mut log_id = Vec::<i64>::new();
     let mut symbol = Vec::<String>::new();
     let mut create_time = Vec::<MicroSec>::new();
     let mut status = Vec::<String>::new();
@@ -699,6 +716,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let mut lock_foreign_change = Vec::<f64>::new();
 
     for order in orders {
+        log_id.push(order.log_id);
         symbol.push(order.symbol.clone());
         create_time.push(order.create_time);
         status.push(order.status.to_string());
@@ -729,6 +747,7 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         lock_foreign_change.push(order.lock_foreign_change.to_f64().unwrap());
     }
 
+    let log_id = Series::new("log_id", log_id);
     let symbol = Series::new("symbol", symbol);
     let create_time = Series::new("create_time", create_time);
     let status = Series::new("status", status);
@@ -759,7 +778,9 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
 
     let mut df = DataFrame::new(vec![
+        log_id,
         symbol,
+        update_time,
         create_time,
         status,
         order_id,
@@ -770,7 +791,6 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         order_size,
         remain_size,
         transaction_id,
-        update_time,
         execute_price,
         execute_size,
         quote_vol,
@@ -815,38 +835,91 @@ impl Order {
         }
     }
 
-    /// in order book, accout locked the size of order
-    fn update_balance_new(&mut self, _config: &MarketConfig) {
-        if !self.is_maker {
-            return;
-        }
+    fn calc_quote_vol(&self) -> Decimal {
+        return self.order_price * self.order_size;
+    }
 
-        let order_size = self.order_size;
-        let order_quote_vol = self.order_size * self.order_price;
-
-        if self.order_side == OrderSide::Buy {
-            // move home to foregin
-            self.commission_home = dec![0.0];
-            self.commission_foreign = dec![0.0];
-            self.home_change = dec![0.0];
-            self.foreign_change = dec![0.0];
-            self.free_home_change = -order_quote_vol;
-            self.free_foreign_change = dec![0.0];
-            self.lock_home_change = order_quote_vol;
-            self.lock_foreign_change = dec![0.0];
-        } else {
-            // Sell
-            self.commission_home = dec![0.0];
-            self.commission_foreign = dec![0.0];
-            self.home_change = dec![0.0];
-            self.foreign_change = dec![0.0];
-            self.free_home_change = dec![0.0];
-            self.free_foreign_change = -order_size;
-            self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = order_size;
+    fn calc_home_lock_size_new(&self) -> Decimal {
+        match self.is_maker {
+            true => self.calc_quote_vol() + self.commission_home,
+            false => dec![0.0],
         }
     }
 
+    fn calc_foreign_lock_size_new(&self) -> Decimal {
+        match self.is_maker {
+            true => self.order_size + self.commission_foreign,
+            false => dec![0.0],
+        }
+    }
+
+    /*
+    fn calc_execute_vol(&self) -> Decimal {
+        return self.execute_price * self.execute_size;
+    }
+    */
+
+    /*
+    fn calc_home_lock_change(&self) -> Decimal {
+        match self.is_maker {
+            true => {
+                match self.order_side {
+                    OrderSide::Buy => {
+                        return -self.calc_quote_vol();
+                    }
+                    OrderSide::Sell => {
+                        dec![0,0]
+                    }
+                    _ => {
+                        log::warn!("Order.calc_home_lock_change: Unknown order side. order={:?}", self);
+                        return dec![0.0];
+                    }
+
+                }
+            }
+            false => {
+                return dec![0.0];
+            }
+        }
+    }
+
+    fn calc_home_change(&self) -> Decimal {
+        let change = self.calc_execute_vol() - self.commission_home;
+        match self.order_side {
+            OrderSide::Buy => {
+                -change
+            }
+            OrderSide::Sell => {
+                change
+            }
+            _ => {
+                log::warn!("Order.calc_home_change: Unknown order side. order={:?}", self);
+                dec![0.0]
+            }
+        }
+    }
+
+    fn calc_foreign_change(&self) -> Decimal {
+        let change = self.execute_size - self.commission_foreign;
+
+        match self.order_side {
+            OrderSide::Buy => {
+                change
+            }
+            OrderSide::Sell => {
+                -change
+            }
+            _ => {
+                log::warn!("Order.calc_foreign_change: Unknown order side. order={:?}", self);
+                return dec![0.0]
+            }
+        }
+    }
+    */
+
+    // TODO: BackTest時の計算を追加する。
+    // 通常は、約定時にサーバからのデータで確定するが、
+    // BackTest時は、ローカルで計算する必要がある。
     fn update_commision(&mut self, config: &MarketConfig) {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
@@ -860,74 +933,88 @@ impl Order {
         }
     }
 
+    /// in order book, accout locked the size of order
+    /// order bookでは、オーダーのサイズがロックされる。
+    /// このロックサイズは、約定時に解除される。
+    /// home, foreignは変化しない。
+    fn update_balance_new(&mut self, config: &MarketConfig) {
+        self.update_commision(config);
+
+        let home_lock_size = self.calc_home_lock_size_new();
+        let foreign_lock_size = self.calc_foreign_lock_size_new();
+
+        //let home_change = self.calc_quote_vol();
+        //let foreign_change = self.execute_size;
+
+        if self.order_side == OrderSide::Buy {
+            //self.commission_home = dec![0.0];
+            //self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.free_home_change = -home_lock_size;
+            self.lock_home_change =  home_lock_size;            
+
+            self.foreign_change = dec![0.0];
+            self.free_foreign_change = dec![0.0];
+            self.lock_foreign_change = dec![0.0];
+        }
+        else {
+            //self.commission_home = dec![0.0];
+            //self.commission_foreign = dec![0.0];
+            self.home_change = dec![0.0];
+            self.free_home_change = dec![0.0];
+            self.lock_home_change = dec![0.0];
+
+            self.foreign_change = dec![0.0];
+            self.free_foreign_change = -foreign_lock_size;
+            self.lock_foreign_change = foreign_lock_size;
+        }
+    }
+
     /// The lock is freed and shift the balance.
+    /// Lockが解除され、残高が移動する。
     fn update_balance_filled(&mut self, config: &MarketConfig) {
         self.update_commision(config);
 
-        let filled_size = self.execute_size;
-        let filled_quote_vol = self.execute_size * self.execute_price;
+        let home_lock = self.calc_home_lock_size_new();
+        let foreign_lock = self.calc_foreign_lock_size_new();
+
+        let filled_ratio = self.execute_size / self.order_size;
+
+        let home_lock_size_change = home_lock * filled_ratio;
+        let foreign_lock_size_change = foreign_lock * filled_ratio;
+
+        let home_change = self.execute_price * self.execute_size;
+        let foreign_change = self.execute_size;
 
         if self.order_side == OrderSide::Buy {
-            // move home to foregin
-            self.home_change = (-filled_quote_vol) - self.commission_home;
-            self.foreign_change = filled_size - self.commission_foreign;
+            //self.commission_home = dec![0.0];
+            //self.commission_foreign = dec![0.0];
+            self.home_change = -home_change;
+            self.free_home_change = dec![0.0];            
+            self.lock_home_change = -home_lock_size_change;            
 
-            // update foreign
-            self.free_foreign_change = self.foreign_change;
+            self.foreign_change = foreign_change;
+            self.free_foreign_change = foreign_change;
             self.lock_foreign_change = dec![0.0];
-
-            if self.is_maker {
-                // Maker -> homeでlockしたものがforeignに変化する。freeは変化しない。
-                self.lock_home_change = -filled_quote_vol;
-                self.free_home_change = dec![0.0];
-            } else {
-                // Taker -> lockは０。freeだったものからforeignに変化する。
-                self.lock_home_change = dec![0.0];
-                self.free_home_change = self.home_change;
-            }
-        } else {
-            // Sell
-            // move foreign to home
-            self.foreign_change = (-filled_size) - self.commission_foreign;
-            self.home_change = filled_quote_vol - self.commission_home;
-
-            // update home
-            self.free_home_change = self.home_change;
+        }
+        else {
+            //self.commission_home = dec![0.0];
+            //self.commission_foreign = dec![0.0];
+            self.home_change = home_change;
+            self.free_home_change = home_change;
             self.lock_home_change = dec![0.0];
 
-            if self.is_maker {
-                self.lock_foreign_change = -filled_size;
-                self.free_foreign_change = dec![0.0];
-            } else {
-                self.lock_foreign_change = dec![0.0];
-                self.free_foreign_change = self.foreign_change;
-            }
-        }
-
-        // home_change = home_free_change + home_locked_change - commission_home
-        if self.home_change
-            != (self.free_home_change + self.lock_home_change - self.commission_home)
-        {
-            println!(
-                "Order.update_balance_filled: home_change != (free_home_change + lock_home_change). order={:?}",
-                self
-            )
-        }
-
-        if self.foreign_change
-            != (self.free_foreign_change + self.lock_foreign_change - self.commission_foreign)
-        {
-            println!(
-                "Order.update_balance_filled: foreign_change != (free_foreign_change + lock_foreign_change). order={:?}",
-                self
-            )
+            self.foreign_change = -foreign_change;
+            self.free_foreign_change = -foreign_change;
+            self.lock_foreign_change = -foreign_lock_size_change;
         }
     }
 
     //
-    fn update_balance_canceled(&mut self, _config: &MarketConfig) {
-        let order_size = self.order_size;
-        let order_quote_vol = self.order_size * self.order_price;
+    fn update_balance_canceled(&mut self, config: &MarketConfig) {
+        self.update_commision(config);
+        let remain_size = self.remain_size;
+        let order_quote_vol = self.order_price * remain_size;
 
         if self.order_side == OrderSide::Buy {
             // move home to foregin
@@ -946,9 +1033,166 @@ impl Order {
             self.home_change = dec![0.0];
             self.foreign_change = dec![0.0];
             self.free_home_change = dec![0.0];
-            self.free_foreign_change = order_size;
+            self.free_foreign_change = remain_size;
             self.lock_home_change = dec![0.0];
-            self.lock_foreign_change = -order_size;
+            self.lock_foreign_change = -remain_size;
         }
+    }
+}
+
+
+#[cfg(test)]
+mod order_tests {
+    use crate::exchange::binance::BinanceConfig;
+
+    use super::*;
+
+    fn create_order() -> Order {
+        let mut order = Order::new(
+            "".to_string(),
+            0,
+            "".to_string(),
+            "".to_string(),
+            OrderSide::Buy,
+            OrderType::Limit,
+            OrderStatus::New,
+            dec![1234.5],
+            dec![0.0001],
+        );
+        order.update_time = 0;
+        order
+    }
+
+    #[test]
+    fn test_update_balance_filled() {
+        let mut order = create_order();
+        let config = BinanceConfig::BTCUSDT();
+        let market_config = config.market_config.clone();
+
+        //// ＊＊＊＊Limit Orderの場合＊＊＊＊
+        // Newの場合は、Lockが増える。
+        order.order_side = OrderSide::Buy;
+        order.status = OrderStatus::New;
+        order.is_maker = true;
+        order.update_balance(&market_config);
+
+        println!("order={:?}", order);
+        assert_eq!(order.home_change, dec![0.0], "Incorrect home_lock value");
+        assert_eq!(order.lock_home_change,
+            dec![0.12345],
+            "Incorrect home_lock value"
+        );
+        assert_eq!(
+            order.foreign_change,
+            dec![0.0],
+            "Incorrect home_lock value"
+        );
+        assert_eq!(
+            order.lock_foreign_change,
+            dec![0.0],
+            "Incorrect lock-home_lock value"
+        );
+
+        order.order_side = OrderSide::Sell;
+        order.status = OrderStatus::New;
+        order.is_maker = true;
+        order.update_balance(&market_config);
+
+        println!("order={:?}", order);
+        assert_eq!(order.home_change, dec![0.0], "Incorrect home_lock value");
+        assert_eq!(order.lock_home_change,
+            dec![0.0],
+            "Incorrect home_lock value"
+        );
+        assert_eq!(
+            order.foreign_change,
+            dec![0.0],
+            "Incorrect home_lock value"
+        );
+        assert_eq!(
+            order.lock_foreign_change,
+            dec![0.0001],
+            "Incorrect lock-home_lock value"
+        );
+    }
+
+    #[test]
+    fn test_order_fill_update_balance() {
+        let mut order = create_order();
+        let config = BinanceConfig::BTCUSDT();
+        let market_config = config.market_config.clone();
+
+        //------------------FILLED-----------------
+        // Filledの場合は、残高が移動する。
+        // &Makerの場合は、Lockが減り、Freeが増える。
+
+        // buy side
+        order.status = OrderStatus::Filled;
+        order.order_side = OrderSide::Buy;
+        order.execute_price = dec![1234.5];
+        order.execute_size = dec![0.0001];
+        order.is_maker = true;
+        order.update_balance(&market_config);
+
+        println!("order={:?}", order);
+        assert_eq!(order.home_change, dec![-0.12345]);
+        assert_eq!(order.foreign_change, dec![0.0001]);
+
+        assert_eq!(order.lock_home_change, dec![-0.12345]);
+        assert_eq!(order.lock_foreign_change, dec![0.0]);
+
+        // sell side
+        order.status = OrderStatus::Filled;
+        order.order_side = OrderSide::Sell;
+        order.execute_price = dec![1234.5];
+        order.execute_size = dec![0.0001];
+        order.is_maker = true;
+        order.update_balance(&market_config);
+
+        println!("order={:?}", order);
+        assert_eq!(order.home_change, dec![0.12345]);
+        assert_eq!(order.foreign_change, dec![-0.0001]);
+
+        assert_eq!(order.lock_home_change, dec![0.0]);
+        assert_eq!(order.lock_foreign_change, dec![-0.0001]);
+
+        // maker ではない場合はLockしないのでLockの数は変化しない。
+        order.is_maker = false;
+        order.update_balance(&market_config);        
+        assert_eq!(order.lock_home_change, dec![0.0]);
+        assert_eq!(order.lock_foreign_change, dec![0.0]);
+    }
+
+    #[test]
+    fn test_order_calncel_update_balance() {
+        let mut order = create_order();
+        let config = BinanceConfig::BTCUSDT();
+        let market_config = config.market_config.clone();
+
+        order.status = OrderStatus::Canceled;
+        order.order_side = OrderSide::Buy;
+        order.order_price = dec![1234.5];
+        order.order_size = dec![0.0001];
+        order.is_maker = true;
+        order.update_balance(&market_config);
+
+        assert_eq!(order.home_change, dec![0.0]);
+        assert_eq!(order.foreign_change, dec![0.0]);        
+
+        assert_eq!(order.free_home_change, dec![0.12345]);
+        assert_eq!(order.free_foreign_change, dec![0.0]);
+
+        assert_eq!(order.lock_home_change, dec![-0.12345]);
+        assert_eq!(order.lock_foreign_change, dec![0.0]);
+
+
+        order.order_side = OrderSide::Sell;
+        order.update_balance(&market_config);        
+        assert_eq!(order.free_home_change, dec![0.0]);
+        assert_eq!(order.free_foreign_change, dec![0.0001]);
+
+        assert_eq!(order.lock_home_change, dec![0.0]);
+        assert_eq!(order.lock_foreign_change, dec![-0.0001]);
+
     }
 }
