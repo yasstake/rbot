@@ -1429,7 +1429,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13);
@@ -1449,7 +1449,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1463,7 +1463,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -1477,7 +1477,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunks() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1512,7 +1512,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -1552,7 +1552,7 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
@@ -1563,7 +1563,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
@@ -1574,7 +1574,7 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW());
@@ -1583,7 +1583,7 @@ mod test_transaction_table {
     #[test]
     fn test_start_thread() {
         let mut table =
-            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
+            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap()).unwrap();
         let tx = table.start_thread();
 
         let v = vec![Trade {
@@ -1625,7 +1625,7 @@ mod test_transaction_table {
     fn test_wal_mode() {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
-        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap());
+        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap());
     }
 
     #[test]
@@ -1642,6 +1642,6 @@ mod test_transaction_table {
         }
     }
 
-    
+
 
 }
