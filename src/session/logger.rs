@@ -5,12 +5,13 @@ use std::{
 };
 
 use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
-use pyo3::{pyclass, pymethods, PyAny, PyObject, Python, PyResult};
+use polars_ops::frame::{DataFrameJoinOps, JoinArgs, JoinType};
+use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order, FeeType};
+use crate::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order};
 
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -413,7 +414,12 @@ impl Logger {
             })
             .collect();
 
-        Ok(PyDataFrame(ordervec_to_dataframe(orders)))
+        let orders = ordervec_to_dataframe(orders);
+        let profit = Self::profit_to_df(self.profit.clone());
+
+        let all = orders.join(&profit, ["log_id"], ["log_id"], JoinArgs::new(JoinType::Left));
+
+        Ok(PyDataFrame(all.unwrap()))
     }
 
     /*
@@ -449,25 +455,29 @@ impl Logger {
 impl Logger {
     pub fn profit_to_df(records: Vec<SingleLogRecord>) -> DataFrame {
         let mut log_id = Vec::<i64>::new();
-        let mut timestamp: Vec<MicroSec> = vec![];
+        //let mut timestamp: Vec<MicroSec> = vec![];
         let mut open_position: Vec<f64> = vec![];
         let mut close_position: Vec<f64> = vec![];
         let mut position: Vec<f64> = vec![];
         let mut profit: Vec<f64> = vec![];
         let mut fee: Vec<f64> = vec![];
         let mut total_profit: Vec<f64> = vec![];
+        let mut sum_profit_acc: f64 = 0.0;
+        let mut sum_profit: Vec<f64> = vec![];
 
         for rec in records {
             match rec.data {
                 LogMessage::Profit(p) => {
                     log_id.push(p.log_id);
-                    timestamp.push(rec.timestamp);
+        //            timestamp.push(rec.timestamp);
                     open_position.push(p.open_position);
                     close_position.push(p.close_position);
                     position.push(p.position);
                     profit.push(p.profit);
                     fee.push(p.fee);
                     total_profit.push(p.total_profit);
+                    sum_profit_acc += p.total_profit;
+                    sum_profit.push(sum_profit_acc);
                 }
                 _ => {
                     panic!("not supported message type");
@@ -476,28 +486,31 @@ impl Logger {
         }
 
         let log_id  = Series::new("log_id", log_id);
-        let timestamp_series = Series::new("timestamp", timestamp);
+        //let timestamp_series = Series::new("timestamp", timestamp);
         let open_position_series = Series::new("open_position", open_position);
         let close_position_series = Series::new("close_position", close_position);
         let position_series = Series::new("position", position);
         let profit_series = Series::new("profit", profit);
         let fee_series = Series::new("fee", fee);
         let total_profit_series = Series::new("total_profit", total_profit);
+        let sum_profit_series = Series::new("sum_profit", sum_profit);
 
-        let mut df = DataFrame::new(vec![
+
+        let df = DataFrame::new(vec![
             log_id,
-            timestamp_series,
+        //    timestamp_series,
             open_position_series,
             close_position_series,
             position_series,
             profit_series,
             fee_series,
             total_profit_series,
+            sum_profit_series,
         ]).unwrap();
 
-        let time = df.column("timestamp").unwrap().i64().unwrap().clone();
-        let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-        let df = df.with_column(date_time).unwrap();
+        //let time = df.column("timestamp").unwrap().i64().unwrap().clone();
+        //let date_time = time.into_datetime(TimeUnit::Microseconds, None);
+        //let df = df.with_column(date_time).unwrap();
 
         df.clone()
     }
@@ -509,8 +522,6 @@ impl Logger {
         let mut order_id: Vec<String> = vec![];        
         let mut transaction_id: Vec<String> = vec![];        
         let mut log_id:Vec<i64> = vec![];
-
-        let has_value2 = value_name2.is_some();
 
         if indicator.is_some() {
             let indicator = indicator.unwrap();
@@ -820,13 +831,10 @@ impl Drop for Logger {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::common::init_debug_log;
     use crate::common::Order;
     use crate::common::OrderSide;
     use crate::common::OrderStatus;
     use crate::common::OrderType;
-    use crate::Logger;
     use rust_decimal_macros::dec;
 
     #[test]

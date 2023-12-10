@@ -561,7 +561,9 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         session.set_real_account(account);
-        session.log_account(account);
+        if session.log_account(account).is_err() {
+            log::error!("call_agent_on_account_update: log_account failed");
+        }
 
         log::debug!("call_agent_on_account_update: {:?}", &account);
         let py_account = Py::new(*py, account.clone()).unwrap();
@@ -581,7 +583,9 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         let account = session.get_account();
-        session.log_account(&account);
+        if session.log_account(&account).is_err() {
+            log::error!("call_agent_on_account_update_dummy: log_account failed");
+        }
         log::debug!("call_agent_on_account_update_dummy: {:?}", &account);
 
         let py_account = Py::new(*py, account).unwrap();
