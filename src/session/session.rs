@@ -7,12 +7,14 @@ use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
+use serde::de;
 
 use super::{Logger, OrderList};
 use crate::common::{
     date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
     OrderSide, OrderStatus, NOW,
 };
+use crate::db::df::KEY::open;
 use pyo3::prelude::*;
 
 use crate::common::Trade;
@@ -686,43 +688,27 @@ impl Session {
         self.log.open_log(path)
     }
 
-    pub fn log_position(
-        &mut self,
-        log_id: i64,
-        position_change: Decimal,
-        position: Decimal,
-        order_id: &str,
-        transaction_id: &str,
-    ) -> Result<(), std::io::Error> {
-        let time = self.calc_log_timestamp();
-
-        self.log.log_position(
-            time,
-            log_id,
-            position_change.to_f64().unwrap(),
-            position.to_f64().unwrap(),
-            order_id.to_string(),
-            transaction_id.to_string(),
-        )
-    }
-
     pub fn log_profit(
         &mut self,
         log_id: i64,
+        open_position: Decimal,
+        close_position: Decimal,
+        position: Decimal,
         profit: Decimal,
-        profit_cusum: Decimal,
-        order_id: &str,
-        transaction_id: &str,
+        fee: Decimal,
+        total_profit: Decimal,
     ) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
         self.log.log_profit(
             time,
             log_id,
+            open_position.to_f64().unwrap(),
+            close_position.to_f64().unwrap(),
+            position.to_f64().unwrap(),
             profit.to_f64().unwrap(),
-            profit_cusum.to_f64().unwrap(),
-            order_id.to_string(),
-            transaction_id.to_string(),
+            fee.to_f64().unwrap(),
+            total_profit.to_f64().unwrap(),
         )
     }
 
@@ -847,56 +833,51 @@ impl Session {
 
     // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
     pub fn update_psudo_position(&mut self, order: &Order) {
-        let mut position_change = dec![0.0];
-        let mut profit_change = dec![0.0];
+        let mut open_position = dec![0.0];
+        let mut close_position = dec![0.0];
+        let mut profit = dec![0.0];
 
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
                 if dec![0.0] <= self.position {
-                    position_change = self.open_position(order.execute_price, order.execute_size);
+                    self.open_position(order.execute_price, order.execute_size);
+                    open_position = order.execute_size;
                 } else {
-                    (position_change, profit_change) =
+                    (close_position, open_position, profit) =
                         self.close_position(order.execute_price, order.execute_size);
                 }
             }
         } else if order.order_side == OrderSide::Sell {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                if order.status == OrderStatus::Filled
-                    || order.status == OrderStatus::PartiallyFilled
-                {
-                    if dec![0.0] <= self.position {
-                        (position_change, profit_change) =
-                            self.close_position(order.execute_price, -order.execute_size);
-                    } else {
-                        position_change =
-                            self.open_position(order.execute_price, -order.execute_size);
-                    }
+                if dec![0.0] <= self.position {
+                    (close_position, open_position, profit) =
+                        self.close_position(order.execute_price, -order.execute_size);
+                } else {
+                    self.open_position(order.execute_price, -order.execute_size);
+                    open_position = -order.execute_size;
                 }
             }
         } else {
             log::error!("Unknown order side: {:?}", order.order_side)
         }
 
-        if self
-            .log_position(
-                order.log_id,
-                position_change,
-                self.position,
-                &order.order_id,
-                &order.transaction_id,
-            )
-            .is_err()
-        {
-            log::error!("log_position error");
+        let fee = if order.is_maker {
+            order.execute_price * order.execute_size * self.market_config.maker_fee
+        } else {
+            order.execute_price * order.execute_size * self.market_config.taker_fee
         };
+
+        let total_profit = profit - fee;
 
         if self
             .log_profit(
                 order.log_id,
-                profit_change,
-                self.profit,
-                &order.order_id,
-                &order.transaction_id,
+                open_position,
+                close_position,
+                self.position,
+                profit,
+                fee,
+                total_profit,
             )
             .is_err()
         {
@@ -905,14 +886,12 @@ impl Session {
     }
 
     /// returns position change
-    pub fn open_position(&mut self, price: Decimal, position: Decimal) -> Decimal {
+    pub fn open_position(&mut self, price: Decimal, position: Decimal) {
         let total_cost = (self.average_price * self.position) + (price * position);
         let total_size = self.position + position;
 
         self.average_price = total_cost / total_size;
         self.position += position;
-
-        position
     }
 
     /// retruns position change, and profit change
@@ -920,18 +899,21 @@ impl Session {
         &mut self,
         price: Decimal,
         position: Decimal,
-    ) -> (Decimal, Decimal) {
-        let first_position = self.position;
-        
+    ) -> (Decimal, Decimal, Decimal) {
+        // close_position, open_position, profit_change
+        let close_position: Decimal;
+        let mut open_position: Decimal = dec![0.0];
+
         let profit = if position.abs() <= self.position.abs() {
-            let close_position = -position;
+            close_position = -position;
             self.position -= close_position;
+
             let profit = (price * close_position) - (self.average_price * close_position);
             self.profit += profit;
 
             profit
         } else {
-            let close_position = self.position;
+            close_position = self.position;
             let new_position = close_position + position;
 
             // self.position += close_position;
@@ -951,12 +933,13 @@ impl Session {
 
             self.position = dec![0.0];
             self.average_price = dec![0.0];
+            open_position = new_position;
             self.open_position(price, new_position);
 
             profit
         };
 
-        (self.position - first_position, profit)
+        (close_position, open_position, profit)
     }
 
     /*
@@ -1161,7 +1144,6 @@ mod session_tests {
         assert_eq!(session.average_price, dec![100.0]);
         assert_eq!(session.position, dec![0.01]);
     }
-
 
     /*
     #[test]
