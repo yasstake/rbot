@@ -3,7 +3,7 @@
 
 use std::{
     fs::File,
-    io::{copy, BufReader, Cursor, Write, stdout},
+    io::{copy, BufReader, Cursor, Write},
     path::Path,
 };
 

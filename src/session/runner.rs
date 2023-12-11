@@ -22,12 +22,14 @@ pub struct Runner {
     has_on_update: bool,
 
     has_account_update: bool,
+    #[pyo3(get)]
     start_timestamp: i64,
     execute_time: i64,
     verbose: bool,
 
     print_interval: MicroSec,
-    current_timestamp: MicroSec,
+    #[pyo3(get)]
+    last_timestamp: MicroSec,
     current_clock: MicroSec,
     loop_count: i64,
 
@@ -56,7 +58,7 @@ impl Runner {
             execute_time: -1, // -1 means infinite loop
             print_interval: SEC(5),
             execute_mode: ExecuteMode::BackTest,
-            current_timestamp: 0,
+            last_timestamp: 0,
             current_clock: 0,
             loop_count: 0,
             on_clock_count: 0,
@@ -77,7 +79,7 @@ impl Runner {
         self.on_account_update_count = 0;
 
         self.start_timestamp = 0;
-        self.current_timestamp = 0;
+        self.last_timestamp = 0;
         self.current_clock = 0;
         self.loop_count = 0;
 
@@ -86,12 +88,17 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    pub fn update_agent_info(&mut self, agent: &PyAny) {
+    pub fn update_agent_info(&mut self, agent: &PyAny) -> bool {
         self.has_on_init = has_method(agent, "on_init");
         self.has_on_clock = has_method(agent, "on_clock");
         self.has_on_tick = has_method(agent, "on_tick");
         self.has_on_update = has_method(agent, "on_update");
         self.has_account_update = has_method(agent, "on_account_update");
+
+        if (! self.has_on_init) && (! self.has_on_clock) && (! self.has_on_tick) && (! self.has_on_update) && (! self.has_account_update) {
+            log::error!("Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update");
+            return false;
+        }
 
         if self.verbose {
             println!(
@@ -120,6 +127,8 @@ impl Runner {
             );
             flush_log();
         }
+
+        true
     }
 
     #[pyo3(signature = (market, agent, *, start_time=0, end_time=0, execute_time=0, verbose=false))]
@@ -151,10 +160,6 @@ impl Runner {
         execute_time: i64,
         verbose: bool,
     ) -> Result<Py<Session>, PyErr> {
-        Python::with_gil(|py| {
-            market.call_method0(py, "start_market_stream").unwrap();
-        });
-
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
@@ -177,7 +182,6 @@ impl Runner {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
 
-
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
@@ -196,7 +200,11 @@ impl Runner {
         agent: &PyAny,
         log_memory: bool,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_agent_info(agent);
+        if ! self.update_agent_info(agent) {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
+            ));
+        }
 
         // prepare market data
         // 1. start market & user stream
@@ -216,7 +224,12 @@ impl Runner {
                 }
             }
 
-            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {    
+            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry { 
+                if self.verbose {
+                    println!("--- start download log data ---");
+                    flush_log();
+                }
+
                 let r = market.call_method1(py, "download", (1,));
                 if r.is_err() {
                     return Err(r.unwrap_err());
@@ -229,7 +242,6 @@ impl Runner {
         if r.is_err() {
             return Err(r.unwrap_err());
         }
-
 
 
         let result = Python::with_gil(|py| {
@@ -247,8 +259,6 @@ impl Runner {
             let py_session = Py::new(py, session).unwrap();
             let mut warm_up_loop: i64 = WARMUP_STEPS;
 
-            self.reset_count();
-            let loop_start_time = NOW();
 
             if self.has_on_init {
                 self.call_agent_on_init(&py, agent, &py_session)?;
@@ -259,6 +269,9 @@ impl Runner {
             if self.has_on_clock && interval_sec == 0 {
                 print!("*** WARNING: on_clock is set but clock_interval is 0. (on_clock will not be called ***");
             }
+
+            self.reset_count();
+            let loop_start_time = NOW();
 
             loop {
                 let message = receiver.recv();
@@ -274,7 +287,7 @@ impl Runner {
                     // in warm up loop, we don't call agent, just update session
                     let mut session = py_session.borrow_mut(py);
                     session.on_message(&message);
-                    self.current_timestamp = session.get_timestamp();
+                    self.last_timestamp = session.get_timestamp();
 
                     if message.trade.is_some() {
                         warm_up_loop = warm_up_loop - 1;
@@ -299,12 +312,12 @@ impl Runner {
 
                 // break if the running time exceeceds the loop_duration
                 if self.start_timestamp == 0 {
-                    self.start_timestamp = self.current_timestamp;
+                    self.start_timestamp = self.last_timestamp;
                     if self.verbose {
                         println!("start_timestamp: {}", time_string(self.start_timestamp));
                     }
                 } else if 0 < self.execute_time
-                    && SEC(self.execute_time) < self.current_timestamp - self.start_timestamp
+                    && SEC(self.execute_time) < self.last_timestamp - self.start_timestamp
                 {
                     break;
                 }
@@ -318,13 +331,13 @@ impl Runner {
             if self.verbose {
                 println!(
                     "\n--- end run --- {} ({}[rec])",
-                    time_string(self.current_timestamp),
+                    time_string(self.last_timestamp),
                     self.loop_count
                 );
 
                 println!("Done running agent");
 
-                let process_duration = self.current_timestamp - self.start_timestamp;
+                let process_duration = self.last_timestamp - self.start_timestamp;
                 println!(
                     "Process duration: {} [Days] ({} sec)",
                     process_duration / SEC(60 * 60 * 24),
@@ -351,11 +364,11 @@ impl Runner {
 
     pub fn print_progress(&mut self) -> bool {
         if self.last_print_tick_time == 0 {
-            self.last_print_tick_time = self.current_timestamp;
+            self.last_print_tick_time = self.last_timestamp;
             return false;
         }
 
-        if self.print_interval < self.current_timestamp - self.last_print_tick_time {
+        if self.print_interval < self.last_timestamp - self.last_print_tick_time {
             let mode = match self.execute_mode {
                 ExecuteMode::Dry => "[Dry run ]",
                 ExecuteMode::Real => "[Real run]",
@@ -365,7 +378,7 @@ impl Runner {
             print!(
                 "\r{}{:<.19}, {:>6}[rec], ({:>6}[tick], {:>4}[clock], {:>3}[update])",
                 mode,
-                time_string(self.current_timestamp),
+                time_string(self.last_timestamp),
                 self.loop_count,
                 self.on_tick_count,
                 self.on_clock_count,
@@ -384,13 +397,13 @@ impl Runner {
                 let rec_per_sec = ((count * 1_000_000) as f64) / real_elapsed_time as f64; // in sec
                 let rec_per_sec = rec_per_sec as i64;
 
-                let tick_elapsed_time = self.current_timestamp - self.last_print_tick_time;
+                let tick_elapsed_time = self.last_timestamp - self.last_print_tick_time;
                 let speed = tick_elapsed_time / real_elapsed_time;
 
                 print!(", {:>7}[rec/s]({:>8} X)\n", rec_per_sec, speed,);
             }
 
-            self.last_print_tick_time = self.current_timestamp;
+            self.last_print_tick_time = self.last_timestamp;
 
             return true;
         }
@@ -423,12 +436,12 @@ impl Runner {
         // on_clockの後にsessionを更新する。
         let mut session = py_session.borrow_mut(*py);
         let orders = session.on_message(&message);
-        self.current_timestamp = session.get_timestamp();
+        self.last_timestamp = session.get_timestamp();
         drop(session);
 
         if self.has_on_tick && message.trade.is_some() {
             let trade = message.trade.as_ref().unwrap();
-            self.current_timestamp = trade.time;
+            self.last_timestamp = trade.time;
             self.call_agent_on_tick(py, agent, py_session, trade)?;
         }
 
@@ -460,7 +473,7 @@ impl Runner {
                 }
             }
 
-            if account_change {
+            if account_change && self.has_account_update {
                 self.call_agent_on_account_update_dummy(py, agent, py_session)?;
             }
         }
