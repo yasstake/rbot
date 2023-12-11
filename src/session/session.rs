@@ -326,10 +326,12 @@ impl Session {
         }
     }
 
-    pub fn expire_order(&mut self, ttl_sec: i64) {
-
+    pub fn expire_order(&mut self, ttl_sec: i64) -> bool {
+        let mut has_expire = false;
+        
         for order in self.buy_orders.get_old_orders(ttl_sec) {
             if self.cancel_order(&order.order_id).is_ok() {
+                has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
             }
             else {
@@ -340,12 +342,15 @@ impl Session {
 
         for order in self.sell_orders.get_old_orders(ttl_sec) {
             if self.cancel_order(&order.order_id).is_ok() {
+                has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
             }
             else {
                 log::warn!("expire_orders: cancel order error: {:?}", order);
             }
         }
+
+        has_expire
     }
     
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {

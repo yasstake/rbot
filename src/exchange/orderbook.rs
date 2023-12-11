@@ -148,9 +148,9 @@ impl Board {
 
         let prices = Series::new("price", prices);
         let sizes = Series::new("size", sizes);
-        let cusum = Series::new("cusum", cusum_col);
+        let sum = Series::new("sum", cusum_col);
 
-        let df = DataFrame::new(vec![prices, sizes, cusum]).unwrap();
+        let df = DataFrame::new(vec![prices, sizes, sum]).unwrap();
 
         Ok(df)
     }
