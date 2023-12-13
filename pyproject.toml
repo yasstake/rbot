@@ -4,7 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "rbot"
-requires-python = ">=3.7"
+
+requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -13,4 +14,3 @@ classifiers = [
 
 [tool.maturin]
 python-source = "python"
-
