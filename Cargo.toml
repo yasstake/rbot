@@ -78,7 +78,7 @@ anyhow = {version="1.0.75"}
 thiserror = {version="1.0.50"}
 
  [dependencies.pyo3]
- version = "0.19.2"
+ version = "0.20.0"
   features = ["auto-initialize", "rust_decimal"]
 
  [features]
