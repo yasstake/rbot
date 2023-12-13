@@ -77,5 +77,9 @@ crossbeam-channel = {version="0.5.8"}
 anyhow = {version="1.0.75"}
 thiserror = {version="1.0.50"}
 
-pyo3 = { version = "0.20.0", features = ["extension-module", "rust_decimal"] }
+ [dependencies.pyo3]
+ version = "0.19.2"
+  features = ["auto-initialize", "rust_decimal"]
 
+ [features]
+ extension-module = ["pyo3/extension-module"]
