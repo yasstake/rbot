@@ -79,7 +79,7 @@ thiserror = {version="1.0.50"}
 
  [dependencies.pyo3]
  version = "0.20.0"
-  features = ["auto-initialize", "rust_decimal"]
+  features = ["rust_decimal"]
 
  [features]
  extension-module = ["pyo3/extension-module"]
