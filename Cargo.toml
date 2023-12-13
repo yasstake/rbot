@@ -78,7 +78,4 @@ anyhow = {version="1.0.75"}
 thiserror = {version="1.0.50"}
 
 
-pyo3 = { version = "0.20.0"}
-
-[pyo3.dependencies]
-features = ["extension-module", "rust_decimal"]
+pyo3 = { version = "0.19.2", features = ["extension-module", "rust_decimal"] }
