@@ -222,34 +222,8 @@ impl BinanceMarket {
         self.db.reset_cache_duration();
     }
 
-    pub fn download_log(&mut self, date: MicroSec, verbose: bool) -> PyResult<i64> {
-        let date = FLOOR_DAY(date);
 
-        let url = Self::make_historical_data_url_timestamp(self.symbol.as_str(), date);
-
-        match download_log(&url, &self.db.start_thread(), false, verbose, &BinanceMarket::rec_to_trade) {
-            Ok(download_rec) => {
-                log::info!("downloaded: {}", download_rec);
-                if verbose {
-                    println!("downloaded: {}", download_rec);
-                    flush_log();
-                }
-                Ok(download_rec)
-            }
-            Err(e) => {
-                log::error!("Error in download_logs: {:?}", e);
-                if verbose {
-                    println!("Error in download_logs: {:?}", e);
-                }
-                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in download_logs: {:?}",
-                    e
-                )))
-            }
-        }
-    }
-
-    #[pyo3(signature = (ndays, *, force = false, verbose=true))]
+    #[pyo3(signature = (*, ndays, force = false, verbose=true))]
     pub fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
@@ -938,6 +912,33 @@ impl BinanceMarket {
             "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
             HISTORY_WEB_BASE, name, name, yyyy, mm, dd
         );
+    }
+
+    pub fn download_log(&mut self, date: MicroSec, verbose: bool) -> PyResult<i64> {
+        let date = FLOOR_DAY(date);
+
+        let url = Self::make_historical_data_url_timestamp(self.symbol.as_str(), date);
+
+        match download_log(&url, &self.db.start_thread(), false, verbose, &BinanceMarket::rec_to_trade) {
+            Ok(download_rec) => {
+                log::info!("downloaded: {}", download_rec);
+                if verbose {
+                    println!("downloaded: {}", download_rec);
+                    flush_log();
+                }
+                Ok(download_rec)
+            }
+            Err(e) => {
+                log::error!("Error in download_logs: {:?}", e);
+                if verbose {
+                    println!("Error in download_logs: {:?}", e);
+                }
+                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Error in download_logs: {:?}",
+                    e
+                )))
+            }
+        }
     }
 
     fn rec_to_trade(rec: &StringRecord) -> Trade {
