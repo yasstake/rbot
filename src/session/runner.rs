@@ -131,7 +131,7 @@ impl Runner {
         true
     }
 
-    #[pyo3(signature = (market, agent, *, start_time=0, end_time=0, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false))]
     pub fn back_test(
         &mut self,
         market: PyObject,
@@ -151,7 +151,7 @@ impl Runner {
         self.run(market, &reciever, agent, true)
     }
 
-    #[pyo3(signature = (market, agent, *, log_memory=false, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false))]
     pub fn dry_run(
         &mut self,
         market: PyObject,
@@ -170,7 +170,7 @@ impl Runner {
         self.run(market, &reciever, agent, log_memory)
     }
 
-    #[pyo3(signature = (market, agent, *,log_memory=false, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false))]
     pub fn real_run(
         &mut self,
         market: PyObject,
