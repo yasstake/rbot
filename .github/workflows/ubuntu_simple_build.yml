@@ -3,6 +3,9 @@ name: Ubuntu simple build test
 on:
   push:
   workflow_dispatch:    
+  
+env:
+  PYTHON_VERSION: '3.8'
 
 jobs:
   linux:
@@ -30,6 +33,23 @@ jobs:
             # If we're running on debian-based system.
             apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd
           fi
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
+
+  macos-intel:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: --release -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
