@@ -78,14 +78,13 @@ thiserror = {version="1.0.50"}
 
 #pyo3-built = {version="0.4.7"}
 
-pyo3 = {features = ["abi3-py38", "extension-module", "multiple-pymethods", "rust_decimal"] }
 
-# [dependencies.pyo3]
-# version = "0.20.0"
-#  features = ["rust_decimal"]
+[dependencies.pyo3]
+version = "0.20.0"
+features = ["rust_decimal", "abi3-py38", "extension-module"]
 
-# [features]
-# extension-module = ["pyo3/extension-module", "abi3-py38"]
+[features]
+extension-module = ["pyo3/extension-module"]
  
 
 [target.x86_64-apple-darwin]
