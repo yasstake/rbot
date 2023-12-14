@@ -3,6 +3,9 @@ name: build and release wheels
 on:
   workflow_dispatch:    
 
+env:
+  PYTHON_VERSION: '3.8'
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -11,8 +14,9 @@ jobs:
       run: sudo apt-get update
     - name: upgrade
       run: sudo apt-get upgrade -y
-    - name: get-python
-      run: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.7 python3.8 python3.9 python3.10 python3.11      
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
     - uses: actions/checkout@v4
     - uses: PyO3/maturin-action@v1
       with:
@@ -47,7 +51,10 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: SQLITE install
-      run:  choco install sqlite -y    
+      run:  choco install sqlite -y
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}      
     - uses: actions/checkout@v3
     - uses: PyO3/maturin-action@v1
       with:
@@ -62,30 +69,36 @@ jobs:
   macos-intel:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist --find-interpreter
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
-        with:
-          name: wheels
-          path: dist
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}      
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: --release -o dist --find-interpreter
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
 
   macos-arm64:
     runs-on: macos-latest-xlarge
     steps:
-      - uses: actions/checkout@v3
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist --find-interpreter
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
-        with:
-          name: wheels
-          path: dist
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}      
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: --release -o dist --find-interpreter
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
                   
 #  release:
 #    name: Release
