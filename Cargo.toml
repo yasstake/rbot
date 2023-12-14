@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.2.9"
+version = "0.2.10"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,7 +30,6 @@ log = {version = "0.4"}
 env_logger = {version = "0.10.0"}
 
 directories= "5.0.1"
-
 
 #polars = {version="0.33.2"}
 #polars-core = {version = "0.33.2", features=["ndarray", "temporal", "dtype-time", "object"]}
@@ -83,3 +82,18 @@ thiserror = {version="1.0.50"}
 
  [features]
  extension-module = ["pyo3/extension-module"]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+  "-C", "link-args=-Wl,-rpath,/Library/Developer/CommandLineTools/Library/Frameworks",  
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+  "-C", "link-args=-Wl,-rpath,/Library/Developer/CommandLineTools/Library/Frameworks",  
+]
+
