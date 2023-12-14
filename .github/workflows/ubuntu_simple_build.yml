@@ -6,13 +6,16 @@ on:
   
 env:
   PYTHON_VERSION: '3.8'
-
+  
 jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
     - name: apt-get-update
       run: sudo apt-get update
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
     - uses: actions/checkout@v4
     - uses: PyO3/maturin-action@v1
       with:

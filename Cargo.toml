@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -76,12 +76,17 @@ crossbeam-channel = {version="0.5.8"}
 anyhow = {version="1.0.75"}
 thiserror = {version="1.0.50"}
 
- [dependencies.pyo3]
- version = "0.20.0"
-  features = ["rust_decimal"]
+#pyo3-built = {version="0.4.7"}
 
- [features]
- extension-module = ["pyo3/extension-module"]
+pyo3 = {features = ["abi3-py38", "extension-module", "multiple-pymethods", "rust_decimal"] }
+
+# [dependencies.pyo3]
+# version = "0.20.0"
+#  features = ["rust_decimal"]
+
+# [features]
+# extension-module = ["pyo3/extension-module", "abi3-py38"]
+ 
 
 [target.x86_64-apple-darwin]
 rustflags = [
