@@ -1,7 +1,7 @@
 // Copyright(c) 2022. yasstake. All rights reserved.
 
 use std::fs;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use directories::ProjectDirs;
 
 
