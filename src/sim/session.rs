@@ -186,7 +186,7 @@ impl DummySession {
             message,
         ) {
             Ok(result) => Ok(result),
-            Err(e) => Err(PyTypeError::new_err(e.to_string())),
+            Err(e) => Err(PyTypeError::new_err(format!("place_order error {}", e.to_string()))),
         }
     }
 

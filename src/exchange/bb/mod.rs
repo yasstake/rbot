@@ -51,7 +51,7 @@ impl BBMarket {
 
         println!("create TradeTable: {}", db_name);
 
-        let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
+        let mut db = TradeTable::open(db_name.as_str()).expect("cannot open db");
 
         let _ = db.create_table_if_not_exists();
 
