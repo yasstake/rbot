@@ -241,6 +241,7 @@ pub struct Logger {
 
 #[pymethods]
 impl Logger {
+    #[pyo3(signature = (on_memory = true))]
     #[new]
     pub fn new(on_memory: bool) -> Self {
         Self {
