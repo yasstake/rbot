@@ -1,6 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use chrono::Datelike;
+use crossbeam_channel::Sender;
 use csv::StringRecord;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -180,21 +181,26 @@ impl BinanceMarket {
         println!("\nBinance {:?}\n", config.short_info());
 
         let db_name = Self::db_path(&config).unwrap();
-
-        log::debug!("create TradeTable: {}", db_name);
+        log::debug!("db_path: {}", db_name);
 
         let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
+        log::debug!("db is opend. db_path= {}", db_name);
 
+        /*
         let r = db.create_table_if_not_exists();
+        log::debug!("create_table_if_not_exists: {:?}", r);
         if r.is_err() {
             log::error!("Error in create_table_if_not_exists: {:?}", r);
         }
+        */
+
+        log::info!("db is opend success. db_path= {}", db_name);
 
         let symbol = config.trade_symbol.clone();
 
         return BinanceMarket {
             config: config.clone(),
-            symbol: symbol,
+            symbol,
             db,
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
             public_handler: None,
@@ -222,35 +228,8 @@ impl BinanceMarket {
         self.db.reset_cache_duration();
     }
 
-    pub fn download_log(&mut self, date: MicroSec, verbose: bool) -> PyResult<i64> {
-        let date = FLOOR_DAY(date);
-
-        let url = Self::make_historical_data_url_timestamp(self.symbol.as_str(), date);
-
-        match download_log(&url, &self.db.start_thread(), false, verbose, &BinanceMarket::rec_to_trade) {
-            Ok(download_rec) => {
-                log::info!("downloaded: {}", download_rec);
-                if verbose {
-                    println!("downloaded: {}", download_rec);
-                    flush_log();
-                }
-                Ok(download_rec)
-            }
-            Err(e) => {
-                log::error!("Error in download_logs: {:?}", e);
-                if verbose {
-                    println!("Error in download_logs: {:?}", e);
-                }
-                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in download_logs: {:?}",
-                    e
-                )))
-            }
-        }
-    }
-
-    #[pyo3(signature = (ndays, *, force = false, verbose=true))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -274,6 +253,8 @@ impl BinanceMarket {
 
         let mut download_rec: i64 = 0;
 
+        let tx = &self.db.start_thread();
+
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
@@ -287,7 +268,7 @@ impl BinanceMarket {
                 continue;
             }
 
-            match self.download_log(date, verbose) {
+            match self.download_log(tx, date, verbose) {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
@@ -299,12 +280,24 @@ impl BinanceMarket {
                     }
                 }
             }
+
+            self.wait_for_settlement(tx);
+        }
+
+        if archive_only {
+            return download_rec;
         }
 
         // download from rest API
         download_rec += self.download_latest(force, verbose);
 
+        self.wait_for_settlement(tx);
+
         download_rec
+    }
+
+    pub fn stop_db_thread(&mut self) {
+        self.db.stop_thread();
     }
 
     #[pyo3(signature = (force=false, verbose = true))]
@@ -326,8 +319,7 @@ impl BinanceMarket {
         }
 
         if start_id == 1 {
-            println!("ERROR: no record in database");
-            println!(" Try to reboot your program and download(days=2, force=True).");            
+            println!("ERROR: no record in database path= {}", self.get_file_name());
             flush_log();
 
             return 0;
@@ -337,6 +329,11 @@ impl BinanceMarket {
 
         let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
         {
+            //TODO:
+            while 100 < ch.len() {
+                sleep(Duration::from_millis(100));
+            }
+
             ch.send(row.clone()).unwrap();
 
             Ok(())
@@ -502,6 +499,11 @@ impl BinanceMarket {
     #[getter]
     pub fn get_market_config(&self) -> MarketConfig {
         return self.config.market_config.clone();
+    }
+
+    #[getter]
+    pub fn get_running(&self) -> bool {
+        return self.db.is_running();
     }
 
     pub fn vacuum(&self) {
@@ -919,14 +921,19 @@ impl BinanceMarket {
 
 use crate::exchange::binance::rest::{get_board_snapshot, download_historical_trades_from_id};
 
-const HISTORY_WEB_BASE: &str = "https://data.binance.vision/data/spot/daily/trades";
 
 impl BinanceMarket {
     pub fn db_path(config: &BinanceConfig) -> PyResult<String> {
         Ok(config.get_db_path())
     }
 
-    fn make_historical_data_url_timestamp(name: &str, t: MicroSec) -> String {
+    pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
+        while tx.len() != 0 {
+            sleep(Duration::from_millis(1 * 100));
+        }
+    }
+
+    fn make_historical_data_url_timestamp(config: &BinanceConfig, name: &str, t: MicroSec) -> String {
         let timestamp = to_naive_datetime(t);
 
         let yyyy = timestamp.year() as i64;
@@ -936,8 +943,37 @@ impl BinanceMarket {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         return format!(
             "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-            HISTORY_WEB_BASE, name, name, yyyy, mm, dd
+            config.history_web_base,
+            name, name, yyyy, mm, dd
         );
+    }
+
+    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, verbose: bool) -> PyResult<i64> {
+        let date = FLOOR_DAY(date);
+
+        let url = Self::make_historical_data_url_timestamp(&self.config, self.symbol.as_str(), date);
+
+
+        match download_log(&url, tx, false, verbose, &BinanceMarket::rec_to_trade) {
+            Ok(download_rec) => {
+                log::info!("downloaded: {}", download_rec);
+                if verbose {
+                    println!("downloaded: {}", download_rec);
+                    flush_log();
+                }
+                Ok(download_rec)
+            }
+            Err(e) => {
+                log::error!("Error in download_logs: {:?}", e);
+                if verbose {
+                    println!("Error in download_logs: {:?}", e);
+                }
+                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Error in download_logs: {:?}",
+                    e
+                )))
+            }
+        }
     }
 
     fn rec_to_trade(rec: &StringRecord) -> Trade {
@@ -1006,7 +1042,7 @@ impl BinanceMarket {
     }
 
     fn has_archive(&self, date: MicroSec) -> Result<bool, String> {
-        let url = Self::make_historical_data_url_timestamp(self.symbol.as_str(), date);
+        let url = Self::make_historical_data_url_timestamp(&self.config, self.symbol.as_str(), date);
 
         if check_exist(url.as_str()) {
             log::debug!("{} exists", url);
@@ -1061,19 +1097,20 @@ mod binance_test {
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
+        let config = BinanceConfig::BTCUSDT();
         init_log();
         println!(
             "{}",
-            BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 0)
+            BinanceMarket::make_historical_data_url_timestamp(&config, "BTCUSD", 0)
         );
         assert_eq!(
-            BinanceMarket::make_historical_data_url_timestamp("BTCUSD", 0),
+            BinanceMarket::make_historical_data_url_timestamp(&config, "BTCUSD", 0),
             "https://data.binance.vision/data/spot/daily/trades/BTCUSD/BTCUSD-trades-1970-01-01.zip"            
         );
 
         println!(
             "{}",
-            BinanceMarket::make_historical_data_url_timestamp("BTCUSD", NOW())
+            BinanceMarket::make_historical_data_url_timestamp(&config, "BTCUSD", NOW())
         );
 
         println!("{} / {}", TODAY(), time_string(TODAY()));
@@ -1088,7 +1125,7 @@ mod binance_test {
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
         println!("{}", time_string(market.db.end_time().unwrap_or(0)));
         println!("Let's donwload");
-        market.download(2, false, true);
+        market.download(2, false, true, false);
     }
 
     #[test]

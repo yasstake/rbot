@@ -4,7 +4,7 @@
 use std::{
     fs::File,
     io::{copy, BufReader, Cursor, Write},
-    path::Path,
+    path::Path, thread::sleep, time::Duration,
 };
 
 use crate::common::{LogStatus, Trade, flush_log};
@@ -27,7 +27,7 @@ pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
         Ok(r) => r,
         Err(e) => {
             log::error!("URL get error {}", e.to_string());
-            return Err(e.to_string());
+            return Err(format!("URL get error{}", e.to_string()));
         }
     };
 
@@ -53,7 +53,7 @@ pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
     let mut target = match File::create(&fname) {
         Ok(t) => t,
         Err(e) => {
-            return Err(e.to_string());
+            return Err(format!("file create error {}", e.to_string()));
         }
     };
 
@@ -62,7 +62,7 @@ pub fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
         Ok(c) => c,
         Err(e) => {
             log::error!("{}", e.to_string());
-            return Err(e.to_string());
+            return Err(format!("log_download_tmp err{}", e.to_string()));
         }
     };
     let mut cursor = Cursor::new(content);
@@ -88,7 +88,7 @@ where
         Ok(tmp) => tmp,
         Err(e) => {
             log::error!("create tmp dir error {}", e.to_string());
-            return Err(e.to_string());
+            return Err(format!("create tmp dir error {}", e.to_string()));
         }
     };
 
@@ -100,7 +100,7 @@ where
         }
         Err(e) => {
             log::error!("download error {}", e.to_string());
-            return Err(e);
+            return Err(format!("download error{}", e));
         }
     };
 
@@ -114,7 +114,7 @@ where
         return extract_zip_log(&file_path, has_header, f);
     } else {
         log::error!("unknown file suffix {}", url);
-        return Err(format!("").to_string());
+        return Err(format!("unknown file suffix").to_string());
     }
 
     // remove tmp file
@@ -149,7 +149,7 @@ where
         }
         Err(e) => {
             log::error!("{}", e);
-            return Err(e.to_string());
+            return Err(format!("gzip_log_download_error {}", e.to_string()));
         }
     }
     Ok(rec_count)
@@ -193,7 +193,7 @@ where
         }
         Err(e) => {
             log::error!("{}", e);
-            return Err(e.to_string());
+            return Err(format!("zip_log_download error {}", e.to_string()));
         }
     }
     Ok(rec_count)
@@ -219,7 +219,7 @@ where
     let mut zip = match ZipArchive::new(bufreader) {
         Ok(z) => z,
         Err(e) => {
-            return Err(e.to_string());
+            return Err(format!("extract zip log error {}",e.to_string()));
         }
     };
 
@@ -322,6 +322,9 @@ where
     return Ok(download_rec);
 }
 
+const MAX_BUFFER_SIZE: usize = 2000;
+const MAX_QUEUE_SIZE: usize = 10;
+
 pub fn download_log<F>(
     url: &String,
     tx: &Sender<Vec<Trade>>,
@@ -332,6 +335,7 @@ pub fn download_log<F>(
 where
     F: Fn(&StringRecord) -> Trade,
 {
+    // TODO:  レコードが割り切れる場合、最後のレコードのstatusをFixBlockEndにする。
     if verbose {
         print!("log download (url = {})", url);
         flush_log();
@@ -347,10 +351,14 @@ where
 
         buffer.push(trade);
 
-        if 2000 < buffer.len() {
+        if MAX_BUFFER_SIZE < buffer.len() {
             if is_first_record {
                 buffer[0].status = LogStatus::FixBlockStart;
                 is_first_record = false;
+            }
+
+            while MAX_QUEUE_SIZE < tx.len() {
+                sleep(Duration::from_millis(100));
             }
 
             let result = tx.send(buffer.to_vec());
@@ -428,7 +436,7 @@ pub fn do_rest_request(
         Ok(r) => r,
         Err(e) => {
             log::error!("URL get error {}", e.to_string());
-            return Err(e.to_string());
+            return Err(format!("URL get error {}, ", e.to_string()));
         }
     };
 
@@ -513,7 +521,7 @@ where
         Ok(r) => r,
         Err(e) => {
             log::error!("URL get error {}", e.to_string());
-            return Err(e.to_string());
+            return Err(format!("url get error{}", e.to_string()));
         }
     };
 

@@ -150,9 +150,10 @@ pub struct AutoConnectClient {
 }
 
 const SYNC_RECORDS: i64 = 3;
-// TODO: change sync interval (possibly 12 hours)
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 5; // every 5 min for test
-const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
+
+// TODO: tuning sync interval (possibly 6-12 hours)
+const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6 hours
+const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3;      // every 3 min
 
 impl AutoConnectClient {
     pub fn new(url: &str, message: Option<Value>) -> Self {
