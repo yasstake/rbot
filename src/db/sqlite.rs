@@ -13,10 +13,10 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
+use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
 use crate::common::SEC;
-use crate::common::flush_log;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
 use crate::db::df::merge_df;
@@ -57,7 +57,8 @@ impl TradeTableDb {
     }
 
     pub fn delete_unstable_data(tx: &Transaction, start_time: MicroSec, end_time: MicroSec) {
-        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and status = "U""#;
+        let sql =
+            r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and status = "U""#;
 
         let result = tx.execute(sql, params![start_time, end_time]);
 
@@ -120,11 +121,11 @@ impl TradeTableDb {
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         let trades_len = trades.len();
         let start_time = trades[0].time - SEC(1);
-        let end_time = trades[trades_len - 1].time;        
+        let end_time = trades[trades_len - 1].time;
 
         // when fix data comes, delete unstable data first
-        if trades_len!= 0 && trades[0].status != LogStatus::UnFix {
-        // create transaction with immidate mode
+        if trades_len != 0 && trades[0].status != LogStatus::UnFix {
+            // create transaction with immidate mode
             let tx = self.begin_transaction().unwrap();
             Self::delete_unstable_data(&tx, start_time, end_time);
             tx.commit().unwrap();
@@ -225,7 +226,7 @@ impl TradeTableDb {
             let id: String = row.get(5).unwrap();
 
             let trade = Trade::new(time_stamp, bs, price, size, status, id);
-                
+
             trades.push(trade);
         });
 
@@ -248,12 +249,12 @@ impl TradeTableDb {
             Ok(conn) => {
                 conn.busy_timeout(Duration::from_secs(10)).unwrap();
 
-                let r = conn.pragma_update(None, "journal_mode", "wal"); 
+                let r = conn.pragma_update(None, "journal_mode", "wal");
                 if r.is_err() {
                     log::error!("set wal mode error {:?}", r);
                     r.unwrap();
                 }
-        
+
                 let db = TradeTableDb {
                     file_name: name.to_string(),
                     connection: conn,
@@ -280,7 +281,7 @@ impl TradeTableDb {
 
         let result = Connection::open(name);
         log::debug!("Database open path = {}", name);
-        
+
         match result {
             Ok(conn) => {
                 // TODO: set timeout parameter
@@ -300,11 +301,14 @@ impl TradeTableDb {
         }
     }
 
+    /// check if database file is exsit
     fn is_db_file_exsist(name: &str) -> bool {
         let path = std::path::Path::new(name);
         return path.exists();
     }
 
+    /// check if table is exsit by sql.
+    #[allow(dead_code)]
     fn is_table_exsit(&mut self) -> bool {
         log::debug!("is_table_exsit");
 
@@ -336,7 +340,6 @@ impl TradeTableDb {
         }
     }
 
-
     fn create_table_if_not_exists(&mut self) -> Result<(), Error> {
         //if self.is_table_exsit() {
         //            return Ok(());
@@ -362,7 +365,6 @@ impl TradeTableDb {
             log::error!("create table error {:?}", r);
             r.unwrap();
         }
-
 
         Ok(())
     }
@@ -547,7 +549,8 @@ pub struct TradeTable {
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
     cache_duration: MicroSec,
-    has_q: Arc<RwLock<bool>>,
+    is_running: Arc<RwLock<bool>>,
+    terminate: Arc<RwLock<bool>>,
     tx: Option<Sender<Vec<Trade>>>,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -555,8 +558,8 @@ pub struct TradeTable {
 impl TradeTable {
     const OHLCV_WINDOW_SEC: i64 = 60; // min
 
-    pub fn get_has_q(&self) -> bool {
-        return self.has_q.read().unwrap().clone();
+    pub fn is_running(&self) -> bool {
+        return self.is_running.read().unwrap().clone();
     }
 
     pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
@@ -568,7 +571,7 @@ impl TradeTable {
                 log::debug!("thread is already started");
 
                 // check self.tx is valid and return clone of self.tx
-                if self.tx.is_some() {
+                if self.tx.is_some() && self.is_running() {
                     return self.tx.clone().unwrap();
                 }
             }
@@ -579,38 +582,61 @@ impl TradeTable {
         let file_name = self.file_name.clone();
 
         self.tx = Some(tx);
-        let has_q = self.has_q.clone();
+        let is_running = self.is_running.clone();
+        let terminate = self.terminate.clone();
 
         let handle = thread::spawn(move || {
             let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let mut running = is_running.write().unwrap();
+            *running = true;
+            drop(running);
 
             loop {
-                let mut hasq = has_q.write().unwrap();
-                if rx.is_empty() {
-                    *hasq = false;
-                } else {
-                    *hasq = true;
+                if terminate.read().unwrap().clone() {
+                    if rx.is_empty() {
+                        log::debug!("terminate thread");
+                        break;
+                    }
                 }
-                drop(hasq);
-
                 match rx.recv() {
                     Ok(trades) => {
                         let _result = db.insert_records(&trades);
                         log::debug!("recv trades: {}", trades.len());
                     }
                     Err(e) => {
-                        log::error!("recv error {:?}", e);
-                        // break;
+                        log::error!("recv error(sender program died?) {:?}", e);
+                        break;
                     }
                 }
             }
 
-            //print!("thread end");
+            let mut running = is_running.write().unwrap();
+            *running = false;
+            drop(running);
         });
 
         self.handle = Some(handle);
 
         return self.tx.clone().unwrap();
+    }
+
+    pub fn stop_thread(&mut self) {
+        if self.handle.is_some() {
+            let handle = self.handle.take().unwrap();
+
+            let terminate = self.terminate.clone();
+            let mut terminate = terminate.write().unwrap();
+            *terminate = true;
+            drop(terminate);
+
+            let r = handle.join();
+            if r.is_err() {
+                log::error!("join error {:?}", r);
+            }
+
+            self.handle = None;
+            self.tx = None;
+        }
     }
 
     pub fn is_thread_running(&self) -> bool {
@@ -1302,7 +1328,7 @@ impl TradeTable {
 
         match result {
             Ok(conn) => {
-                log::debug!("db open success{}", name);                
+                log::debug!("db open success{}", name);
                 let df = TradeBuffer::new().to_dataframe();
                 // let ohlcv = ohlcv_df(&df, 0, 0, TradeTable::OHLCV_WINDOW_SEC);
                 let ohlcv = make_empty_ohlcvv();
@@ -1314,7 +1340,8 @@ impl TradeTable {
                     cache_ohlcvv: ohlcv,
                     cache_duration: 0,
                     tx: None,
-                    has_q: Arc::new(RwLock::new(false)),
+                    is_running: Arc::new(RwLock::new(false)),
+                    terminate: Arc::new(RwLock::new(false)),
                     handle: None,
                 })
             }
@@ -1376,7 +1403,6 @@ impl TradeTable {
     {
         self.connection.select(start_time, end_time, f);
     }
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1410,7 +1436,7 @@ mod test_transaction_table {
 
         let r = tr.create_table_if_not_exists();
         assert!(r.is_ok());
-        
+
         let r = tr.drop_table();
         assert!(r.is_ok());
     }
@@ -1659,8 +1685,12 @@ mod test_transaction_table {
 
     #[test]
     fn test_start_thread() {
-        let mut table =
-            TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap()).unwrap();
+        let mut table = TradeTable::open(
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
         let tx = table.start_thread();
 
         let v = vec![Trade {
@@ -1702,23 +1732,23 @@ mod test_transaction_table {
     fn test_wal_mode() {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
-        TradeTableDb::set_wal_mode(db_full_path("BN", "SPOT", "BTCBUSD", "/tmp").to_str().unwrap());
+        TradeTableDb::set_wal_mode(
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+                .to_str()
+                .unwrap(),
+        );
     }
 
     #[test]
     fn test_table_is_exsit() {
         //let db_name = db_full_path("BN", "SPOT", "BTCUSDT");
-        
+
         let mut db = TradeTableDb::open("/tmp/rbottest.db").unwrap();
 
         if db.is_table_exsit() {
             print!("table is exist");
-        }
-        else {
+        } else {
             print!("table is not exist");
         }
     }
-
-
-
 }
