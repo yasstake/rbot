@@ -13,8 +13,13 @@ use crate::exchange::binance::rest::extend_listen_key;
 use super::BinanceConfig;
 use super::rest::create_listen_key;
 
-/// TODO: Optimize this interval.
-const KEY_EXTEND_INTERVAL:MicroSec = 5 * 60 * MICRO_SECOND;    // 24 min
+/// https://binance-docs.github.io/apidocs/spot/en/#listen-key-spot
+/// Ping/Keep-alive a ListenKey (USER_STREAM)
+/// PUT /api/v3/userDataStream
+/// Keepalive a user data stream to prevent a time out. 
+/// User data streams will close after 60 minutes. 
+/// It's recommended to send a ping about every 30 minutes.
+const KEY_EXTEND_INTERVAL:MicroSec = 5 * 60 * MICRO_SECOND;    // 30 min
 
 fn make_user_stream_endpoint(config: &BinanceConfig, key: String) -> String {
     let url = format!("{}/{}", config.private_ws_endpoint, key);

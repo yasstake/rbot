@@ -1,6 +1,6 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use crate::common::{Order, OrderSide, OrderStatus, Trade};
+use crate::common::{Order, OrderSide, OrderStatus, Trade, MicroSec};
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -56,12 +56,11 @@ impl OrderList {
         }
     }
 
-    pub fn get_old_orders(&self, expire_sec: i64) -> Vec<Order> {
-        let now = crate::common::NOW();
+    pub fn get_old_orders(&self, time_before: MicroSec) -> Vec<Order> {
         let mut old_orders: Vec<Order> = Vec::new();
 
         for order in self.list.iter() {
-            if order.create_time + expire_sec * crate::common::MICRO_SECOND < now {
+            if order.create_time < time_before {
                 old_orders.push(order.clone());
             }
         }

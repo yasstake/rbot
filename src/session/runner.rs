@@ -2,7 +2,7 @@
 
 use std::io::{stdout, Write};
 
-use pyo3::{pyclass, pymethods, Py, PyAny, PyErr, PyObject, Python};
+use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{
@@ -95,7 +95,12 @@ impl Runner {
         self.has_on_update = has_method(agent, "on_update");
         self.has_account_update = has_method(agent, "on_account_update");
 
-        if (! self.has_on_init) && (! self.has_on_clock) && (! self.has_on_tick) && (! self.has_on_update) && (! self.has_account_update) {
+        if (!self.has_on_init)
+            && (!self.has_on_clock)
+            && (!self.has_on_tick)
+            && (!self.has_on_update)
+            && (!self.has_account_update)
+        {
             log::error!("Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update");
             return false;
         }
@@ -131,7 +136,7 @@ impl Runner {
         true
     }
 
-    #[pyo3(signature = (market, agent, *, start_time=0, end_time=0, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
         market: PyObject,
@@ -140,6 +145,7 @@ impl Runner {
         end_time: MicroSec,
         execute_time: i64,
         verbose: bool,
+        log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
         let stream = Self::open_backtest_stream(&market, start_time, end_time);
         let reciever = stream.reciver;
@@ -148,10 +154,10 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        self.run(market, &reciever, agent, true)
+        self.run(market, &reciever, agent, true, log_file)
     }
 
-    #[pyo3(signature = (market, agent, *, log_memory=false, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None))]
     pub fn dry_run(
         &mut self,
         market: PyObject,
@@ -159,6 +165,7 @@ impl Runner {
         log_memory: bool,
         execute_time: i64,
         verbose: bool,
+        log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
@@ -167,10 +174,10 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Dry;
 
-        self.run(market, &reciever, agent, log_memory)
+        self.run(market, &reciever, agent, log_memory, log_file)
     }
 
-    #[pyo3(signature = (market, agent, *,log_memory=false, execute_time=0, verbose=false))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None))]
     pub fn real_run(
         &mut self,
         market: PyObject,
@@ -178,6 +185,7 @@ impl Runner {
         log_memory: bool,
         execute_time: i64,
         verbose: bool,
+        log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
@@ -186,7 +194,7 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
 
-        self.run(market, &reciever, agent, log_memory)
+        self.run(market, &reciever, agent, log_memory, log_file)
     }
 }
 
@@ -199,8 +207,9 @@ impl Runner {
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
         log_memory: bool,
+        log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
-        if ! self.update_agent_info(agent) {
+        if !self.update_agent_info(agent) {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
                 "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
             ));
@@ -210,7 +219,7 @@ impl Runner {
         // 1. start market & user stream
         // 2. download market data
         let r = Python::with_gil(|py| {
-            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {    
+            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
                 let r = market.call_method0(py, "start_market_stream");
                 if r.is_err() {
                     return Err(r.unwrap_err());
@@ -224,13 +233,18 @@ impl Runner {
                 }
             }
 
-            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry { 
+            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
                 if self.verbose {
                     println!("--- start download log data ---");
                     flush_log();
                 }
 
-                let r = market.call_method1(py, "download", (1,));
+                let kwargs = vec![("ndays", 1)];
+
+                // let r = market.call()
+
+                //let r = market.call_method1(py, "download", kwargs);
+                let r = market.call_method(py, "download", (), Some(kwargs.into_py_dict(py)));
                 if r.is_err() {
                     return Err(r.unwrap_err());
                 }
@@ -243,7 +257,6 @@ impl Runner {
             return Err(r.unwrap_err());
         }
 
-
         let result = Python::with_gil(|py| {
             if self.verbose {
                 println!("--- start run ---{:?} mode ---", self.execute_mode);
@@ -251,14 +264,22 @@ impl Runner {
 
             let mut session = Session::new(market, self.execute_mode.clone(), None, log_memory);
 
-            if !log_memory {
-                // TODO: ERROR handling
-                session.open_log(&session.session_name.clone()).unwrap();
+            if log_file.is_some() {
+                let log_file = log_file.unwrap();
+
+                if session.open_log(&log_file).is_err() {
+                    log::error!("Failed to open log file: {}", &log_file);
+                    println!("Failed to open log file: {}", &log_file);
+                };
+            } else if !log_memory {
+                log::error!(
+                    "log_memory and log_file are both false. Please set one of them to true."
+                );
+                println!("WARNING: log_memory and log_file are both false. Please set one of them to true.");
             }
 
             let py_session = Py::new(py, session).unwrap();
             let mut warm_up_loop: i64 = WARMUP_STEPS;
-
 
             if self.has_on_init {
                 self.call_agent_on_init(&py, agent, &py_session)?;
@@ -272,6 +293,8 @@ impl Runner {
 
             self.reset_count();
             let loop_start_time = NOW();
+
+            let mut remain_time: i64 = 0;
 
             loop {
                 let message = receiver.recv();
@@ -316,15 +339,18 @@ impl Runner {
                     if self.verbose {
                         println!("start_timestamp: {}", time_string(self.start_timestamp));
                     }
-                } else if 0 < self.execute_time
-                    && SEC(self.execute_time) < self.last_timestamp - self.start_timestamp
-                {
-                    break;
+                } else if 0 < self.execute_time {
+                    remain_time =
+                        self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
+
+                    if remain_time < 0 {
+                        break;
+                    }
                 }
 
                 // print progress if verbose flag is set.
                 if self.verbose {
-                    self.print_progress();
+                    self.print_progress(remain_time);
                 }
             }
 
@@ -362,53 +388,64 @@ impl Runner {
         result
     }
 
-    pub fn print_progress(&mut self) -> bool {
-        if self.last_print_tick_time == 0 {
-            self.last_print_tick_time = self.last_timestamp;
+    pub fn print_progress(&mut self, remain_time: i64) -> bool {
+        if self.last_timestamp - self.last_print_tick_time < self.print_interval
+            && self.last_print_tick_time != 0
+        {
             return false;
         }
 
-        if self.print_interval < self.last_timestamp - self.last_print_tick_time {
-            let mode = match self.execute_mode {
-                ExecuteMode::Dry => "[Dry run ]",
-                ExecuteMode::Real => "[Real run]",
-                ExecuteMode::BackTest => "[BackTest]",
-            };
+        let mode = match self.execute_mode {
+            ExecuteMode::Dry => "[Dry run ]",
+            ExecuteMode::Real => "[Real run]",
+            ExecuteMode::BackTest => "[BackTest]",
+        };
 
-            print!(
-                "\r{}{:<.19}, {:>6}[rec], ({:>6}[tick], {:>4}[clock], {:>3}[update])",
-                mode,
-                time_string(self.last_timestamp),
-                self.loop_count,
-                self.on_tick_count,
-                self.on_clock_count,
-                self.on_update_count,
-            );
-            let _ = stdout().flush();
+        print!(
+            "\r{}{:<.19}, {:>6}[rec]",
+            mode,
+            time_string(self.last_timestamp),
+            self.loop_count,
+        );
 
-            if self.execute_mode == ExecuteMode::BackTest {
-                let count = self.loop_count - self.last_print_loop_count;
-                self.last_print_loop_count = self.loop_count;
-
-                let now = NOW();
-                let real_elapsed_time = now - self.last_print_real_time;
-                self.last_print_real_time = now;
-
-                let rec_per_sec = ((count * 1_000_000) as f64) / real_elapsed_time as f64; // in sec
-                let rec_per_sec = rec_per_sec as i64;
-
-                let tick_elapsed_time = self.last_timestamp - self.last_print_tick_time;
-                let speed = tick_elapsed_time / real_elapsed_time;
-
-                print!(", {:>7}[rec/s]({:>8} X)\n", rec_per_sec, speed,);
-            }
-
-            self.last_print_tick_time = self.last_timestamp;
-
-            return true;
+        if self.on_tick_count != 0 {
+            print!(", {:>6}[tk]", self.on_tick_count,);
         }
 
-        false
+        if self.on_clock_count != 0 {
+            print!(", {:>6}[cl]", self.on_clock_count,);
+        }
+
+        if self.on_update_count != 0 {
+            print!(", {:>6}[up]", self.on_update_count,);
+        }
+
+        if 0 < remain_time {
+            print!(", {:>4}[ETA]", remain_time / 1_000_000);
+        }
+
+        if self.execute_mode == ExecuteMode::BackTest {
+            let count = self.loop_count - self.last_print_loop_count;
+            self.last_print_loop_count = self.loop_count;
+
+            let now = NOW();
+            let real_elapsed_time = now - self.last_print_real_time;
+            self.last_print_real_time = now;
+
+            let rec_per_sec = ((count * 1_000_000) as f64) / real_elapsed_time as f64; // in sec
+            let rec_per_sec = rec_per_sec as i64;
+
+            let tick_elapsed_time = self.last_timestamp - self.last_print_tick_time;
+            let speed = tick_elapsed_time / real_elapsed_time;
+
+            print!(", {:>7}[rec/s]({:>5} X)", rec_per_sec, speed,);
+        }
+
+        let _ = stdout().flush();
+
+        self.last_print_tick_time = self.last_timestamp;
+
+        return true;
     }
 
     pub fn on_message(
@@ -447,7 +484,7 @@ impl Runner {
 
         if self.has_on_update && message.order.is_some() {
             let order = message.order.as_ref().unwrap();
-            self.call_agent_on_update(py, agent, py_session, order)?;            
+            self.call_agent_on_update(py, agent, py_session, order)?;
         }
 
         // IN Real run, account message is from user stream.

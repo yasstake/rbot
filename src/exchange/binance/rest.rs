@@ -130,7 +130,7 @@ where
         }
         Err(e) => {
             println!("Error: {:?}", e);
-            return Err(e.to_string());
+            return Err(format!("process binance trade message error {}", e.to_string()));
         }
     }
 }
@@ -534,13 +534,13 @@ where
     T: serde::de::DeserializeOwned,
 {
     match result {
-        Ok(v) => match serde_json::from_value::<T>(v) {
+        Ok(value) => match serde_json::from_value::<T>(value) {
             Ok(v) => {
                 return Ok(v);
             }
             Err(e) => {
                 println!("Error: {:?}", e);
-                return Err(e.to_string());
+                return Err(format!("json parse error{}", e.to_string()));
             }
         },
         Err(e) => {
