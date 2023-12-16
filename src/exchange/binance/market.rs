@@ -183,7 +183,7 @@ impl BinanceMarket {
         let db_name = Self::db_path(&config).unwrap();
         log::debug!("db_path: {}", db_name);
 
-        let mut db = TradeTable::open(db_name.as_str()).expect("cannot open db");
+        let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
         log::debug!("db is opend. db_path= {}", db_name);
 
         /*
@@ -227,7 +227,6 @@ impl BinanceMarket {
     pub fn reset_cache_duration(&mut self) {
         self.db.reset_cache_duration();
     }
-
 
     #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
     pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
@@ -282,7 +281,7 @@ impl BinanceMarket {
                 }
             }
 
-            self.wait_for_settlement();
+            self.wait_for_settlement(tx);
         }
 
         if archive_only {
@@ -292,15 +291,13 @@ impl BinanceMarket {
         // download from rest API
         download_rec += self.download_latest(force, verbose);
 
-        self.wait_for_settlement();
+        self.wait_for_settlement(tx);
 
         download_rec
     }
 
-    pub fn wait_for_settlement(&mut self) {
-        while self.get_inprogress() {
-            sleep(Duration::from_millis(1 * 100));
-        }
+    pub fn stop_db_thread(&mut self) {
+        self.db.stop_thread();
     }
 
     #[pyo3(signature = (force=false, verbose = true))]
@@ -505,8 +502,8 @@ impl BinanceMarket {
     }
 
     #[getter]
-    pub fn get_inprogress(&self) -> bool {
-        return self.db.get_has_q();
+    pub fn get_running(&self) -> bool {
+        return self.db.is_running();
     }
 
     pub fn vacuum(&self) {
@@ -928,6 +925,12 @@ use crate::exchange::binance::rest::{get_board_snapshot, download_historical_tra
 impl BinanceMarket {
     pub fn db_path(config: &BinanceConfig) -> PyResult<String> {
         Ok(config.get_db_path())
+    }
+
+    pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
+        while tx.len() != 0 {
+            sleep(Duration::from_millis(1 * 100));
+        }
     }
 
     fn make_historical_data_url_timestamp(config: &BinanceConfig, name: &str, t: MicroSec) -> String {
