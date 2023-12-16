@@ -329,7 +329,9 @@ impl Session {
     pub fn expire_order(&mut self, ttl_sec: i64) -> bool {
         let mut has_expire = false;
         
-        for order in self.buy_orders.get_old_orders(ttl_sec) {
+        let expire_time = self.current_timestamp - SEC(ttl_sec);
+
+        for order in self.buy_orders.get_old_orders(expire_time) {
             if self.cancel_order(&order.order_id).is_ok() {
                 has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
@@ -340,7 +342,7 @@ impl Session {
 
         }
 
-        for order in self.sell_orders.get_old_orders(ttl_sec) {
+        for order in self.sell_orders.get_old_orders(expire_time) {
             if self.cancel_order(&order.order_id).is_ok() {
                 has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
