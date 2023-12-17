@@ -1,6 +1,9 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::io::{stdout, Write};
+use std::{
+    io::{stdout, Write},
+    thread, sync::{Arc, Mutex},
+};
 
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
@@ -196,6 +199,45 @@ impl Runner {
 
         self.run(market, &reciever, agent, log_memory, log_file)
     }
+
+/*
+    pub fn live_session(&self, market: PyObject) -> Arc<Mutex<Session>> {
+        println!("live_session: {:?}", &market);
+        let stream = Self::get_market_stream(&market);
+        let receiver = stream.reciver;
+
+
+        Python::with_gil(|py| {
+            let r = market.call_method0(py, "start_market_stream");
+            if r.is_err() {
+                println!("Failed to start market stream");
+            }
+        });
+        println!("live_session: start_market_stream");
+
+        let session = Session::new(market.clone(), ExecuteMode::Dry, None, true);
+        let session_clone = Arc::new(Mutex::new(session));
+
+        thread::spawn(move|| {
+            loop {
+                let message = receiver.recv();
+
+                match message {
+                    Ok(message) => {
+                        let mut session = session_clone.lock().unwrap();
+                        session.on_message(&message);
+                    }
+                    Err(e) => {
+                        println!("live_session: error={:?}", &e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        session_clone
+    }
+*/  
 }
 
 const WARMUP_STEPS: i64 = 10;
