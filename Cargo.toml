@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.2.12"
+version = "0.2.13"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -86,18 +86,4 @@ features = ["rust_decimal", "abi3-py38", "extension-module"]
 [features]
 extension-module = ["pyo3/extension-module"]
  
-
-[target.x86_64-apple-darwin]
-rustflags = [
-  "-C", "link-arg=-undefined",
-  "-C", "link-arg=dynamic_lookup",
-  #"-C", "link-args=-Wl,-rpath,/Library/Developer/CommandLineTools/Library/Frameworks",  
-]
-
-[target.aarch64-apple-darwin]
-rustflags = [
-  "-C", "link-arg=-undefined",
-  "-C", "link-arg=dynamic_lookup",
-  #"-C", "link-args=-Wl,-rpath,/Library/Developer/CommandLineTools/Library/Frameworks",  
-]
 
