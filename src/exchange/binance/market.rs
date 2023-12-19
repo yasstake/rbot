@@ -291,7 +291,18 @@ impl BinanceMarket {
         // download from rest API
         download_rec += self.download_latest(force, verbose);
 
+        if verbose {
+            println!("\nREST downloaded: {}[rec]", download_rec);
+            print!("Waiting for Insert DB...");
+            flush_log();
+        }
+
         self.wait_for_settlement(tx);
+
+        if verbose {
+            println!("Done");
+            flush_log();
+        }
 
         download_rec
     }
@@ -928,7 +939,7 @@ impl BinanceMarket {
     }
 
     pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
-        while tx.len() != 0 {
+        while 5 < tx.len() {
             sleep(Duration::from_millis(1 * 100));
         }
     }
