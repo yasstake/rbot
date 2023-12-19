@@ -1,9 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::{
-    io::{stdout, Write},
-    thread, sync::{Arc, Mutex},
-};
+use std::io::{stdout, Write};
+
 
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
@@ -266,12 +264,22 @@ impl Runner {
                 if r.is_err() {
                     return Err(r.unwrap_err());
                 }
+
+                if self.verbose {
+                    println!("--- start market stream ---");
+                    flush_log();
+                }
             }
 
             if self.execute_mode == ExecuteMode::Real {
                 let r = market.call_method0(py, "start_user_stream");
                 if r.is_err() {
                     return Err(r.unwrap_err());
+                }
+
+                if self.verbose {
+                    println!("--- start user stream ---");
+                    flush_log();
                 }
             }
 
