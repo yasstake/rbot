@@ -323,7 +323,7 @@ where
 }
 
 const MAX_BUFFER_SIZE: usize = 2000;
-const MAX_QUEUE_SIZE: usize = 10;
+const MAX_QUEUE_SIZE: usize = 50;
 
 pub fn download_log<F>(
     url: &String,

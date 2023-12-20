@@ -10,27 +10,42 @@ use crate::{fs::db_full_path, common::MarketConfig};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[pyclass]
 pub struct BinanceConfig {
+    #[pyo3(set)]    
     pub test_net: bool,
 
+    #[pyo3(set)]
     pub exchange_name: String,
+    #[pyo3(set)]    
     pub trade_category: String,
+    #[pyo3(set)]    
     pub trade_symbol: String,
-    
+    #[pyo3(set)]    
     pub home_currency: String,
+    #[pyo3(set)]    
     pub foreign_currency: String,
-
+    #[pyo3(set)]
     pub testnet: bool,
 
     // server config
+    #[pyo3(set)]    
     pub rest_endpoint: String,
+    #[pyo3(set)]    
     pub public_ws_endpoint: String,
+    #[pyo3(set)]    
     pub private_ws_endpoint: String,
+    #[pyo3(set)]    
     pub history_web_base: String,
+    #[pyo3(set)]    
     pub new_order_path: String,
+    #[pyo3(set)]    
     pub cancel_order_path: String,
+    #[pyo3(set)]    
     pub open_orders_path: String,
+    #[pyo3(set)]    
     pub account_path: String,
+    #[pyo3(set)]    
     pub public_subscribe_message: String,
+    #[pyo3(set)]    
     pub user_data_stream_path: String,
 
     // key & secret
