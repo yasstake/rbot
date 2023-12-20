@@ -198,44 +198,6 @@ impl Runner {
         self.run(market, &reciever, agent, log_memory, log_file)
     }
 
-/*
-    pub fn live_session(&self, market: PyObject) -> Arc<Mutex<Session>> {
-        println!("live_session: {:?}", &market);
-        let stream = Self::get_market_stream(&market);
-        let receiver = stream.reciver;
-
-
-        Python::with_gil(|py| {
-            let r = market.call_method0(py, "start_market_stream");
-            if r.is_err() {
-                println!("Failed to start market stream");
-            }
-        });
-        println!("live_session: start_market_stream");
-
-        let session = Session::new(market.clone(), ExecuteMode::Dry, None, true);
-        let session_clone = Arc::new(Mutex::new(session));
-
-        thread::spawn(move|| {
-            loop {
-                let message = receiver.recv();
-
-                match message {
-                    Ok(message) => {
-                        let mut session = session_clone.lock().unwrap();
-                        session.on_message(&message);
-                    }
-                    Err(e) => {
-                        println!("live_session: error={:?}", &e);
-                        break;
-                    }
-                }
-            }
-        });
-
-        session_clone
-    }
-*/  
 }
 
 const WARMUP_STEPS: i64 = 10;
@@ -249,11 +211,19 @@ impl Runner {
         log_memory: bool,
         log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
+        if self.verbose {
+            println!("--- run {:?} mode ---", self.execute_mode);
+            flush_log();
+        }
+        
+
         if !self.update_agent_info(agent) {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
                 "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
             ));
         }
+
+        flush_log();
 
         // prepare market data
         // 1. start market & user stream
@@ -309,7 +279,8 @@ impl Runner {
 
         let result = Python::with_gil(|py| {
             if self.verbose {
-                println!("--- start run ---{:?} mode ---", self.execute_mode);
+                println!("--- run loop ---");
+                flush_log();
             }
 
             let mut session = Session::new(market, self.execute_mode.clone(), None, log_memory);
@@ -491,7 +462,7 @@ impl Runner {
             print!(", {:>7}[rec/s]({:>5} X)", rec_per_sec, speed,);
         }
 
-        let _ = stdout().flush();
+        flush_log();
 
         self.last_print_tick_time = self.last_timestamp;
 

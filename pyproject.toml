@@ -14,3 +14,6 @@ classifiers = [
 
 [tool.maturin]
 python-source = "python"
+
+[tool.setuptools.packages.find]
+exclude = ["build", "tests"]
