@@ -22,23 +22,35 @@ pub enum PriceType {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
+    #[pyo3(set)]
     pub price_unit: Decimal,
+    #[pyo3(set)]    
     pub price_scale: u32,
-
+    
+    #[pyo3(set)]
     pub size_unit: Decimal,
+    #[pyo3(set)]    
     pub size_scale: u32,
 
+    #[pyo3(set)]
     pub maker_fee: Decimal,
+    #[pyo3(set)]    
     pub taker_fee: Decimal,
 
+    #[pyo3(set)]
     pub price_type: PriceType,
+    #[pyo3(set)]    
     pub fee_type: FeeType,
 
+    #[pyo3(set)]
     pub home_currency: String,
+    #[pyo3(set)]    
     pub foreign_currency: String,
-
+    
+    #[pyo3(set)]
     pub market_order_price_slip: Decimal,
 
+    #[pyo3(set)]
     pub board_depth: u32
 }
 

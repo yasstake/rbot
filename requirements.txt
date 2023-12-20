@@ -1,12 +1,7 @@
-pytest
-numpy
-pandas
-bokeh
-polars
 pyarrow
-flet
+polars
 plotly
 nbformat
-matplotlib
+numpy
+pandas
 json2html
-
