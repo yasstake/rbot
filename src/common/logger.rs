@@ -48,25 +48,6 @@ pub fn convert_pyresult_vec<T1, T2>(r: Result<Vec<T1>, String>) -> Result<Vec<T2
 
 
 
-
-/*
-trait Representable {
-    fn __str__(&self) -> String
-    where 
-        Self: serde::Serialize,
-    {
-        serde_json::to_string(&self).unwrap()
-    }
-
-    fn __repr__(&self) -> String
-    where 
-        Self: serde::Serialize,
-    {
-        self.__str__()
-    }
-}
-*/
-
 /// implement macro for Representable
 /// 
 #[macro_export]
