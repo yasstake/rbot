@@ -17,7 +17,7 @@ use exchange::BoardItem;
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::{BinanceMarket, BinanceConfig};
-use exchange::bb::BBMarket;
+// use exchange::bb::BBMarket;
 
 use common::*;
 use session::{Session, ExecuteMode, Logger};
@@ -67,7 +67,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<BinanceConfig>()?;
 
     // ByBit
-    m.add_class::<BBMarket>()?;    
+//     m.add_class::<BBMarket>()?;    
 
     Ok(())
 }
