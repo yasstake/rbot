@@ -10,3 +10,6 @@ pub mod binance;
 pub mod orderbook;
 pub use orderbook::*;
 
+pub mod skelton;
+pub use skelton::*;
+
