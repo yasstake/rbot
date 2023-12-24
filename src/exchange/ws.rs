@@ -2,28 +2,120 @@
 
 use core::panic;
 use std::net::TcpStream;
+use std::rc::Rc;
+use std::sync::Arc;
+use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 use url::Url;
 
 
-use crate::common::{MicroSec, MICRO_SECOND, NOW};
+use crate::common::{MicroSec, MICRO_SECOND, NOW, MultiChannel};
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
 use tungstenite::protocol::WebSocket;
 
-
-pub struct WebSocketClient {
-    connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
-    url: String,
-    subscribe_message: Option<Value>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsMessage{
+    method: String,
+    params: Vec<String>,
+    id: i64,
 }
 
-impl WebSocketClient {
-    pub fn new(url: &str, subscribe_message: Option<Value>) -> Self {
+impl WsMessage {
+    pub fn subscribe(message: &Vec<String>) -> Self {
+        WsMessage {
+            method: "SUBSCRIBE".to_string(),
+            params: message.clone(),
+            id: NOW() % 1000,
+        }
+    }
+
+    pub fn add_params(&mut self, params: &str) {
+        self.params.push(params.to_string());
+    }
+
+    pub fn to_string(&self) -> String {
+        if self.params.len() == 0 {
+            return "".to_string();
+        }
+        else {
+            return serde_json::to_string(&self).unwrap()
+        }
+    }
+}
+
+
+impl Into<String> for WsMessage {
+    fn into(self) -> String {
+        if self.params.len() == 0 {
+            return "".to_string();
+        }
+        else {
+            return serde_json::to_string(&self).unwrap()
+        }
+    }
+}
+
+pub struct WebSocketClient<T>
+    where T: Clone
+{
+    url: String,
+    handle: Option<std::thread::JoinHandle<()>>,
+    subscribe_list: Vec<String>,
+    control_ch: MultiChannel<String>,      // send sbscribe message
+    receive_ch: MultiChannel<T>,        // receive ws message
+}
+
+impl<T> WebSocketClient<T> 
+    where T: Clone
+{
+
+    pub fn new(url: &str) -> Self {
         WebSocketClient {
+            url: url.to_string(),
+            handle: None,
+            subscribe_list: vec![],
+            control_ch: MultiChannel::new(),
+            receive_ch: MultiChannel::new(),
+        }
+    }
+
+    /// connect to websocket server
+    /// start listening thread
+    pub fn connect(&mut self) {
+    }
+
+    /// Append subscribe list and send subscribe message to send queue
+    pub fn subscribe(&mut self, message: &mut Vec<String>) {
+        self.subscribe_list.append(message);
+
+        let message = Self::make_subscribe_message(message);
+        self.control_ch.send(message);
+    }
+
+    pub fn make_subscribe_message(message: &Vec<String>) -> String {
+        let message = WsMessage::subscribe(message);
+        message.into()
+    }
+
+    /// get receive queue
+    pub fn open_channel(&mut self, channel: &str) {
+    }
+}
+
+
+pub struct SimpleWebsocket {
+    connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
+    url: String,
+    subscribe_message: Arc<WsMessage>,
+}
+
+impl SimpleWebsocket {
+    pub fn new(url: &str, subscribe_message: Arc<WsMessage>) -> Self {
+        SimpleWebsocket {
             connection: None,
             url: url.to_string(),
-            subscribe_message: subscribe_message,
+            subscribe_message: subscribe_message.clone(),
         }
     }
 
@@ -49,8 +141,10 @@ impl WebSocketClient {
 
         self.connection = Some(socket);
 
-        if self.subscribe_message.is_some() {
-            self.send_message(self.subscribe_message.clone().unwrap().to_string().as_str());
+        let message: String = self.subscribe_message.to_string();
+
+        if message != "" {
+            self.send_message(&message);
         }
         self.flush();
     }
@@ -137,10 +231,10 @@ impl WebSocketClient {
 }
 
 pub struct AutoConnectClient {
-    client: Option<WebSocketClient>,
-    next_client: Option<WebSocketClient>,
+    client: Option<SimpleWebsocket>,
+    next_client: Option<SimpleWebsocket>,
     pub url: String,
-    subscribe_message: Option<Value>,
+    subscribe_message: Arc<WsMessage>,
     last_message: String,
     last_connect_time: MicroSec,
     last_ping_time: MicroSec,
@@ -156,7 +250,7 @@ const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6 hours
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3;      // every 3 min
 
 impl AutoConnectClient {
-    pub fn new(url: &str, message: Option<Value>) -> Self {
+    pub fn new(url: &str, message: Arc<WsMessage>) -> Self {
         AutoConnectClient {
             client: None,
             next_client: None,
@@ -172,7 +266,7 @@ impl AutoConnectClient {
     }
 
     pub fn connect(&mut self) {
-        self.client = Some(WebSocketClient::new(
+        self.client = Some(SimpleWebsocket::new(
             self.url.as_str(),
             self.subscribe_message.clone(),
         ));
@@ -185,7 +279,7 @@ impl AutoConnectClient {
             self.url = url.unwrap();
         }
 
-        self.next_client = Some(WebSocketClient::new(
+        self.next_client = Some(SimpleWebsocket::new(
             self.url.as_str(),
             self.subscribe_message.clone(),
         ));
@@ -323,34 +417,18 @@ mod test_exchange_ws {
 
     #[test]
     fn ws_loop() {
-        let mut ws1 = WebSocketClient::new(
-            "wss://stream.binance.com/ws",
-            std::option::Option::Some(json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
-                        "btcusdt@trade",
-                        "btcusdt@depth"
-                    ],
-                    "id": 1
-                }
-            )),
-        );
+        let message = WsMessage::subscribe(&vec!["btcusdt@trade".to_string(), "btcusdt@depth".to_string()]);
 
+        let mut ws1 = SimpleWebsocket::new(
+            "wss://stream.binance.com/ws",
+            Arc::new(message));
         ws1.connect();
 
-        let mut ws2 = WebSocketClient::new(
+        let message2 = WsMessage::subscribe(&vec!["btcusdt@trade".to_string(), "btcusdt@depth".to_string()]);
+
+        let mut ws2 = SimpleWebsocket::new(
             "wss://stream.binance.com/ws",
-            Some(json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
-                        "btcusdt@trade",
-                        "btcusdt@depth"
-                    ],
-                    "id": 1
-                }
-            )),
+            Arc::new(message2)
         );
 
         ws2.connect();
@@ -368,19 +446,11 @@ mod test_exchange_ws {
 
     #[test]
     fn test_reconnect() {
+        let message = WsMessage::subscribe(&vec!["btcusdt@trade".to_string(), "btcusdt@depth".to_string()]);
+
         let mut ws = AutoConnectClient::new(
             "wss://stream.binance.com/ws",
-
-            Some(json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
-                        "btcusdt@trade",
-                        // "btcusdt@depth"
-                    ],
-                    "id": 1
-                }
-            ))
+            Arc::new(message)
         );
 
         ws.connect();
@@ -392,5 +462,27 @@ mod test_exchange_ws {
 
         sleep(Duration::from_secs(20));
     }
+
+    #[test]
+    fn test_wsmessage() {
+        let message = WsMessage {
+            method: "SUBSCRIBE".to_string(),
+            params: vec!["btcusdt@trade".to_string(), "btcusdt@depth".to_string()],
+            id: 1,
+        };
+
+        let message = serde_json::to_string(&message);
+
+        if message.is_err() {
+            println!("Error: {:?}", message);
+            return;
+        }
+
+        let message = message.unwrap();
+
+        println!("{}", message);
+    }
+
+
 }
 

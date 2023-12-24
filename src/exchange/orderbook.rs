@@ -11,43 +11,13 @@ use polars_core::{
 use pyo3::pyclass;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::{de, Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_derive::Serialize;
 
 use crate::common::MarketConfig;
 
-pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<f64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
-    }
-}
+use super::string_to_decimal;
 
-pub fn string_to_decimal<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<f64>() {
-        Ok(num) => Ok(Decimal::from_f64(num).unwrap()),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
-    }
-}
-
-pub fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<i64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse i64")),
-    }
-}
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]

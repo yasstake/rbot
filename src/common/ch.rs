@@ -59,14 +59,86 @@ impl MarketStream {
 }
 
 #[derive(Debug)]
-struct Channel {
-    sender: Sender<MarketMessage>,
+struct Channel<T> {
+    sender: Sender<T>,
     valid: bool,
 }
 
 #[derive(Debug)]
+pub struct MultiChannel<T>
+where
+    T: Clone,
+{
+    channels: Vec<Channel<T>>,
+}
+
+impl <T>MultiChannel<T>
+where
+    T: Clone,
+{
+    pub fn new() -> Self {
+        Self {
+            channels: Vec::new(),
+        }
+    }
+
+    pub fn close(&mut self) {
+        loop {
+            match self.channels.pop() {
+                Some(channel) => drop(channel),
+                None => break,
+            }
+        }
+    }
+
+    pub fn add_channel(&mut self, channel: Sender<T>) {
+        self.channels.push(Channel {
+            sender: channel,
+            valid: true,
+        });
+    }
+
+    pub fn open_channel(&mut self, buffer_size: usize) -> Receiver<T> {
+        let (sender, receiver) = 
+            if buffer_size == 0 {
+                unbounded()
+            }
+            else {
+                bounded(buffer_size)
+            };
+        self.add_channel(sender);
+
+        receiver
+    }
+
+    pub fn send(&mut self, message: T) -> Result<()> {
+        let mut has_error: bool = false;
+
+        for channel in self.channels.iter_mut() {
+            let result = channel.sender.send(message.clone());
+
+            if result.is_err() {
+                log::warn!("Send ERROR: {:?}. remove channel", result);                
+                channel.valid = false;
+                has_error = true;
+            }
+        }
+
+        // remove invalid channels
+        if has_error {
+            log::warn!("Send ERROR: removing invalid channels");
+            self.channels.retain(|x| x.valid);
+        }
+
+        Ok(())
+    }
+}
+
+
+/*
+#[derive(Debug)]
 pub struct MultiChannel {
-    channels: Vec<Channel>,
+    channels: Vec<Channel<MarketMessage>>,
 }
 
 impl MultiChannel {
@@ -128,6 +200,9 @@ impl MultiChannel {
     }
 }
 
+*/
+
+
 #[cfg(test)]
 mod channel_test {
     use crate::common::{init_debug_log, init_log};
@@ -146,7 +221,7 @@ mod channel_test {
         };
         channel.send(message.clone()).unwrap();
 
-        let result = receiver.reciver.recv();
+        let result = receiver.recv();
         assert_eq!(result.unwrap(), message);
     }
 
