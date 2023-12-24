@@ -13,11 +13,14 @@ pub fn project_dir() -> PathBuf {
 
 
 pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str) -> PathBuf {
-    let project_dir = if base_dir == "" {
-        project_dir()
+    let project_dir = if base_dir != "" {
+        PathBuf::from(base_dir)
+    }
+    else if std::env::var("RBOT_DB_ROOT").is_ok() {
+        PathBuf::from(std::env::var("RBOT_DB_ROOT").unwrap())
     }
     else {
-        PathBuf::from(base_dir)
+        project_dir()
     };
 
     let db_dir = project_dir.join("DB");

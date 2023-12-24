@@ -16,6 +16,7 @@ use rust_decimal::Decimal;
 use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
+use crate::common::HHMM;
 use crate::common::SEC;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_DAY, FLOOR_SEC, NOW};
 use crate::common::{TimeChunk, Trade};
@@ -202,42 +203,36 @@ impl TradeTableDb {
         return true;
     }
 
-    /*
-    pub fn select_start_end_rec(&self, date: MicroSec) -> Result<Vec<Trade>, Error> {
-        let date_start = FLOOR_DAY(date);
-        let date_end = date_start + DAYS(1);
+    pub fn validate_by_date(&mut self, date: MicroSec) -> bool {
+        let start_time = FLOOR_DAY(date);
+        let end_time = start_time + DAYS(1);
 
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and time_stamp < $2 and (status = "S" or status = "E")"#;
+        // startからendまでのレコードにS,Eが1つづつあるかどうかを確認する。
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 and (status = "S" or status = "E") order by time_stamp"#;
+        let trades = self.select_query(sql, vec![start_time, end_time]);
 
-        let mut trades: Vec<Trade> = vec![];
-
-        let statement = self.connection.prepare(sql).unwrap();
-
-        let result = statement.query_map([date_start, date_end], |row| {
-            let time_stamp: i64 = row.get(0).unwrap();
-            let bs_str: String = row.get(1).unwrap();
-            let bs: OrderSide = OrderSide::from(&bs_str);
-            let price: f64 = row.get(2).unwrap();
-            let price = Decimal::from_f64(price).unwrap();
-            let size: f64 = row.get(3).unwrap();
-            let size = Decimal::from_f64(size).unwrap();
-            let status_str: String = row.get(4).unwrap();
-            let status = LogStatus::from(status_str.as_str());
-            let id: String = row.get(5).unwrap();
-
-            let trade = Trade::new(time_stamp, bs, price, size, status, id);
-
-            trades.push(trade);
-        });
-
-        if result.is_err() {
-            log::error!("select start end rec error {:?}", result);
-            return Err(result.unwrap_err());
+        if trades.len() != 2 {
+            log::debug!("S,E is not 2 {}", trades.len());
+            return false;
         }
 
-        Ok(trades)
+        let first = trades[0].clone();
+        let last = trades[1].clone();
+
+        // Sから始まりEでおわることを確認
+        if first.status != LogStatus::FixBlockStart && last.status != LogStatus::FixBlockEnd {
+            log::debug!("S,E is not S,E");
+            return false;
+        }
+
+        // S, Eのレコードの間が十分にあること（トラフィックにもよるが２２時間を想定）
+        if last.time - first.time < HHMM(20, 0) {
+            log::debug!("batch is too short");
+            return false;
+        }
+
+        true
     }
-    */
 }
 
 impl TradeTableDb {
@@ -489,57 +484,6 @@ impl TradeTableDb {
 
         return trades;
     }
-
-    /*
-    fn select_all_statement(&self) -> Statement {
-        let statement = self
-            .connection
-            .prepare("select time_stamp, action, price, size, status, id from trades order by time_stamp")
-            .unwrap();
-        return statement;
-    }
-
-    fn select_statement(&self, start_time: MicroSec, end_time: MicroSec) -> (Statement, Vec<i64>) {
-        let sql: &str;
-        let param: Vec<i64>;
-
-        if 0 < end_time {
-            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
-            param = vec![start_time, end_time];
-        } else {
-            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp order by time_stamp";
-            param = vec![start_time];
-        }
-
-        let statement = self.connection.prepare(sql).unwrap();
-
-        return (statement, param);
-    }
-
-    fn start_time(&self) -> Result<MicroSec, Error> {
-        let sql = "select time_stamp from trades order by time_stamp asc limit 1";
-
-        let r = self.connection.query_row(sql, [], |row| {
-            let min: i64 = row.get(0)?;
-            Ok(min)
-        });
-
-        return r;
-    }
-
-    /// select max(end) time_stamp in db
-    fn end_time(&self) -> Result<MicroSec, Error> {
-        // let sql = "select max(time_stamp) from trades";
-        let sql = "select time_stamp from trades order by time_stamp desc limit 1";
-
-        let r = self.connection.query_row(sql, [], |row| {
-            let max: i64 = row.get(0)?;
-            Ok(max)
-        });
-
-        return r;
-    }
-    */
 }
 
 #[derive(Debug)]
@@ -666,14 +610,6 @@ impl TradeTable {
         return CEIL(t, TradeTable::OHLCV_WINDOW_SEC);
     }
 
-    /*
-        fn stop_receiving(&mut self) {
-            if let Some(handle) = self.rcv_thread.take() {
-                handle.join().unwrap();
-            }
-        }
-    */
-
     pub fn reset_cache_duration(&mut self) {
         self.cache_duration = 0;
     }
@@ -731,11 +667,14 @@ impl TradeTable {
                 // no cache / update all
                 self.load_df(start_time, end_time);
 
+                let df_start_time = start_time_df(&self.cache_df).unwrap();
+                let df_end_time = end_time_df(&self.cache_df).unwrap();
+
                 // update ohlcv
                 self.cache_ohlcvv = ohlcvv_df(
                     &self.cache_df,
-                    TradeTable::ohlcv_start(start_time),
-                    end_time,
+                    TradeTable::ohlcv_start(df_start_time),
+                    df_end_time,
                     TradeTable::OHLCV_WINDOW_SEC,
                 );
                 return;
@@ -746,33 +685,38 @@ impl TradeTable {
 
         // load data and merge cache
         if start_time < df_start_time {
+            // TODO: ロードされた範囲内でのUpdateに変更する。
             let df1 = &self.select_df_from_db(start_time, df_start_time);
-            log::debug!(
-                "load data before cache df1={:?} df2={:?}",
-                df1.shape(),
-                self.cache_df.shape()
-            );
-            self.cache_df = merge_df(&df1, &self.cache_df);
 
-            // update ohlcv
-            let ohlcv1_start = TradeTable::ohlcv_start(start_time);
-            let ohlcv1_end = TradeTable::ohlcv_start(df_start_time);
+            let len = df1.shape().0;
+            // データがあった場合のみ更新
+            if 0 < len {
 
-            log::debug!(
-                "cache update diff before {} -> {}",
-                time_string(ohlcv1_start),
-                time_string(ohlcv1_end)
-            );
-            let ohlcv1 = ohlcvv_df(
-                &self.cache_df,
-                ohlcv1_start,
-                ohlcv1_end,
-                TradeTable::OHLCV_WINDOW_SEC,
-            );
+                let new_df_start_time = start_time_df(&df1).unwrap();
+                let new_df_end_time = end_time_df(&df1).unwrap();
 
-            if ohlcv1.shape().0 != 0 {
-                let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
-                self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+                self.cache_df = merge_df(&df1, &self.cache_df);
+
+                // update ohlcv
+                let ohlcv1_start = TradeTable::ohlcv_start(new_df_start_time);
+                let ohlcv1_end = TradeTable::ohlcv_start(new_df_end_time);
+
+                log::debug!(
+                    "ohlcVV cache update diff before {} -> {}",
+                    time_string(ohlcv1_start),
+                    time_string(ohlcv1_end)
+                );
+                let ohlcv1 = ohlcvv_df(
+                    &self.cache_df,
+                    ohlcv1_start,
+                    ohlcv1_end,
+                    TradeTable::OHLCV_WINDOW_SEC,
+                );
+
+                if ohlcv1.shape().0 != 0 {
+                    let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
+                    self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+                }
             }
         } else {
             // expire cache ducarion * 2
@@ -786,26 +730,36 @@ impl TradeTable {
             let df2 = &self.select_df_from_db(df_end_time, end_time + DAYS(2));
 
             log::debug!(
-                "load data AFTER cache df1={:?} df2={:?}",
+                "load data after cache(2days) df1={:?} df2={:?}",
                 self.cache_df.shape(),
                 df2.shape()
             );
-            self.cache_df = merge_df(&self.cache_df, &df2);
 
-            // update ohlcv
-            let ohlcv2_start = TradeTable::ohlcv_start(start_time);
-            //let ohlcv2_end = TradeTable::ohlcv_start(to_time);
-
-            log::debug!("cache update diff after {} ", time_string(ohlcv2_start),);
-            let ohlcv1 = select_df(&self.cache_ohlcvv, 0, ohlcv2_start);
-            let ohlcv2 = ohlcvv_df(
-                &self.cache_df,
-                ohlcv2_start,
-                0,
-                TradeTable::OHLCV_WINDOW_SEC,
-            );
-
-            self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+            if df2.shape().0 != 0 {
+                let new_df_start_time = start_time_df(&df2).unwrap();
+                let new_df_end_time = end_time_df(&df2).unwrap();
+                // update ohlcv
+                let ohlcv2_start = TradeTable::ohlcv_start(new_df_start_time);
+                let ohlcv2_end = TradeTable::ohlcv_start(new_df_end_time);
+    
+                log::debug!(
+                    "load data AFTER cache df1={:?} df2={:?}",
+                    self.cache_df.shape(),
+                    df2.shape()
+                );
+                self.cache_df = merge_df(&self.cache_df, &df2);
+    
+                log::debug!("ohlcVV cache update diff after {} ", time_string(ohlcv2_start),);
+                let ohlcv1 = select_df(&self.cache_ohlcvv, 0, ohlcv2_start);
+                let ohlcv2 = ohlcvv_df(
+                    &self.cache_df,
+                    ohlcv2_start,
+                    ohlcv2_end,
+                    TradeTable::OHLCV_WINDOW_SEC,
+                );
+    
+                self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+            }
         }
     }
 

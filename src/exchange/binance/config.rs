@@ -44,7 +44,7 @@ pub struct BinanceConfig {
     #[pyo3(set)]    
     pub account_path: String,
     #[pyo3(set)]    
-    pub public_subscribe_message: String,
+    pub public_subscribe_channel: Vec<String>,
     #[pyo3(set)]    
     pub user_data_stream_path: String,
 
@@ -133,7 +133,7 @@ impl BinanceConfig {
 
         return BinanceConfig {
             test_net: false,
-            exchange_name: "BN".to_string(),
+            exchange_name: "BINANCE".to_string(),
             trade_category: "SPOT".to_string(),
             trade_symbol: upper_symbol,
 
@@ -150,17 +150,9 @@ impl BinanceConfig {
             account_path: "/api/v3/account".to_string(),
             user_data_stream_path: "/api/v3/userDataStream".to_string(),
 
-            public_subscribe_message: json!(
-                {
-                    "method": "SUBSCRIBE",
-                    "params": [
+            public_subscribe_channel: vec![
                         format!("{}@trade", lower_symbol),
-                        format!("{}@depth@100ms", lower_symbol)
-                    ],
-                    "id": 1
-                }
-            )
-            .to_string(),
+                        format!("{}@depth@100ms", lower_symbol)],
             testnet: false,
             api_key,
             api_secret,

@@ -1,18 +1,19 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::f32::consts::E;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, self};
 
-use crate::common::{MarketConfig, MicroSec, flush_log, NOW, DAYS, time_string, MarketStream, MultiChannel, MarketMessage, Order, OrderSide, convert_pyresult, OrderStatus, OrderType, Trade};
+use crate::common::{MarketConfig, MicroSec, MarketStream, MultiChannel, MarketMessage, Order, OrderSide, OrderStatus, OrderType};
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
-use crate::exchange::{OrderBook, BoardItem, SkeltonConfig, open_orders};
+use crate::exchange::skelton::rest::open_orders;
+use crate::exchange::{OrderBook, BoardItem};
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+
+use super::config::SkeltonConfig;
 
 #[derive(Debug)]
 pub struct SkeltonOrderBook {
@@ -135,7 +136,7 @@ pub struct SkeltonMarket {
     pub board: Arc<Mutex<SkeltonOrderBook>>,
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
-    pub channel: Arc<Mutex<MultiChannel>>,    
+    pub channel: Arc<Mutex<MultiChannel<MarketMessage>>>,    
 }
 
 
@@ -606,7 +607,8 @@ impl SkeltonMarket {
 
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
-        self.channel.lock().unwrap().open_channel(0)
+        let ch = self.channel.lock().unwrap().open_channel(0);
+        MarketStream{reciver: ch}
     }
 
     pub fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
@@ -628,7 +630,7 @@ impl SkeltonMarket {
             channel.close();
         });
 
-        return channel;
+        MarketStream{reciver: channel}
     }
 
 
@@ -861,7 +863,8 @@ impl SkeltonMarket {
     }
 }
 
-use super::{new_limit_order, new_market_order, cancel_order, cancell_all_orders, order_status, SkeltonOrderStatus, trade_list, SkeltonAccountInformation, get_balance};
+use super::rest::{new_limit_order, new_market_order, cancel_order, cancell_all_orders, order_status, trade_list, get_balance};
+use super::message::{SkeltonOrderStatus, SkeltonAccountInformation};
 
 impl SkeltonMarket {
     /*

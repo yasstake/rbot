@@ -7,7 +7,7 @@ use std::{
     path::Path, thread::sleep, time::Duration,
 };
 
-use crate::common::{LogStatus, Trade, flush_log};
+use crate::common::{LogStatus, Trade, flush_log, MicroSec, TODAY, DAYS};
 use crossbeam_channel::Sender;
 use csv::{self, StringRecord};
 use flate2::bufread::GzDecoder;
@@ -323,7 +323,7 @@ where
 }
 
 const MAX_BUFFER_SIZE: usize = 2000;
-const MAX_QUEUE_SIZE: usize = 50;
+const MAX_QUEUE_SIZE: usize = 100;
 
 pub fn download_log<F>(
     url: &String,
@@ -563,10 +563,59 @@ pub fn check_exist(url: &str) -> bool {
     }
 }
 
+
+fn has_archive<F>(date: MicroSec, f: &F)-> Result<bool, String>
+    where F: Fn(MicroSec)->String
+    {
+    let url = f(date);
+
+    if check_exist(url.as_str()) {
+        log::debug!("{} exists", url);
+        return Ok(true);
+    } else {
+        log::debug!("{} does not exist", url);
+    }
+    return Ok(false);
+}
+
+
+pub fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String> 
+    where F: Fn(MicroSec)->String
+{
+    let mut latest = TODAY();
+    let mut i = 0;
+
+    loop {
+        let has_archive = has_archive(latest, f);
+
+        if has_archive.is_err() {
+            log::error!("Error in has_archive: {:?}", has_archive);
+            return Err(format!("Error in has_archive: {:?}", has_archive));
+        }            
+
+        let has_archive = has_archive.unwrap();            
+
+        if has_archive {
+            return Ok(latest);
+        }
+
+        latest -= DAYS(1);
+        i += 1;
+
+        if 5 < i {
+            return Err(format!("get_latest_archive max retry error"));
+        }
+    }
+}
+
+
+
+
+
 #[cfg(test)]
 mod test_exchange {
     use super::*;
-    use crate::common::init_debug_log;
+    use crate::common::{init_debug_log, NOW};
 
     #[test]
     fn test_log_download() {
@@ -616,5 +665,28 @@ mod test_exchange {
         )
         .unwrap();
         println!("{}", s);
+    }
+
+    use crate::exchange::binance::config::BinanceConfig;
+    use crate::exchange::binance::BinanceMarket;
+
+    #[test]
+    fn test_has_archive() {
+        init_debug_log();
+
+        let date = NOW()- DAYS(1);
+        let config = crate::exchange::binance::config::BinanceConfig::BTCUSDT();
+
+        let f = |date: MicroSec| -> String {
+            BinanceMarket::make_historical_data_url_timestamp(&config, date)
+        };
+
+        let result = has_archive(date, &f);
+
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+
+        assert_eq!(result, true);
     }
 }
