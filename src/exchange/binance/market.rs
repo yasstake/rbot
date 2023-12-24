@@ -10,7 +10,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::borrow::BorrowMut;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{sleep, JoinHandle, self};
 use std::time::Duration;
 
@@ -37,7 +37,7 @@ use super::rest::{new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, AutoConnectClient, OrderBook, BoardItem, download_log, latest_archive_date, WsMessage};
+    check_exist, AutoConnectClient, OrderBook, BoardItem, download_log, latest_archive_date, WsMessage, BinanceWsMessage};
 
 use crate::exchange::binance::config::BinanceConfig;
 
@@ -527,10 +527,12 @@ impl BinanceMarket {
     pub fn start_market_stream(&mut self) {
 
         let endpoint = &self.config.public_ws_endpoint;
-        let subscribe_message = WsMessage::subscribe(&self.config.public_subscribe_channel);
+        let mut subscribe_message = BinanceWsMessage::new();
+        subscribe_message.add_params(&self.config.public_subscribe_channel);        
 
         // TODO: parameterize
-        let mut websocket = AutoConnectClient::new(endpoint, Arc::new(subscribe_message));
+        let mut websocket: AutoConnectClient<BinanceWsMessage> = 
+                AutoConnectClient::new(endpoint, Arc::new(RwLock::new(subscribe_message)));
 
         websocket.connect();
 
