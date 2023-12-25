@@ -40,11 +40,8 @@ pub enum BinancePublicWsMessage {
 impl Into<MarketMessage> for BinancePublicWsMessage {
     fn into(self) -> MarketMessage {
         match self {
-            BinancePublicWsMessage::Trade(trade) => MarketMessage {
-                trade: Some(trade.to_trade()),
-                order: None,
-                account: None,
-                message: None,
+            BinancePublicWsMessage::Trade(trade) => {
+                MarketMessage::from_trade(trade.to_trade())
             },
             BinancePublicWsMessage::BoardUpdate(_board_update) => {
                 // TODO: implment

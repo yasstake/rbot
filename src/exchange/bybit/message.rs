@@ -10,8 +10,14 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 
+use crate::common::LogStatus;
 use crate::common::MarketMessage;
+use crate::common::MultiMarketMessage;
+use crate::common::OrderSide;
+use crate::common::Trade;
 use crate::exchange::BoardItem;
+use crate::exchange::OrderBook;
+use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
 
@@ -172,9 +178,9 @@ impl From<String> for BybitWsMessage {
     }
 }
 
-impl Into<MarketMessage> for BybitWsMessage {
-    fn into(self) -> MarketMessage {
-        let mut message = MarketMessage::new();
+impl Into<MultiMarketMessage> for BybitWsMessage {
+    fn into(self) -> MultiMarketMessage {
+        let mut message = MultiMarketMessage::new();
 
         match self {
             BybitWsMessage::Status(status) => {
@@ -182,20 +188,39 @@ impl Into<MarketMessage> for BybitWsMessage {
             // return Null message
             },
             BybitWsMessage::Trade(trade) => {
-                /*
-                //MarketMessage::Trade(trade)
-                let trade = Trade::new(
-                    trade.data[0].symbol.clone(),
-                    trade.data[0].price,
-                    trade.data[0].size,
-                    trade.data[0].side.clone(),
-                    trade.data[0].timestamp,
-                    trade.data[0].is_block_trade,
-                );
-                */
+                for trade in trade.data.iter() {
+                    let t = Trade::new(
+                        trade.timestamp,                                                
+                        OrderSide::from(&trade.side),
+                        trade.price,
+                        trade.size,
+                        LogStatus::UnFix,
+                        &trade.trade_id
+                    );
+                    message.add_trade(t);
+                }
             },
             BybitWsMessage::Orderbook(orderbook) => {
-                //MarketMessage::Orderbook(orderbook)
+                let mut board = OrderBookRaw::new(0);
+
+                if orderbook.message_type  == "snapshot" {
+                    board.snapshot = true;
+                }
+
+                let mut bids: Vec<BoardItem> = vec![];
+                let mut asks: Vec<BoardItem> = vec![];  
+
+                for item in  orderbook.data.bids.iter() {
+                    bids.push(BoardItem{price: item.0, size: item.1});
+                }
+
+                for item in  orderbook.data.asks.iter() {
+                    asks.push(BoardItem{price: item.0, size: item.1});
+                }
+
+                board.update(&bids, &asks, true);
+
+                message.orderbook = Some(board);
             },
         }
 

@@ -175,7 +175,7 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
-    pub public_ws: WebSocketClient<BybitWsOpMessage, BybitWsMessage>
+    pub public_ws: WebSocketClient<BybitWsOpMessage>
 }
 
 #[pymethods]
@@ -1076,7 +1076,7 @@ impl BybitMarket {
             price,
             size,
             LogStatus::FixArchiveBlock,
-            id,
+            &id,
         );
 
         return trade;

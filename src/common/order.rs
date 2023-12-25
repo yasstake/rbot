@@ -277,7 +277,7 @@ impl Trade {
         price: Decimal,
         size: Decimal,
         status: LogStatus,
-        id: String,
+        id: &str,
     ) -> Self {
         return Trade {
             time: time_microsecond,
@@ -285,7 +285,7 @@ impl Trade {
             price,
             size,
             status,
-            id,
+            id: id.to_string(),
         };
     }
 
@@ -322,6 +322,7 @@ impl Into<MarketMessage> for &Trade {
             trade: Some(self.clone()),
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         }
     }
@@ -682,6 +683,7 @@ impl Into<MarketMessage> for &Order {
             trade: None,
             order: Some(self.clone()),
             account: None,
+            orderbook: None,
             message: None,
         }
     }
