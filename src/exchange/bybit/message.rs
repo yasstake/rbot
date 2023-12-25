@@ -10,6 +10,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 
+use crate::exchange::BoardItem;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
 
@@ -155,10 +156,12 @@ pub struct BybitOrderStatus {}
 
 
 /*------------- WS --------------------------- */
+#[serde(untagged)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum BybitWsMessage {
-    BybitWsData(BybitWsData),
-    BybitWsStatus(BybitWsStatus),
+    Status(BybitWsStatus),
+    Trade(BybitWsTradeMessage),
+    Orderbook(BybitWsOrderbookMessage),
 }
 
 
@@ -180,6 +183,18 @@ pub struct BybitWsStatus {
     pub ret_msg: String,
     pub conn_id: String,
     pub op: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitWsTradeMessage {
+    #[serde(rename = "topic")]
+    pub topic: String,
+    #[serde(rename = "type")]
+    pub message_type: String,
+    #[serde(rename = "data")]
+    pub data: Vec<BybitWsTrade>,
+    #[serde(rename = "ts")]
+    pub timestamp: BybitTimestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,18 +220,28 @@ pub struct BybitWsOrderbook {
     #[serde(rename = "s")]
     pub symbol: String,
     #[serde(rename = "b")]
-    pub bids: Vec<(Decimal, Decimal)>,
+    pub bids: Vec<(String, String)>,
     #[serde(rename = "a")]
-    pub asks: Vec<(Decimal, Decimal)>,
+    pub asks: Vec<(String, String)>,
     #[serde(rename = "u")]
     pub update_id: i64,
     #[serde(rename = "seq")]
     pub sequence: i64,
     #[serde(rename = "cts")]
-    pub create_timestamp: BybitTimestamp,
+    pub create_timestamp: Option<BybitTimestamp>
 }
 
-
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitWsOrderbookMessage {
+    #[serde(rename = "topic")]
+    pub topic: String,
+    #[serde(rename = "type")]
+    pub message_type: String,
+    #[serde(rename = "data")]
+    pub data: BybitWsOrderbook,
+    #[serde(rename = "ts")]
+    pub timestamp: BybitTimestamp,
+}
 
 
 
@@ -225,7 +250,7 @@ pub struct BybitWsOrderbook {
 
 #[cfg(test)]
 mod bybit_message_test {
-    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData};
+    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData, BybitWsOrderbook, BybitWsTrade};
 
     use super::{BybitRestBoard, BybitWsMessage};
 
@@ -300,6 +325,7 @@ r#"{"success":true,"ret_msg":"subscribe","conn_id":"6c642bd0-3fa2-408e-8617-3d62
 "#;
 
 
+const BYBIT_TRADE_1: &str = r#"{"topic":"publicTrade.BTCUSDT","ts":1703430744103,"type":"snapshot","data":[{"i":"2290000000090712222","T":1703430744102,"p":"43774","v":"0.0026","S":"Sell","s":"BTCUSDT","BT":false}]}"#;
 
 const BYBIT_ORDERBOOK: &str = 
 r#"{"success":true,"ret_msg":"subscribe","conn_id":"4492c76f-36ec-4e93-afa9-39d7d871d5d2","op":"subscribe"}
@@ -312,15 +338,45 @@ r#"{"success":true,"ret_msg":"subscribe","conn_id":"4492c76f-36ec-4e93-afa9-39d7
 
 const BYBIT_ORDERBOOK_1: &str = r#"{"topic":"orderbook.200.BTCUSDT","ts":1703430557896,"type":"delta","data":{"s":"BTCUSDT","b":[["43728.19","0.5"],["43725.35","0"],["43725.34","0"],["43725.32","0"],["43724.11","0.333012"],["43724.1","0"],["43720.3","0.034717"],["43636.36","0.027705"]],"a":[["43736.01","0.525"],["43743.03","0.009152"],["43752.77","0.5"],["43829.75","0"],["43829.92","0"]],"u":5179080,"seq":19967461033},"cts":1703430557847}"#;
 
+const BYBIT_ORDER_1: &str =r#"{"topic":"publicTrade.BTCUSDT","ts":1703430744103,"type":"snapshot","data":[{"i":"2290000000090712222","T":1703430744102,"p":"43774","v":"0.0026","S":"Sell","s":"BTCUSDT","BT":false}]}"#;
+
     #[test]
     fn test_bynance_trade_message() {
         let result = serde_json::from_str::<BybitWsStatus>(BYBIT_STATUS);
-
+        assert!(result.is_ok());
         println!("{:?}", result);
 
         let result = serde_json::from_str::<BybitWsData>(BYBIT_ORDERBOOK_1);
-
+        assert!(result.is_ok());
         println!("{:?}", result);
+
+        let value = result.unwrap().data;
+        println!("{:?}", value);
+        let result = serde_json::from_value::<BybitWsOrderbook>(value);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
+        let result = serde_json::from_str::<BybitWsData>(BYBIT_ORDER_1);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
+        let result = serde_json::from_value::<Vec<BybitWsTrade>>(result.unwrap().data);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
+
+        let result = serde_json::from_str::<BybitWsMessage>(BYBIT_STATUS);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
+        let result = serde_json::from_str::<BybitWsMessage>(BYBIT_ORDERBOOK_1);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
+        let result = serde_json::from_str::<BybitWsMessage>(BYBIT_TRADE_1);
+        assert!(result.is_ok());
+        println!("{:?}", result);
+
     }
 
 }
