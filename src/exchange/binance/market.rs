@@ -20,7 +20,7 @@ use crate::common::{convert_pyresult, MarketStream};
 use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{MarketConfig, MultiChannel};
 use crate::common::{Order, OrderSide, Trade};
-use crate::common::{HHMM, NOW, TODAY};
+use crate::common::NOW;
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
@@ -37,7 +37,7 @@ use super::rest::{new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    check_exist, AutoConnectClient, OrderBook, BoardItem, download_log, latest_archive_date, WsMessage, BinanceWsMessage};
+    AutoConnectClient, OrderBook, BoardItem, download_log, latest_archive_date, WsOpMessage, BinanceWsOpMessage};
 
 use crate::exchange::binance::config::BinanceConfig;
 
@@ -527,11 +527,11 @@ impl BinanceMarket {
     pub fn start_market_stream(&mut self) {
 
         let endpoint = &self.config.public_ws_endpoint;
-        let mut subscribe_message = BinanceWsMessage::new();
+        let mut subscribe_message = BinanceWsOpMessage::new();
         subscribe_message.add_params(&self.config.public_subscribe_channel);        
 
         // TODO: parameterize
-        let mut websocket: AutoConnectClient<BinanceWsMessage> = 
+        let mut websocket: AutoConnectClient<BinanceWsOpMessage> = 
                 AutoConnectClient::new(endpoint, Arc::new(RwLock::new(subscribe_message)));
 
         websocket.connect();
@@ -1034,8 +1034,8 @@ impl BinanceMarket {
 #[cfg(test)]
 mod binance_test {
     use std::{thread::sleep, time::Duration};
-
-    use crate::{common::{init_debug_log, init_log, time_string}, exchange::binance::rest::{download_historical_trades, download_historical_trades_from_id}};
+    
+    use crate::{common::{TODAY, DAYS, init_debug_log, init_log, time_string}, exchange::binance::rest::{download_historical_trades, download_historical_trades_from_id}};
 
     use super::*;
 

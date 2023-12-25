@@ -667,7 +667,6 @@ mod test_exchange {
         println!("{}", s);
     }
 
-    use crate::exchange::binance::config::BinanceConfig;
     use crate::exchange::binance::BinanceMarket;
 
     #[test]

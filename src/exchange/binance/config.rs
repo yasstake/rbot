@@ -3,7 +3,6 @@
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
-use serde_json::json;
 
 use crate::{fs::db_full_path, common::MarketConfig};
 

@@ -158,12 +158,18 @@ pub struct BybitOrderStatus {}
 /*------------- WS --------------------------- */
 #[serde(untagged)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum BybitWsMessage {
+pub enum BybitWsMessage {
     Status(BybitWsStatus),
     Trade(BybitWsTradeMessage),
     Orderbook(BybitWsOrderbookMessage),
 }
 
+impl From<String> for BybitWsMessage {
+    fn from(message: String) -> Self {
+        let result = serde_json::from_str::<BybitWsMessage>(&message);
+        return result.unwrap();
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsData {
@@ -220,9 +226,9 @@ pub struct BybitWsOrderbook {
     #[serde(rename = "s")]
     pub symbol: String,
     #[serde(rename = "b")]
-    pub bids: Vec<(String, String)>,
+    pub bids: Vec<(Decimal, Decimal)>,
     #[serde(rename = "a")]
-    pub asks: Vec<(String, String)>,
+    pub asks: Vec<(Decimal, Decimal)>,
     #[serde(rename = "u")]
     pub update_id: i64,
     #[serde(rename = "seq")]
@@ -242,9 +248,6 @@ pub struct BybitWsOrderbookMessage {
     #[serde(rename = "ts")]
     pub timestamp: BybitTimestamp,
 }
-
-
-
 
 
 
