@@ -1038,7 +1038,7 @@ impl BinanceMarket {
             _ => OrderSide::Unknown,
         };
 
-        let trade = Trade::new(timestamp, order_side, price, size, LogStatus::FixArchiveBlock, id);
+        let trade = Trade::new(timestamp, order_side, price, size, LogStatus::FixArchiveBlock, &id);
 
         return trade;
     }

@@ -1,3 +1,5 @@
+use crate::exchange::OrderBookRaw;
+
 use super::order::Order;
 use super::order::Trade;
 use super::AccountStatus;
@@ -11,11 +13,85 @@ use pyo3::pymethods;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
+pub struct MultiMarketMessage {
+    pub trade: Vec<Trade>,
+    pub order: Vec<Order>,
+    pub account: Vec<AccountStatus>,
+    pub orderbook: Option<OrderBookRaw>,    
+    pub message: Vec<String>
+
+//    pub message: Vec<OrderBook>,
+    //    OrderBook(OrderBook),
+    /*
+    Position(Position),
+    Account(AccessDescription),
+    */
+}
+
+impl MultiMarketMessage {
+    pub fn new() -> Self {
+        Self {
+            trade: Vec::new(),
+            order: Vec::new(),
+            account: Vec::new(),
+            orderbook: None,
+            message: Vec::new(),
+        }
+    }
+
+    pub fn add_trade(&mut self, trade: Trade) {
+        self.trade.push(trade);
+    }
+
+    pub fn add_order(&mut self, order: Order) {
+        self.order.push(order);
+    }
+
+    pub fn add_account(&mut self, account: AccountStatus) {
+        self.account.push(account);
+    }
+
+    pub fn add_message(&mut self, message: String) {
+        self.message.push(message);
+    }
+
+    pub fn extract(&self) -> Vec<MarketMessage> {
+        let mut result: Vec<MarketMessage> = Vec::new();
+
+        for trade in self.trade.iter() {
+            result.push(MarketMessage::from_trade(trade.clone()));
+        }
+
+        for order in self.order.iter() {
+            result.push(MarketMessage::from_order(order.clone()));
+        }
+
+        for account in self.account.iter() {
+            result.push(MarketMessage::from_account(account.clone()));
+        }
+
+        if let Some(orderbook) = &self.orderbook {
+            result.push(MarketMessage::from_orderbook(orderbook.clone()));
+        }
+
+        for message in self.message.iter() {
+            result.push(MarketMessage::from_message(message.clone()));
+        }
+
+        result
+    }
+}
+
+
+#[pyclass]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MarketMessage {
     pub trade: Option<Trade>,
     pub order: Option<Order>,
     pub account: Option<AccountStatus>,
-    pub message: Option<String>
+    pub orderbook: Option<OrderBookRaw>,    
+    pub message: Option<String>,
+
     //    OrderBook(OrderBook),
     /*
     Position(Position),
@@ -31,6 +107,7 @@ impl MarketMessage {
             trade: None,
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         }
     }
@@ -41,7 +118,52 @@ impl MarketMessage {
             trade: Some(trade),
             order: None,
             account: None,
+            orderbook: None,
             message: None,
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_order(order: Order) -> Self {
+        Self {
+            trade: None,
+            order: Some(order),
+            account: None,
+            orderbook: None,
+            message: None,
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_account(account: AccountStatus) -> Self {
+        Self {
+            trade: None,
+            order: None,
+            account: Some(account),
+            orderbook: None,
+            message: None,
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_orderbook(orderbook: OrderBookRaw) -> Self {
+        Self {
+            trade: None,
+            order: None,
+            account: None,
+            orderbook: Some(orderbook),
+            message: None,
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_message(message: String) -> Self {
+        Self {
+            trade: None,
+            order: None,
+            account: None,
+            orderbook: None,
+            message: Some(message),
         }
     }
 }
@@ -221,6 +343,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         };
         channel.send(message.clone()).unwrap();
@@ -241,6 +364,7 @@ mod channel_test {
                 trade: None,
                 order: None,
                 account: None,
+                orderbook: None,
                 message: None,
             };
             channel.send(message.clone()).unwrap();
@@ -250,6 +374,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         };
         let result = channel.send(message.clone());
@@ -266,6 +391,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         };
         channel.send(message.clone()).unwrap();
@@ -276,6 +402,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            orderbook: None,
             message: None,
         };
         let result = channel.send(message.clone());

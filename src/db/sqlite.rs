@@ -1434,7 +1434,7 @@ mod test_transaction_table {
             dec![10.0],
             dec![10.0],
             LogStatus::UnFix,
-            "abc1".to_string(),
+            "abc1",
         );
         let rec2 = Trade::new(
             2,
@@ -1442,7 +1442,7 @@ mod test_transaction_table {
             dec![10.1],
             dec![10.2],
             LogStatus::UnFix,
-            "abc2".to_string(),
+            "abc2"
         );
         let rec3 = Trade::new(
             3,
@@ -1450,7 +1450,7 @@ mod test_transaction_table {
             dec![10.2],
             dec![10.1],
             LogStatus::UnFix,
-            "abc3".to_string(),
+            "abc3"
         );
 
         let r = tr.insert_records(&vec![rec1, rec2, rec3]);

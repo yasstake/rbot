@@ -44,7 +44,7 @@ impl BoardItem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Board {
     asc: bool,
     max_depth: u32,
@@ -52,10 +52,10 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(config: &MarketConfig, asc: bool) -> Self {
+    pub fn new(max_depth: u32, asc: bool) -> Self {
         Board {
             asc,
-            max_depth: config.board_depth,
+            max_depth: max_depth,
             board: HashMap::new(),
         }
     }
@@ -126,17 +126,20 @@ impl Board {
     }
 }
 
-#[derive(Debug)]
+#[pyclass]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderBookRaw {
-    bids: Board,
-    asks: Board,
+    pub snapshot: bool,         // only use for message.
+    pub bids: Board,
+    pub asks: Board,
 }
 
 impl OrderBookRaw {
-    pub fn new(config: &MarketConfig) -> Self {
+    pub fn new(max_depth: u32) -> Self {
         OrderBookRaw {
-            bids: Board::new(config, false),
-            asks: Board::new(config, true),
+            snapshot: false,
+            bids: Board::new(max_depth, false),
+            asks: Board::new(max_depth, true),
         }
     }
 
@@ -186,7 +189,7 @@ pub struct OrderBook {
 impl OrderBook {
     pub fn new(config: &MarketConfig) -> Self {
         OrderBook {
-            board: Mutex::new(OrderBookRaw::new(config)),
+            board: Mutex::new(OrderBookRaw::new(0)),
         }
     }
 
@@ -223,7 +226,7 @@ fn test_board_set() {
     let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2);
     config.price_unit = dec!(0.5);
 
-    let mut b = Board::new(&config, true);
+    let mut b = Board::new(0, true);
 
     b.set(dec!(10.0), dec!(1.0));
     println!("{:?}", b.get());
@@ -237,7 +240,7 @@ fn test_board_set() {
     b.set(dec!(9.0), dec!(0.0));
     println!("{:?}", b.get());
 
-    let mut b = Board::new(&config, false);
+    let mut b = Board::new(0, false);
 
     println!("---------desc----------");
 

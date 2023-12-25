@@ -148,7 +148,7 @@ mod tests {
             NOW(), OrderSide::Buy,
             dec![150.0], dec![10.0], 
             LogStatus::UnFix,            
-            "ordr1".to_string());
+            "ordr1");
 
             let filled_orders = order_list.consume_trade(&trade);
 
@@ -159,7 +159,7 @@ mod tests {
             NOW(), OrderSide::Sell,
             dec![250.0], dec![250.0], 
             LogStatus::UnFix,            
-            "ordr2".to_string());
+            "ordr2");
 
 
         let filled_orders = order_list.consume_trade(&trade2);
@@ -170,7 +170,7 @@ mod tests {
             NOW(), OrderSide::Sell,
             dec![249.9], dec![10.0],
             LogStatus::UnFix,
-            "ordr3".to_string());
+            "ordr3");
 
         let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 1);
@@ -184,7 +184,7 @@ mod tests {
             NOW(), OrderSide::Sell,
             dec![199.0], dec![100.0], 
             LogStatus::UnFix,
-            "ordr3".to_string());
+            "ordr3");
 
         let filled_orders = order_list.consume_trade(&trade3);
         assert_eq!(filled_orders.len(), 2);
