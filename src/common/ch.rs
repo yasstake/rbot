@@ -15,6 +15,7 @@ pub struct MarketMessage {
     pub trade: Option<Trade>,
     pub order: Option<Order>,
     pub account: Option<AccountStatus>,
+    pub message: Option<String>
     //    OrderBook(OrderBook),
     /*
     Position(Position),
@@ -30,6 +31,7 @@ impl MarketMessage {
             trade: None,
             order: None,
             account: None,
+            message: None,
         }
     }
 
@@ -39,6 +41,7 @@ impl MarketMessage {
             trade: Some(trade),
             order: None,
             account: None,
+            message: None,
         }
     }
 }
@@ -218,6 +221,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            message: None,
         };
         channel.send(message.clone()).unwrap();
 
@@ -237,6 +241,7 @@ mod channel_test {
                 trade: None,
                 order: None,
                 account: None,
+                message: None,
             };
             channel.send(message.clone()).unwrap();
         }
@@ -245,6 +250,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            message: None,
         };
         let result = channel.send(message.clone());
         assert_eq!(result.is_err(), true);
@@ -260,6 +266,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            message: None,
         };
         channel.send(message.clone()).unwrap();
 
@@ -269,6 +276,7 @@ mod channel_test {
             trade: None,
             order: None,
             account: None,
+            message: None,
         };
         let result = channel.send(message.clone());
         assert_eq!(result.is_err(), true);

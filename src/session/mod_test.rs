@@ -14,10 +14,10 @@ mod tests {
         let now = NOW();
 
         let order1 = Order::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             now,
-            "MYORDER-1".to_string(), 
-            "MYORDER-1".to_string(),
+            "MYORDER-1",
+            "MYORDER-1",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -107,10 +107,10 @@ mod tests {
         let now = NOW();
 
         let order1 = Order::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             now,
-            "MYORDER-1".to_string(), 
-            "MYORDER-1".to_string(),
+            "MYORDER-1",
+            "MYORDER-1",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,

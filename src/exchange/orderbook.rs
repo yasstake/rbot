@@ -220,7 +220,7 @@ impl OrderBook {
 
 #[test]
 fn test_board_set() {
-    let mut config = MarketConfig::new("USD", "JPY", 2, 2);
+    let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2);
     config.price_unit = dec!(0.5);
 
     let mut b = Board::new(&config, true);

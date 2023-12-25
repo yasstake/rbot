@@ -322,6 +322,7 @@ impl Into<MarketMessage> for &Trade {
             trade: Some(self.clone()),
             order: None,
             account: None,
+            message: None,
         }
     }
 }
@@ -528,10 +529,10 @@ pub struct Order {
 impl Order {
     #[new]
     pub fn new(
-        symbol: String,
+        symbol: &str,
         create_time: MicroSec,
-        order_id: String,
-        client_order_id: String,
+        order_id: &str,
+        client_order_id: &str,
         order_side: OrderSide,
         order_type: OrderType,
         order_status: OrderStatus,
@@ -539,16 +540,16 @@ impl Order {
         size: Decimal,
     ) -> Self {
         return Order {
-            symbol,
+            symbol: symbol.to_string(),
             create_time,
             status: order_status,
-            order_id,
-            client_order_id,
+            order_id: order_id.to_string(),
+            client_order_id: client_order_id.to_string(),
             order_side,
             order_type,
-            order_price: price,
-            order_size: size,
-            remain_size: size,
+            order_price: price.clone(),
+            order_size: size.clone(),
+            remain_size: size.clone(),
             transaction_id: "".to_string(),
             update_time: 0,
             execute_price: dec![0.0],
@@ -681,6 +682,7 @@ impl Into<MarketMessage> for &Order {
             trade: None,
             order: Some(self.clone()),
             account: None,
+            message: None,
         }
     }
 }
@@ -1049,10 +1051,10 @@ mod order_tests {
 
     fn create_order() -> Order {
         let mut order = Order::new(
-            "".to_string(),
+            "",
             0,
-            "".to_string(),
-            "".to_string(),
+            "",
+            "",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,

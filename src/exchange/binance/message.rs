@@ -44,6 +44,7 @@ impl Into<MarketMessage> for BinancePublicWsMessage {
                 trade: Some(trade.to_trade()),
                 order: None,
                 account: None,
+                message: None,
             },
             BinancePublicWsMessage::BoardUpdate(_board_update) => {
                 // TODO: implment
@@ -312,10 +313,10 @@ impl From<BinanceOrderResponse> for Vec<Order> {
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
         let order_head = Order::new(
-            order.symbol,
+            &order.symbol,
             binance_to_microsec(order.transactTime),
-            order.orderId.to_string(),
-            order.clientOrderId,
+            &order.orderId.to_string(),
+            &order.clientOrderId,
             order_side,
             order_type,
             order_status,
@@ -454,10 +455,10 @@ impl From<BinanceCancelOrderResponse> for Order {
         let order_status = OrderStatus::from_str(&order.status).unwrap();
 
         Order::new(
-            order.symbol,
+            &order.symbol,
             binance_to_microsec(order.transactTime),
-            order.orderId.to_string(),
-            order.clientOrderId,
+            &order.orderId.to_string(),
+            &order.clientOrderId,
             order_side,
             order_type,
             order_status,
@@ -763,10 +764,10 @@ impl BinanceExecutionReport {
 impl From<&BinanceExecutionReport> for Order {
     fn from(value: &BinanceExecutionReport) -> Self {
         let mut order = Order::new(
-            value.symbol.clone(),
+            &value.symbol,
             binance_to_microsec(value.time),
-            value.order_id.to_string(),
-            value.client_order_id.to_string(),
+            &value.order_id.to_string(),
+            &value.client_order_id,
             value.order_side,
             value.order_type,
             value.current_order_status,
@@ -1239,10 +1240,10 @@ impl From<BinanceOrderStatus> for Order {
         let order_status = border.status;
 
         let mut order = Order::new(
-            border.symbol,
+            &border.symbol,
             binance_to_microsec(border.time),
-            border.orderId.to_string(),
-            border.clientOrderId,
+            &border.orderId.to_string(),
+            &border.clientOrderId,
             order_side,
             order_type,
             order_status,

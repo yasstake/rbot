@@ -13,6 +13,9 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
+use crate::common::MarketMessage;
+use crate::common::MarketStream;
+use crate::common::MultiChannel;
 use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
@@ -483,6 +486,29 @@ impl TradeTableDb {
         }
 
         return trades;
+    }
+
+    pub fn select_stream(&mut self, 
+        time_from: MicroSec,time_to: MicroSec) -> MarketStream {
+            let mut channel: MultiChannel<MarketMessage> = MultiChannel::new();
+            let receiver = channel.open_channel(1000);
+    
+            let mut table_db = self.clone_connection();
+    
+            thread::spawn(move || {
+                // let mut channel = sender.lock().unwrap();
+                table_db.select(time_from, time_to, |trade| {
+                    let message: MarketMessage = trade.into();
+                    let r = channel.send(message);
+    
+                    if r.is_err() {
+                        log::error!("Error in channel.send: {:?}", r);
+                    }
+                });
+                channel.close();
+            });
+    
+            MarketStream{ reciver: receiver}
     }
 }
 

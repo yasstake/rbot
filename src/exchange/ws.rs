@@ -2,6 +2,7 @@
 
 use core::panic;
 use crossbeam_channel::Receiver;
+use serde::de;
 use serde_derive::{Deserialize, Serialize};
 
 use std::net::TcpStream;
@@ -84,7 +85,7 @@ impl WsOpMessage for BybitWsOpMessage {
 }
 
 
-
+#[derive(Debug)]
 /// Tは、WsMessageを実装した型。Subscribeメッセージの取引所の差分を実装する。
 /// WebSocketClientは、文字列のメッセージのやり取りを行う。
 pub struct WebSocketClient<T, U>
@@ -185,6 +186,7 @@ where T: WsOpMessage + Send + Sync + Clone + 'static,
     }
 }
 
+#[derive(Debug)]
 pub struct SimpleWebsocket<T> {
     connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
     url: String,
@@ -241,6 +243,7 @@ impl <T>SimpleWebsocket<T>
         // TODO: check if connection is established.
         let connection = self.connection.as_mut().unwrap();
         let result = connection.write(Message::Text(message.to_string()));
+        self.flush();
 
         match result {
             Ok(_) => {
@@ -322,6 +325,7 @@ impl <T>SimpleWebsocket<T>
     }
 }
 
+#[derive(Debug)]
 pub struct AutoConnectClient<T> {
     client: Option<SimpleWebsocket<T>>,
     next_client: Option<SimpleWebsocket<T>>,
@@ -674,9 +678,11 @@ mod test_exchange_ws {
 
     #[test]
     pub fn bybit_ws_connect_test2() {
+        init_debug_log();
+
         let mut ws: WebSocketClient<BybitWsOpMessage, BybitWsMessage> = WebSocketClient::new(
             "wss://stream.bybit.com/v5/public/spot",
-            vec!["orderbook.200.BTCUSDT".to_string()],
+            vec!["publicTrade.BTCUSDT".to_string()],
         );
 
 //        log::debug!("subscribe");
@@ -686,11 +692,23 @@ mod test_exchange_ws {
         ws.connect();
         let ch = ws.open_channel();
 
-        for _ in 0..3 {
+        for _ in 0..5 {
             let message = ch.recv();
 
             println!("{:?}", message.unwrap());
         }
+
+
+
+        ws.subscribe(&mut vec!["orderbook.200.BTCUSDT".to_string()]);
+
+
+        for _ in 0..10 {
+            let message = ch.recv();
+
+            println!("{:?}", message.unwrap());
+        }
+
     }
 
 }

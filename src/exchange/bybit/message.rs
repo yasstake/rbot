@@ -10,6 +10,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 
+use crate::common::MarketMessage;
 use crate::exchange::BoardItem;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
@@ -168,6 +169,37 @@ impl From<String> for BybitWsMessage {
     fn from(message: String) -> Self {
         let result = serde_json::from_str::<BybitWsMessage>(&message);
         return result.unwrap();
+    }
+}
+
+impl Into<MarketMessage> for BybitWsMessage {
+    fn into(self) -> MarketMessage {
+        let mut message = MarketMessage::new();
+
+        match self {
+            BybitWsMessage::Status(status) => {
+            //    MarketMessage::Status(status)
+            // return Null message
+            },
+            BybitWsMessage::Trade(trade) => {
+                /*
+                //MarketMessage::Trade(trade)
+                let trade = Trade::new(
+                    trade.data[0].symbol.clone(),
+                    trade.data[0].price,
+                    trade.data[0].size,
+                    trade.data[0].side.clone(),
+                    trade.data[0].timestamp,
+                    trade.data[0].is_block_trade,
+                );
+                */
+            },
+            BybitWsMessage::Orderbook(orderbook) => {
+                //MarketMessage::Orderbook(orderbook)
+            },
+        }
+
+        message
     }
 }
 

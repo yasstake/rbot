@@ -780,10 +780,10 @@ impl SkeltonMarket {
             }
 
             let mut order = Order::new(
-                self.config.market_config.symbol(),
+                &self.config.market_config.trade_symbol,
                 create_time,
-                order_id.to_string(),
-                client_order_id.to_string(),
+                &order_id.to_string(),
+                &client_order_id.to_string(),
                 side,
                 OrderType::Market,
                 order_status,

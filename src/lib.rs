@@ -14,7 +14,7 @@ use common::{
     time_string,
 };
 use exchange::BoardItem;
-use exchange::bybit::BybitMarket;
+use exchange::bybit::{BybitMarket, Bybit};
 use exchange::bybit::config::BybitConfig;
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
@@ -69,6 +69,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<BinanceConfig>()?;
 
     // ByBit
+    m.add_class::<Bybit>()?;
     m.add_class::<BybitMarket>()?;
     m.add_class::<BybitConfig>()?;
     

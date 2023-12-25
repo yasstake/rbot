@@ -162,11 +162,30 @@ impl BinanceOrderBook {
     }
 }
 
+#[pyclass]
+pub struct Binance {
+    pub test_net: bool
+}
+
+#[pymethods]
+impl Binance {
+    #[new]
+    pub fn new(test_net: bool) -> Self {
+        return Binance {
+            test_net
+        };
+    }
+
+    pub fn open_market(&self, config: &BinanceConfig) -> BinanceMarket {
+        return BinanceMarket::create(config);
+    }
+}
+
+
 #[derive(Debug)]
 #[pyclass(name = "BinanceMarket")]
 pub struct BinanceMarket {
     pub config: BinanceConfig,
-    symbol: String,
     pub db: TradeTable,
     pub board: Arc<Mutex<BinanceOrderBook>>,
     pub public_handler: Option<JoinHandle<()>>,
@@ -176,8 +195,8 @@ pub struct BinanceMarket {
 
 #[pymethods]
 impl BinanceMarket {
-    #[new]
-    pub fn new(config: &BinanceConfig) -> Self {
+    #[staticmethod]
+    pub fn create(config: &BinanceConfig) -> Self {
         println!("\nBinance {:?}\n", config.short_info());
 
         let db_name = Self::db_path(&config).unwrap();
@@ -196,17 +215,25 @@ impl BinanceMarket {
 
         log::info!("db is opend success. db_path= {}", db_name);
 
-        let symbol = config.trade_symbol.clone();
+        let symbol = config.market_config.trade_symbol.clone();
 
         return BinanceMarket {
             config: config.clone(),
-            symbol,
             db,
             board: Arc::new(Mutex::new(BinanceOrderBook::new(config))),
             public_handler: None,
             user_handler: None,
             channel: Arc::new(Mutex::new(MultiChannel::new())),
         };
+    }
+
+    #[new]
+    pub fn new(config: &BinanceConfig) -> Self {
+        println!("Warning: depricated use open_market as below");
+        println!("> binance = Binance()");
+        println!("> market = binance.open_market(config)");        
+
+        Self::create(config)
     }
 
     pub fn drop_table(&mut self) -> PyResult<()> {
@@ -520,7 +547,7 @@ impl BinanceMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return format!("<b>Binance DB ({})</b>{}", self.symbol, self.db._repr_html_());
+        return format!("<b>Binance DB ({})</b>{}", self.config.market_config.trade_symbol, self.db._repr_html_());
     }
 
     // TODO: implment retry logic
@@ -855,10 +882,10 @@ impl BinanceMarket {
             }
 
             let mut order = Order::new(
-                self.config.market_config.symbol(),
+                &self.config.market_config.trade_symbol,
                 create_time,
-                order_id.to_string(),
-                client_order_id.to_string(),
+                &order_id,
+                &client_order_id,
                 side,
                 OrderType::Market,
                 order_status,
@@ -952,7 +979,7 @@ impl BinanceMarket {
         let mm = timestamp.month() as i64;
         let dd = timestamp.day() as i64;
 
-        let symbol = &config.trade_symbol;
+        let symbol = &config.market_config.trade_symbol;
 
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         return format!(
