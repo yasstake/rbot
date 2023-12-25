@@ -41,7 +41,7 @@ pub fn process_recent_trade<F>(
 where
     F: FnMut(Vec<Trade>) -> Result<(), String>,
 {
-    let path = format!("/api/v3/trades?symbol={}&limit=1000", config.trade_symbol);
+    let path = format!("/api/v3/trades?symbol={}&limit=1000", config.market_config.market_config.trade_symbol);
 
     let result = rest_get(&config.rest_endpoint, path.as_str(), vec![], None, None);
 
@@ -159,7 +159,7 @@ where
 
     path = format!(
         "/api/v3/historicalTrades?symbol={}&fromId={}&limit=1000",
-        config.trade_symbol, from_id
+        config.market_config.trade_symbol, from_id
     );
 
     let result = rest_get(&config.rest_endpoint, path.as_str(), vec![], None, None);
@@ -310,7 +310,7 @@ where
 */
 
 pub fn get_board_snapshot(config: &BinanceConfig) -> Result<BinanceRestBoard, String> {
-    let path = format!("/api/v3/depth?symbol={}&limit=1000", config.trade_symbol);
+    let path = format!("/api/v3/depth?symbol={}&limit=1000", config.market_config.trade_symbol);
 
     let result = rest_get(&config.rest_endpoint, path.as_str(), vec![], None, None);
 
@@ -581,7 +581,7 @@ pub fn new_limit_order(
     let side = order_side_string(side);
     let mut body = format!(
         "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
-        config.trade_symbol, side, size, price
+        config.market_config.trade_symbol, side, size, price
     );
 
     if cliend_order_id.is_some() {
@@ -620,7 +620,7 @@ pub fn new_market_order(
     let side = order_side_string(side);
     let mut body = format!(
         "symbol={}&side={}&type=MARKET&quantity={}",
-        config.trade_symbol, side, size
+        config.market_config.trade_symbol, side, size
     );
 
     if cliend_order_id.is_some() {
@@ -648,7 +648,7 @@ pub fn cancel_order(
     order_id: &str,
 ) -> Result<BinanceCancelOrderResponse, String> {
     let path = "/api/v3/order";
-    let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
+    let body = format!("symbol={}&orderId={}", config.market_config.trade_symbol, order_id);
 
     parse_response::<BinanceCancelOrderResponse>(binance_delete_sign(&config, path, body.as_str()))
 }
@@ -657,7 +657,7 @@ pub fn cancell_all_orders(
     config: &BinanceConfig,
 ) -> Result<Vec<BinanceCancelOrderResponse>, String> {
     let path = "/api/v3/openOrders";
-    let body = format!("symbol={}", config.trade_symbol);
+    let body = format!("symbol={}", config.market_config.trade_symbol);
 
     parse_response::<Vec<BinanceCancelOrderResponse>>(binance_delete_sign(
         &config,
@@ -707,7 +707,7 @@ pub fn extend_listen_key(config: &BinanceConfig, key: &str) -> Result<(), String
 
 pub fn order_status(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
     let path = "/api/v3/allOrders";
-    let query = format!("symbol={}&limit=1000", config.trade_symbol);
+    let query = format!("symbol={}&limit=1000", config.market_config.trade_symbol);
 
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
@@ -717,14 +717,14 @@ use crate::exchange::binance::message::BinanceListOrdersResponse;
 /// https://binance-docs.github.io/apidocs/spot/en/#current-open-orders-user_data
 pub fn open_orders(config: &BinanceConfig) -> Result<Vec<BinanceOrderStatus>, String> {
     let path = "/api/v3/openOrders";
-    let query = format!("symbol={}", config.trade_symbol);
+    let query = format!("symbol={}", config.market_config.trade_symbol);
 
     parse_response::<Vec<BinanceOrderStatus>>(binance_get_sign(&config, path, Some(query.as_str())))
 }
 
 pub fn trade_list(config: &BinanceConfig) -> Result<Vec<BinanceListOrdersResponse>, String> {
     let path = "/api/v3/myTrades";
-    let query = format!("symbol={}&limit=1000", config.trade_symbol);
+    let query = format!("symbol={}&limit=1000", config.market_config.trade_symbol);
 
     parse_response::<Vec<BinanceListOrdersResponse>>(binance_get_sign(
         &config,
@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn test_process_recent_trade() {
         let config = BinanceConfig::BTCUSDT();
-        let symbol = config.trade_symbol;
+        let symbol = config.market_config.trade_symbol;
         let mut latest_time = 0;
         let config = BinanceConfig::BTCUSDT();
 

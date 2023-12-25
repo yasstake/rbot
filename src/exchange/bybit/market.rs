@@ -14,14 +14,15 @@ use crate::common::{
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::bybit::rest::open_orders;
-use crate::exchange::{download_log, latest_archive_date, BoardItem, OrderBook};
+use crate::exchange::{download_log, latest_archive_date, BoardItem, OrderBook, WebSocketClient, BybitWsOpMessage};
+use crate::fs::db_full_path;
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-use super::config::BybitConfig;
+use super::config::BybitServerConfig;
 use super::rest::cancel_order;
 use super::rest::cancell_all_orders;
 use super::rest::get_balance;
@@ -30,22 +31,22 @@ use super::rest::new_market_order;
 use super::rest::order_status;
 use super::rest::trade_list;
 
-use super::message::BybitAccountInformation;
+use super::message::{BybitAccountInformation, BybitWsMessage};
 use super::message::BybitOrderStatus;
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
-    config: BybitConfig,
+    config: MarketConfig,
     last_update_id: u64,
     board: OrderBook,
 }
 
 impl BybitOrderBook {
-    pub fn new(config: &BybitConfig) -> Self {
+    pub fn new(config: &MarketConfig) -> Self {
         return BybitOrderBook {
             config: config.clone(),
             last_update_id: 0,
-            board: OrderBook::new(&config.market_config),
+            board: OrderBook::new(&config),
         };
     }
 
@@ -142,46 +143,27 @@ impl BybitOrderBook {
     }
 }
 
+
+#[pyclass]
 #[derive(Debug)]
 pub struct Bybit {
-    testnet: bool,
-    rest_server: String,
-    ws_server: String,
+    server_config: BybitServerConfig,
 }
 
+#[pymethods]
 impl Bybit {
+    #[new]
+    #[pyo3(signature = (testnet=false))]
     pub fn new(testnet: bool) -> Self {
-        let rest_server = if testnet {
-            "https://api-testnet.bybit.com"
-        } else {
-            "https://api.bybit.com"
-        }
-        .to_string();
-
-        let ws_server = if testnet {
-            "wss://stream-testnet.bybit.com/realtime"
-        } else {
-            "wss://stream.bybit.com/realtime"
-        }
-        .to_string();
+        let server_config = BybitServerConfig::new(testnet);
 
         return Bybit {
-            testnet,
-            rest_server,
-            ws_server,
+            server_config: server_config.clone(),
         };
     }
 
-    pub fn get_rest_server(&self) -> String {
-        return self.rest_server.clone();
-    }
-
-    pub fn get_ws_server(&self) -> String {
-        return self.ws_server.clone();
-    }
-
-    pub fn open_market(&self, config: &BybitConfig) -> BybitMarket {
-        return BybitMarket::new(config);
+    pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
+        return BybitMarket::new(&self.server_config, config);
     }
 }
 
@@ -189,33 +171,15 @@ impl Bybit {
 #[derive(Debug)]
 #[pyclass]
 pub struct BybitMarket {
-    pub config: BybitConfig,
+    pub server_config: BybitServerConfig,
+    pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
-    pub public_handler: Option<JoinHandle<()>>,
-    pub user_handler: Option<JoinHandle<()>>,
-    pub channel: Arc<Mutex<MultiChannel<MarketMessage>>>,
+    pub public_ws: WebSocketClient<BybitWsOpMessage, BybitWsMessage>
 }
 
 #[pymethods]
 impl BybitMarket {
-    #[new]
-    pub fn new(config: &BybitConfig) -> Self {
-        let db = TradeTable::open(&config.get_db_path());
-        if db.is_err() {
-            log::error!("Error in TradeTable::open: {:?}", db);
-        }
-
-        return BybitMarket {
-            config: config.clone(),
-            db: db.unwrap(),
-            board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
-            public_handler: None,
-            user_handler: None,
-            channel: Arc::new(Mutex::new(MultiChannel::new())),
-        };
-    }
-
     /*-------------------　共通実装（コピペ） ---------------------------------------*/
     pub fn drop_table(&mut self) -> PyResult<()> {
         match self.db.drop_table() {
@@ -306,7 +270,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_market_config(&self) -> MarketConfig {
-        return self.config.market_config.clone();
+        return self.config.clone();
     }
 
     #[getter]
@@ -704,6 +668,7 @@ impl BybitMarket {
         */
     }
 
+    /*
     pub fn is_user_stream_running(&self) -> bool {
         if let Some(handler) = &self.user_handler {
             return !handler.is_finished();
@@ -721,37 +686,25 @@ impl BybitMarket {
     pub fn is_db_thread_running(&self) -> bool {
         return self.db.is_thread_running();
     }
+    */
 
+    /* TODO: implment */
+    /*
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
+        let ch = self.public_ws.open_channel();
+
         let ch = self.channel.lock().unwrap().open_channel(0);
         MarketStream{reciver: ch}
     }
+    */
 
     pub fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
     ) -> MarketStream {
-        let channel = self.channel.lock().unwrap().open_channel(1_000);
-        let sender = self.channel.clone();
-
-        let mut table_db = self.db.connection.clone_connection();
-
-        thread::spawn(move || {
-            let mut channel = sender.lock().unwrap();
-            table_db.select(time_from, time_to, |trade| {
-                let message: MarketMessage = trade.into();
-                let r = channel.send(message);
-
-                if r.is_err() {
-                    log::error!("Error in channel.send: {:?}", r);
-                }
-            });
-            channel.close();
-        });
-
-        MarketStream{ reciver: channel}
+        self.db.connection.select_stream(time_from, time_to)
     }
 
     #[pyo3(signature = (side, price, size, client_order_id=None))]
@@ -762,15 +715,17 @@ impl BybitMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let price_scale = self.config.market_config.price_scale;
+        let price_scale = self.config.price_scale;
         let price_dp = price.round_dp(price_scale);
 
-        let size_scale = self.config.market_config.size_scale;
+        let size_scale = self.config.size_scale;
         let size_dp = size.round_dp(size_scale);
         let order_side = OrderSide::from(side);
 
         let response =
-            new_limit_order(&self.config, order_side, price_dp, size_dp, client_order_id);
+            new_limit_order(
+                &self.server_config.rest_server, &self.config, 
+                order_side, price_dp, size_dp, client_order_id);
 
         if response.is_err() {
             log::error!(
@@ -827,12 +782,14 @@ impl BybitMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let size_scale = self.config.market_config.size_scale;
+        let size_scale = self.config.size_scale;
         let size = size.round_dp(size_scale);
 
         let order_side = OrderSide::from(side);
 
-        let response = new_market_order(&self.config, order_side, size, client_order_id);
+        let response = new_market_order(
+            &self.server_config.rest_server, &self.config, 
+            order_side, size, client_order_id);
 
         if response.is_err() {
             log::error!(
@@ -899,10 +856,10 @@ impl BybitMarket {
             }
 
             let mut order = Order::new(
-                self.config.market_config.symbol(),
+                &self.config.trade_symbol,
                 create_time,
-                order_id.to_string(),
-                client_order_id.to_string(),
+                &order_id,
+                &client_order_id.to_string(),
                 side,
                 OrderType::Market,
                 order_status,
@@ -929,7 +886,8 @@ impl BybitMarket {
     }
 
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        let response = cancel_order(&self.config, order_id);
+        let response = cancel_order(
+            &self.server_config.rest_server, &self.config, order_id);
 
         // return convert_pyresult(response);
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -938,7 +896,8 @@ impl BybitMarket {
     }
 
     pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
-        let response = cancell_all_orders(&self.config);
+        let response = cancell_all_orders(
+            &self.server_config.rest_server, &self.config); 
 
         if response.is_ok() {
             // TODO:: FIX IMPLMENET
@@ -950,7 +909,9 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = order_status(&self.config);
+        let status = order_status(
+            &self.server_config.rest_server, &self.config); 
+
 
         // TODO: IMPLEMENT convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -960,7 +921,9 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.config);
+        let status = open_orders(
+            &self.server_config.rest_server, &self.config); 
+
 
         log::debug!("OpenOrder: {:?}", status);
 
@@ -973,7 +936,8 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_trade_list(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = trade_list(&self.config);
+        let status = trade_list(
+            &self.server_config.rest_server, &self.config); 
 
         //         convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -983,7 +947,9 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_account(&self) -> PyResult<BybitAccountInformation> {
-        let status = get_balance(&self.config);
+        let status = get_balance(
+            &self.server_config.rest_server, &self.config); 
+
 
         //convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -993,24 +959,58 @@ impl BybitMarket {
 }
 
 impl BybitMarket {
-    fn make_historical_data_url_timestamp(config: &BybitConfig, t: MicroSec) -> String {
+    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
+
+        let db = TradeTable::open(&Self::make_db_path(
+            &server_config.exchange_name,
+            &config.trade_category, 
+            &config.trade_symbol,
+            &server_config.db_base_dir));
+        if db.is_err() {
+            log::error!("Error in TradeTable::open: {:?}", db);
+        }
+
+        return BybitMarket {
+            server_config: server_config.clone(),
+            config: config.clone(),
+            db: db.unwrap(),
+            board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
+            public_ws: WebSocketClient::new(&server_config.public_ws, config.public_subscribe_channel.clone()),
+        };
+    }
+
+    pub fn make_db_path(exchange_name: &str, trade_category: &str, trade_symbol: &str, db_base_dir: &str) -> String {
+        let db_path = db_full_path(&exchange_name, trade_category, trade_symbol, db_base_dir);
+
+        return db_path.to_str().unwrap().to_string();
+    }
+
+    fn history_web_url(&self, date: MicroSec) -> String {
+        Self::make_historical_data_url_timestamp(
+            &self.server_config.history_web_base,
+            &self.config.trade_symbol,
+            date)
+    }
+
+    fn make_historical_data_url_timestamp(history_web_base: &str, symbol: &str, t: MicroSec) -> String {
         let timestamp = to_naive_datetime(t);
 
         let yyyy = timestamp.year() as i64;
         let mm = timestamp.month() as i64;
         let dd = timestamp.day() as i64;
 
-        let symbol = &config.trade_symbol;
-
         return format!(
             "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
-            config.history_web_base, symbol, symbol, yyyy, mm, dd
+            history_web_base, symbol, symbol, yyyy, mm, dd
         );
     }
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
         let f = |date: MicroSec| -> String {
-            Self::make_historical_data_url_timestamp(&self.config, date)
+            Self::make_historical_data_url_timestamp(
+                &self.server_config.history_web_base,
+                &self.config.trade_symbol,
+                date)
         };
 
         latest_archive_date(&f)
@@ -1023,7 +1023,7 @@ impl BybitMarket {
         verbose: bool,
     ) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
-        let url = Self::make_historical_data_url_timestamp(&self.config, date);
+        let url = self.history_web_url(date);
 
         match download_log(&url, tx, true, verbose, &Self::rec_to_trade) {
             Ok(download_rec) => Ok(download_rec),
@@ -1133,12 +1133,15 @@ mod test_bybit_market {
     use csv::StringRecord;
     use rust_decimal_macros::dec;
 
-    use crate::common::time_string;
+    use crate::{common::time_string, exchange::bybit::config::{BybitServerConfig, BybitConfig}};
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
+        let config = BybitConfig::SPOT_BTCUSDT();
+
         let url = super::BybitMarket::make_historical_data_url_timestamp(
-            &super::BybitConfig::SPOT_BTCUSDT(),
+            "https://public.bybit.com/trading/",
+            &config.trade_symbol,
             1620000000000_000,
         );
 
@@ -1148,7 +1151,8 @@ mod test_bybit_market {
         );
 
         let url = super::BybitMarket::make_historical_data_url_timestamp(
-            &super::BybitConfig::SPOT_BTCUSDT(),
+            "https://public.bybit.com/trading/",           
+            &config.trade_symbol,             
             1234,
         );
 
@@ -1160,7 +1164,10 @@ mod test_bybit_market {
 
     #[test]
     fn test_get_latest_archive_date() {
-        let market = super::BybitMarket::new(&super::BybitConfig::SPOT_BTCUSDT());
+        let server_config = BybitServerConfig::new(false);    
+        let config = BybitConfig::SPOT_BTCUSDT();
+
+        let market = super::BybitMarket::new(&server_config, &config);
 
         let date = market.get_latest_archive_date().unwrap();
         println!("date: {}", date);

@@ -11,20 +11,14 @@ use crate::{fs::db_full_path, common::MarketConfig};
 pub struct BinanceConfig {
     #[pyo3(set)]    
     pub test_net: bool,
-
     #[pyo3(set)]
     pub exchange_name: String,
-    #[pyo3(set)]    
-    pub trade_category: String,
-    #[pyo3(set)]    
-    pub trade_symbol: String,
     #[pyo3(set)]    
     pub home_currency: String,
     #[pyo3(set)]    
     pub foreign_currency: String,
     #[pyo3(set)]
     pub testnet: bool,
-
     // server config
     #[pyo3(set)]    
     pub rest_endpoint: String,
@@ -85,7 +79,6 @@ impl BinanceConfig {
         let mut config = BinanceConfig::SPOT(foreign_symbol, home_symbol);
 
         config.test_net = true;
-        config.trade_category = "TESTSPOT".to_string();
         config.rest_endpoint = "https://testnet.binance.vision".to_string();
         config.public_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
         config.private_ws_endpoint = "wss://testnet.binance.vision/ws".to_string();
@@ -121,6 +114,7 @@ impl BinanceConfig {
         };
 
         let mut market_config = MarketConfig::new(
+            "SPOT",
             home_symbol,
             foreign_symbol,
             2,
@@ -130,11 +124,12 @@ impl BinanceConfig {
         market_config.taker_fee = dec![0.0001];
         market_config.maker_fee = dec![0.0001];
 
+        market_config.trade_category = "SPOT".to_string();
+        market_config.trade_symbol =  upper_symbol;
+
         return BinanceConfig {
             test_net: false,
             exchange_name: "BINANCE".to_string(),
-            trade_category: "SPOT".to_string(),
-            trade_symbol: upper_symbol,
 
             home_currency: home_symbol.to_string(),
             foreign_currency: foreign_symbol.to_string(),
@@ -168,7 +163,7 @@ impl BinanceConfig {
             exchange_name = format!("{}-TESTNET", exchange_name);
         }
 
-        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol, &self.db_base_dir);
+        let db_path = db_full_path(&exchange_name, &self.market_config.trade_category, &self.market_config.trade_symbol, &self.db_base_dir);
 
         return db_path.to_str().unwrap().to_string();
     }
@@ -196,10 +191,10 @@ impl BinanceConfig {
 
     pub fn short_info(&self) -> String {
         if self.test_net {
-            return format!("---TEST NET--- {}", self.trade_symbol);
+            return format!("---TEST NET--- {}", self.market_config.trade_symbol);
         }
         else {
-            return format!("*** LIVE NET *** {}", self.trade_symbol);
+            return format!("*** LIVE NET *** {}", self.market_config.trade_symbol);
         }
     }
 }
