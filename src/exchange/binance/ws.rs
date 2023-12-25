@@ -1,4 +1,4 @@
-use std::rc::Rc;
+
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread;
@@ -9,8 +9,8 @@ use crate::common::MicroSec;
 use crate::common::NOW;
 use crate::exchange::AutoConnectClient;
 
-use crate::exchange::BinanceWsMessage;
-use crate::exchange::WsMessage;
+use crate::exchange::BinanceWsOpMessage;
+use crate::exchange::WsOpMessage;
 use crate::exchange::binance::message::BinanceUserStreamMessage;
 use crate::exchange::binance::rest::extend_listen_key;
 
@@ -39,9 +39,9 @@ where
     let key = create_listen_key(&config).unwrap();
     let url = make_user_stream_endpoint(config, key.clone());
 
-    let message = BinanceWsMessage::new();
+    let message = BinanceWsOpMessage::new();
 
-    let mut websocket: AutoConnectClient<BinanceWsMessage> = AutoConnectClient::new(
+    let mut websocket: AutoConnectClient<BinanceWsOpMessage> = AutoConnectClient::new(
             url.as_str(),
             Arc::new(RwLock::new(message)));
     

@@ -3,6 +3,7 @@
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
+
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -140,6 +141,50 @@ impl BybitOrderBook {
         // TODO: reflesh board from rest api
     }
 }
+
+#[derive(Debug)]
+pub struct Bybit {
+    testnet: bool,
+    rest_server: String,
+    ws_server: String,
+}
+
+impl Bybit {
+    pub fn new(testnet: bool) -> Self {
+        let rest_server = if testnet {
+            "https://api-testnet.bybit.com"
+        } else {
+            "https://api.bybit.com"
+        }
+        .to_string();
+
+        let ws_server = if testnet {
+            "wss://stream-testnet.bybit.com/realtime"
+        } else {
+            "wss://stream.bybit.com/realtime"
+        }
+        .to_string();
+
+        return Bybit {
+            testnet,
+            rest_server,
+            ws_server,
+        };
+    }
+
+    pub fn get_rest_server(&self) -> String {
+        return self.rest_server.clone();
+    }
+
+    pub fn get_ws_server(&self) -> String {
+        return self.ws_server.clone();
+    }
+
+    pub fn open_market(&self, config: &BybitConfig) -> BybitMarket {
+        return BybitMarket::new(config);
+    }
+}
+
 
 #[derive(Debug)]
 #[pyclass]
@@ -283,8 +328,8 @@ impl BybitMarket {
 
     /*--------------　ここまでコピペ　--------------------------*/
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, verbose=true, _archive_only=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, _archive_only: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
