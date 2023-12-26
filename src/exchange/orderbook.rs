@@ -69,10 +69,14 @@ impl Board {
         self.board.insert(price, size);
     }
 
+    pub fn get_board(&self) -> &HashMap<Decimal, Decimal> {
+        &self.board
+    }
+
     /// Keyをソートして、Vecにして返す
     /// ascがtrueなら昇順、falseなら降順
     /// max_depthを超えたものは削除する.
-    pub fn get(&mut self) -> Vec<BoardItem> {
+    pub fn get(&self) -> Vec<BoardItem> {
         let mut vec: Vec<BoardItem> = Vec::from_iter(
             self.board
                 .iter()
@@ -85,6 +89,12 @@ impl Board {
             vec.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
         }
 
+        vec
+    }
+
+    pub fn clip_depth(&mut self) {
+        let mut vec = self.get();
+
         if self.max_depth != 0 && self.max_depth < vec.len() as u32 {
             log::info!("board depth over. remove items.");
             let not_valid = vec.split_off(self.max_depth as usize);
@@ -93,8 +103,6 @@ impl Board {
             }
             self.board.shrink_to_fit();
         }
-
-        vec
     }
 
     pub fn clear(&mut self) {
@@ -166,6 +174,14 @@ impl OrderBookRaw {
         return (bid_price, ask_price);
     }
 
+    pub fn get_asks(&self) -> Vec<BoardItem> {
+        self.asks.get()
+    }
+
+    pub fn get_bids(&self) -> Vec<BoardItem> {
+        self.bids.get()
+    }
+
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
         if force {
             self.clear();
@@ -189,7 +205,7 @@ pub struct OrderBook {
 impl OrderBook {
     pub fn new(config: &MarketConfig) -> Self {
         OrderBook {
-            board: Mutex::new(OrderBookRaw::new(0)),
+            board: Mutex::new(OrderBookRaw::new(config.board_depth)),
         }
     }
 
@@ -218,6 +234,12 @@ impl OrderBook {
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
         self.board.lock().unwrap().update(bids_diff, asks_diff, force);
     }
+
+    pub fn clip_depth(&mut self) {
+        self.board.lock().unwrap().bids.clip_depth();
+        self.board.lock().unwrap().asks.clip_depth();
+    }
+
 }
 
 

@@ -15,6 +15,7 @@ use crate::common::MarketMessage;
 use crate::common::MultiMarketMessage;
 use crate::common::OrderSide;
 use crate::common::Trade;
+use crate::common::msec_to_microsec;
 use crate::exchange::BoardItem;
 use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
@@ -190,7 +191,7 @@ impl Into<MultiMarketMessage> for BybitWsMessage {
             BybitWsMessage::Trade(trade) => {
                 for trade in trade.data.iter() {
                     let t = Trade::new(
-                        trade.timestamp,                                                
+                        msec_to_microsec(trade.timestamp),                                                
                         OrderSide::from(&trade.side),
                         trade.price,
                         trade.size,
@@ -245,7 +246,7 @@ pub struct BybitWsStatus {
     pub success: bool,
     pub ret_msg: String,
     pub conn_id: String,
-    pub op: String,
+    pub request: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

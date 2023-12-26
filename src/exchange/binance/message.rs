@@ -10,13 +10,13 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     common::{
-        MarketMessage, 
+        MarketMessage, msec_to_microsec, 
         Order, OrderSide, OrderStatus, OrderType, Trade, AccountStatus, orderside_deserialize, ordertype_deserialize, orderstatus_deserialize, LogStatus,
     },
     exchange::{string_to_decimal, BoardItem},
 };
 
-use super::{super::string_to_f64, binance_to_microsec, BinanceConfig};
+use super::{super::string_to_f64, BinanceConfig};
 
 pub type BinanceMessageId = u64;
 
@@ -73,7 +73,7 @@ pub struct BinanceTradeMessage {
     pub size: Decimal,
     #[serde(rename = "quoteQty", deserialize_with = "string_to_decimal")]
     pub volume_in_foreign: Decimal,
-    pub time: u64,
+    pub time: i64,
     #[serde(rename = "isBuyerMaker")]
     pub is_buyer_maker: Option<bool>,
     #[serde(rename = "isBestMatch")]
@@ -83,7 +83,7 @@ pub struct BinanceTradeMessage {
 impl BinanceTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
-            time: binance_to_microsec(self.time),
+            time: msec_to_microsec(self.time),
             price: self.price,
             size: self.size,
             order_side: if self.is_buyer_maker.unwrap() {
@@ -113,7 +113,7 @@ pub struct BinanceWsTradeMessage {
     //#[serde(rename = "e")]
     //pub event_type: String, // "e":"trade"              Event type
     #[serde(rename = "E")]
-    pub event_time: u64, // "E":1693226465430        Event time
+    pub event_time: i64, // "E":1693226465430        Event time
     pub s: String,           // "s":"BTCUSDT"            Symbol
     pub t: BinanceMessageId, // "t":3200243634           Trade ID
     pub p: String,           // "p":"26132.02000000"     Price
@@ -121,7 +121,7 @@ pub struct BinanceWsTradeMessage {
     pub b: BinanceMessageId, // "b":22161265544          Buyer order ID
     pub a: BinanceMessageId, // "a":22161265465          Seller order ID
     #[serde(rename = "T")]
-    pub time: u64, // "T":1693226465429        Trade time
+    pub time: i64, // "T":1693226465429        Trade time
     pub m: bool,             // "m":false                Is the buyer the market maker?
     pub M: bool,             // "M":true                 Ignore
 }
@@ -129,7 +129,7 @@ pub struct BinanceWsTradeMessage {
 impl BinanceWsTradeMessage {
     pub fn to_trade(&self) -> Trade {
         return Trade {
-            time: binance_to_microsec(self.time),
+            time: msec_to_microsec(self.time),
             price: Decimal::from_str(&self.p).unwrap(), // self.p.parse::<f64>().unwrap(),
             size: Decimal::from_str(&self.q).unwrap(),  // parse::<f64>().unwrap(),
             order_side: if self.m {
@@ -311,7 +311,7 @@ impl From<BinanceOrderResponse> for Vec<Order> {
 
         let order_head = Order::new(
             &order.symbol,
-            binance_to_microsec(order.transactTime),
+            msec_to_microsec(order.transactTime),
             &order.orderId.to_string(),
             &order.clientOrderId,
             order_side,
@@ -362,7 +362,7 @@ pub struct BinanceOrderResponse {
     orderId: i64,
     orderListId: i64,
     clientOrderId: String,
-    transactTime: u64,
+    transactTime: i64,
     price: Decimal,
     origQty: Decimal,
     executedQty: Decimal,
@@ -372,7 +372,7 @@ pub struct BinanceOrderResponse {
     #[serde(rename = "type")]
     order_type: String,
     side: String,
-    workingTime: u64,                   // only for SPOT
+    workingTime: i64,                   // only for SPOT
     selfTradePreventionMode: String,
     fills: Vec<BinanceOrderFill>,
 }
@@ -420,7 +420,7 @@ pub struct BinanceCancelOrderResponse {
     orderId: i64,
     orderListId: i64,
     clientOrderId: String,
-    transactTime: u64,
+    transactTime: i64,
     price: Decimal,
     origQty: Decimal,
     executedQty: Decimal,
@@ -453,7 +453,7 @@ impl From<BinanceCancelOrderResponse> for Order {
 
         Order::new(
             &order.symbol,
-            binance_to_microsec(order.transactTime),
+            msec_to_microsec(order.transactTime),
             &order.orderId.to_string(),
             &order.clientOrderId,
             order_side,
@@ -503,7 +503,7 @@ pub struct BinanceListOrdersResponse {
     quoteQty: Decimal,
     commission: Decimal,
     commissionAsset: String,
-    time: u64,
+    time: i64,
     isBuyer: bool,
     isMaker: bool,
     isBestMatch: bool,
@@ -571,7 +571,7 @@ BinanceAccountUpdate is parse json as blow
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinanceAccountUpdate {
     // e: String,
-    E: u64,
+    E: i64,
     u: u64,
     B: Vec<BinanceBalance>,
 }
@@ -677,7 +677,7 @@ pub struct BinanceBalanceUpdate {
 pub struct BinanceExecutionReport {
     // e: String,
     #[serde(rename = "E")]
-    time: u64,
+    time: i64,
     #[serde(rename = "s")]
     symbol: String,
     #[serde(rename = "c")]
@@ -722,7 +722,7 @@ pub struct BinanceExecutionReport {
     #[serde(rename = "N")]
     commission_asset: Option<String>,
     #[serde(rename = "T")]  
-    transaction_time: u64,
+    transaction_time: i64,
     #[serde(rename = "t")]
     trade_id: i64,
     #[serde(rename = "I")]
@@ -742,7 +742,7 @@ pub struct BinanceExecutionReport {
     #[serde(rename = "Q")]
     quoite_quantity: Decimal,
     #[serde(rename = "W")]
-    working_time: u64,
+    working_time: i64,
     #[serde(rename = "V")]
     self_prevention_mode: String,
 }
@@ -762,7 +762,7 @@ impl From<&BinanceExecutionReport> for Order {
     fn from(value: &BinanceExecutionReport) -> Self {
         let mut order = Order::new(
             &value.symbol,
-            binance_to_microsec(value.time),
+            msec_to_microsec(value.time),
             &value.order_id.to_string(),
             &value.client_order_id,
             value.order_side,
@@ -774,7 +774,7 @@ impl From<&BinanceExecutionReport> for Order {
 
         order.status = value.current_order_status;
         order.transaction_id = value.trade_id.to_string();
-        order.update_time = binance_to_microsec(value.transaction_time);
+        order.update_time = msec_to_microsec(value.transaction_time);
         order.execute_price = value.last_executed_price;
         order.execute_size = value.last_executed_quantity;
         order.remain_size = value.order_quantity - value.cumulative_filled_quantity;
@@ -1067,7 +1067,7 @@ pub struct BinanceAccountInformation {
     #[pyo3(get)]    
     pub preventSor: bool,
     #[pyo3(get)]    
-    pub updateTime: u64,
+    pub updateTime: i64,
     #[pyo3(get)]    
     pub accountType: String,
     #[pyo3(get)]
@@ -1221,10 +1221,10 @@ pub struct BinanceOrderStatus {
     side: String,
     stopPrice: Decimal,
     icebergQty: Decimal,
-    time: u64,
-    updateTime: u64,
+    time: i64,
+    updateTime: i64,
     isWorking: bool,
-    workingTime: u64,
+    workingTime: i64,
     origQuoteOrderQty: Decimal,
     selfTradePreventionMode: String,
 }
@@ -1238,7 +1238,7 @@ impl From<BinanceOrderStatus> for Order {
 
         let mut order = Order::new(
             &border.symbol,
-            binance_to_microsec(border.time),
+            msec_to_microsec(border.time),
             &border.orderId.to_string(),
             &border.clientOrderId,
             order_side,
@@ -1250,7 +1250,7 @@ impl From<BinanceOrderStatus> for Order {
 
         order.remain_size =  border.origQty - border.executedQty;
         //order.transaction_id: String,
-        order.update_time = binance_to_microsec(border.updateTime);
+        order.update_time = msec_to_microsec(border.updateTime);
         //order.execute_price 
         order.execute_size = border.executedQty;
         // order.quote_vol: Decimal,
