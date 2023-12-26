@@ -10,6 +10,10 @@ pub const NANO_SECOND: i64 = 1_000_000_000;
 // Timestamp scale for system wide.(Micro Sec(10^-6 is default)
 pub type MicroSec = i64;
 
+pub fn msec_to_microsec(t: i64) -> MicroSec {
+    return (t as i64) * 1_000;
+}
+
 pub fn to_seconds(microsecond: MicroSec) -> f64 {
     return (microsecond as f64) / (MICRO_SECOND as f64);
 }

@@ -22,6 +22,11 @@ pub enum PriceType {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
+    #[pyo3(set)]    
+    pub trade_category: String,
+    #[pyo3(set)]    
+    pub trade_symbol: String,
+
     #[pyo3(set)]
     pub price_unit: Decimal,
     #[pyo3(set)]    
@@ -51,12 +56,15 @@ pub struct MarketConfig {
     pub market_order_price_slip: Decimal,
 
     #[pyo3(set)]
-    pub board_depth: u32
-}
+    pub board_depth: u32,
 
+    #[pyo3(set)]
+    pub public_subscribe_channel: Vec<String>,
+}
 
 impl MarketConfig {
     pub fn new(
+        trade_category: &str,
         home_currency: &str,
         foreign_currency: &str,
         price_scale: u32,
@@ -75,13 +83,9 @@ impl MarketConfig {
             foreign_currency: foreign_currency.to_string(),
             market_order_price_slip: dec![0.0],
             board_depth: 1000,
+            trade_category: trade_category.to_string(),
+            trade_symbol: format!("{}{}", foreign_currency, home_currency),
+            public_subscribe_channel: vec![],
         }
-    }
-}
-
-#[pymethods]
-impl MarketConfig {
-    pub fn symbol(&self) -> String {
-        return format!("{}{}", self.foreign_currency, self.home_currency);
     }
 }

@@ -11,43 +11,13 @@ use polars_core::{
 use pyo3::pyclass;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::{de, Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_derive::Serialize;
 
 use crate::common::MarketConfig;
 
-pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<f64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
-    }
-}
+use super::string_to_decimal;
 
-pub fn string_to_decimal<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<f64>() {
-        Ok(num) => Ok(Decimal::from_f64(num).unwrap()),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
-    }
-}
-
-pub fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    match s.parse::<i64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse i64")),
-    }
-}
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +44,7 @@ impl BoardItem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Board {
     asc: bool,
     max_depth: u32,
@@ -82,10 +52,10 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(config: &MarketConfig, asc: bool) -> Self {
+    pub fn new(max_depth: u32, asc: bool) -> Self {
         Board {
             asc,
-            max_depth: config.board_depth,
+            max_depth: max_depth,
             board: HashMap::new(),
         }
     }
@@ -99,10 +69,14 @@ impl Board {
         self.board.insert(price, size);
     }
 
+    pub fn get_board(&self) -> &HashMap<Decimal, Decimal> {
+        &self.board
+    }
+
     /// Keyをソートして、Vecにして返す
     /// ascがtrueなら昇順、falseなら降順
     /// max_depthを超えたものは削除する.
-    pub fn get(&mut self) -> Vec<BoardItem> {
+    pub fn get(&self) -> Vec<BoardItem> {
         let mut vec: Vec<BoardItem> = Vec::from_iter(
             self.board
                 .iter()
@@ -115,6 +89,12 @@ impl Board {
             vec.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
         }
 
+        vec
+    }
+
+    pub fn clip_depth(&mut self) {
+        let mut vec = self.get();
+
         if self.max_depth != 0 && self.max_depth < vec.len() as u32 {
             log::info!("board depth over. remove items.");
             let not_valid = vec.split_off(self.max_depth as usize);
@@ -123,8 +103,6 @@ impl Board {
             }
             self.board.shrink_to_fit();
         }
-
-        vec
     }
 
     pub fn clear(&mut self) {
@@ -156,17 +134,20 @@ impl Board {
     }
 }
 
-#[derive(Debug)]
+#[pyclass]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderBookRaw {
-    bids: Board,
-    asks: Board,
+    pub snapshot: bool,         // only use for message.
+    pub bids: Board,
+    pub asks: Board,
 }
 
 impl OrderBookRaw {
-    pub fn new(config: &MarketConfig) -> Self {
+    pub fn new(max_depth: u32) -> Self {
         OrderBookRaw {
-            bids: Board::new(config, false),
-            asks: Board::new(config, true),
+            snapshot: false,
+            bids: Board::new(max_depth, false),
+            asks: Board::new(max_depth, true),
         }
     }
 
@@ -193,6 +174,14 @@ impl OrderBookRaw {
         return (bid_price, ask_price);
     }
 
+    pub fn get_asks(&self) -> Vec<BoardItem> {
+        self.asks.get()
+    }
+
+    pub fn get_bids(&self) -> Vec<BoardItem> {
+        self.bids.get()
+    }
+
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
         if force {
             self.clear();
@@ -216,7 +205,7 @@ pub struct OrderBook {
 impl OrderBook {
     pub fn new(config: &MarketConfig) -> Self {
         OrderBook {
-            board: Mutex::new(OrderBookRaw::new(config)),
+            board: Mutex::new(OrderBookRaw::new(config.board_depth)),
         }
     }
 
@@ -245,15 +234,21 @@ impl OrderBook {
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
         self.board.lock().unwrap().update(bids_diff, asks_diff, force);
     }
+
+    pub fn clip_depth(&mut self) {
+        self.board.lock().unwrap().bids.clip_depth();
+        self.board.lock().unwrap().asks.clip_depth();
+    }
+
 }
 
 
 #[test]
 fn test_board_set() {
-    let mut config = MarketConfig::new("USD", "JPY", 2, 2);
+    let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2);
     config.price_unit = dec!(0.5);
 
-    let mut b = Board::new(&config, true);
+    let mut b = Board::new(0, true);
 
     b.set(dec!(10.0), dec!(1.0));
     println!("{:?}", b.get());
@@ -267,7 +262,7 @@ fn test_board_set() {
     b.set(dec!(9.0), dec!(0.0));
     println!("{:?}", b.get());
 
-    let mut b = Board::new(&config, false);
+    let mut b = Board::new(0, false);
 
     println!("---------desc----------");
 

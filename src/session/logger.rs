@@ -841,10 +841,10 @@ mod tests {
     #[test]
     fn test_log_record_order() {
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "BTCUSD",
             1,
-            "order-1".to_string(),
-            "clientid".to_string(),
+            "order-1",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,

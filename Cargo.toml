@@ -1,12 +1,13 @@
 [package]
 name = "rbot"
-version = "0.2.14"
+version = "0.2.15"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "rbot"
 crate-type = ["cdylib", "rlib"]
+
 
 [dependencies]
 
@@ -71,19 +72,17 @@ hex = {version="0.4.3"}
 
 tungstenite = {version="0.21", features=["native-tls"]}
 
-crossbeam-channel = {version="0.5.8"}
+crossbeam-channel = {version="0.5.9"}
 
 anyhow = {version="1.0.75"}
 thiserror = {version="1.0.50"}
 
-#pyo3-built = {version="0.4.7"}
 
-
+# https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]
-version = "0.20.0"
-features = ["rust_decimal", "abi3-py38", "extension-module"]
+version = "0.20"
+features = ["rust_decimal", "auto-initialize", "abi3-py38"]
 
 [features]
 extension-module = ["pyo3/extension-module"]
- 
-
+#default = ["extension-module"]
