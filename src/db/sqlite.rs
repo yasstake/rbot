@@ -12,6 +12,7 @@ use rusqlite::{params, Connection, Error, Result, Transaction};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 use crate::common::MarketMessage;
 use crate::common::MarketStream;
@@ -122,17 +123,60 @@ impl TradeTableDb {
         Ok(tx)
     }
 
+    /// 2日以内のUnstableデータを削除するメッセージを作成する。
+    /// データがない場合は空の配列を返す。
+    pub fn make_expire_control_message(&mut self, now: MicroSec) -> Vec<Trade> {
+        let mut trades: Vec<Trade> = vec![];
+    
+        let start_time = now - DAYS(2);
+
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp limit 1"#;
+        let r = self.select_query(sql, vec![start_time]);
+
+        if r.len() == 0 {
+            return trades;
+        }
+
+        let t = Trade::new(
+            r[0].time,
+            OrderSide::Unknown,
+            dec![0.0],
+            dec![0.0],
+            LogStatus::ExpireControl,
+            ""
+        );
+        trades.push(t);
+
+        let t = Trade::new(
+            now,
+            OrderSide::Unknown,
+            dec![0.0],
+            dec![0.0],
+            LogStatus::ExpireControl,
+            ""
+        );
+        trades.push(t);
+
+        trades
+    }
+
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         let trades_len = trades.len();
         let start_time = trades[0].time - SEC(1);
         let end_time = trades[trades_len - 1].time;
 
+        let log_status = trades[0].status;
+
         // when fix data comes, delete unstable data first
-        if trades_len != 0 && trades[0].status != LogStatus::UnFix {
+        if trades_len != 0 && log_status != LogStatus::UnFix {
             // create transaction with immidate mode
             let tx = self.begin_transaction().unwrap();
             Self::delete_unstable_data(&tx, start_time, end_time);
             tx.commit().unwrap();
+
+            if log_status == LogStatus::ExpireControl {
+                return Ok(0);
+            }
         }
 
         // create transaction with immidate mode
@@ -1731,4 +1775,5 @@ mod test_transaction_table {
             print!("table is not exist");
         }
     }
+
 }
