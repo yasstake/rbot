@@ -1,43 +1,52 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::f32::consts::E;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
-use std::thread::{JoinHandle, self};
+use crossbeam_channel::Sender;
+use csv::StringRecord;
+use polars_core::export::num::FromPrimitive;
 
-use crate::common::{MarketConfig, MicroSec, flush_log, NOW, DAYS, time_string, MarketStream, MultiChannel, MarketMessage, Order, OrderSide, convert_pyresult, OrderStatus, OrderType, Trade};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread::{self, JoinHandle};
+
+use crate::common::{
+    flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
+    MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
+    FLOOR_DAY, NOW,
+};
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
-use crate::exchange::{OrderBook, BoardItem, SkeltonConfig, open_orders};
+use crate::exchange::bybit::rest::open_orders;
+use crate::exchange::{
+    download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
+    WebSocketClient,
+};
+use crate::fs::db_full_path;
+use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-use super::rest::new_limit_order;
-use super::rest::new_market_order;
+use super::config::BybitServerConfig;
 use super::rest::cancel_order;
 use super::rest::cancell_all_orders;
+use super::rest::get_balance;
+use super::rest::new_limit_order;
+use super::rest::new_market_order;
 use super::rest::order_status;
 use super::rest::trade_list;
-use super::rest::get_balance;
 
 use super::message::BybitOrderStatus;
-use super::message::BybitAccountInformation;
+use super::message::{BybitAccountInformation, BybitWsMessage};
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
-    config: SkeltonConfig,
-    last_update_id: u64,
     board: OrderBook,
 }
 
 impl BybitOrderBook {
-    pub fn new(config: &SkeltonConfig) -> Self {
+    pub fn new(config: &MarketConfig) -> Self {
         return BybitOrderBook {
-            config: config.clone(),
-            last_update_id: 0,
-            board: OrderBook::new(&config.market_config),
+            board: OrderBook::new(&config),
         };
     }
 
@@ -65,7 +74,7 @@ impl BybitOrderBook {
         let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
         let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
 
-        if asks_edge < bids_edge{
+        if asks_edge < bids_edge {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
             self.reflesh_board();
@@ -78,6 +87,16 @@ impl BybitOrderBook {
 
     fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
         Ok(self.board.get_edge_price())
+    }
+
+    pub fn update(&mut self, board: &OrderBookRaw) {
+        let bids = board.get_bids();
+        let asks = board.get_asks();
+        self.board.update(&bids, &asks, board.snapshot);
+    }
+
+    pub fn clip_depth(&mut self) {
+        self.board.clip_depth();
     }
 
     /*
@@ -132,45 +151,46 @@ impl BybitOrderBook {
     fn reflesh_board(&mut self) {
         // TODO: reflesh board from rest api
     }
-
 }
 
+#[pyclass]
+#[derive(Debug)]
+pub struct Bybit {
+    server_config: BybitServerConfig,
+}
 
+#[pymethods]
+impl Bybit {
+    #[new]
+    #[pyo3(signature = (testnet=false))]
+    pub fn new(testnet: bool) -> Self {
+        let server_config = BybitServerConfig::new(testnet);
 
+        return Bybit {
+            server_config: server_config.clone(),
+        };
+    }
+
+    pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
+        return BybitMarket::new(&self.server_config, config);
+    }
+}
 
 #[derive(Debug)]
 #[pyclass]
 pub struct BybitMarket {
-    pub config: SkeltonConfig,
+    pub server_config: BybitServerConfig,
+    pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
+    pub public_ws: WebSocketClient<BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
-    pub user_handler: Option<JoinHandle<()>>,
-    pub channel: Arc<Mutex<MultiChannel>>,    
+    pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
 }
-
 
 #[pymethods]
 impl BybitMarket {
-    #[new]
-    pub fn new(config: &SkeltonConfig) -> Self {
-
-        let db = TradeTable::open(&config.get_db_path());
-        if db.is_err() {
-            log::error!("Error in TradeTable::open: {:?}", db);
-        }
-
-        return BybitMarket {
-            config: config.clone(),
-            db: db.unwrap(),
-            board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
-            public_handler: None,
-            user_handler: None,
-            channel: Arc::new(Mutex::new(MultiChannel::new())),
-        };
-    }
-
-    /*-------------------　共通実装（コピペ） ---------------------------------------*/    
+    /*-------------------　共通実装（コピペ） ---------------------------------------*/
     pub fn drop_table(&mut self) -> PyResult<()> {
         match self.db.drop_table() {
             Ok(_) => Ok(()),
@@ -180,7 +200,7 @@ impl BybitMarket {
             ))),
         }
     }
-    
+
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.db.get_cache_duration();
@@ -233,12 +253,11 @@ impl BybitMarket {
     ) -> PyResult<PyDataFrame> {
         return self.db.py_vap(start_time, end_time, price_unit);
     }
-    
 
     pub fn info(&mut self) -> String {
         return self.db.info();
     }
-    
+
     #[getter]
     pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
         self.board.lock().unwrap().get_board()
@@ -261,7 +280,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_market_config(&self) -> MarketConfig {
-        return self.config.market_config.clone();
+        return self.config.clone();
     }
 
     #[getter]
@@ -274,14 +293,17 @@ impl BybitMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return format!("<b>DB ({})</b>{}", self.config.trade_symbol, self.db._repr_html_());
+        return format!(
+            "<b>DB ({})</b>{}",
+            self.config.trade_symbol,
+            self.db._repr_html_()
+        );
     }
 
+    /*--------------　ここまでコピペ　--------------------------*/
 
     #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
     pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
-        return 0;
-        /*
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -310,9 +332,9 @@ impl BybitMarket {
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
-            if ! force && self.validate_db_by_date(date) {
+            if !force && self.validate_db_by_date(date) {
                 log::info!("{} is valid", time_string(date));
-                
+
                 if verbose {
                     println!("{} skip download", time_string(date));
                     flush_log();
@@ -324,7 +346,7 @@ impl BybitMarket {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
-                },
+                }
                 Err(e) => {
                     log::error!("Error in download_log: {:?}", e);
                     if verbose {
@@ -333,36 +355,14 @@ impl BybitMarket {
                 }
             }
 
-            self.wait_for_settlement(tx);
-        }
-
-        if archive_only {
-            return download_rec;
-        }
-
-        // download from rest API
-        download_rec += self.download_latest(force, verbose);
-
-        if verbose {
-            println!("\nREST downloaded: {}[rec]", download_rec);
-            print!("Waiting for Insert DB...");
-            flush_log();
-        }
-
-        self.wait_for_settlement(tx);
-
-        if verbose {
-            println!("Done");
-            flush_log();
+            // self.wait_for_settlement(tx);
         }
 
         download_rec
-        */
     }
 
-
     #[pyo3(signature = (force=false, verbose = true))]
-    pub fn download_latest(&mut self, force:bool, verbose: bool) -> i64 {
+    pub fn download_latest(&mut self, force: bool, verbose: bool) -> i64 {
         return 0;
         /*
         if verbose {
@@ -387,7 +387,7 @@ impl BybitMarket {
 
             return 0;
         }
-        
+
         let ch = self.db.start_thread();
 
         let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
@@ -410,6 +410,70 @@ impl BybitMarket {
 
         return record_number;
         */
+    }
+
+    // TODO: implment retry logic
+    pub fn start_market_stream(&mut self) {
+        self.public_ws.connect(|message| {
+            let m = serde_json::from_str::<BybitWsMessage>(&message);
+
+            if m.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", message);
+                println!("ERR: {:?}", message);
+            }
+
+            return m.unwrap().into();
+        });
+
+        let db_channel = self.db.start_thread();
+        let agent_channel = self.agent_channel.clone();
+        let ws_channel = self.public_ws.open_channel();
+
+        let board = self.board.clone();
+
+        let handler = std::thread::spawn(move || {
+            loop {
+                let message = ws_channel.recv();
+
+                let message = message.unwrap();
+
+                if message.trade.len() != 0 {
+                    log::debug!("Trade: {:?}", message.trade);
+                    let r = db_channel.send(message.trade.clone());
+
+                    if r.is_err() {
+                        log::error!("Error in db_channel.send: {:?}", r);
+                    }
+                }
+
+                let messages = message.extract();
+
+                // update board
+
+                // send message to agent
+                for m in messages {
+                    if m.trade.is_some() {
+                        let mut ch = agent_channel.write().unwrap();
+                        let r = ch.send(m.clone());
+
+                        if r.is_err() {
+                            log::error!("Error in db_channel.send: {:?}", r);
+                        }
+                    }
+
+                    if m.orderbook.is_some() {
+                        log::debug!("BoardUpdate: {:?}", m.orderbook);
+                        let orderbook = m.orderbook.unwrap();
+                        board.lock().unwrap().update(&orderbook);
+                        board.lock().unwrap().clip_depth();
+                    }
+                }
+            }
+        });
+
+        self.public_handler = Some(handler);
+
+        log::info!("start_market_stream");
     }
 
     /*
@@ -471,7 +535,7 @@ impl BybitMarket {
             let time = trade.time;
 
             if last_id != 0 && id + allow_gap_rec < last_id {
-                println!("MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]", 
+                println!("MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]",
                     time_string(last_time), last_id,
                     time_string(time), id,
                     last_id - id - 1);
@@ -483,7 +547,7 @@ impl BybitMarket {
             record_count += 1;
         });
 
-        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}", 
+        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}",
             time_string(first_time), first_id,
             time_string(last_time), last_id,
             last_id - first_id + 1,
@@ -499,83 +563,84 @@ impl BybitMarket {
     }
     */
 
-    // TODO: implment retry logic
-    pub fn start_market_stream(&mut self) {
-        /*
-        let endpoint = &self.config.public_ws_endpoint;
-        let subscribe_message: Value =
-            serde_json::from_str(&self.config.public_subscribe_message).unwrap();
+    /*
+        // TODO: implment retry logic
+        pub fn start_market_stream(&mut self) {
 
-        // TODO: parameterize
-        let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
+            let endpoint = &self.config.public_ws_endpoint;
+            let subscribe_message: Value =
+                serde_json::from_str(&self.config.public_subscribe_message).unwrap();
 
-        websocket.connect();
+            // TODO: parameterize
+            let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
 
-        let db_channel = self.db.start_thread();
-        let board = self.board.clone();
+            websocket.connect();
 
-        let mut agent_channel = self.channel.clone();
+            let db_channel = self.db.start_thread();
+            let board = self.board.clone();
 
-        let handler = std::thread::spawn(move || {loop {
-            let message = websocket.receive_message();
-            if message.is_err() {
-                log::warn!("Error in websocket.receive_message: {:?}", message);
-                continue;
-            }
-            let m = message.unwrap();
+            let mut agent_channel = self.channel.clone();
 
-            let message_value = serde_json::from_str::<Value>(&m);
-
-            if message_value.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", message_value);
-                continue;
-            }
-            let message_value: Value = message_value.unwrap();
-
-            if message_value.is_object() {
-                let o = message_value.as_object().unwrap();
-
-                if o.contains_key("e") {
-                    log::debug!("Message: {:?}", &m);
-
-                    let message: BinancePublicWsMessage =
-                        serde_json::from_str(&m).unwrap();
-
-                    match message.clone() {
-                        BinancePublicWsMessage::Trade(trade) => {
-                            log::debug!("Trade: {:?}", trade);
-                            let r = db_channel.send(vec![trade.to_trade()]);
-                            
-                            if r.is_err() {
-                                log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
-                            }
-
-                            let multi_agent_channel = agent_channel.borrow_mut();
-                            
-                            let r = multi_agent_channel.lock().unwrap().send(message.into());
-
-                            if r.is_err() {
-                                log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
-                            }
-                        }
-                        BinancePublicWsMessage::BoardUpdate(board_update) => {
-                            board.lock().unwrap().update(&board_update);
-                        }
-                    }
-                } else if o.contains_key("result") {
-                    let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
-                    log::debug!("Result: {:?}", message);
-                } else {
+            let handler = std::thread::spawn(move || {loop {
+                let message = websocket.receive_message();
+                if message.is_err() {
+                    log::warn!("Error in websocket.receive_message: {:?}", message);
                     continue;
                 }
-            }}
-        });
+                let m = message.unwrap();
 
-        self.public_handler = Some(handler);
+                let message_value = serde_json::from_str::<Value>(&m);
 
-        log::info!("start_market_stream");
-        */
-    }
+                if message_value.is_err() {
+                    log::warn!("Error in serde_json::from_str: {:?}", message_value);
+                    continue;
+                }
+                let message_value: Value = message_value.unwrap();
+
+                if message_value.is_object() {
+                    let o = message_value.as_object().unwrap();
+
+                    if o.contains_key("e") {
+                        log::debug!("Message: {:?}", &m);
+
+                        let message: BinancePublicWsMessage =
+                            serde_json::from_str(&m).unwrap();
+
+                        match message.clone() {
+                            BinancePublicWsMessage::Trade(trade) => {
+                                log::debug!("Trade: {:?}", trade);
+                                let r = db_channel.send(vec![trade.to_trade()]);
+
+                                if r.is_err() {
+                                    log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
+                                }
+
+                                let multi_agent_channel = agent_channel.borrow_mut();
+
+                                let r = multi_agent_channel.lock().unwrap().send(message.into());
+
+                                if r.is_err() {
+                                    log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
+                                }
+                            }
+                            BinancePublicWsMessage::BoardUpdate(board_update) => {
+                                board.lock().unwrap().update(&board_update);
+                            }
+                        }
+                    } else if o.contains_key("result") {
+                        let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
+                        log::debug!("Result: {:?}", message);
+                    } else {
+                        continue;
+                    }
+                }}
+            });
+
+            self.public_handler = Some(handler);
+
+            log::info!("start_market_stream");
+        }
+    */
 
     pub fn start_user_stream(&mut self) {
         /*
@@ -597,6 +662,7 @@ impl BybitMarket {
         */
     }
 
+    /*
     pub fn is_user_stream_running(&self) -> bool {
         if let Some(handler) = &self.user_handler {
             return !handler.is_finished();
@@ -614,34 +680,24 @@ impl BybitMarket {
     pub fn is_db_thread_running(&self) -> bool {
         return self.db.is_thread_running();
     }
+    */
+
+    /* TODO: implment */
 
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
-        self.channel.lock().unwrap().open_channel(0)
+        let ch = self.agent_channel.write().unwrap().open_channel(0);
+
+        MarketStream { reciver: ch }
     }
 
-    pub fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
-        let channel = self.channel.lock().unwrap().open_channel(1_000);
-        let sender = self.channel.clone();
-
-        let mut table_db = self.db.connection.clone_connection();
-
-        thread::spawn(move || {
-            let mut channel = sender.lock().unwrap();            
-            table_db.select(time_from, time_to, |trade| {
-                let message: MarketMessage = trade.into();
-                let r = channel.send(message);
-        
-                if r.is_err() {
-                    log::error!("Error in channel.send: {:?}", r);
-                }
-            });
-            channel.close();
-        });
-
-        return channel;
+    pub fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> MarketStream {
+        self.db.connection.select_stream(time_from, time_to)
     }
-
 
     #[pyo3(signature = (side, price, size, client_order_id=None))]
     pub fn limit_order(
@@ -651,14 +707,21 @@ impl BybitMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let price_scale = self.config.market_config.price_scale;
+        let price_scale = self.config.price_scale;
         let price_dp = price.round_dp(price_scale);
 
-        let size_scale = self.config.market_config.size_scale;
+        let size_scale = self.config.size_scale;
         let size_dp = size.round_dp(size_scale);
         let order_side = OrderSide::from(side);
 
-        let response = new_limit_order(&self.config, order_side, price_dp, size_dp, client_order_id);
+        let response = new_limit_order(
+            &self.server_config.rest_server,
+            &self.config,
+            order_side,
+            price_dp,
+            size_dp,
+            client_order_id,
+        );
 
         if response.is_err() {
             log::error!(
@@ -686,7 +749,9 @@ impl BybitMarket {
         }
 
         // TODO: FIXconvert_pyresult(response)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 
     /*
@@ -713,12 +778,18 @@ impl BybitMarket {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> PyResult<Vec<Order>> {
-        let size_scale = self.config.market_config.size_scale;
+        let size_scale = self.config.size_scale;
         let size = size.round_dp(size_scale);
-        
+
         let order_side = OrderSide::from(side);
 
-        let response = new_market_order(&self.config, order_side, size, client_order_id);
+        let response = new_market_order(
+            &self.server_config.rest_server,
+            &self.config,
+            order_side,
+            size,
+            client_order_id,
+        );
 
         if response.is_err() {
             log::error!(
@@ -741,9 +812,10 @@ impl BybitMarket {
         }
 
         //convert_pyresult(response)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
-
 
     pub fn dry_market_order(
         &self,
@@ -756,11 +828,7 @@ impl BybitMarket {
     ) -> Vec<Order> {
         let (bids, asks) = self.board.lock().unwrap().get_board_vec().unwrap();
 
-        let board = if side == OrderSide::Buy {
-            asks
-        } else {
-            bids
-        };
+        let board = if side == OrderSide::Buy { asks } else { bids };
 
         let mut orders: Vec<Order> = vec![];
         let mut split_index = 0;
@@ -778,21 +846,20 @@ impl BybitMarket {
             split_index += 1;
 
             if remain_size <= item.size {
-                order_status = OrderStatus::Filled;                
+                order_status = OrderStatus::Filled;
                 execute_size = remain_size;
                 remain_size = dec![0.0];
-            }
-            else {
-                order_status = OrderStatus::PartiallyFilled;                
+            } else {
+                order_status = OrderStatus::PartiallyFilled;
                 execute_size = item.size;
                 remain_size -= item.size;
             }
 
             let mut order = Order::new(
-                self.config.market_config.symbol(),
+                &self.config.trade_symbol,
                 create_time,
-                order_id.to_string(),
-                client_order_id.to_string(),
+                &order_id,
+                &client_order_id.to_string(),
                 side,
                 OrderType::Market,
                 order_status,
@@ -819,14 +886,16 @@ impl BybitMarket {
     }
 
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        let response = cancel_order(&self.config, order_id);
+        let response = cancel_order(&self.server_config.rest_server, &self.config, order_id);
 
         // return convert_pyresult(response);
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 
     pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
-        let response = cancell_all_orders(&self.config);
+        let response = cancell_all_orders(&self.server_config.rest_server, &self.config);
 
         if response.is_ok() {
             // TODO:: FIX IMPLMENET
@@ -838,43 +907,193 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = order_status(&self.config);
+        let status = order_status(&self.server_config.rest_server, &self.config);
 
         // TODO: IMPLEMENT convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.config);
+        let status = open_orders(&self.server_config.rest_server, &self.config);
 
         log::debug!("OpenOrder: {:?}", status);
 
         // convert_pyresult_vec(status)
         // TODO: implement
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 
     #[getter]
     pub fn get_trade_list(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = trade_list(&self.config);
+        let status = trade_list(&self.server_config.rest_server, &self.config);
 
-    //         convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        //         convert_pyresult(status)
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 
     #[getter]
     pub fn get_account(&self) -> PyResult<BybitAccountInformation> {
-        let status = get_balance(&self.config);
+        let status = get_balance(&self.server_config.rest_server, &self.config);
 
         //convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Not implemented"));
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "Not implemented",
+        ));
     }
 }
 
-
-
 impl BybitMarket {
+    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
+        let db = TradeTable::open(&Self::make_db_path(
+            &server_config.exchange_name,
+            &config.trade_category,
+            &config.trade_symbol,
+            &server_config.db_base_dir,
+        ));
+        if db.is_err() {
+            log::error!("Error in TradeTable::open: {:?}", db);
+        }
+
+        return BybitMarket {
+            server_config: server_config.clone(),
+            config: config.clone(),
+            db: db.unwrap(),
+            board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
+            public_ws: WebSocketClient::new(
+                &format!("{}/{}", &server_config.public_ws, config.trade_category),
+                config.public_subscribe_channel.clone(),
+            ),
+            public_handler: None,
+            agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
+        };
+    }
+
+    pub fn make_db_path(
+        exchange_name: &str,
+        trade_category: &str,
+        trade_symbol: &str,
+        db_base_dir: &str,
+    ) -> String {
+        let db_path = db_full_path(&exchange_name, trade_category, trade_symbol, db_base_dir);
+
+        return db_path.to_str().unwrap().to_string();
+    }
+
+    fn history_web_url(&self, date: MicroSec) -> String {
+        Self::make_historical_data_url_timestamp(
+            &self.server_config.history_web_base,
+            &self.config.trade_symbol,
+            date,
+        )
+    }
+
+    fn make_historical_data_url_timestamp(
+        history_web_base: &str,
+        symbol: &str,
+        t: MicroSec,
+    ) -> String {
+        let timestamp = to_naive_datetime(t);
+
+        let yyyy = timestamp.year() as i64;
+        let mm = timestamp.month() as i64;
+        let dd = timestamp.day() as i64;
+
+        return format!(
+            "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
+            history_web_base, symbol, symbol, yyyy, mm, dd
+        );
+    }
+
+    fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
+        let f = |date: MicroSec| -> String {
+            Self::make_historical_data_url_timestamp(
+                &self.server_config.history_web_base,
+                &self.config.trade_symbol,
+                date,
+            )
+        };
+
+        latest_archive_date(&f)
+    }
+
+    pub fn download_log(
+        &mut self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        verbose: bool,
+    ) -> PyResult<i64> {
+        let date = FLOOR_DAY(date);
+        let url = self.history_web_url(date);
+
+        match download_log(&url, tx, true, verbose, &Self::rec_to_trade) {
+            Ok(download_rec) => Ok(download_rec),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in download_logs: {:?}",
+                e
+            ))),
+        }
+    }
+
+    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
+    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
+    fn rec_to_trade(rec: &StringRecord) -> Trade {
+        let timestamp = rec
+            .get(0)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default()
+            * 1_000_000.0;
+
+        let timestamp = timestamp as MicroSec;
+
+        let order_side = match rec.get(2).unwrap_or_default() {
+            "Buy" => OrderSide::Buy,
+            "Sell" => OrderSide::Sell,
+            _ => OrderSide::Unknown,
+        };
+
+        let id = rec.get(6).unwrap_or_default().to_string();
+
+        let price = rec
+            .get(4)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
+
+        let price: Decimal = Decimal::from_f64(price).unwrap();
+
+        let size = rec
+            .get(3)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
+
+        let size = Decimal::from_f64(size).unwrap();
+
+        let trade = Trade::new(
+            timestamp,
+            order_side,
+            price,
+            size,
+            LogStatus::FixArchiveBlock,
+            &id,
+        );
+
+        return trade;
+    }
+
+    /// Check if database is valid at the date
+    fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
+        self.db.connection.validate_by_date(date)
+    }
+
     /*
     pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
         while 5 < tx.len() {
@@ -882,20 +1101,8 @@ impl BybitMarket {
         }
     }
 
-    fn make_historical_data_url_timestamp(config: &BinanceConfig, name: &str, t: MicroSec) -> String {
-        let timestamp = to_naive_datetime(t);
 
-        let yyyy = timestamp.year() as i64;
-        let mm = timestamp.month() as i64;
-        let dd = timestamp.day() as i64;
 
-        // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
-        return format!(
-            "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-            config.history_web_base,
-            name, name, yyyy, mm, dd
-        );
-    }
 
     pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, verbose: bool) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
@@ -924,116 +1131,69 @@ impl BybitMarket {
             }
         }
     }
-
-    fn rec_to_trade(rec: &StringRecord) -> Trade {
-        let id = rec.get(0).unwrap_or_default().to_string();
-        let price = rec
-            .get(1)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let price = Decimal::from_f64(price).unwrap_or_default();
-
-        let size = rec
-            .get(2)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let size = Decimal::from_f64(size).unwrap_or_default();
-
-        let timestamp = rec
-            .get(4)
-            .unwrap_or_default()
-            .parse::<MicroSec>()
-            .unwrap_or_default()
-            * 1_000;
-
-        let is_buyer_make = rec.get(5).unwrap_or_default();
-        let order_side = match is_buyer_make {
-            "True" => OrderSide::Buy,
-            "False" => OrderSide::Sell,
-            _ => OrderSide::Unknown,
-        };
-
-        let trade = Trade::new(timestamp, order_side, price, size, LogStatus::FixArchiveBlock, id);
-
-        return trade;
-    }
-
-    fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
-        let mut latest = TODAY();
-        let mut i = 0;
-
-        loop {
-
-            let has_archive = self.has_archive(latest);
-
-            if has_archive.is_err() {
-                log::error!("Error in has_archive: {:?}", has_archive);
-                return Err(format!("Error in has_archive: {:?}", has_archive));
-            }            
-
-            let has_archive = has_archive.unwrap();            
-
-            if has_archive {
-                return Ok(latest);
-            }
-
-            latest -= DAYS(1);
-            i += 1;
-
-            if 5 < i {
-                return Err(format!("get_latest_archive max retry error"));
-            }
-        }
-    }
-
-    fn has_archive(&self, date: MicroSec) -> Result<bool, String> {
-        let url = Self::make_historical_data_url_timestamp(&self.config, self.symbol.as_str(), date);
-
-        if check_exist(url.as_str()) {
-            log::debug!("{} exists", url);
-            return Ok(true);
-        } else {
-            log::debug!("{} does not exist", url);
-        }
-        return Ok(false);
-    }
-
-    /// Check if database is valid at the date
-    /// TODO: 共通化
-    fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
-        let start_time = FLOOR_DAY(date);
-        let end_time = start_time + DAYS(1);
-
-        // startからendまでのレコードにS,Eが1つづつあるかどうかを確認する。
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 and (status = "S" or status = "E") order by time_stamp"#;
-        let trades = self.db.connection.select_query(sql, vec![start_time, end_time]);
-
-        if trades.len() != 2 {
-            log::debug!("S,E is not 2 {}", trades.len());
-            return false;
-        }
-
-        let first = trades[0].clone();
-        let last = trades[1].clone();
-
-        // Sから始まりEでおわることを確認
-        if first.status != LogStatus::FixBlockStart && last.status != LogStatus::FixBlockEnd {
-            log::debug!("S,E is not S,E");
-            return false;
-        }
-
-        // S, Eのレコードの間が十分にあること（トラフィックにもよるが２２時間を想定）
-        if last.time - first.time < HHMM(20, 0) {
-            log::debug!("batch is too short");
-            return false;
-        }
-
-        true
-    }
     */
 }
 
+#[cfg(test)]
+mod test_bybit_market {
+    use csv::StringRecord;
+    use rust_decimal_macros::dec;
+
+    use crate::{
+        common::time_string,
+        exchange::bybit::config::{BybitConfig, BybitServerConfig},
+    };
+
+    #[test]
+    fn test_make_historical_data_url_timestamp() {
+        let config = BybitConfig::SPOT_BTCUSDT();
+
+        let url = super::BybitMarket::make_historical_data_url_timestamp(
+            "https://public.bybit.com/trading/",
+            &config.trade_symbol,
+            1620000000000_000,
+        );
+
+        assert_eq!(
+            url,
+            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2021-05-03.csv.gz"
+        );
+
+        let url = super::BybitMarket::make_historical_data_url_timestamp(
+            "https://public.bybit.com/trading/",
+            &config.trade_symbol,
+            1234,
+        );
+
+        assert_eq!(
+            url,
+            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT1970-01-01.csv.gz"
+        );
+    }
+
+    #[test]
+    fn test_get_latest_archive_date() {
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::SPOT_BTCUSDT();
+
+        let market = super::BybitMarket::new(&server_config, &config);
+
+        let date = market.get_latest_archive_date().unwrap();
+        println!("date: {}", date);
+        println!("date: {}", time_string(date));
+    }
+
+    #[test]
+    fn test_rec_to_trade() {
+        let rec = "1692748800.279,BTCUSD,Sell,641,26027.00,ZeroMinusTick,80253109-efbb-58ca-9adc-d458b66201e9,2.462827064202559e+06,641,0.02462827064202559".to_string();
+        let rec = rec.split(',').collect::<Vec<&str>>();
+        let rec = StringRecord::from(rec);
+        let trade = super::BybitMarket::rec_to_trade(&rec);
+
+        assert_eq!(trade.time, 1692748800279000);
+        assert_eq!(trade.order_side, super::OrderSide::Sell);
+        assert_eq!(trade.price, dec![26027.0]);
+        assert_eq!(trade.size, dec![641.0]);
+        assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
+    }
+}

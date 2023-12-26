@@ -475,10 +475,10 @@ impl Session {
         let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
 
         let mut order = Order::new(
-            self.market_config.symbol(),
+            &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
-            local_id.clone(),
-            local_id.clone(),
+            &local_id,
+            &local_id,
             order_side,
             OrderType::Market,
             OrderStatus::Filled,
@@ -601,10 +601,10 @@ impl Session {
         );
 
         let mut order = Order::new(
-            self.market_config.symbol(),
+            &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
-            local_id.clone(),
-            local_id.clone(),
+            &local_id,
+            &local_id,
             order_side,
             OrderType::Limit,
             OrderStatus::New,

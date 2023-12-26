@@ -1,44 +1,21 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::thread::sleep;
-use std::time::Duration;
-
+#![allow(unused_variables)]
 use rust_decimal::Decimal;
 
-use crate::common::LogStatus;
-use crate::common::MicroSec;
 use crate::common::OrderSide;
-use crate::common::Trade;
-use crate::common::NOW;
-use crate::common::flush_log;
-use crate::common::time_string;
-use crate::exchange::SkeltonConfig;
-use crate::exchange::rest_delete;
-use crate::exchange::rest_get;
-use crate::exchange::rest_post;
-use crate::exchange::rest_put;
+use super::config::SkeltonConfig;
 
-use super::SkeltonAccountInformation;
-use super::SkeltonCancelOrderResponse;
-use super::SkeltonOrderResponse;
-use super::SkeltonOrderStatus;
-use super::SkeltonRestBoard;
-
-
+use super::message::SkeltonAccountInformation;
+use super::message::SkeltonCancelOrderResponse;
+use super::message::SkeltonOrderResponse;
+use super::message::SkeltonOrderStatus;
+use super::message::SkeltonRestBoard;
 
 pub fn get_board_snapshot(config: &SkeltonConfig) -> Result<SkeltonRestBoard, String> {
     return Err("Not implemented".to_string());
 }
 
-fn order_side_string(side: OrderSide) -> String {
-    if side == OrderSide::Buy {
-        return "BUY".to_string();
-    } else if side == OrderSide::Sell {
-        return "SELL".to_string();
-    } else {
-        panic!("Unknown order side");
-    }
-}
 
 pub fn new_limit_order(
     config: &SkeltonConfig,
