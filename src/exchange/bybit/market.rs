@@ -302,8 +302,8 @@ impl BybitMarket {
 
     /*--------------　ここまでコピペ　--------------------------*/
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, _archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, _archive_only: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
