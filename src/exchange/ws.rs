@@ -695,7 +695,9 @@ mod test_exchange_ws {
 
         let mut ws: WebSocketClient<BybitWsOpMessage> = WebSocketClient::new(
             "wss://stream.bybit.com/v5/public/spot",
-            vec!["publicTrade.BTCUSDT".to_string()],
+            vec!["publicTrade.BTCUSDT".to_string(),
+                            "orderbook.200.BTCUSDT".to_string()
+            ],
         );
 
 //        log::debug!("subscribe");
@@ -718,7 +720,7 @@ mod test_exchange_ws {
 
 
 
-        ws.subscribe(&mut vec!["orderbook.200.BTCUSDT".to_string()]);
+//        ws.subscribe(&mut vec!["orderbook.200.BTCUSDT".to_string()]);
 
 
         for _ in 0..10 {

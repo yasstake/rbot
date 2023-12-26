@@ -41,9 +41,6 @@ use crate::exchange::{
 
 use crate::exchange::binance::config::BinanceConfig;
 
-pub fn binance_to_microsec(t: u64) -> MicroSec {
-    return (t as i64) * 1_000;
-}
 
 #[pyclass]
 pub struct BinanceAccount {

@@ -11,6 +11,7 @@ pub struct BybitServerConfig {
     pub testnet: bool,    
     pub rest_server: String,
     pub public_ws: String,
+    pub private_ws: String,
     pub db_base_dir: String,
     pub history_web_base: String,
 }
@@ -24,18 +25,25 @@ impl BybitServerConfig {
         }
         .to_string();
 
-        let ws_server = if testnet {
-            "wss://stream-testnet.bybit.com/realtime"
+        let public_ws_server = if testnet {
+            "wss://stream-testnet.bybit.com/v5/public"
         } else {
-            "wss://stream.bybit.com/realtime"
+            "wss://stream.bybit.com/v5/public"
         }
         .to_string();
+
+        let private_ws_server = if testnet {
+            "wss://stream-testnet.bybit.com/v5/private"
+        } else {
+            "wss://stream.bybit.com/v5/private"
+        }.to_string();
 
         return BybitServerConfig {
             exchange_name: "BYBIT".to_string(),
             testnet,
             rest_server,
-            public_ws: ws_server,
+            public_ws: public_ws_server,
+            private_ws: private_ws_server,
             db_base_dir: "".to_string(),
             history_web_base: "https://public.bybit.com".to_string(),
         };
@@ -70,7 +78,7 @@ impl BybitConfig {
                 home_currency:"USDT".to_string(),
                 foreign_currency:"BTC".to_string(),
                 market_order_price_slip:dec![0.01],
-                board_depth:250,
+                board_depth:200,
                 trade_category:"spot".to_string(),
                 trade_symbol:"BTCUSDT".to_string(), 
                 public_subscribe_channel: vec![

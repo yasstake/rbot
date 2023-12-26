@@ -4,17 +4,21 @@ use crossbeam_channel::Sender;
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
 use crate::common::{
-    to_naive_datetime, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec,
-    MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, FLOOR_DAY, flush_log, NOW, DAYS, time_string,
+    flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
+    MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
+    FLOOR_DAY, NOW,
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::bybit::rest::open_orders;
-use crate::exchange::{download_log, latest_archive_date, BoardItem, OrderBook, WebSocketClient, BybitWsOpMessage};
+use crate::exchange::{
+    download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
+    WebSocketClient,
+};
 use crate::fs::db_full_path;
 use chrono::Datelike;
 use pyo3::prelude::*;
@@ -31,21 +35,17 @@ use super::rest::new_market_order;
 use super::rest::order_status;
 use super::rest::trade_list;
 
-use super::message::{BybitAccountInformation, BybitWsMessage};
 use super::message::BybitOrderStatus;
+use super::message::{BybitAccountInformation, BybitWsMessage};
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
-    config: MarketConfig,
-    last_update_id: u64,
     board: OrderBook,
 }
 
 impl BybitOrderBook {
     pub fn new(config: &MarketConfig) -> Self {
         return BybitOrderBook {
-            config: config.clone(),
-            last_update_id: 0,
             board: OrderBook::new(&config),
         };
     }
@@ -87,6 +87,16 @@ impl BybitOrderBook {
 
     fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
         Ok(self.board.get_edge_price())
+    }
+
+    pub fn update(&mut self, board: &OrderBookRaw) {
+        let bids = board.get_bids();
+        let asks = board.get_asks();
+        self.board.update(&bids, &asks, board.snapshot);
+    }
+
+    pub fn clip_depth(&mut self) {
+        self.board.clip_depth();
     }
 
     /*
@@ -143,7 +153,6 @@ impl BybitOrderBook {
     }
 }
 
-
 #[pyclass]
 #[derive(Debug)]
 pub struct Bybit {
@@ -167,7 +176,6 @@ impl Bybit {
     }
 }
 
-
 #[derive(Debug)]
 #[pyclass]
 pub struct BybitMarket {
@@ -175,7 +183,9 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
-    pub public_ws: WebSocketClient<BybitWsOpMessage>
+    pub public_ws: WebSocketClient<BybitWsOpMessage>,
+    pub public_handler: Option<JoinHandle<()>>,
+    pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
 }
 
 #[pymethods]
@@ -322,7 +332,7 @@ impl BybitMarket {
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
-            if ! force && self.validate_db_by_date(date) {
+            if !force && self.validate_db_by_date(date) {
                 log::info!("{} is valid", time_string(date));
 
                 if verbose {
@@ -336,7 +346,7 @@ impl BybitMarket {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
-                },
+                }
                 Err(e) => {
                     log::error!("Error in download_log: {:?}", e);
                     if verbose {
@@ -400,6 +410,70 @@ impl BybitMarket {
 
         return record_number;
         */
+    }
+
+    // TODO: implment retry logic
+    pub fn start_market_stream(&mut self) {
+        self.public_ws.connect(|message| {
+            let m = serde_json::from_str::<BybitWsMessage>(&message);
+
+            if m.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", message);
+                println!("ERR: {:?}", message);
+            }
+
+            return m.unwrap().into();
+        });
+
+        let db_channel = self.db.start_thread();
+        let agent_channel = self.agent_channel.clone();
+        let ws_channel = self.public_ws.open_channel();
+
+        let board = self.board.clone();
+
+        let handler = std::thread::spawn(move || {
+            loop {
+                let message = ws_channel.recv();
+
+                let message = message.unwrap();
+
+                if message.trade.len() != 0 {
+                    log::debug!("Trade: {:?}", message.trade);
+                    let r = db_channel.send(message.trade.clone());
+
+                    if r.is_err() {
+                        log::error!("Error in db_channel.send: {:?}", r);
+                    }
+                }
+
+                let messages = message.extract();
+
+                // update board
+
+                // send message to agent
+                for m in messages {
+                    if m.trade.is_some() {
+                        let mut ch = agent_channel.write().unwrap();
+                        let r = ch.send(m.clone());
+
+                        if r.is_err() {
+                            log::error!("Error in db_channel.send: {:?}", r);
+                        }
+                    }
+
+                    if m.orderbook.is_some() {
+                        log::debug!("BoardUpdate: {:?}", m.orderbook);
+                        let orderbook = m.orderbook.unwrap();
+                        board.lock().unwrap().update(&orderbook);
+                        board.lock().unwrap().clip_depth();
+                    }
+                }
+            }
+        });
+
+        self.public_handler = Some(handler);
+
+        log::info!("start_market_stream");
     }
 
     /*
@@ -490,163 +564,83 @@ impl BybitMarket {
     */
 
     /*
-    // TODO: implment retry logic
-    pub fn start_market_stream(&mut self) {
+        // TODO: implment retry logic
+        pub fn start_market_stream(&mut self) {
 
-        let endpoint = &self.config.public_ws_endpoint;
-        let subscribe_message: Value =
-            serde_json::from_str(&self.config.public_subscribe_message).unwrap();
+            let endpoint = &self.config.public_ws_endpoint;
+            let subscribe_message: Value =
+                serde_json::from_str(&self.config.public_subscribe_message).unwrap();
 
-        // TODO: parameterize
-        let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
+            // TODO: parameterize
+            let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
 
-        websocket.connect();
+            websocket.connect();
 
-        let db_channel = self.db.start_thread();
-        let board = self.board.clone();
+            let db_channel = self.db.start_thread();
+            let board = self.board.clone();
 
-        let mut agent_channel = self.channel.clone();
+            let mut agent_channel = self.channel.clone();
 
-        let handler = std::thread::spawn(move || {loop {
-            let message = websocket.receive_message();
-            if message.is_err() {
-                log::warn!("Error in websocket.receive_message: {:?}", message);
-                continue;
-            }
-            let m = message.unwrap();
-
-            let message_value = serde_json::from_str::<Value>(&m);
-
-            if message_value.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", message_value);
-                continue;
-            }
-            let message_value: Value = message_value.unwrap();
-
-            if message_value.is_object() {
-                let o = message_value.as_object().unwrap();
-
-                if o.contains_key("e") {
-                    log::debug!("Message: {:?}", &m);
-
-                    let message: BinancePublicWsMessage =
-                        serde_json::from_str(&m).unwrap();
-
-                    match message.clone() {
-                        BinancePublicWsMessage::Trade(trade) => {
-                            log::debug!("Trade: {:?}", trade);
-                            let r = db_channel.send(vec![trade.to_trade()]);
-                            
-                            if r.is_err() {
-                                log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
-                            }
-
-                            let multi_agent_channel = agent_channel.borrow_mut();
-                            
-                            let r = multi_agent_channel.lock().unwrap().send(message.into());
-
-                            if r.is_err() {
-                                log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
-                            }
-                        }
-                        BinancePublicWsMessage::BoardUpdate(board_update) => {
-                            board.lock().unwrap().update(&board_update);
-                        }
-                    }
-                } else if o.contains_key("result") {
-                    let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
-                    log::debug!("Result: {:?}", message);
-                } else {
+            let handler = std::thread::spawn(move || {loop {
+                let message = websocket.receive_message();
+                if message.is_err() {
+                    log::warn!("Error in websocket.receive_message: {:?}", message);
                     continue;
                 }
-            }}
-        });
+                let m = message.unwrap();
 
-        self.public_handler = Some(handler);
+                let message_value = serde_json::from_str::<Value>(&m);
 
-        log::info!("start_market_stream");
-    }
-*/
-
-        /*
-    // TODO: implment retry logic
-    pub fn start_market_stream(&mut self) {
-
-        let endpoint = &self.config.public_ws_endpoint;
-        let subscribe_message: Value =
-            serde_json::from_str(&self.config.public_subscribe_message).unwrap();
-
-        // TODO: parameterize
-        let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
-
-        websocket.connect();
-
-        let db_channel = self.db.start_thread();
-        let board = self.board.clone();
-
-        let mut agent_channel = self.channel.clone();
-
-        let handler = std::thread::spawn(move || {loop {
-            let message = websocket.receive_message();
-            if message.is_err() {
-                log::warn!("Error in websocket.receive_message: {:?}", message);
-                continue;
-            }
-            let m = message.unwrap();
-
-            let message_value = serde_json::from_str::<Value>(&m);
-
-            if message_value.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", message_value);
-                continue;
-            }
-            let message_value: Value = message_value.unwrap();
-
-            if message_value.is_object() {
-                let o = message_value.as_object().unwrap();
-
-                if o.contains_key("e") {
-                    log::debug!("Message: {:?}", &m);
-
-                    let message: BinancePublicWsMessage =
-                        serde_json::from_str(&m).unwrap();
-
-                    match message.clone() {
-                        BinancePublicWsMessage::Trade(trade) => {
-                            log::debug!("Trade: {:?}", trade);
-                            let r = db_channel.send(vec![trade.to_trade()]);
-
-                            if r.is_err() {
-                                log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
-                            }
-
-                            let multi_agent_channel = agent_channel.borrow_mut();
-
-                            let r = multi_agent_channel.lock().unwrap().send(message.into());
-
-                            if r.is_err() {
-                                log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
-                            }
-                        }
-                        BinancePublicWsMessage::BoardUpdate(board_update) => {
-                            board.lock().unwrap().update(&board_update);
-                        }
-                    }
-                } else if o.contains_key("result") {
-                    let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
-                    log::debug!("Result: {:?}", message);
-                } else {
+                if message_value.is_err() {
+                    log::warn!("Error in serde_json::from_str: {:?}", message_value);
                     continue;
                 }
-            }}
-        });
+                let message_value: Value = message_value.unwrap();
 
-        self.public_handler = Some(handler);
+                if message_value.is_object() {
+                    let o = message_value.as_object().unwrap();
 
-        log::info!("start_market_stream");
-        
-    }
-    */    
+                    if o.contains_key("e") {
+                        log::debug!("Message: {:?}", &m);
+
+                        let message: BinancePublicWsMessage =
+                            serde_json::from_str(&m).unwrap();
+
+                        match message.clone() {
+                            BinancePublicWsMessage::Trade(trade) => {
+                                log::debug!("Trade: {:?}", trade);
+                                let r = db_channel.send(vec![trade.to_trade()]);
+
+                                if r.is_err() {
+                                    log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
+                                }
+
+                                let multi_agent_channel = agent_channel.borrow_mut();
+
+                                let r = multi_agent_channel.lock().unwrap().send(message.into());
+
+                                if r.is_err() {
+                                    log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
+                                }
+                            }
+                            BinancePublicWsMessage::BoardUpdate(board_update) => {
+                                board.lock().unwrap().update(&board_update);
+                            }
+                        }
+                    } else if o.contains_key("result") {
+                        let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
+                        log::debug!("Result: {:?}", message);
+                    } else {
+                        continue;
+                    }
+                }}
+            });
+
+            self.public_handler = Some(handler);
+
+            log::info!("start_market_stream");
+        }
+    */
 
     pub fn start_user_stream(&mut self) {
         /*
@@ -689,15 +683,13 @@ impl BybitMarket {
     */
 
     /* TODO: implment */
-    /*
+
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
-        let ch = self.public_ws.open_channel();
+        let ch = self.agent_channel.write().unwrap().open_channel(0);
 
-        let ch = self.channel.lock().unwrap().open_channel(0);
-        MarketStream{reciver: ch}
+        MarketStream { reciver: ch }
     }
-    */
 
     pub fn open_backtest_channel(
         &mut self,
@@ -722,10 +714,14 @@ impl BybitMarket {
         let size_dp = size.round_dp(size_scale);
         let order_side = OrderSide::from(side);
 
-        let response =
-            new_limit_order(
-                &self.server_config.rest_server, &self.config, 
-                order_side, price_dp, size_dp, client_order_id);
+        let response = new_limit_order(
+            &self.server_config.rest_server,
+            &self.config,
+            order_side,
+            price_dp,
+            size_dp,
+            client_order_id,
+        );
 
         if response.is_err() {
             log::error!(
@@ -788,8 +784,12 @@ impl BybitMarket {
         let order_side = OrderSide::from(side);
 
         let response = new_market_order(
-            &self.server_config.rest_server, &self.config, 
-            order_side, size, client_order_id);
+            &self.server_config.rest_server,
+            &self.config,
+            order_side,
+            size,
+            client_order_id,
+        );
 
         if response.is_err() {
             log::error!(
@@ -886,8 +886,7 @@ impl BybitMarket {
     }
 
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        let response = cancel_order(
-            &self.server_config.rest_server, &self.config, order_id);
+        let response = cancel_order(&self.server_config.rest_server, &self.config, order_id);
 
         // return convert_pyresult(response);
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -896,8 +895,7 @@ impl BybitMarket {
     }
 
     pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
-        let response = cancell_all_orders(
-            &self.server_config.rest_server, &self.config); 
+        let response = cancell_all_orders(&self.server_config.rest_server, &self.config);
 
         if response.is_ok() {
             // TODO:: FIX IMPLMENET
@@ -909,9 +907,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = order_status(
-            &self.server_config.rest_server, &self.config); 
-
+        let status = order_status(&self.server_config.rest_server, &self.config);
 
         // TODO: IMPLEMENT convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -921,9 +917,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(
-            &self.server_config.rest_server, &self.config); 
-
+        let status = open_orders(&self.server_config.rest_server, &self.config);
 
         log::debug!("OpenOrder: {:?}", status);
 
@@ -936,8 +930,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_trade_list(&self) -> PyResult<Vec<BybitOrderStatus>> {
-        let status = trade_list(
-            &self.server_config.rest_server, &self.config); 
+        let status = trade_list(&self.server_config.rest_server, &self.config);
 
         //         convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -947,9 +940,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_account(&self) -> PyResult<BybitAccountInformation> {
-        let status = get_balance(
-            &self.server_config.rest_server, &self.config); 
-
+        let status = get_balance(&self.server_config.rest_server, &self.config);
 
         //convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -960,12 +951,12 @@ impl BybitMarket {
 
 impl BybitMarket {
     pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
-
         let db = TradeTable::open(&Self::make_db_path(
             &server_config.exchange_name,
-            &config.trade_category, 
+            &config.trade_category,
             &config.trade_symbol,
-            &server_config.db_base_dir));
+            &server_config.db_base_dir,
+        ));
         if db.is_err() {
             log::error!("Error in TradeTable::open: {:?}", db);
         }
@@ -975,11 +966,21 @@ impl BybitMarket {
             config: config.clone(),
             db: db.unwrap(),
             board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
-            public_ws: WebSocketClient::new(&server_config.public_ws, config.public_subscribe_channel.clone()),
+            public_ws: WebSocketClient::new(
+                &format!("{}/{}", &server_config.public_ws, config.trade_category),
+                config.public_subscribe_channel.clone(),
+            ),
+            public_handler: None,
+            agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
         };
     }
 
-    pub fn make_db_path(exchange_name: &str, trade_category: &str, trade_symbol: &str, db_base_dir: &str) -> String {
+    pub fn make_db_path(
+        exchange_name: &str,
+        trade_category: &str,
+        trade_symbol: &str,
+        db_base_dir: &str,
+    ) -> String {
         let db_path = db_full_path(&exchange_name, trade_category, trade_symbol, db_base_dir);
 
         return db_path.to_str().unwrap().to_string();
@@ -989,10 +990,15 @@ impl BybitMarket {
         Self::make_historical_data_url_timestamp(
             &self.server_config.history_web_base,
             &self.config.trade_symbol,
-            date)
+            date,
+        )
     }
 
-    fn make_historical_data_url_timestamp(history_web_base: &str, symbol: &str, t: MicroSec) -> String {
+    fn make_historical_data_url_timestamp(
+        history_web_base: &str,
+        symbol: &str,
+        t: MicroSec,
+    ) -> String {
         let timestamp = to_naive_datetime(t);
 
         let yyyy = timestamp.year() as i64;
@@ -1010,7 +1016,8 @@ impl BybitMarket {
             Self::make_historical_data_url_timestamp(
                 &self.server_config.history_web_base,
                 &self.config.trade_symbol,
-                date)
+                date,
+            )
         };
 
         latest_archive_date(&f)
@@ -1082,7 +1089,6 @@ impl BybitMarket {
         return trade;
     }
 
-
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
         self.db.connection.validate_by_date(date)
@@ -1133,7 +1139,10 @@ mod test_bybit_market {
     use csv::StringRecord;
     use rust_decimal_macros::dec;
 
-    use crate::{common::time_string, exchange::bybit::config::{BybitServerConfig, BybitConfig}};
+    use crate::{
+        common::time_string,
+        exchange::bybit::config::{BybitConfig, BybitServerConfig},
+    };
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
@@ -1151,8 +1160,8 @@ mod test_bybit_market {
         );
 
         let url = super::BybitMarket::make_historical_data_url_timestamp(
-            "https://public.bybit.com/trading/",           
-            &config.trade_symbol,             
+            "https://public.bybit.com/trading/",
+            &config.trade_symbol,
             1234,
         );
 
@@ -1164,7 +1173,7 @@ mod test_bybit_market {
 
     #[test]
     fn test_get_latest_archive_date() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::SPOT_BTCUSDT();
 
         let market = super::BybitMarket::new(&server_config, &config);
@@ -1187,5 +1196,4 @@ mod test_bybit_market {
         assert_eq!(trade.size, dec![641.0]);
         assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
     }
-
 }
