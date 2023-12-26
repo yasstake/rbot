@@ -27,7 +27,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 use super::config::BybitServerConfig;
-use super::rest::cancel_order;
+use super::rest::{cancel_order, get_recent_trade};
 use super::rest::cancell_all_orders;
 use super::rest::get_balance;
 use super::rest::new_limit_order;
@@ -329,6 +329,8 @@ impl BybitMarket {
 
         let tx = &self.db.start_thread();
 
+        let now = NOW();
+
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
@@ -354,13 +356,19 @@ impl BybitMarket {
                     }
                 }
             }
-
-            // self.wait_for_settlement(tx);
         }
+
+        let expire_message = self.db.connection.make_expire_control_message(now);
+        tx.send(expire_message).unwrap();
 
         download_rec
     }
 
+    /// Download klines and store ohlcv cache.
+    /// STEP1: 不確定データを削除する（start_market_streamで実行）
+    /// STEP2: WSでデータを取得開始する。(start_market_streamで実行)
+    /// STEP3: RESTでrecent tradeデータを取得する。start_market_streamで実行
+    /// STEP4: RESTでklineデータを取得しキャッシュする。download_latestで実行
     #[pyo3(signature = (force=false, verbose = true))]
     pub fn download_latest(&mut self, force: bool, verbose: bool) -> i64 {
         return 0;
@@ -414,6 +422,15 @@ impl BybitMarket {
 
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
+        /// delete unstable data
+        let db_channel = self.db.start_thread();
+
+        let now = NOW();
+
+        let delete_message = self.db.connection.make_expire_control_message(now);
+        db_channel.send(delete_message).unwrap();
+
+
         self.public_ws.connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
 
@@ -425,11 +442,13 @@ impl BybitMarket {
             return m.unwrap().into();
         });
 
-        let db_channel = self.db.start_thread();
+
         let agent_channel = self.agent_channel.clone();
         let ws_channel = self.public_ws.open_channel();
 
         let board = self.board.clone();
+
+        let db_channel_for_after = db_channel.clone();
 
         let handler = std::thread::spawn(move || {
             loop {
@@ -472,6 +491,12 @@ impl BybitMarket {
         });
 
         self.public_handler = Some(handler);
+
+        // update recent trade
+        let trade = self.get_recent_trades();
+        db_channel_for_after.send(trade).unwrap();
+
+        // TODO: store recent trade timestamp.
 
         log::info!("start_market_stream");
     }
@@ -947,6 +972,18 @@ impl BybitMarket {
             "Not implemented",
         ));
     }
+
+    #[getter]
+    pub fn get_recent_trades(&self) -> Vec<Trade> {
+        let trades = get_recent_trade(&self.server_config.rest_server, &self.config);        
+
+        if trades.is_err() {
+            log::error!("Error in get_recent_trade: {:?}", trades);
+            return vec![];
+        }
+
+        trades.unwrap().into()
+    }
 }
 
 impl BybitMarket {
@@ -1094,44 +1131,6 @@ impl BybitMarket {
         self.db.connection.validate_by_date(date)
     }
 
-    /*
-    pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
-        while 5 < tx.len() {
-            sleep(Duration::from_millis(1 * 100));
-        }
-    }
-
-
-
-
-    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, verbose: bool) -> PyResult<i64> {
-        let date = FLOOR_DAY(date);
-
-        let url = Self::make_historical_data_url_timestamp(&self.config, self.symbol.as_str(), date);
-
-
-        match download_log(&url, tx, false, verbose, &BinanceMarket::rec_to_trade) {
-            Ok(download_rec) => {
-                log::info!("downloaded: {}", download_rec);
-                if verbose {
-                    println!("downloaded: {}", download_rec);
-                    flush_log();
-                }
-                Ok(download_rec)
-            }
-            Err(e) => {
-                log::error!("Error in download_logs: {:?}", e);
-                if verbose {
-                    println!("Error in download_logs: {:?}", e);
-                }
-                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in download_logs: {:?}",
-                    e
-                )))
-            }
-        }
-    }
-    */
 }
 
 #[cfg(test)]
@@ -1140,7 +1139,7 @@ mod test_bybit_market {
     use rust_decimal_macros::dec;
 
     use crate::{
-        common::time_string,
+        common::{time_string, NOW},
         exchange::bybit::config::{BybitConfig, BybitServerConfig},
     };
 
@@ -1195,5 +1194,17 @@ mod test_bybit_market {
         assert_eq!(trade.price, dec![26027.0]);
         assert_eq!(trade.size, dec![641.0]);
         assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
+    }
+
+    #[test]
+    fn test_make_expire_message_control() {
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::SPOT_BTCUSDT();
+
+        let mut market = super::BybitMarket::new(&server_config, &config);
+
+        let message = market.db.connection.make_expire_control_message(NOW());
+
+        println!("{:?}", message);
     }
 }

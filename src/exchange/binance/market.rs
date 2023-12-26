@@ -1040,7 +1040,6 @@ impl BinanceMarket {
         return trade;
     }
 
-
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
         let f = |date: MicroSec| -> String {
             Self::make_historical_data_url_timestamp(&self.config, date)

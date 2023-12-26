@@ -16,13 +16,14 @@ use crate::common::MultiMarketMessage;
 use crate::common::OrderSide;
 use crate::common::Trade;
 use crate::common::msec_to_microsec;
+use crate::common::time_string;
 use crate::exchange::BoardItem;
 use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
 
-type BybitTimestamp = i64;
+pub type BybitTimestamp = i64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
@@ -55,12 +56,25 @@ pub struct BybitRestBoard {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BybitKline {
-    timestamp: BybitTimestamp,    
+    pub timestamp: BybitTimestamp,    
     pub open: Decimal,
     pub high: Decimal,
     pub low: Decimal,
     pub close: Decimal,
     pub volume: Decimal,
+}
+
+impl BybitKline {
+    pub fn __str__(&self) -> String {
+        format!{"{:?}(): o:{}, h:{}, l:{}, c:{}, v:{}", 
+            time_string(msec_to_microsec(self.timestamp)), 
+            self.open, 
+            self.high, 
+            self.low, 
+            self.close, 
+            self.volume
+        }
+    }
 }
 
 
@@ -70,6 +84,31 @@ pub struct BybitKlines {
     category: String,
     symbol: String,
     pub klines: Vec<BybitKline>,
+}
+
+impl BybitKlines {
+    pub fn new() -> BybitKlines {
+        BybitKlines {
+            category: "".to_string(),
+            symbol: "".to_string(),
+            klines: Vec::new(),
+        }
+    }
+
+    pub fn append(&mut self, klines: &BybitKlines) {
+        self.category = klines.category.clone();
+        self.symbol = klines.symbol.clone();
+        self.klines.append(&mut klines.klines.clone());
+    }
+
+    pub fn __str__(&self) -> String {
+        let mut s = format!{"{:?}(): ", self.category};
+
+        for kline in self.klines.iter() {
+            s += &format!("{}\n", kline.__str__());
+        }
+        s
+    }
 }
 
 
@@ -143,6 +182,26 @@ pub struct BybitTradeResponse {
     pub category: String,
     #[serde(rename = "list")]
     pub trades: Vec<BybitTrade>,
+}
+
+impl Into<Vec<Trade>> for BybitTradeResponse {
+    fn into(self) -> Vec<Trade> {
+        let mut trades = Vec::new();
+
+        for trade in self.trades.iter() {
+            let t = Trade::new(
+                msec_to_microsec(trade.time),
+                OrderSide::from(&trade.side),
+                trade.price,
+                trade.size,
+                LogStatus::UnFix,
+                &trade.exec_id
+            );
+            trades.push(t);
+        }
+
+        trades
+    }
 }
 
 #[derive(Debug, Clone)]

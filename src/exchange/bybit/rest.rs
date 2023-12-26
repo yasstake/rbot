@@ -21,11 +21,13 @@ use crate::exchange::rest_put;
 
 use super::message::BybitAccountInformation;
 use super::message::BybitCancelOrderResponse;
+use super::message::BybitKlines;
 use super::message::BybitKlinesResponse;
 use super::message::BybitOrderResponse;
 use super::message::BybitOrderStatus;
 use super::message::BybitRestBoard;
 use super::message::BybitRestResponse;
+use super::message::BybitTimestamp;
 use super::message::BybitTradeResponse;
 
 pub fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRestResponse, String> {
@@ -88,7 +90,7 @@ pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BybitRe
     }
 }
 
-pub fn get_trade_history(server: &str, config: &MarketConfig) -> Result<BybitTradeResponse, String> {
+pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTradeResponse, String> {
     let path = "/v5/market/recent-trade";
 
     let params = format!("category={}&symbol={}&limit={}",
@@ -116,14 +118,47 @@ pub fn get_trade_history(server: &str, config: &MarketConfig) -> Result<BybitTra
     }
 }
 
+fn get_trade_kline_from(server: &str, config: &MarketConfig, mut start_time: BybitTimestamp) -> Result<BybitKlines, String> {
+    let mut klines = BybitKlines::new();
+
+    loop {
+        let r = get_trade_kline(server, config, start_time);
+
+        log::debug!("get_trade_kline_from({:?}) -> {:?}", start_time, r);
+
+        if r.is_err() {
+            let r = r.unwrap_err();
+            return Err(r);
+        }
+
+        let mut r = r.unwrap();
+
+        let klines_len = r.klines.len();
+
+        if klines_len == 0 {
+            log::debug!{"End of data"};
+            break;
+        }
+
+        start_time = r.klines[0].timestamp + 60 * 1_000;
+
+        r.append(&klines);
+        klines = r;
+    }
+
+    Ok(klines)
+}
+
+
 /// https://bybit-exchange.github.io/docs/v5/market/kline
 /// 
-fn get_trade_kline(server: &str, config: &MarketConfig) -> Result<BybitKlinesResponse, String> {
+fn get_trade_kline(server: &str, config: &MarketConfig, start_time: BybitTimestamp) -> Result<BybitKlines, String> {
     let path = "/v5/market/kline";
 
-    let params = format!("category={}&symbol={}&interval=1&limit={}", // 1 min
+    let params = format!("category={}&symbol={}&interval=1&start={}&limit={}", // 1 min
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
+        start_time,
         1000);
     
     let r = bybit_rest_get(server, path, &params);
@@ -139,7 +174,7 @@ fn get_trade_kline(server: &str, config: &MarketConfig) -> Result<BybitKlinesRes
 
     if result.is_ok() {
         let result = result.unwrap();
-        return Ok(result);
+        return Ok(result.into());
     } else {
         let result = result.unwrap_err();
         return Err(result.to_string());
@@ -229,9 +264,11 @@ pub fn trade_list(
 
 #[cfg(test)]
 mod bybit_rest_test{
+    use std::{thread::sleep, time::Duration};
+
     use pyo3::ffi::Py_Initialize;
 
-    use crate::exchange::bybit::{message::BybitKlines, config::{BybitServerConfig, BybitConfig}};
+    use crate::{exchange::bybit::{message::BybitKlines, config::{BybitServerConfig, BybitConfig}}, common::{NOW, time_string, HHMM, init_debug_log}};
 
     use super::get_board_snapshot;
 
@@ -250,7 +287,11 @@ mod bybit_rest_test{
         let server_config = BybitServerConfig::new(false);    
         let config = BybitConfig::SPOT_BTCUSDT();
 
-        let r = super::get_trade_history(&server_config.rest_server, &config).unwrap();
+        let r = super::get_recent_trade(&server_config.rest_server, &config).unwrap();
+
+        println!("{:?}", time_string(r.trades[0].time * 1000));
+        let l = r.trades.len();
+        println!("{:?} / rec={}", time_string(r.trades[l-1].time * 1000), l);        
 
         print!("{:?}", r);
     }
@@ -259,13 +300,34 @@ mod bybit_rest_test{
     fn get_trade_kline_test() {
         let server_config = BybitServerConfig::new(false);    
         let config = BybitConfig::SPOT_BTCUSDT();
-
-        let r = super::get_trade_kline(&server_config.rest_server, &config).unwrap();
-
-        print!("{:?}", r);
-
-        let r: BybitKlines = r.into();
         
-        print!("{:?}", r);
+        let now = NOW();
+
+        let r = super::get_trade_kline(&server_config.rest_server, &config, now/1000).unwrap();
+
+        println!("{:?}({:?})", time_string(now), now);
+        println!("{:?}", r.__str__());
+
+        sleep(Duration::from_secs(30));
+
+        let r = super::get_trade_kline(&server_config.rest_server, &config, now/1000).unwrap();
+
+        println!("{:?}({:?})", time_string(now), now);
+        println!("{:?}", r.__str__());
     }
+
+    #[test]
+    fn get_trade_kline_from_test() {
+        let server_config = BybitServerConfig::new(false);    
+        let config = BybitConfig::SPOT_BTCUSDT();
+        
+        init_debug_log();
+
+        let now = NOW()- HHMM(0,10);
+
+        let r = super::get_trade_kline_from(&server_config.rest_server, &config, now/1000).unwrap();
+
+        println!("{:?}", r.__str__());
+    }
+
 }
