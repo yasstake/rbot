@@ -1,14 +1,17 @@
-
 #![allow(non_snake_case)]
 use pyo3::prelude::*;
 use rust_decimal_macros::dec;
+use serde_derive::Serialize;
 
-use crate::{common::{MarketConfig, PriceType, FeeType}, fs::db_full_path};
+use crate::{
+    common::{FeeType, MarketConfig, PriceType},
+    fs::db_full_path,
+};
 
 #[derive(Debug, Clone)]
 pub struct BybitServerConfig {
     pub exchange_name: String,
-    pub testnet: bool,    
+    pub testnet: bool,
     pub rest_server: String,
     pub public_ws: String,
     pub private_ws: String,
@@ -36,7 +39,8 @@ impl BybitServerConfig {
             "wss://stream-testnet.bybit.com/v5/private"
         } else {
             "wss://stream.bybit.com/v5/private"
-        }.to_string();
+        }
+        .to_string();
 
         return BybitServerConfig {
             exchange_name: "BYBIT".to_string(),
@@ -48,14 +52,11 @@ impl BybitServerConfig {
             history_web_base: "https://public.bybit.com".to_string(),
         };
     }
-
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[pyclass]
-pub struct BybitConfig {
-
-}
+pub struct BybitConfig {}
 
 #[pymethods]
 impl BybitConfig {
@@ -66,31 +67,33 @@ impl BybitConfig {
 
     #[classattr]
     pub fn SPOT_BTCUSDT() -> MarketConfig {
-            MarketConfig {
-                price_unit:dec![0.05],
-                price_scale:3,
-                size_unit:dec![0.001],
-                size_scale:4,
-                maker_fee:dec![0.00_01],
-                taker_fee:dec![0.00_01],
-                price_type:PriceType::Home,
-                fee_type:FeeType::Home,
-                home_currency:"USDT".to_string(),
-                foreign_currency:"BTC".to_string(),
-                market_order_price_slip:dec![0.01],
-                board_depth:200,
-                trade_category:"spot".to_string(),
-                trade_symbol:"BTCUSDT".to_string(), 
-                public_subscribe_channel: vec![
-                    "publicTrade.BTCUSDT".to_string(),
-                    "orderbook.200.BTCUSDT".to_string()                    
-                    ]
-                }
-            }
+        MarketConfig {
+            price_unit: dec![0.05],
+            price_scale: 3,
+            size_unit: dec![0.001],
+            size_scale: 4,
+            maker_fee: dec![0.00_01],
+            taker_fee: dec![0.00_01],
+            price_type: PriceType::Home,
+            fee_type: FeeType::Home,
+            home_currency: "USDT".to_string(),
+            foreign_currency: "BTC".to_string(),
+            market_order_price_slip: dec![0.01],
+            board_depth: 200,
+            trade_category: "spot".to_string(),
+            trade_symbol: "BTCUSDT".to_string(),
+            public_subscribe_channel: vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
+            ],
+        }
+    }
+
+    pub fn __repr__(&self) -> PyResult<String> {
+        let repr = serde_json::to_string(&self).unwrap();
+        Ok(repr)
+    }
 }
-
-
-
 
 /*
 #[derive(Debug, Clone)]
@@ -137,7 +140,7 @@ impl BybitConfig {
                 home_currency:"USDT".to_string(),
                 foreign_currency:"BTC".to_string(),
                 market_order_price_slip:dec![0.01],
-                board_depth:250, 
+                board_depth:250,
                 trade_category: "spot".to_string(),
                 trade_symbol: "BTCUSDT".to_string(),
             }
@@ -146,5 +149,3 @@ impl BybitConfig {
     }
 }
 */
-
-
