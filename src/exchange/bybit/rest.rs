@@ -285,8 +285,8 @@ mod bybit_rest_test{
     #[test]
     fn get_trade_history_test() {
         let server_config = BybitServerConfig::new(false);    
-        let config = BybitConfig::SPOT_BTCUSDT();
-
+        //let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();        
         let r = super::get_recent_trade(&server_config.rest_server, &config).unwrap();
 
         println!("{:?}", time_string(r.trades[0].time * 1000));

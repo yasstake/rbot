@@ -126,6 +126,8 @@ impl TradeTableDb {
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
     /// データがない場合は空の配列を返す。
     pub fn make_expire_control_message(&mut self, now: MicroSec) -> Vec<Trade> {
+        log::debug!("make_expire_control_message from {}", time_string(now));
+        
         let mut trades: Vec<Trade> = vec![];
     
         let start_time = now - DAYS(2);
@@ -137,8 +139,10 @@ impl TradeTableDb {
             return trades;
         }
 
+        log::debug!("make_expire_control_message from {} to {}", time_string(r[0].time), time_string(now));
+
         let t = Trade::new(
-            r[0].time,
+            r[0].time + 1,
             OrderSide::Unknown,
             dec![0.0],
             dec![0.0],
@@ -162,21 +166,29 @@ impl TradeTableDb {
 
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         let trades_len = trades.len();
+        if trades_len == 0 {
+            return Ok(0);
+        }
+
         let start_time = trades[0].time - SEC(1);
         let end_time = trades[trades_len - 1].time;
-
         let log_status = trades[0].status;
 
+
         // when fix data comes, delete unstable data first
-        if trades_len != 0 && log_status != LogStatus::UnFix {
+        if log_status != LogStatus::UnFix {
             // create transaction with immidate mode
-            let tx = self.begin_transaction().unwrap();
+            let tx = self.begin_transaction().unwrap();            
             Self::delete_unstable_data(&tx, start_time, end_time);
             tx.commit().unwrap();
 
             if log_status == LogStatus::ExpireControl {
                 return Ok(0);
             }
+        }
+        else if log_status == LogStatus::ExpireControl {
+            let tx = self.begin_transaction().unwrap();                        
+            Self::delete_unstable_data(&tx, trades[0].time, trades[1].time);
         }
 
         // create transaction with immidate mode
@@ -1052,7 +1064,7 @@ impl TradeTable {
 
     pub fn info(&mut self) -> String {
         let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let max = self.end_time(0).unwrap_or_default();
 
         return format!(
             "{{\"start\": {}, \"end\": {}}}",
@@ -1067,7 +1079,7 @@ impl TradeTable {
 
     pub fn _repr_html_(&self) -> String {
         let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let max = self.end_time(0).unwrap_or_default();
 
         return format!(
             r#"
@@ -1115,11 +1127,11 @@ impl TradeTable {
     }
 
     /// select max(end) time_stamp in db
-    pub fn end_time(&self) -> Result<MicroSec, Error> {
+    pub fn end_time(&self, search_from: MicroSec) -> Result<MicroSec, Error> {
         // let sql = "select max(time_stamp) from trades";
-        let sql = "select time_stamp from trades order by time_stamp desc limit 1";
+        let sql = "select time_stamp from trades where $1 < time_stamp order by time_stamp desc limit 1";
 
-        let r = self.connection.connection.query_row(sql, [], |row| {
+        let r = self.connection.connection.query_row(sql, [search_from], |row| {
             let max: i64 = row.get(0)?;
             Ok(max)
         });
@@ -1189,7 +1201,7 @@ impl TradeTable {
         end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
-        let mut db_end_time = match self.end_time() {
+        let mut db_end_time = match self.end_time(0) {
             Ok(t) => t,
             Err(_e) => {
                 return vec![];
@@ -1311,7 +1323,7 @@ impl TradeTable {
             }]
         } else {
             let start_time = self.start_time().unwrap_or(NOW());
-            let end_time = self.end_time().unwrap_or(NOW());
+            let end_time = self.end_time(0).unwrap_or(NOW());
 
             let mut time_chunk: Vec<TimeChunk> = vec![];
 
@@ -1547,7 +1559,7 @@ mod test_transaction_table {
         init_debug_log();
         let db = TradeTable::open("test.db").unwrap();
 
-        let end_time = db.end_time();
+        let end_time = db.end_time(0);
 
         let s = end_time.unwrap();
 
