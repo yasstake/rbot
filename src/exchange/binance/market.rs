@@ -1090,7 +1090,7 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
-        println!("{}", time_string(market.db.end_time().unwrap_or(0)));
+        println!("{}", time_string(market.db.end_time(0).unwrap_or(0)));
         println!("Let's donwload");
         market.download(2, false, true, false);
     }

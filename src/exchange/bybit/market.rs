@@ -5,7 +5,8 @@ use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, JoinHandle};
+use std::thread::{self, JoinHandle, sleep};
+use std::time::Duration;
 
 use crate::common::{
     flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
@@ -358,8 +359,8 @@ impl BybitMarket {
             }
         }
 
-        let expire_message = self.db.connection.make_expire_control_message(now);
-        tx.send(expire_message).unwrap();
+        // let expire_message = self.db.connection.make_expire_control_message(now);
+        // tx.send(expire_message).unwrap();
 
         download_rec
     }
@@ -422,14 +423,39 @@ impl BybitMarket {
 
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
-        /// delete unstable data
+        // if thread is working, do nothing.
+        if self.public_handler.is_some() {
+            println!("market stream is already running.");
+            return;
+        }
+
+        // delete unstable data
         let db_channel = self.db.start_thread();
 
-        let now = NOW();
+        // if the latest data is overrap with REST minute, do not delete data.
+        let trades = self.get_recent_trades();
+        let l = trades.len();
+        if l != 0 {
+            let rest_start_time = trades[l - 1].time;
+            let last_time = self.db.end_time(rest_start_time);
+            if last_time.is_err() {
+                let now = NOW();
 
-        let delete_message = self.db.connection.make_expire_control_message(now);
-        db_channel.send(delete_message).unwrap();
+                log::debug!("db has gap, so delete after FIX data now={:?} / db_end={:?}", 
+                        time_string(now), time_string(rest_start_time));
 
+                let delete_message = self.db.connection.make_expire_control_message(now);
+
+                log::debug!("delete_message: {:?}", delete_message);
+
+                db_channel.send(delete_message).unwrap();
+            }
+            else {
+                log::debug!("db has no gap, so continue to receive data {}", time_string(rest_start_time));
+            }
+
+            db_channel.send(trades).unwrap();
+        }
 
         self.public_ws.connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
@@ -493,6 +519,9 @@ impl BybitMarket {
         self.public_handler = Some(handler);
 
         // update recent trade
+
+        // wait for channel open
+        sleep(Duration::from_millis(1000));     // TODO: fix to wait for channel open
         let trade = self.get_recent_trades();
         db_channel_for_after.send(trade).unwrap();
 
