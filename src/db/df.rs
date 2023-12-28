@@ -134,7 +134,15 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
             df2.clone()
         } else {
             log::debug!("merge df1={:?}  df2={:?}", df1.shape(), df2.shape());
-            df.vstack(df2).unwrap()
+
+            let df = df.vstack(df2);
+            
+            if df.is_err() {
+                log::error!("merge_df error {:?} and {:?}", df, df2);
+                df2.clone()
+            } else {
+                df.unwrap()
+            }
         }
     } else {
         df1.clone()

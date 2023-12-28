@@ -4,25 +4,34 @@
 
 use std::str::FromStr;
 
+use polars_core::export::num::ToPrimitive;
+use polars_core::frame::DataFrame;
+use polars_core::prelude::NamedFrom;
+use polars_core::series::Series;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 
+use crate::common::HHMM;
 use crate::common::LogStatus;
 use crate::common::MarketMessage;
+use crate::common::MicroSec;
 use crate::common::MultiMarketMessage;
 use crate::common::OrderSide;
+use crate::common::SEC;
 use crate::common::Trade;
 use crate::common::msec_to_microsec;
+use crate::common::time_string;
+use crate::db::df::KEY;
 use crate::exchange::BoardItem;
 use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
 
-type BybitTimestamp = i64;
+pub type BybitTimestamp = i64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
@@ -55,12 +64,79 @@ pub struct BybitRestBoard {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BybitKline {
-    timestamp: BybitTimestamp,    
+    pub timestamp: BybitTimestamp,    
     pub open: Decimal,
     pub high: Decimal,
     pub low: Decimal,
     pub close: Decimal,
     pub volume: Decimal,
+}
+
+impl BybitKline {
+    pub fn __str__(&self) -> String {
+        format!{"{:?}(): o:{}, h:{}, l:{}, c:{}, v:{}", 
+            time_string(msec_to_microsec(self.timestamp)), 
+            self.open, 
+            self.high, 
+            self.low, 
+            self.close, 
+            self.volume
+        }
+    }
+
+    pub fn extract_trade(&self) -> Vec<Trade> {
+        let mut trades = Vec::new();
+
+        let vol = self.volume / Decimal::from(4);
+        let mut remain_vol = self.volume.clone();
+        let tick = SEC(15);
+
+        let t = Trade::new(
+            msec_to_microsec(self.timestamp),
+            OrderSide::Buy,
+            self.open,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 0)
+        );
+        trades.push(t);
+
+        remain_vol -= vol;
+
+        let t = Trade::new(
+            msec_to_microsec(self.timestamp) + tick,
+            OrderSide::Buy,
+            self.high,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 1)
+        );
+        trades.push(t);
+        remain_vol -= vol;        
+
+        let t = Trade::new(
+            msec_to_microsec(self.timestamp) + tick * 2,
+            OrderSide::Sell,
+            self.low,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 2)
+        );
+        trades.push(t);
+        remain_vol -= vol;        
+
+        let t = Trade::new(
+            msec_to_microsec(self.timestamp) + tick * 3,
+            OrderSide::Buy,
+            self.close,
+            remain_vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 3)
+        );
+        trades.push(t);
+
+        trades
+    }
 }
 
 
@@ -72,6 +148,86 @@ pub struct BybitKlines {
     pub klines: Vec<BybitKline>,
 }
 
+impl BybitKlines {
+    pub fn new() -> BybitKlines {
+        BybitKlines {
+            category: "".to_string(),
+            symbol: "".to_string(),
+            klines: Vec::new(),
+        }
+    }
+
+    pub fn append(&mut self, klines: &BybitKlines) {
+        self.category = klines.category.clone();
+        self.symbol = klines.symbol.clone();
+        self.klines.append(&mut klines.klines.clone());
+    }
+
+    pub fn __str__(&self) -> String {
+        let mut s = format!{"{:?}(): ", self.category};
+
+        for kline in self.klines.iter() {
+            s += &format!("{}\n", kline.__str__());
+        }
+        s
+    }
+
+    pub fn to_dataframe(&self) -> DataFrame {
+        let mut time = Vec::<MicroSec>::new();
+        let mut order_side = Vec::<f64>::new();
+        let mut open = Vec::<f64>::new();
+        let mut high = Vec::<f64>::new();
+        let mut low = Vec::<f64>::new();
+        let mut close = Vec::<f64>::new();
+        let mut vol = Vec::<f64>::new();
+        let mut count = Vec::<f64>::new();
+        let mut start_time = Vec::<MicroSec>::new();
+        let mut end_time = Vec::<MicroSec>::new();
+
+        for kline in self.klines.iter() {
+            time.push(msec_to_microsec(kline.timestamp));
+            order_side.push(0.0);
+            open.push(kline.open.to_f64().unwrap());
+            high.push(kline.high.to_f64().unwrap());
+            low.push(kline.low.to_f64().unwrap());
+            close.push(kline.close.to_f64().unwrap());
+            vol.push(kline.volume.to_f64().unwrap());
+            count.push(1.0);
+            start_time.push(msec_to_microsec(kline.timestamp));
+            end_time.push(msec_to_microsec(kline.timestamp)+HHMM(0, 1)-1);
+        }
+
+        let time = Series::new(KEY::time_stamp, &time);
+        let order_side = Series::new(KEY::order_side, &order_side);
+        let open = Series::new(KEY::open, &open);
+        let high = Series::new(KEY::high, &high);
+        let low = Series::new(KEY::low, &low);
+        let close = Series::new(KEY::close, &close);
+        let vol = Series::new(KEY::volume, &vol);
+        let count = Series::new(KEY::count, &count);
+        let start_time = Series::new(KEY::start_time, &start_time);
+        let end_time = Series::new(KEY::end_time, &end_time);
+    
+        let df = DataFrame::new(vec![
+            time, order_side, open, high, low, close, vol, count, start_time, end_time,
+        ]);
+
+        df.unwrap()
+    }
+}
+
+impl Into<Vec<Trade>> for BybitKlines {
+    fn into(self) -> Vec<Trade> {
+        let mut trades = Vec::new();
+
+        for kline in self.klines.iter() {
+            let mut t: Vec<Trade>  = kline.extract_trade();
+            trades.append(&mut t);
+        }
+
+        trades
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
@@ -143,6 +299,26 @@ pub struct BybitTradeResponse {
     pub category: String,
     #[serde(rename = "list")]
     pub trades: Vec<BybitTrade>,
+}
+
+impl Into<Vec<Trade>> for BybitTradeResponse {
+    fn into(self) -> Vec<Trade> {
+        let mut trades = Vec::new();
+
+        for trade in self.trades.iter() {
+            let t = Trade::new(
+                msec_to_microsec(trade.time),
+                OrderSide::from(&trade.side),
+                trade.price,
+                trade.size,
+                LogStatus::UnFix,
+                &trade.exec_id
+            );
+            trades.push(t);
+        }
+
+        trades
+    }
 }
 
 #[derive(Debug, Clone)]

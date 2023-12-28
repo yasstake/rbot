@@ -12,6 +12,7 @@ use rusqlite::{params, Connection, Error, Result, Transaction};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 use crate::common::MarketMessage;
 use crate::common::MarketStream;
@@ -60,9 +61,11 @@ impl TradeTableDb {
         return db;
     }
 
+    /// delete unstable data, include both edge.
+    /// start_time <= (time_stamp) <= end_time
     pub fn delete_unstable_data(tx: &Transaction, start_time: MicroSec, end_time: MicroSec) {
         let sql =
-            r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and status = "U""#;
+            r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and status = "U""#;
 
         let result = tx.execute(sql, params![start_time, end_time]);
 
@@ -122,16 +125,96 @@ impl TradeTableDb {
         Ok(tx)
     }
 
+    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#;
+        let trades = self.select_query(sql, vec![start_time]);
+
+        if trades.len() == 0 {
+            return 0;
+        }
+
+        trades[0].time
+    }
+
+    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp order by time_stamp limit 1"#;
+        let trades = self.select_query(sql, vec![start_time]);
+
+        if trades.len() == 0 {
+            return 0;
+        }
+
+        trades[0].time
+    }
+
+    /// 2日以内のUnstableデータを削除するメッセージを作成する。
+    /// データがない場合は空の配列を返す。
+    pub fn make_expire_control_message(&mut self, now: MicroSec) -> Vec<Trade> {
+        log::debug!("make_expire_control_message from {}", time_string(now));
+   
+        let start_time = now - DAYS(2);
+
+        let fix_time = self.latest_fix_time(start_time);
+
+        if fix_time == 0 {
+            return vec![];
+        }
+
+        log::debug!("make_expire_control_message from {} to {}", time_string(fix_time), time_string(now));
+
+        Self::expire_control_message(fix_time, now)
+    }
+
+    pub fn expire_control_message(start_time: MicroSec, end_time: MicroSec) -> Vec<Trade>{
+        let mut trades: Vec<Trade> = vec![];
+        let t = Trade::new(
+            start_time, 
+            OrderSide::Unknown,
+            dec![0.0],
+            dec![0.0],
+            LogStatus::ExpireControl,
+            ""
+        );
+        trades.push(t);
+
+        let t = Trade::new(
+            end_time,
+            OrderSide::Unknown,
+            dec![0.0],
+            dec![0.0],
+            LogStatus::ExpireControl,
+            ""
+        );
+        trades.push(t);
+
+        trades
+    }
+
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         let trades_len = trades.len();
+        if trades_len == 0 {
+            return Ok(0);
+        }
+
         let start_time = trades[0].time - SEC(1);
         let end_time = trades[trades_len - 1].time;
+        let log_status = trades[0].status;
+
 
         // when fix data comes, delete unstable data first
-        if trades_len != 0 && trades[0].status != LogStatus::UnFix {
+        if log_status != LogStatus::UnFix {
             // create transaction with immidate mode
-            let tx = self.begin_transaction().unwrap();
+            let tx = self.begin_transaction().unwrap();            
             Self::delete_unstable_data(&tx, start_time, end_time);
+            tx.commit().unwrap();
+
+            if log_status == LogStatus::ExpireControl {
+                return Ok(0);
+            }
+        }
+        else if log_status == LogStatus::ExpireControl {
+            let tx = self.begin_transaction().unwrap();                        
+            Self::delete_unstable_data(&tx, trades[0].time, trades[1].time);
             tx.commit().unwrap();
         }
 
@@ -530,6 +613,26 @@ impl TradeTable {
 
     pub fn is_running(&self) -> bool {
         return self.is_running.read().unwrap().clone();
+    }
+
+    // TODO: FIX
+    pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
+        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap();
+        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap();
+
+        let head = select_df(&self.cache_ohlcvv, 0, start_time);
+        let tail = select_df(&self.cache_ohlcvv, end_time, 0);
+
+        log::debug!("set_cache_ohlcvv head {} /tail {}/ df {}", head.shape().0, tail.shape().0, df.shape().0);  
+
+        log::debug!("df {:?}", df.head(Some(2)));
+        log::debug!("head {:?}", head.head(Some(2)));
+        log::debug!("tail {:?}", tail.head(Some(2)));
+
+        let df = merge_df(&head, &df);
+        let df = merge_df(&df, &tail);
+
+        self.cache_ohlcvv = df;
     }
 
     pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
@@ -1008,7 +1111,7 @@ impl TradeTable {
 
     pub fn info(&mut self) -> String {
         let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let max = self.end_time(0).unwrap_or_default();
 
         return format!(
             "{{\"start\": {}, \"end\": {}}}",
@@ -1023,7 +1126,7 @@ impl TradeTable {
 
     pub fn _repr_html_(&self) -> String {
         let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let max = self.end_time(0).unwrap_or_default();
 
         return format!(
             r#"
@@ -1071,11 +1174,11 @@ impl TradeTable {
     }
 
     /// select max(end) time_stamp in db
-    pub fn end_time(&self) -> Result<MicroSec, Error> {
+    pub fn end_time(&self, search_from: MicroSec) -> Result<MicroSec, Error> {
         // let sql = "select max(time_stamp) from trades";
-        let sql = "select time_stamp from trades order by time_stamp desc limit 1";
+        let sql = "select time_stamp from trades where $1 < time_stamp order by time_stamp desc limit 1";
 
-        let r = self.connection.connection.query_row(sql, [], |row| {
+        let r = self.connection.connection.query_row(sql, [search_from], |row| {
             let max: i64 = row.get(0)?;
             Ok(max)
         });
@@ -1145,7 +1248,7 @@ impl TradeTable {
         end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
-        let mut db_end_time = match self.end_time() {
+        let mut db_end_time = match self.end_time(0) {
             Ok(t) => t,
             Err(_e) => {
                 return vec![];
@@ -1267,7 +1370,7 @@ impl TradeTable {
             }]
         } else {
             let start_time = self.start_time().unwrap_or(NOW());
-            let end_time = self.end_time().unwrap_or(NOW());
+            let end_time = self.end_time(0).unwrap_or(NOW());
 
             let mut time_chunk: Vec<TimeChunk> = vec![];
 
@@ -1503,7 +1606,7 @@ mod test_transaction_table {
         init_debug_log();
         let db = TradeTable::open("test.db").unwrap();
 
-        let end_time = db.end_time();
+        let end_time = db.end_time(0);
 
         let s = end_time.unwrap();
 
@@ -1731,4 +1834,5 @@ mod test_transaction_table {
             print!("table is not exist");
         }
     }
+
 }
