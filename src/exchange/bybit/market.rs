@@ -14,8 +14,8 @@ use crate::common::{
     FLOOR_DAY, NOW,
 };
 use crate::db::df::KEY;
-use crate::db::sqlite::TradeTable;
-use crate::exchange::bybit::rest::open_orders;
+use crate::db::sqlite::{TradeTable, TradeTableDb};
+use crate::exchange::bybit::rest::{open_orders, get_trade_kline};
 use crate::exchange::{
     download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
     WebSocketClient,
@@ -370,55 +370,59 @@ impl BybitMarket {
     /// STEP2: WSでデータを取得開始する。(start_market_streamで実行)
     /// STEP3: RESTでrecent tradeデータを取得する。start_market_streamで実行
     /// STEP4: RESTでklineデータを取得しキャッシュする。download_latestで実行
-    #[pyo3(signature = (force=false, verbose = true))]
-    pub fn download_latest(&mut self, force: bool, verbose: bool) -> i64 {
-        return 0;
-        /*
+    #[pyo3(signature = (verbose = true))]
+    pub fn download_latest(&mut self, verbose: bool) -> i64 {
         if verbose {
-            println!("start download from rest API");
+            println!("download_latest");
+            flush_log();
+        }
+        let start_time = NOW() - DAYS(2) ;
+
+        let fix_time = self.db.connection.latest_fix_time(start_time);
+        let fix_time = TradeTable::ohlcv_end(fix_time);
+
+        println!("fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
+
+        let unfix_time = self.db.connection.first_unfix_time(fix_time);
+        let unfix_time = TradeTable::ohlcv_end(unfix_time) - 1;
+
+        println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
+
+        if verbose {
+            print!("fill out with kline data ");
+            print!("FROM: fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
+            println!(" TO:unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
             flush_log();
         }
 
-        let start_id: u64;
+        let klines = get_trade_kline(
+            &self.server_config.rest_server,
+            &self.config,
+            fix_time,
+            unfix_time,
+        );
 
-        if force {
-            let (fix_id, _fix_time) = self.latest_fix_time();
-            start_id = fix_id + 1;
-        }
-        else {
-            let (stable_id, _stable_time)= self.latest_stable_time(verbose);
-            start_id = stable_id + 1;
-        }
-
-        if start_id == 1 {
-            println!("ERROR: no record in database path= {}", self.get_file_name());
-            flush_log();
-
+        if klines.is_err() {
+            log::error!("Error in get_trade_kline: {:?}", klines);
             return 0;
         }
+        let klines = klines.unwrap();
+        let rec = klines.klines.len();
 
-        let ch = self.db.start_thread();
+        let control_message = TradeTableDb::expire_control_message(fix_time, unfix_time);
 
-        let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
-        {
-            //TODO:
-            while 100 < ch.len() {
-                sleep(Duration::from_millis(100));
-            }
+        let trades: Vec<Trade> = klines.into();
 
-            ch.send(row.clone()).unwrap();
-
-            Ok(())
-        }).unwrap();
+        let tx = self.db.start_thread();
+        tx.send(control_message).unwrap();
+        tx.send(trades).unwrap();
 
         if verbose {
-            println!("\nREST downloaded: {}[rec]", record_number);
+            println!("downloaded klines: {} rec", rec);
             flush_log();
-        }
+        }        
 
-
-        return record_number;
-        */
+        return rec as i64;
     }
 
     // TODO: implment retry logic
@@ -529,6 +533,25 @@ impl BybitMarket {
 
         log::info!("start_market_stream");
     }
+
+/*
+    pub fn make_kline_df(&self, from_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
+        let start_time = self.db.start_time();
+
+        // let mut df = self.db.make_kline_df();
+
+        if df.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in make_kline_df: {:?}",
+                df
+            )));
+        }
+
+        let df = df.unwrap();
+
+        return Ok(PyDataFrame(df));
+    }
+*/
 
     /*
     #[pyo3(signature = (verbose = false))]
@@ -1168,7 +1191,7 @@ mod test_bybit_market {
     use rust_decimal_macros::dec;
 
     use crate::{
-        common::{time_string, NOW},
+        common::{time_string, NOW, DAYS},
         exchange::bybit::config::{BybitConfig, BybitServerConfig},
     };
 
@@ -1235,5 +1258,23 @@ mod test_bybit_market {
         let message = market.db.connection.make_expire_control_message(NOW());
 
         println!("{:?}", message);
+    }
+
+    #[test]
+    fn test_lastest_fix_time(){
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::SPOT_BTCUSDT();
+
+        let mut market = super::BybitMarket::new(&server_config, &config);
+
+        let start_time = NOW() - DAYS(2) ;
+
+        let fix_time = market.db.connection.latest_fix_time(start_time);
+
+        println!("fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
+
+        let unfix_time = market.db.connection.first_unfix_time(fix_time);
+        println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
+
     }
 }
