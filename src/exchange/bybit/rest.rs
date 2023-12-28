@@ -291,7 +291,7 @@ mod bybit_rest_test{
     #[test]
     fn get_board_snapshot_test() {
         let server_config = BybitServerConfig::new(false);    
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let r = get_board_snapshot(&server_config.rest_server, &config).unwrap();
 
@@ -315,7 +315,7 @@ mod bybit_rest_test{
     #[test]
     fn get_trade_kline_test() {
         let server_config = BybitServerConfig::new(false);    
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let start_time = (NOW() - HHMM(0,2));
         let now = NOW();
@@ -345,7 +345,7 @@ mod bybit_rest_test{
     #[test]
     fn get_trade_kline_from_test() {
         let server_config = BybitServerConfig::new(false);    
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
         
         init_debug_log();
 
@@ -360,7 +360,7 @@ mod bybit_rest_test{
     #[test]
     fn get_trade_kline_to_df() {
         let server_config = BybitServerConfig::new(false);    
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
         
         init_debug_log();
 

@@ -65,6 +65,7 @@ impl BybitConfig {
         return BybitConfig {};
     }
 
+    /*
     #[classattr]
     pub fn SPOT_BTCUSDT() -> MarketConfig {
         MarketConfig {
@@ -88,6 +89,7 @@ impl BybitConfig {
             ],
         }
     }
+    */
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
