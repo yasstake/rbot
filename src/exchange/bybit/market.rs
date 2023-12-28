@@ -385,12 +385,8 @@ impl BybitMarket {
         let fix_time = self.db.connection.latest_fix_time(start_time);
         let fix_time = TradeTable::ohlcv_end(fix_time);
 
-        println!("fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
-
         let unfix_time = self.db.connection.first_unfix_time(fix_time);
         let unfix_time = TradeTable::ohlcv_end(unfix_time) - 1;
-
-        println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
 
         if (unfix_time - fix_time) <= HHMM(0, 1) {
             if verbose {
@@ -1210,7 +1206,7 @@ mod test_bybit_market {
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let url = super::BybitMarket::make_historical_data_url_timestamp(
             "https://public.bybit.com/trading/",
@@ -1238,7 +1234,7 @@ mod test_bybit_market {
     #[test]
     fn test_get_latest_archive_date() {
         let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let market = super::BybitMarket::new(&server_config, &config);
 
@@ -1264,7 +1260,7 @@ mod test_bybit_market {
     #[test]
     fn test_make_expire_message_control() {
         let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let mut market = super::BybitMarket::new(&server_config, &config);
 
@@ -1276,7 +1272,7 @@ mod test_bybit_market {
     #[test]
     fn test_lastest_fix_time(){
         let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let mut market = super::BybitMarket::new(&server_config, &config);
 
