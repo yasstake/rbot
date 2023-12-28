@@ -5,16 +5,17 @@ use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, JoinHandle};
+use std::thread::{self, JoinHandle, sleep};
+use std::time::Duration;
 
 use crate::common::{
     flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
     MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
-    FLOOR_DAY, NOW,
+    FLOOR_DAY, NOW, HHMM,
 };
 use crate::db::df::KEY;
-use crate::db::sqlite::TradeTable;
-use crate::exchange::bybit::rest::open_orders;
+use crate::db::sqlite::{TradeTable, TradeTableDb};
+use crate::exchange::bybit::rest::{open_orders, get_trade_kline};
 use crate::exchange::{
     download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
     WebSocketClient,
@@ -27,7 +28,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 use super::config::BybitServerConfig;
-use super::rest::cancel_order;
+use super::rest::{cancel_order, get_recent_trade};
 use super::rest::cancell_all_orders;
 use super::rest::get_balance;
 use super::rest::new_limit_order;
@@ -302,8 +303,8 @@ impl BybitMarket {
 
     /*--------------　ここまでコピペ　--------------------------*/
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool, low_priority: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -329,6 +330,8 @@ impl BybitMarket {
 
         let tx = &self.db.start_thread();
 
+        let now = NOW();
+
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
@@ -342,7 +345,7 @@ impl BybitMarket {
                 continue;
             }
 
-            match self.download_log(tx, date, verbose) {
+            match self.download_log(tx, date, low_priority, verbose) {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
@@ -354,66 +357,118 @@ impl BybitMarket {
                     }
                 }
             }
-
-            // self.wait_for_settlement(tx);
         }
+
+        if ! archive_only {
+            let rec = self.download_latest(verbose);
+            download_rec += rec;
+        }
+        // let expire_message = self.db.connection.make_expire_control_message(now);
+        // tx.send(expire_message).unwrap();
 
         download_rec
     }
 
-    #[pyo3(signature = (force=false, verbose = true))]
-    pub fn download_latest(&mut self, force: bool, verbose: bool) -> i64 {
-        return 0;
-        /*
+    /// Download klines and store ohlcv cache.
+    /// STEP1: 不確定データを削除する（start_market_streamで実行）
+    /// STEP2: WSでデータを取得開始する。(start_market_streamで実行)
+    /// STEP3: RESTでrecent tradeデータを取得する。start_market_streamで実行
+    /// STEP4: RESTでklineデータを取得しキャッシュする。download_latestで実行
+    #[pyo3(signature = (verbose = true))]
+    pub fn download_latest(&mut self, verbose: bool) -> i64 {
         if verbose {
-            println!("start download from rest API");
+            println!("download_latest");
             flush_log();
         }
+        let start_time = NOW() - DAYS(2) ;
 
-        let start_id: u64;
+        let fix_time = self.db.connection.latest_fix_time(start_time);
+        let fix_time = TradeTable::ohlcv_end(fix_time);
 
-        if force {
-            let (fix_id, _fix_time) = self.latest_fix_time();
-            start_id = fix_id + 1;
-        }
-        else {
-            let (stable_id, _stable_time)= self.latest_stable_time(verbose);
-            start_id = stable_id + 1;
-        }
+        let unfix_time = self.db.connection.first_unfix_time(fix_time);
+        let unfix_time = TradeTable::ohlcv_end(unfix_time) - 1;
 
-        if start_id == 1 {
-            println!("ERROR: no record in database path= {}", self.get_file_name());
-            flush_log();
-
+        if (unfix_time - fix_time) <= HHMM(0, 1) {
+            if verbose {
+                println!("no need to download");
+                flush_log();
+            }
             return 0;
         }
 
-        let ch = self.db.start_thread();
-
-        let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
-        {
-            //TODO:
-            while 100 < ch.len() {
-                sleep(Duration::from_millis(100));
-            }
-
-            ch.send(row.clone()).unwrap();
-
-            Ok(())
-        }).unwrap();
-
         if verbose {
-            println!("\nREST downloaded: {}[rec]", record_number);
+            print!("fill out with kline data ");
+            print!("FROM: fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
+            println!(" TO:unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
             flush_log();
         }
 
+        let klines = get_trade_kline(
+            &self.server_config.rest_server,
+            &self.config,
+            fix_time,
+            unfix_time,
+        );
 
-        return record_number;
-        */
+        if klines.is_err() {
+            log::error!("Error in get_trade_kline: {:?}", klines);
+            return 0;
+        }
+        let klines = klines.unwrap();
+        let rec = klines.klines.len();
+
+        let control_message = TradeTableDb::expire_control_message(fix_time, unfix_time);
+
+        let trades: Vec<Trade> = klines.into();
+
+        let tx = self.db.start_thread();
+        tx.send(control_message).unwrap();
+        tx.send(trades).unwrap();
+
+        if verbose {
+            println!("downloaded klines: {} rec", rec);
+            flush_log();
+        }        
+
+        return rec as i64;
     }
 
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
+        // if thread is working, do nothing.
+        if self.public_handler.is_some() {
+            println!("market stream is already running.");
+            return;
+        }
+
+        // delete unstable data
+        let db_channel = self.db.start_thread();
+
+        // if the latest data is overrap with REST minute, do not delete data.
+        let trades = self.get_recent_trades();
+        let l = trades.len();
+        if l != 0 {
+            let rest_start_time = trades[l - 1].time;
+            let last_time = self.db.end_time(rest_start_time);
+            if last_time.is_err() {
+                let now = NOW();
+
+                log::debug!("db has gap, so delete after FIX data now={:?} / db_end={:?}", 
+                        time_string(now), time_string(rest_start_time));
+
+                let delete_message = self.db.connection.make_expire_control_message(now);
+
+                log::debug!("delete_message: {:?}", delete_message);
+
+                db_channel.send(delete_message).unwrap();
+            }
+            else {
+                log::debug!("db has no gap, so continue to receive data {}", time_string(rest_start_time));
+            }
+
+            db_channel.send(trades).unwrap();
+        }
+
         self.public_ws.connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
 
@@ -425,11 +480,13 @@ impl BybitMarket {
             return m.unwrap().into();
         });
 
-        let db_channel = self.db.start_thread();
+
         let agent_channel = self.agent_channel.clone();
         let ws_channel = self.public_ws.open_channel();
 
         let board = self.board.clone();
+
+        let db_channel_for_after = db_channel.clone();
 
         let handler = std::thread::spawn(move || {
             loop {
@@ -473,8 +530,36 @@ impl BybitMarket {
 
         self.public_handler = Some(handler);
 
+        // update recent trade
+
+        // wait for channel open
+        sleep(Duration::from_millis(1000));     // TODO: fix to wait for channel open
+        let trade = self.get_recent_trades();
+        db_channel_for_after.send(trade).unwrap();
+
+        // TODO: store recent trade timestamp.
+
         log::info!("start_market_stream");
     }
+
+/*
+    pub fn make_kline_df(&self, from_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
+        let start_time = self.db.start_time();
+
+        // let mut df = self.db.make_kline_df();
+
+        if df.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in make_kline_df: {:?}",
+                df
+            )));
+        }
+
+        let df = df.unwrap();
+
+        return Ok(PyDataFrame(df));
+    }
+*/
 
     /*
     #[pyo3(signature = (verbose = false))]
@@ -947,6 +1032,18 @@ impl BybitMarket {
             "Not implemented",
         ));
     }
+
+    #[getter]
+    pub fn get_recent_trades(&self) -> Vec<Trade> {
+        let trades = get_recent_trade(&self.server_config.rest_server, &self.config);        
+
+        if trades.is_err() {
+            log::error!("Error in get_recent_trade: {:?}", trades);
+            return vec![];
+        }
+
+        trades.unwrap().into()
+    }
 }
 
 impl BybitMarket {
@@ -1027,12 +1124,13 @@ impl BybitMarket {
         &mut self,
         tx: &Sender<Vec<Trade>>,
         date: MicroSec,
+        low_priority: bool,
         verbose: bool,
     ) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
         let url = self.history_web_url(date);
 
-        match download_log(&url, tx, true, verbose, &Self::rec_to_trade) {
+        match download_log(&url, tx, true, low_priority, verbose, &Self::rec_to_trade) {
             Ok(download_rec) => Ok(download_rec),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Error in download_logs: {:?}",
@@ -1094,44 +1192,6 @@ impl BybitMarket {
         self.db.connection.validate_by_date(date)
     }
 
-    /*
-    pub fn wait_for_settlement(&mut self, tx: &Sender<Vec<Trade>>) {
-        while 5 < tx.len() {
-            sleep(Duration::from_millis(1 * 100));
-        }
-    }
-
-
-
-
-    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, verbose: bool) -> PyResult<i64> {
-        let date = FLOOR_DAY(date);
-
-        let url = Self::make_historical_data_url_timestamp(&self.config, self.symbol.as_str(), date);
-
-
-        match download_log(&url, tx, false, verbose, &BinanceMarket::rec_to_trade) {
-            Ok(download_rec) => {
-                log::info!("downloaded: {}", download_rec);
-                if verbose {
-                    println!("downloaded: {}", download_rec);
-                    flush_log();
-                }
-                Ok(download_rec)
-            }
-            Err(e) => {
-                log::error!("Error in download_logs: {:?}", e);
-                if verbose {
-                    println!("Error in download_logs: {:?}", e);
-                }
-                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in download_logs: {:?}",
-                    e
-                )))
-            }
-        }
-    }
-    */
 }
 
 #[cfg(test)]
@@ -1140,13 +1200,13 @@ mod test_bybit_market {
     use rust_decimal_macros::dec;
 
     use crate::{
-        common::time_string,
+        common::{time_string, NOW, DAYS},
         exchange::bybit::config::{BybitConfig, BybitServerConfig},
     };
 
     #[test]
     fn test_make_historical_data_url_timestamp() {
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let url = super::BybitMarket::make_historical_data_url_timestamp(
             "https://public.bybit.com/trading/",
@@ -1174,7 +1234,7 @@ mod test_bybit_market {
     #[test]
     fn test_get_latest_archive_date() {
         let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::SPOT_BTCUSDT();
+        let config = BybitConfig::BTCUSDT();
 
         let market = super::BybitMarket::new(&server_config, &config);
 
@@ -1195,5 +1255,35 @@ mod test_bybit_market {
         assert_eq!(trade.price, dec![26027.0]);
         assert_eq!(trade.size, dec![641.0]);
         assert_eq!(trade.id, "80253109-efbb-58ca-9adc-d458b66201e9");
+    }
+
+    #[test]
+    fn test_make_expire_message_control() {
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let mut market = super::BybitMarket::new(&server_config, &config);
+
+        let message = market.db.connection.make_expire_control_message(NOW());
+
+        println!("{:?}", message);
+    }
+
+    #[test]
+    fn test_lastest_fix_time(){
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let mut market = super::BybitMarket::new(&server_config, &config);
+
+        let start_time = NOW() - DAYS(2) ;
+
+        let fix_time = market.db.connection.latest_fix_time(start_time);
+
+        println!("fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
+
+        let unfix_time = market.db.connection.first_unfix_time(fix_time);
+        println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
+
     }
 }

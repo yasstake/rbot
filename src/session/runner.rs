@@ -5,7 +5,7 @@ use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{
     flush_log, time_string, AccountStatus, MarketMessage, MarketStream, MicroSec, Order, Trade,
-    FLOOR_SEC, NOW, SEC,
+    FLOOR_SEC, NOW, SEC, LogStatus,
 };
 use crossbeam_channel::Receiver;
 
@@ -212,7 +212,6 @@ impl Runner {
             println!("--- run {:?} mode ---", self.execute_mode);
             flush_log();
         }
-        
 
         if !self.update_agent_info(agent) {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -323,6 +322,13 @@ impl Runner {
                 }
 
                 let message = message.unwrap();
+                if self.execute_mode == ExecuteMode::BackTest &&
+                    message.trade.is_some() && 
+                    message.trade.as_ref().unwrap().status == LogStatus::UnFix {
+                    log::info!("UnFix trade is found. Stop running.");
+                    break;
+                }
+
 
                 if 0 < warm_up_loop {
                     // in warm up loop, we don't call agent, just update session

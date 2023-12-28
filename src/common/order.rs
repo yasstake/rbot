@@ -207,6 +207,7 @@ pub enum LogStatus {
     FixRestApiStart,
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
+    ExpireControl,  // 削除指示
     Unknown, // 未知のステータス / 未確定のステータス
 }
 
@@ -226,6 +227,7 @@ impl From<&str> for LogStatus {
             "s" => LogStatus::FixRestApiStart,
             "a" => LogStatus::FixRestApiBlock,
             "e" => LogStatus::FixRestApiEnd,
+            "X" => LogStatus::ExpireControl,
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -244,7 +246,8 @@ impl LogStatus {
             LogStatus::FixRestApiStart => "s".to_string(),
             LogStatus::FixRestApiBlock => "a".to_string(),
             LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::Unknown => "X".to_string(),
+            LogStatus::ExpireControl => "X".to_string(),
+            LogStatus::Unknown => "x".to_string(),
         }
     }
 }

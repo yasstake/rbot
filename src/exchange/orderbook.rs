@@ -214,7 +214,7 @@ impl OrderBook {
     }
 
     pub fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
-        let mut board = self.board.lock().unwrap();
+        let board = self.board.lock().unwrap();
         let bids = board.bids.get();
         let asks = board.asks.get();
         Ok((bids, asks))
@@ -225,6 +225,19 @@ impl OrderBook {
         let bids = board.get_bids_dataframe()?;
         let asks = board.get_asks_dataframe()?;
         Ok((bids, asks))
+    }
+
+    pub fn get_json(&self) -> Result<String, ()> {
+        let board = self.board.lock().unwrap();
+        let bids = board.bids.get();
+        let asks = board.asks.get();
+
+        let json = serde_json::json!({
+            "bids": bids,
+            "asks": asks,
+        });
+
+        Ok(json.to_string())
     }
 
     pub fn get_edge_price(&self) -> (Decimal, Decimal) {

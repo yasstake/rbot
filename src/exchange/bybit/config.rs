@@ -65,6 +65,7 @@ impl BybitConfig {
         return BybitConfig {};
     }
 
+    /*
     #[classattr]
     pub fn SPOT_BTCUSDT() -> MarketConfig {
         MarketConfig {
@@ -87,6 +88,32 @@ impl BybitConfig {
                 "orderbook.200.BTCUSDT".to_string(),
             ],
         }
+    }
+    */
+
+    #[classattr]
+    pub fn BTCUSDT() -> MarketConfig {
+        MarketConfig {
+            price_unit: dec![0.1],
+            price_scale: 3,
+            size_unit: dec![0.001],
+            size_scale: 4,
+            maker_fee: dec![0.00_01],
+            taker_fee: dec![0.00_01],
+            price_type: PriceType::Home,
+            fee_type: FeeType::Home,
+            home_currency: "USDT".to_string(),
+            foreign_currency: "BTC".to_string(),
+            market_order_price_slip: dec![0.01],
+            board_depth: 200,
+            trade_category: "linear".to_string(),
+            trade_symbol: "BTCUSDT".to_string(),
+            public_subscribe_channel: vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
+            ],
+        }
+
     }
 
     pub fn __repr__(&self) -> PyResult<String> {

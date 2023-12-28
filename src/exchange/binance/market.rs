@@ -252,8 +252,8 @@ impl BinanceMarket {
         self.db.reset_cache_duration();
     }
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, low_priority=false, verbose=true, archive_only=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, low_priority: bool, verbose: bool, archive_only: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -292,7 +292,7 @@ impl BinanceMarket {
                 continue;
             }
 
-            match self.download_log(tx, date, verbose) {
+            match self.download_log(tx, date, low_priority, verbose) {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
@@ -986,11 +986,11 @@ impl BinanceMarket {
         );
     }
 
-    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, verbose: bool) -> PyResult<i64> {
+    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, low_priority: bool, verbose: bool) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
         let url = Self::make_historical_data_url_timestamp(&self.config, date);
 
-        match download_log(&url, tx, false, verbose, &BinanceMarket::rec_to_trade) {
+        match download_log(&url, tx, false, low_priority, verbose, &BinanceMarket::rec_to_trade) {
             Ok(download_rec) => {
                 Ok(download_rec)
             }
@@ -1039,7 +1039,6 @@ impl BinanceMarket {
 
         return trade;
     }
-
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
         let f = |date: MicroSec| -> String {
@@ -1091,9 +1090,9 @@ mod binance_test {
         let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         //let mut market = BinanceMarket::new("BTCBUSD", true);
         println!("{}", time_string(market.db.start_time().unwrap_or(0)));
-        println!("{}", time_string(market.db.end_time().unwrap_or(0)));
+        println!("{}", time_string(market.db.end_time(0).unwrap_or(0)));
         println!("Let's donwload");
-        market.download(2, false, true, false);
+        market.download(2, false, false, true, false);
     }
 
     #[test]

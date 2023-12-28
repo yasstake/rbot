@@ -297,6 +297,7 @@ pub fn download_logs<F>(
     urls: Vec<String>,
     tx: Sender<Vec<Trade>>,
     has_header: bool,
+    low_priority: bool,
     verbose: bool,
     f: F,
 ) -> Result<i64, String>
@@ -306,7 +307,7 @@ where
     let mut download_rec = 0;
 
     for url in urls {
-        match download_log(&url, &tx, has_header, verbose, &f) {
+        match download_log(&url, &tx, has_header, low_priority, verbose, &f) {
             Ok(count) => {
                 download_rec += count;
             }
@@ -324,11 +325,13 @@ where
 
 const MAX_BUFFER_SIZE: usize = 2000;
 const MAX_QUEUE_SIZE: usize = 100;
+const LOW_QUEUE_SIZE: usize = 5;
 
 pub fn download_log<F>(
     url: &String,
     tx: &Sender<Vec<Trade>>,
     has_header: bool,
+    low_priority: bool,
     verbose: bool,
     f: &F,
 ) -> Result<i64, String>
@@ -340,6 +343,9 @@ where
         print!("log download (url = {})", url);
         flush_log();
     }
+
+    let max_queue = if low_priority { LOW_QUEUE_SIZE } else { MAX_QUEUE_SIZE };
+
     let mut download_rec = 0;
 
     let mut buffer: Vec<Trade> = vec![];
@@ -357,7 +363,7 @@ where
                 is_first_record = false;
             }
 
-            while MAX_QUEUE_SIZE < tx.len() {
+            while max_queue < tx.len() {
                 sleep(Duration::from_millis(100));
             }
 
