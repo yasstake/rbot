@@ -162,7 +162,7 @@ impl TradeTableDb {
 
         log::debug!("make_expire_control_message from {} to {}", time_string(fix_time), time_string(now));
 
-        Self::expire_control_message(start_time, fix_time)
+        Self::expire_control_message(fix_time, now)
     }
 
     pub fn expire_control_message(start_time: MicroSec, end_time: MicroSec) -> Vec<Trade>{
@@ -215,6 +215,7 @@ impl TradeTableDb {
         else if log_status == LogStatus::ExpireControl {
             let tx = self.begin_transaction().unwrap();                        
             Self::delete_unstable_data(&tx, trades[0].time, trades[1].time);
+            tx.commit().unwrap();
         }
 
         // create transaction with immidate mode

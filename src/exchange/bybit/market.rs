@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::common::{
     flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
     MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
-    FLOOR_DAY, NOW,
+    FLOOR_DAY, NOW, HHMM,
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableDb};
@@ -303,8 +303,8 @@ impl BybitMarket {
 
     /*--------------　ここまでコピペ　--------------------------*/
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool) -> i64 {
+    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
+    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool, low_priority: bool) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -345,7 +345,7 @@ impl BybitMarket {
                 continue;
             }
 
-            match self.download_log(tx, date, verbose) {
+            match self.download_log(tx, date, low_priority, verbose) {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
@@ -359,6 +359,10 @@ impl BybitMarket {
             }
         }
 
+        if ! archive_only {
+            let rec = self.download_latest(verbose);
+            download_rec += rec;
+        }
         // let expire_message = self.db.connection.make_expire_control_message(now);
         // tx.send(expire_message).unwrap();
 
@@ -387,6 +391,14 @@ impl BybitMarket {
         let unfix_time = TradeTable::ohlcv_end(unfix_time) - 1;
 
         println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
+
+        if (unfix_time - fix_time) <= HHMM(0, 1) {
+            if verbose {
+                println!("no need to download");
+                flush_log();
+            }
+            return 0;
+        }
 
         if verbose {
             print!("fill out with kline data ");
@@ -1116,12 +1128,13 @@ impl BybitMarket {
         &mut self,
         tx: &Sender<Vec<Trade>>,
         date: MicroSec,
+        low_priority: bool,
         verbose: bool,
     ) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
         let url = self.history_web_url(date);
 
-        match download_log(&url, tx, true, verbose, &Self::rec_to_trade) {
+        match download_log(&url, tx, true, low_priority, verbose, &Self::rec_to_trade) {
             Ok(download_rec) => Ok(download_rec),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Error in download_logs: {:?}",
