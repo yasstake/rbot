@@ -61,9 +61,11 @@ impl TradeTableDb {
         return db;
     }
 
+    /// delete unstable data, include both edge.
+    /// start_time <= (time_stamp) <= end_time
     pub fn delete_unstable_data(tx: &Transaction, start_time: MicroSec, end_time: MicroSec) {
         let sql =
-            r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and status = "U""#;
+            r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and status = "U""#;
 
         let result = tx.execute(sql, params![start_time, end_time]);
 
@@ -123,26 +125,50 @@ impl TradeTableDb {
         Ok(tx)
     }
 
+    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#;
+        let trades = self.select_query(sql, vec![start_time]);
+
+        if trades.len() == 0 {
+            return 0;
+        }
+
+        trades[0].time
+    }
+
+    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp order by time_stamp limit 1"#;
+        let trades = self.select_query(sql, vec![start_time]);
+
+        if trades.len() == 0 {
+            return 0;
+        }
+
+        trades[0].time
+    }
+
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
     /// データがない場合は空の配列を返す。
     pub fn make_expire_control_message(&mut self, now: MicroSec) -> Vec<Trade> {
         log::debug!("make_expire_control_message from {}", time_string(now));
-        
-        let mut trades: Vec<Trade> = vec![];
-    
+   
         let start_time = now - DAYS(2);
 
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp limit 1"#;
-        let r = self.select_query(sql, vec![start_time]);
+        let fix_time = self.latest_fix_time(start_time);
 
-        if r.len() == 0 {
-            return trades;
+        if fix_time == 0 {
+            return vec![];
         }
 
-        log::debug!("make_expire_control_message from {} to {}", time_string(r[0].time), time_string(now));
+        log::debug!("make_expire_control_message from {} to {}", time_string(fix_time), time_string(now));
 
+        Self::expire_control_message(start_time, fix_time)
+    }
+
+    pub fn expire_control_message(start_time: MicroSec, end_time: MicroSec) -> Vec<Trade>{
+        let mut trades: Vec<Trade> = vec![];
         let t = Trade::new(
-            r[0].time + 1,
+            start_time, 
             OrderSide::Unknown,
             dec![0.0],
             dec![0.0],
@@ -152,7 +178,7 @@ impl TradeTableDb {
         trades.push(t);
 
         let t = Trade::new(
-            now,
+            end_time,
             OrderSide::Unknown,
             dec![0.0],
             dec![0.0],
@@ -586,6 +612,26 @@ impl TradeTable {
 
     pub fn is_running(&self) -> bool {
         return self.is_running.read().unwrap().clone();
+    }
+
+    // TODO: FIX
+    pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
+        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap();
+        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap();
+
+        let head = select_df(&self.cache_ohlcvv, 0, start_time);
+        let tail = select_df(&self.cache_ohlcvv, end_time, 0);
+
+        log::debug!("set_cache_ohlcvv head {} /tail {}/ df {}", head.shape().0, tail.shape().0, df.shape().0);  
+
+        log::debug!("df {:?}", df.head(Some(2)));
+        log::debug!("head {:?}", head.head(Some(2)));
+        log::debug!("tail {:?}", tail.head(Some(2)));
+
+        let df = merge_df(&head, &df);
+        let df = merge_df(&df, &tail);
+
+        self.cache_ohlcvv = df;
     }
 
     pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
