@@ -148,19 +148,26 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    #[strum(ascii_case_insensitive, serialize = "Limit")]
     Limit,
-    #[strum(ascii_case_insensitive, serialize = "Market")]
     Market,
+    Unknown,
 }
 #[pymethods]
 impl OrderType {
+    pub fn to_string(&self) -> String {
+        match self {
+            OrderType::Limit => "Limit".to_string(),
+            OrderType::Market => "Market".to_string(),
+            OrderType::Unknown => "Unknown".to_string(),
+        }   
+    }
+
     pub fn __str__(&self) -> String {
-        self.__repr__()
+        self.to_string()
     }
 
     pub fn __repr__(&self) -> String {
-        serde_json::to_string(&self).unwrap()
+        self.to_string()
     }
 }
 

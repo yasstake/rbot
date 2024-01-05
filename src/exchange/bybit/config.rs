@@ -1,14 +1,17 @@
 #![allow(non_snake_case)]
+use std::env;
+
 use pyo3::prelude::*;
 use rust_decimal_macros::dec;
-use serde_derive::Serialize;
+use serde_derive::{Serialize, Deserialize};
 
 use crate::{
     common::{FeeType, MarketConfig, PriceType},
-    fs::db_full_path,
+    fs::db_full_path, exchange::to_mask_string,
 };
 
-#[derive(Debug, Clone)]
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitServerConfig {
     pub exchange_name: String,
     pub testnet: bool,
@@ -17,9 +20,15 @@ pub struct BybitServerConfig {
     pub private_ws: String,
     pub db_base_dir: String,
     pub history_web_base: String,
+    #[serde(serialize_with = "to_mask_string")]
+    pub api_key: String,
+    #[serde(serialize_with = "to_mask_string")]
+    pub api_secret: String,
 }
 
+#[pymethods]
 impl BybitServerConfig {
+    #[new]
     pub fn new(testnet: bool) -> Self {
         let rest_server = if testnet {
             "https://api-testnet.bybit.com"
@@ -42,6 +51,9 @@ impl BybitServerConfig {
         }
         .to_string();
 
+        let api_key = env::var("BYBIT_API_KEY").unwrap_or_default();
+        let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
+
         return BybitServerConfig {
             exchange_name: "BYBIT".to_string(),
             testnet,
@@ -50,8 +62,16 @@ impl BybitServerConfig {
             private_ws: private_ws_server,
             db_base_dir: "".to_string(),
             history_web_base: "https://public.bybit.com".to_string(),
+            api_key,
+            api_secret
         };
     }
+
+    pub fn __repr__(&self) -> PyResult<String> {
+        let repr = serde_json::to_string(&self).unwrap();
+        Ok(repr)
+    }
+
 }
 
 #[derive(Debug, Clone, Serialize)]

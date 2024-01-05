@@ -1,28 +1,37 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::f32::consts::E;
 
+use rust_decimal_macros::dec;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 use serde_json::from_str;
 
 use rust_decimal::Decimal;
+use tungstenite::client;
+use tungstenite::http::response;
 
 
 use crate::common::LogStatus;
 use crate::common::MarketConfig;
 use crate::common::MicroSec;
+use crate::common::Order;
 use crate::common::OrderSide;
+use crate::common::OrderStatus;
+use crate::common::OrderType;
 use crate::common::Trade;
 use crate::common::NOW;
 use crate::common::flush_log;
 use crate::common::msec_to_microsec;
 use crate::common::time_string;
 use crate::db::sqlite::TradeTable;
+use crate::exchange::hmac_sign;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
 use crate::exchange::rest_put;
 
 
+use super::config::BybitServerConfig;
 use super::message::BybitAccountInformation;
 use super::message::BybitCancelOrderResponse;
 use super::message::BybitKlines;
@@ -62,7 +71,46 @@ pub fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRes
     }
 }
 
+pub fn bybit_post_sign(server: &BybitServerConfig, path: &str, body: &str) -> Result<BybitRestResponse, String> {
+    let timestamp = format!("{}", NOW()/ 1_000);
+    let api_key = server.api_key.clone();
+    let recv_window = "5000";
 
+    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
+    let sign = hmac_sign(&server.api_secret, &param_to_sign);
+
+    let mut headers: Vec<(&str, &str)> =  vec![];
+    headers.push(("X-BAPI-SIGN", &sign));
+    headers.push(("X-BAPI-API-KEY", &server.api_key));
+    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
+    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
+    headers.push(("Content-Type", "application/json"));            
+
+    let query = format!("{}{}", server.rest_server, path);
+
+    let result = rest_post(&server.rest_server, path, headers, &body);
+
+    match result {
+        Ok(result) => {
+            let result = from_str::<BybitRestResponse>(&result);
+
+            if result.is_ok() {
+                let result = result.unwrap();
+
+                if result.return_code != 0 {
+                    return Err(result.return_message);
+                }
+                return Ok(result);
+            } else {
+                let result = result.unwrap_err();
+                return Err(result.to_string());
+            }
+        },
+        Err(err) => {
+            return Err(err.to_string());
+        }
+    }
+}
 
 /// https://bybit-exchange.github.io/docs/v5/market/orderbook
 
@@ -197,58 +245,294 @@ fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BybitOrderRequest<'a> {
+    pub category: String,
+    pub symbol: String,
+    pub side: String,
+    pub order_type: String,
+    pub qty: Decimal,
+    #[serde(rename = "orderLinkedId")]
+    pub order_link_id: Option<&'a str>,
+    pub price: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BybitOrderRestResponse {
+    #[serde(rename = "orderId")]
+    pub order_id: String,
+    #[serde(rename = "orderLinkId")]    
+    pub order_link_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BybitMultiOrderRestResponse {
+    pub list: Vec<BybitOrderRestResponse>,
+}
+
 pub fn new_limit_order(
-    server: &str,
+    server: &BybitServerConfig,
     config: &MarketConfig,
     side: OrderSide,
     price: Decimal,
     size: Decimal,
-    cliend_order_id: Option<&str>,
-) -> Result<BybitOrderResponse, String> {
-    /*
-    let path = "/api/v3/order";
-    let side = order_side_string(side);
-    let mut body = format!(
-        "symbol={}&side={}&type=LIMIT&timeInForce=GTC&quantity={}&price={}",
-        config.trade_symbol, side, size, price
-    );
-
-    if cliend_order_id.is_some() {
-        let cliend_order_id = cliend_order_id.unwrap();
-        body = format!("{}&newClientOrderId={}", body, cliend_order_id);
-    }
-
-    parse_response::<BinanceOrderResponse>(binance_post_sign(&config, path, body.as_str()))
-    */
-
-    return Err("Not implemented".to_string());
+    client_order_id: Option<&str>) -> Result<Order, String>{
+        new_order(server, config, side, price, size, OrderType::Limit, client_order_id)
 }
 
 pub fn new_market_order(
-    server: &str,
+    server: &BybitServerConfig,
     config: &MarketConfig,
     side: OrderSide,
     size: Decimal,
-    cliend_order_id: Option<&str>,
-) -> Result<BybitOrderResponse, String> {
-    return Err("Not implemented".to_string());
+    client_order_id: Option<&str>,
+) -> Result<Order, String> {
+    new_order(server, config, side, dec![0.0], size, OrderType::Market, client_order_id)
 }
 
+
+/// create new limit order
+/// https://bybit-exchange.github.io/docs/v5/order/create-order
+pub fn new_order(
+    server: &BybitServerConfig,
+    config: &MarketConfig,
+    side: OrderSide,
+    price: Decimal, // when order_type is Market, this value is ignored.
+    size: Decimal,              
+    order_type: OrderType,
+    client_order_id: Option<&str>,
+) -> Result<Order, String> {
+    let category = config.trade_category.clone();
+    let symbol = config.trade_symbol.clone();
+
+    let price = if order_type == OrderType::Market {
+        None
+    } else {
+        Some(price)
+    };
+
+    let order = BybitOrderRequest {
+        category: category,
+        symbol: config.trade_symbol.clone(),
+        side: side.to_string(),
+        order_type: order_type.to_string(),
+        qty: size,
+        order_link_id: client_order_id,
+        price: price,
+    };
+
+    log::debug!("order={:?}", order);
+
+    let order_json = serde_json::to_string(&order).unwrap();
+    log::debug!("order_json={}", order_json);
+
+    let path = "/v5/order/create";
+
+    let result = bybit_post_sign(&server, path, &order_json);
+
+    if result.is_err() {
+        let result = result.unwrap_err();
+        return Err(result);
+    }
+
+    let result = result.unwrap();
+
+    let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
+    if response.is_err() {
+        let response = response.unwrap_err();
+        return Err(response.to_string());
+    }
+    let r = response.unwrap();
+
+    let is_maker = if order_type == OrderType::Limit {
+        true
+    } else {
+        false
+    };
+
+    let order = Order {
+        symbol: symbol,
+        create_time: msec_to_microsec(result.time),
+        status: OrderStatus::New,
+        order_id: r.order_id,
+        client_order_id: r.order_link_id,
+        order_side: side,
+        order_type: order_type,
+        order_price: if order_type == OrderType::Market {
+            dec![0.0]
+        } else {
+            price.unwrap()
+        },
+        order_size: size,
+        remain_size: size,
+        transaction_id: "".to_string(),
+        update_time: msec_to_microsec(result.time),
+        execute_price: dec![0.0],
+        execute_size: dec![0.0],
+        quote_vol: dec![0.0],
+        commission: dec![0.0],
+        commission_asset: "".to_string(),
+        is_maker: is_maker,
+        message: "".to_string(),
+        commission_home: dec![0.0],
+        commission_foreign:dec![0.0],
+        home_change: dec![0.0],
+        foreign_change: dec![0.0],
+        free_home_change: dec![0.0],
+        free_foreign_change: dec![0.0],
+        lock_home_change: dec![0.0],
+        lock_foreign_change: dec![0.0],
+        log_id: 0,
+    };
+
+    return Ok(order);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CancelOrderMessage {
+    category: String,
+    symbol: String,
+    #[serde(rename = "orderId")]
+    order_id: String,    
+}
+
+
 pub fn cancel_order(
-    server: &str, 
+    server: &BybitServerConfig, 
     config: &MarketConfig,
     order_id: &str,
-) -> Result<BybitCancelOrderResponse, String> {
+) -> Result<Order, String> {
+    let message = CancelOrderMessage {
+        category: config.trade_category.clone(),
+        symbol: config.trade_symbol.clone(),
+        order_id: order_id.to_string(),
+    };
 
-    return Err("Not implemented".to_string());
+    let message_json = serde_json::to_string(&message).unwrap();
+    let path = "/v5/order/cancel";
+    let result = bybit_post_sign(&server, path, &message_json);
+
+    if result.is_err() {
+        let result = result.unwrap_err();
+        return Err(result);
+    }
+
+    let result = result.unwrap();
+
+    let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
+    if response.is_err() {
+        let response = response.unwrap_err();
+        return Err(response.to_string());
+    }
+    let r = response.unwrap();
+
+    let order = Order {
+        symbol: "".to_string(),
+        create_time: msec_to_microsec(result.time),
+        status: OrderStatus::Canceled,
+        order_id: r.order_id,
+        client_order_id: r.order_link_id,
+        order_side: OrderSide::Unknown,
+        order_type: OrderType::Limit,
+        order_price: dec![0.0],
+        order_size: dec![0.0],
+        remain_size: dec![0.0],
+        transaction_id: "".to_string(),
+        update_time: msec_to_microsec(result.time),
+        execute_price: dec![0.0],
+        execute_size: dec![0.0],
+        quote_vol: dec![0.0],
+        commission: dec![0.0],
+        commission_asset: "".to_string(),
+        is_maker: true,
+        message: "".to_string(),
+        commission_home: dec![0.0],
+        commission_foreign:dec![0.0],
+        home_change: dec![0.0],
+        foreign_change: dec![0.0],
+        free_home_change: dec![0.0],
+        free_foreign_change: dec![0.0],
+        lock_home_change: dec![0.0],
+        lock_foreign_change: dec![0.0],
+        log_id: 0,
+    };
+
+    return Ok(order);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CancelAllMessage {
+    category: String,
+    symbol: String,
 }
 
 pub fn cancell_all_orders(
-    server: &str,
+    server: &BybitServerConfig,
     config: &MarketConfig
-) -> Result<Vec<BybitCancelOrderResponse>, String> {
+) -> Result<Vec<Order>, String> {
 
-    return Err("Not implemented".to_string());
+    let message = CancelAllMessage {
+        category: config.trade_category.clone(),
+        symbol: config.trade_symbol.clone(),
+    };
+
+    let message_json = serde_json::to_string(&message).unwrap();
+    let path = "/v5/order/cancel-all";
+    let result = bybit_post_sign(&server, path, &message_json);
+
+    if result.is_err() {
+        let result = result.unwrap_err();
+        return Err(result);
+    }
+
+    let result = result.unwrap();
+
+    let response = serde_json::from_value::<BybitMultiOrderRestResponse>(result.body);
+
+    if response.is_err() {
+        let response = response.unwrap_err();
+        return Err(response.to_string());
+    }
+
+    let response = response.unwrap();
+
+    let mut orders: Vec<Order> = vec![];
+
+    for r in response.list {
+        let order = Order {
+            symbol: "".to_string(),
+            create_time: msec_to_microsec(result.time),
+            status: OrderStatus::Canceled,
+            order_id: r.order_id,
+            client_order_id: r.order_link_id,
+            order_side: OrderSide::Unknown,
+            order_type: OrderType::Limit,
+            order_price: dec![0.0],
+            order_size: dec![0.0],
+            remain_size: dec![0.0],
+            transaction_id: "".to_string(),
+            update_time: msec_to_microsec(result.time),
+            execute_price: dec![0.0],
+            execute_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: true,
+            message: "".to_string(),
+            commission_home: dec![0.0],
+            commission_foreign:dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],
+            log_id: 0,
+        };
+        orders.push(order);
+    }
+
+    return Ok(orders);
 }
 
 pub fn get_balance(
@@ -283,8 +567,9 @@ mod bybit_rest_test{
     use std::{thread::sleep, time::Duration};
 
     use pyo3::ffi::Py_Initialize;
+    use rust_decimal_macros::dec;
 
-    use crate::{exchange::bybit::{message::BybitKlines, config::{BybitServerConfig, BybitConfig}}, common::{NOW, time_string, HHMM, init_debug_log}, db::sqlite::TradeTable};
+    use crate::{exchange::bybit::{message::BybitKlines, config::{BybitServerConfig, BybitConfig}}, common::{NOW, time_string, HHMM, init_debug_log, OrderSide}, db::sqlite::TradeTable};
 
     use super::get_board_snapshot;
 
@@ -373,4 +658,15 @@ mod bybit_rest_test{
 
         println!("{:?}", df);
     }
+
+    #[test]
+    fn test_new_limit_order() {
+        let server_config = BybitServerConfig::new(true);    
+        let config = BybitConfig::BTCUSDT();
+
+        let r = super::new_limit_order(&server_config, &config, OrderSide::Buy, dec![40000.0], dec![0.001], None).unwrap();
+
+        println!("{:?}", r);
+    }
 }
+
