@@ -1,10 +1,12 @@
 pub mod rest;
 pub mod ws;
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use polars_core::export::num::FromPrimitive;
 pub use rest::*;
 use rust_decimal::Decimal;
-use serde::{Deserializer, Deserialize, de};
+use serde::{Deserializer, Deserialize, de, Serialize, Serializer};
 pub use ws::*;
 
 pub mod bybit;
@@ -48,4 +50,27 @@ where
         Ok(num) => Ok(num),
         Err(_) => Err(de::Error::custom("Failed to parse i64")),
     }
+}
+
+
+fn to_mask_string<S>(value: &String, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if value == "" {
+        return serializer.serialize_str("--- NO KEY ---");
+    }
+
+    let mask = format!("{}*******************", value[0..2].to_string());
+    serializer.serialize_str(&mask)
+}
+
+pub fn hmac_sign(secret_key: &String, message: &String) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret_key.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(message.as_bytes());
+
+    let mac = mac.finalize();
+
+    hex::encode(mac.into_bytes())
 }

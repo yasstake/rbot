@@ -161,15 +161,16 @@ impl BinanceOrderBook {
 
 #[pyclass]
 pub struct Binance {
-    pub test_net: bool
+    pub test_net: bool,
 }
 
 #[pymethods]
 impl Binance {
     #[new]
     pub fn new(test_net: bool) -> Self {
+
         return Binance {
-            test_net
+            test_net,
         };
     }
 

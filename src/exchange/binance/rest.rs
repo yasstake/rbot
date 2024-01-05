@@ -18,6 +18,7 @@ use crate::common::Trade;
 use crate::common::NOW;
 use crate::common::flush_log;
 use crate::common::time_string;
+use crate::exchange::hmac_sign;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
@@ -455,28 +456,17 @@ pub fn binance_delete_sign(
     return parse_binance_result(result);
 }
 
-use hex;
 
 fn sign_with_timestamp(secret_key: &String, message: &String) -> String {
     let time = (NOW() / 1_000) as u64;
 
     let message = format!("{}&recvWindow={}&timestamp={}", message, 6000, time);
 
-    return sign(secret_key, &message);
+    let sign = hmac_sign(secret_key, &message);
+
+    return format!("{}&signature={}", message, sign);
 }
 
-fn sign(secret_key: &String, message: &String) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret_key.as_bytes())
-        .expect("HMAC can take key of any size");
-    mac.update(message.as_bytes());
-
-    let mac = mac.finalize();
-    let signature = hex::encode(mac.into_bytes());
-
-    let message = format!("{}&signature={}", message, signature);
-
-    message
-}
 
 /// Sends a REST request to Binance to get the server time and returns it in microseconds.
 ///
@@ -906,7 +896,7 @@ mod tests {
         let secret = "NhqPtmdSJYdKjVHjA7PZj4Mge3R5YNiP1e3UZjInClVN65XAbvqqM6A7H5fATj0j";
         let message = "symbol=LTCBTC&side=BUY&type=LIMIT&timeInForce=GTC&quantity=1&price=0.1&recvWindow=5000&timestamp=1499827319559";
 
-        let signature = sign(&secret.to_string(), &message.to_string());
+        let signature = hmac_sign(&secret.to_string(), &message.to_string());
         //
 
         println!("signature: {}", signature);

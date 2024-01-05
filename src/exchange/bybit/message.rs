@@ -324,7 +324,6 @@ impl Into<Vec<Trade>> for BybitTradeResponse {
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct BybitOrderResponse {
-
 }
 #[derive(Debug, Clone)]
 #[pyclass]
