@@ -10,6 +10,7 @@ use polars_core::prelude::NamedFrom;
 use polars_core::series::Series;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
@@ -19,7 +20,9 @@ use crate::common::LogStatus;
 use crate::common::MarketMessage;
 use crate::common::MicroSec;
 use crate::common::MultiMarketMessage;
+use crate::common::Order;
 use crate::common::OrderSide;
+use crate::common::OrderType;
 use crate::common::SEC;
 use crate::common::Trade;
 use crate::common::msec_to_microsec;
@@ -30,6 +33,9 @@ use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
+
+
+use super::bybit_order_status;
 
 pub type BybitTimestamp = i64;
 
@@ -320,22 +326,174 @@ impl Into<Vec<Trade>> for BybitTradeResponse {
         trades
     }
 }
+/*
+        "list": [
+            {
+                "orderId": "fd4300ae-7847-404e-b947-b46980a4d140",
+                "orderLinkId": "test-000005",
+                "blockTradeId": "",
+                "symbol": "ETHUSDT",
+                "price": "1600.00",
+                "qty": "0.10",
+                "side": "Buy",
+                "isLeverage": "",
+                "positionIdx": 1,
+                "orderStatus": "New",
+                "cancelType": "UNKNOWN",
+                "rejectReason": "EC_NoError",
+                "avgPrice": "0",
+                "leavesQty": "0.10",
+                "leavesValue": "160",
+                "cumExecQty": "0.00",
+                "cumExecValue": "0",
+                "cumExecFee": "0",
+                "timeInForce": "GTC",
+                "orderType": "Limit",
+                "stopOrderType": "UNKNOWN",
+                "orderIv": "",
+                "triggerPrice": "0.00",
+                "takeProfit": "2500.00",
+                "stopLoss": "1500.00",
+                "tpTriggerBy": "LastPrice",
+                "slTriggerBy": "LastPrice",
+                "triggerDirection": 0,
+                "triggerBy": "UNKNOWN",
+                "lastPriceOnCreated": "",
+                "reduceOnly": false,
+                "closeOnTrigger": false,
+                "smpType": "None",
+                "smpGroup": 0,
+                "smpOrderId": "",
+                "tpslMode": "Full",
+                "tpLimitPrice": "",
+                "slLimitPrice": "",
+                "placeType": "",
+                "createdTime": "1684738540559",
+                "updatedTime": "1684738540561"
+            }
+        ],
+        "nextPageCursor": "page_args%3Dfd4300ae-7847-404e-b947-b46980a4d140%26symbol%3D6%26",
+        "category": "linear"
+*/
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
-pub struct BybitOrderResponse {
+pub struct BybitOrderStatus {
+    pub orderId: String,
+    pub orderLinkId: String,
+    pub blockTradeId: String,
+    pub symbol: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub price: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub qty: Decimal,
+    pub side: String,
+    pub isLeverage: String,
+    pub positionIdx: i64,
+    pub orderStatus: String,
+    pub cancelType: String,
+    pub rejectReason: String,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub avgPrice: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub leavesQty: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub leavesValue: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub cumExecQty: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub cumExecValue: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub cumExecFee: Decimal,
+    pub timeInForce: String,
+    pub orderType: String,
+    pub stopOrderType: String,
+    pub orderIv: String,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub triggerPrice: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub takeProfit: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub stopLoss: Decimal,
+    pub tpTriggerBy: String,
+    pub slTriggerBy: String,
+    pub triggerDirection: i64,
+    pub triggerBy: String,
+    pub lastPriceOnCreated: String,
+    pub reduceOnly: bool,
+    pub closeOnTrigger: bool,
+    pub smpType: String,
+    pub smpGroup: i64,
+    pub smpOrderId: String,
+    pub tpslMode: String,
+    pub tpLimitPrice: String,
+    pub slLimitPrice: String,
+    pub placeType: String,
+    #[serde(deserialize_with = "string_to_i64")]
+    pub createdTime: BybitTimestamp,
+    #[serde(deserialize_with = "string_to_i64")]
+    pub updatedTime: BybitTimestamp,
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
-pub struct BybitCancelOrderResponse {}
+pub struct BybitMultiOrderStatus {
+    pub list: Vec<BybitOrderStatus>,
+    pub nextPageCursor: String,
+    pub category: String,
+}
+
+
+impl Into<Vec<Order>> for BybitMultiOrderStatus {
+    fn into(self) -> Vec<Order> {
+        let mut orders: Vec<Order> = vec![];
+
+        for order in self.list.iter() {
+            let o = Order {
+                symbol: order.symbol.clone(),
+                create_time: order.createdTime,
+                status: bybit_order_status(&order.orderStatus),
+                order_id: order.orderId.clone(),
+                client_order_id: order.orderLinkId.clone(),
+                order_side: OrderSide::from(&order.side),
+                order_type: OrderType::from(&order.orderType),
+                order_price: order.price,
+                order_size: order.qty,
+                remain_size: order.leavesQty,
+                transaction_id: order.orderId.clone(),
+                update_time: order.updatedTime,
+                execute_price: order.avgPrice,
+                execute_size: order.cumExecQty,
+                quote_vol: order.price * order.qty,
+                commission: order.cumExecFee,
+                commission_asset: "".to_string(),
+                is_maker: true,
+                message: "".to_string(),
+                commission_home: dec![0.0],
+                commission_foreign: dec![0.0],
+                home_change: dec![0.0],
+                foreign_change: dec![0.0],
+                free_home_change: dec![0.0],
+                free_foreign_change: dec![0.0],
+                lock_home_change: dec![0.0],
+                lock_foreign_change: dec![0.0],
+                log_id: 0,
+            };
+            orders.push(o);
+        }
+
+        orders
+    }
+
+}
+
+
+
 
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct BybitAccountInformation {}
 
-#[derive(Debug, Clone)]
-#[pyclass]
-pub struct BybitOrderStatus {}
 
 
 /*------------- WS --------------------------- */
@@ -486,7 +644,7 @@ pub struct BybitWsOrderbookMessage {
 
 #[cfg(test)]
 mod bybit_message_test {
-    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData, BybitWsOrderbook, BybitWsTrade};
+    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData, BybitWsOrderbook, BybitWsTrade, BybitMultiOrderStatus};
 
     use super::{BybitRestBoard, BybitWsMessage};
 
@@ -615,4 +773,56 @@ const BYBIT_ORDER_1: &str =r#"{"topic":"publicTrade.BTCUSDT","ts":1703430744103,
 
     }
 
+
+    #[test]
+    fn test_parse_multi_order_status() {
+        let message = r#"
+        {"retCode":0,
+        "retMsg":"OK",
+        "result":
+        {"nextPageCursor":"36a2f9ec-700c-481e-bf05-5df9802bad86%3A1704539225091%2C550a465a-5a0d-4cac-b66e-733fa029166c%3A1704539202055",
+        "category":"linear",
+        "list":
+        [{"symbol":"BTCUSDT","orderType":"Limit","orderLinkId":"",
+        "slLimitPrice":"0","orderId":"36a2f9ec-700c-481e-bf05-5df9802bad86",
+        "cancelType":"UNKNOWN","avgPrice":"","stopOrderType":"",
+        "lastPriceOnCreated":"43634.8","orderStatus":"New",
+        "createType":"CreateByUser","takeProfit":"",
+        "cumExecValue":"0","tpslMode":"","smpType":"None",
+        "triggerDirection":0,"blockTradeId":"",
+        "isLeverage":"","rejectReason":"EC_NoError",
+        "price":"40000","orderIv":"",
+        "createdTime":"1704539225091",
+        "tpTriggerBy":"","positionIdx":0,
+        "timeInForce":"GTC",
+        "leavesValue":"40",
+        "updatedTime":"1704539225094",
+        "side":"Buy",
+        "smpGroup":0,"triggerPrice":"",
+        "tpLimitPrice":"0","cumExecFee":"0",
+        "leavesQty":"0.001","slTriggerBy":"",
+        "closeOnTrigger":false,
+        "placeType":"","cumExecQty":"0",
+        "reduceOnly":false,
+        "qty":"0.001","stopLoss":"",
+        "marketUnit":"","smpOrderId":"",
+        "triggerBy":""},
+        {"symbol":"BTCUSDT","orderType":"Limit","orderLinkId":"","slLimitPrice":"0","orderId":"550a465a-5a0d-4cac-b66e-733fa029166c","cancelType":"UNKNOWN","avgPrice":"","stopOrderType":"","lastPriceOnCreated":"43634.9","orderStatus":"New","createType":"CreateByUser","takeProfit":"","cumExecValue":"0","tpslMode":"","smpType":"None","triggerDirection":0,"blockTradeId":"","isLeverage":"","rejectReason":"EC_NoError","price":"40000","orderIv":"","createdTime":"1704539202055","tpTriggerBy":"","positionIdx":0,"timeInForce":"GTC","leavesValue":"40","updatedTime":"1704539202058","side":"Buy","smpGroup":0,"triggerPrice":"","tpLimitPrice":"0","cumExecFee":"0","leavesQty":"0.001","slTriggerBy":"","closeOnTrigger":false,"placeType":"","cumExecQty":"0","reduceOnly":false,"qty":"0.001","stopLoss":"","marketUnit":"","smpOrderId":"","triggerBy":""}]},"retExtInfo":{},"time":1704541422547}
+        "#;
+
+        let result = serde_json::from_str::<BybitRestResponse>(&message);
+
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+
+        let message = result.body;
+
+        println!("{:?}", message);
+
+        let result = serde_json::from_value::<BybitMultiOrderStatus>(message);
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
 }

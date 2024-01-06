@@ -1,9 +1,11 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 
+use chrono::format::parse;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
+use serde_json::Value;
 use serde_json::from_str;
 
 use rust_decimal::Decimal;
@@ -31,12 +33,12 @@ use crate::exchange::rest_post;
 use crate::exchange::rest_put;
 
 
+use super::Bybit;
 use super::config::BybitServerConfig;
 use super::message::BybitAccountInformation;
-use super::message::BybitCancelOrderResponse;
 use super::message::BybitKlines;
 use super::message::BybitKlinesResponse;
-use super::message::BybitOrderResponse;
+use super::message::BybitMultiOrderStatus;
 use super::message::BybitOrderStatus;
 use super::message::BybitRestBoard;
 use super::message::BybitRestResponse;
@@ -86,8 +88,6 @@ pub fn bybit_post_sign(server: &BybitServerConfig, path: &str, body: &str) -> Re
     headers.push(("X-BAPI-RECV-WINDOW", recv_window));
     headers.push(("Content-Type", "application/json"));            
 
-    let query = format!("{}{}", server.rest_server, path);
-
     let result = rest_post(&server.rest_server, path, headers, &body);
 
     match result {
@@ -111,6 +111,62 @@ pub fn bybit_post_sign(server: &BybitServerConfig, path: &str, body: &str) -> Re
         }
     }
 }
+
+pub fn bybit_get_sign(server: &BybitServerConfig, path: &str, query_string: &str) -> Result<BybitRestResponse, String> {
+    let timestamp = format!("{}", NOW()/ 1_000);
+    let api_key = server.api_key.clone();
+    let recv_window = "5000";
+
+    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
+    let sign = hmac_sign(&server.api_secret, &param_to_sign);
+
+    let mut headers: Vec<(&str, &str)> =  vec![];
+    headers.push(("X-BAPI-SIGN", &sign));
+    headers.push(("X-BAPI-API-KEY", &server.api_key));
+    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
+    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
+
+    let result = rest_get(&server.rest_server, path, headers, Some(query_string), None);
+
+    parse_rest_result(result)
+}
+
+fn parse_rest_result(result: Result<String, String>) -> Result<BybitRestResponse, String> {
+    match result {
+        Ok(result) => {
+            if result == "" {
+                let response = BybitRestResponse {
+                    return_code: 0,
+                    return_message: "Ok".to_string(),
+                    return_ext_info: Value::Null,
+                    time: NOW() / 1_000,
+                    body: Value::Null,
+                };
+                return Ok(response);
+            }
+
+            log::debug!("rest response: {}", result);
+
+            let result = from_str::<BybitRestResponse>(&result);
+
+            if result.is_ok() {
+                let result = result.unwrap();
+
+                if result.return_code != 0 {
+                    return Err(result.return_message);
+                }
+                return Ok(result);
+            } else {
+                let result = result.unwrap_err();
+                return Err(result.to_string());
+            }
+        },
+        Err(err) => {
+            return Err(err.to_string());
+        }
+    }
+}
+
 
 /// https://bybit-exchange.github.io/docs/v5/market/orderbook
 
@@ -499,6 +555,8 @@ pub fn cancell_all_orders(
     let mut orders: Vec<Order> = vec![];
 
     for r in response.list {
+        println!("r={:?}", r);
+
         let order = Order {
             symbol: "".to_string(),
             create_time: msec_to_microsec(result.time),
@@ -530,6 +588,7 @@ pub fn cancell_all_orders(
             log_id: 0,
         };
         orders.push(order);
+
     }
 
     return Ok(orders);
@@ -548,11 +607,52 @@ pub fn order_status(
     return Err("Not implemented".to_string());
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OpenOrderRequest {
+    category: String,
+    symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]    
+    #[serde(rename = "orderId")]
+    order_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]        
+    cursor: Option<String>,
+}
 
 pub fn open_orders(
-    server: &str,
-    config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
-    return Err("Not implemented".to_string());
+    server: &BybitServerConfig,
+    config: &MarketConfig) -> Result<Vec<Order>, String> {
+
+    let query_string = format!("category={}&symbol={}&limit=50", config.trade_category, config.trade_symbol);
+
+    let path = "/v5/order/realtime";
+
+    let result = bybit_get_sign(&server, path, &query_string);
+
+    if result.is_err() {
+        let result = result.unwrap_err();
+        return Err(result);
+    }
+
+    let result = result.unwrap();
+
+    if result.body.is_null() {
+        return Ok(vec![]);
+    }
+
+    let mut orders: Vec<Order> = vec![];
+
+    println!("result.body={:?}", result.body);
+
+    let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body);
+
+    if response.is_err() {
+        let response = response.unwrap_err();
+        return Err(response.to_string());
+    }
+
+    let orders: Vec<Order> = response.unwrap().into();
+
+    Ok(orders)
 }
 
 pub fn trade_list(
@@ -665,6 +765,28 @@ mod bybit_rest_test{
         let config = BybitConfig::BTCUSDT();
 
         let r = super::new_limit_order(&server_config, &config, OrderSide::Buy, dec![40000.0], dec![0.001], None).unwrap();
+
+        println!("{:?}", r);
+    }
+
+    #[test]
+    fn test_binance_cancel_all_orders() {
+        let server_config = BybitServerConfig::new(true);    
+        let config = BybitConfig::BTCUSDT();
+
+        let r = super::cancell_all_orders(&server_config, &config).unwrap();
+
+        println!("{:?}", r);
+    }
+
+    #[test]
+    fn test_open_orders() {
+        init_debug_log();
+        
+        let server_config = BybitServerConfig::new(true);    
+        let config = BybitConfig::BTCUSDT();
+
+        let r = super::open_orders(&server_config, &config).unwrap();
 
         println!("{:?}", r);
     }

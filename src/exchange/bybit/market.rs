@@ -1002,9 +1002,11 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.server_config.rest_server, &self.config);
+        let status = open_orders(&self.server_config, &self.config);
 
         log::debug!("OpenOrder: {:?}", status);
+
+
 
         // convert_pyresult_vec(status)
         // TODO: implement
