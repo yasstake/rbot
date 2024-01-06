@@ -41,9 +41,10 @@ where
 
     let message = BinanceWsOpMessage::new();
 
-    let mut websocket: AutoConnectClient<BinanceWsOpMessage> = AutoConnectClient::new(
+    let mut websocket: AutoConnectClient<BinanceConfig, BinanceWsOpMessage> = AutoConnectClient::new(
+            &config, 
             url.as_str(),
-            Arc::new(RwLock::new(message)));
+            Arc::new(RwLock::new(message)), None);
     
     websocket.connect();
 
