@@ -184,7 +184,7 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
-    pub public_ws: WebSocketClient<BybitWsOpMessage>,
+    pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
 }
@@ -1066,8 +1066,10 @@ impl BybitMarket {
             db: db.unwrap(),
             board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
             public_ws: WebSocketClient::new(
+                &server_config,
                 &format!("{}/{}", &server_config.public_ws, config.trade_category),
                 config.public_subscribe_channel.clone(),
+                None
             ),
             public_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),

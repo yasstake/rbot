@@ -556,8 +556,10 @@ impl BinanceMarket {
         subscribe_message.add_params(&self.config.public_subscribe_channel);        
 
         // TODO: parameterize
-        let mut websocket: AutoConnectClient<BinanceWsOpMessage> = 
-                AutoConnectClient::new(endpoint, Arc::new(RwLock::new(subscribe_message)));
+        let mut websocket: AutoConnectClient<BinanceConfig, BinanceWsOpMessage> = 
+                AutoConnectClient::new(
+                    &self.config,
+                    endpoint, Arc::new(RwLock::new(subscribe_message)), None);
 
         websocket.connect();
 
