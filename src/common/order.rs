@@ -41,7 +41,9 @@ pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     Rejected, // システムからの拒否（指値範囲外、数量不足など）
     #[strum(ascii_case_insensitive)]
-    Error, // その他エラー
+    Error, // エラー
+    #[strum(ascii_case_insensitive)]
+    Unknown, // その他未定義状態
 }
 
 pub fn orderstatus_deserialize<'de, D>(deserializer: D) -> Result<OrderStatus, D::Error>
@@ -845,6 +847,9 @@ impl Order {
             }
             OrderStatus::Canceled | OrderStatus::Rejected | OrderStatus::Error => {
                 self.update_balance_canceled(config);
+            }
+            _ => {
+                log::warn!("Order.update_balance: Unknown order status. order={:?}", self);
             }
         }
     }

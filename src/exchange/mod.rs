@@ -24,9 +24,13 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
+    if s == "" {
+        return Ok(0.0);
+    }
+
     match s.parse::<f64>() {
         Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
+        Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
     }
 }
 
@@ -35,9 +39,14 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
+
+    if s == "" {
+        return Ok(Decimal::from_f64(0.0).unwrap());
+    }
+
     match s.parse::<f64>() {
         Ok(num) => Ok(Decimal::from_f64(num).unwrap()),
-        Err(_) => Err(de::Error::custom("Failed to parse f64")),
+        Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
     }
 }
 
@@ -46,9 +55,14 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
+
+    if s == "" {
+        return Ok(0);
+    }
+    
     match s.parse::<i64>() {
         Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom("Failed to parse i64")),
+        Err(_) => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
     }
 }
 
