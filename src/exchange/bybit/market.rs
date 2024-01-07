@@ -184,7 +184,7 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: TradeTable,
     pub board: Arc<Mutex<BybitOrderBook>>,
-    pub public_ws: WebSocketClient<BybitWsOpMessage>,
+    pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
 }
@@ -800,12 +800,12 @@ impl BybitMarket {
         let order_side = OrderSide::from(side);
 
         let response = new_limit_order(
-            &self.server_config.rest_server,
+            &self.server_config,
             &self.config,
             order_side,
             price_dp,
             size_dp,
-            client_order_id,
+            client_order_id.clone(),
         );
 
         if response.is_err() {
@@ -821,11 +821,9 @@ impl BybitMarket {
             );
 
             let err = format!(
-                "limit_order({:?}, {:?}/{:?}, {:?}/{:?}, {:?}) -> {:?}",
+                "limit_order({:?}, {:?}, {:?}, {:?}) -> {:?}",
                 side,
-                price,
                 price_dp,
-                size,
                 size_dp,
                 client_order_id,
                 response.unwrap_err()
@@ -833,10 +831,7 @@ impl BybitMarket {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
         }
 
-        // TODO: FIXconvert_pyresult(response)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        Ok(vec![response.unwrap()])
     }
 
     /*
@@ -869,7 +864,7 @@ impl BybitMarket {
         let order_side = OrderSide::from(side);
 
         let response = new_market_order(
-            &self.server_config.rest_server,
+            &self.server_config,
             &self.config,
             order_side,
             size,
@@ -896,10 +891,7 @@ impl BybitMarket {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
         }
 
-        //convert_pyresult(response)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        Ok(vec![response.unwrap()])        
     }
 
     pub fn dry_market_order(
@@ -971,23 +963,31 @@ impl BybitMarket {
     }
 
     pub fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        let response = cancel_order(&self.server_config.rest_server, &self.config, order_id);
+        let response = cancel_order(&self.server_config, &self.config, order_id);
 
-        // return convert_pyresult(response);
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        if response.is_err() {
+            log::error!("Error in cancel_order: {:?}", response);
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                format!("Error in cancel_order {:?}", response),
+            ));
+        }
+
+        let order = response.unwrap();
+
+        Ok(order)
     }
 
     pub fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
-        let response = cancell_all_orders(&self.server_config.rest_server, &self.config);
+        let response = cancell_all_orders(&self.server_config, &self.config);
 
-        if response.is_ok() {
-            // TODO:: FIX IMPLMENET
-            // return convert_pyresult_vec(response);
+        if response.is_err() {
+            log::error!("Error in cancel_all_orders: {:?}", response);
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                format!("Error in cancel_all_orders {:?}", response),
+            ));
         }
 
-        return PyResult::Ok(vec![]);
+        return Ok(response.unwrap());
     }
 
     #[getter]
@@ -1002,9 +1002,11 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.server_config.rest_server, &self.config);
+        let status = open_orders(&self.server_config, &self.config);
 
         log::debug!("OpenOrder: {:?}", status);
+
+
 
         // convert_pyresult_vec(status)
         // TODO: implement
@@ -1064,8 +1066,10 @@ impl BybitMarket {
             db: db.unwrap(),
             board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
             public_ws: WebSocketClient::new(
+                &server_config,
                 &format!("{}/{}", &server_config.public_ws, config.trade_category),
                 config.public_subscribe_channel.clone(),
+                None
             ),
             public_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),

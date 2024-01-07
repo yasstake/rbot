@@ -16,7 +16,6 @@ use tungstenite::protocol::WebSocket;
 use tungstenite::Message;
 use tungstenite::{connect, stream::MaybeTlsStream};
 
-
 pub trait WsOpMessage {
     fn new() -> Self;
     fn add_params(&mut self, params: &Vec<String>);
@@ -53,12 +52,11 @@ impl WsOpMessage for BinanceWsOpMessage {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsOpMessage {
-    op: String,
-    args: Vec<String>,
-    id: i64,
+    pub op: String,
+    pub args: Vec<String>,
+    pub id: i64,
 }
 
 impl WsOpMessage for BybitWsOpMessage {
@@ -84,54 +82,70 @@ impl WsOpMessage for BybitWsOpMessage {
     }
 }
 
-
 #[derive(Debug)]
 /// Tは、WsMessageを実装した型。Subscribeメッセージの取引所の差分を実装する。
 /// WebSocketClientは、文字列のメッセージのやり取りを行う。
-pub struct WebSocketClient<T>
-where T: WsOpMessage + Send + Sync + Clone + 'static,
+pub struct WebSocketClient<T, U>
+where
+    T: Send + Clone + 'static,
+    U: WsOpMessage + Sync + Send + Sync + Clone + 'static,
 {
     // url: String,
     handle: Option<std::thread::JoinHandle<()>>,
-    connection: Arc<RwLock<AutoConnectClient<T>>>,
-    subscribe_list: Arc<RwLock<T>>,
-    message: Arc<RwLock<MultiChannel<MultiMarketMessage>>>,     // TODO: fix
-  //  control_ch: MultiChannel<String>, // send sbscribe message
+    connection: Arc<RwLock<AutoConnectClient<T, U>>>,
+    subscribe_list: Arc<RwLock<U>>,
+    message: Arc<RwLock<MultiChannel<MultiMarketMessage>>>, // TODO: fix
+    config: T,
+    //  control_ch: MultiChannel<String>, // send sbscribe message
 }
 
-impl <T>WebSocketClient<T>
-where T: WsOpMessage + Send + Sync + Clone + 'static,
+impl<T, U> WebSocketClient<T, U>
+where
+    T: Send + Sync + Clone,
+    U: WsOpMessage + Send + Sync + Clone + 'static,
 {
-    pub fn new(url: &str, subscribe: Vec<String>) -> Self {
-        let subscrive_list = Arc::new(RwLock::new(T::new()));
-        subscrive_list.as_ref().write().unwrap().add_params(&subscribe);
+    pub fn new(
+        config: &T,
+        url: &str,
+        subscribe: Vec<String>,
+        init_fn: Option<fn(&T) -> String>,
+    ) -> Self {
+        let subscrive_list = Arc::new(RwLock::new(U::new()));
+        subscrive_list
+            .as_ref()
+            .write()
+            .unwrap()
+            .add_params(&subscribe);
 
         WebSocketClient {
-            //url: url.to_string(),
+            config: config.clone(),
             handle: None,
             connection: Arc::new(RwLock::new(AutoConnectClient::new(
+                &config,
                 url,
                 subscrive_list.clone(),
+                init_fn,
             ))),
             subscribe_list: subscrive_list.clone(),
             message: Arc::new(RwLock::new(MultiChannel::new())),
-//            control_ch: MultiChannel::new(),
+            //            control_ch: MultiChannel::new(),
         }
     }
 
     /// connect to websocket server
     /// start listening thread
     pub fn connect<F>(&mut self, convert: F)
-        where F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static 
-     {
+    where
+        F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static,
+    {
         let websocket = self.connection.clone();
         let message_ch = self.message.clone();
 
         let handle = std::thread::spawn(move || {
-            let mut ws= websocket.write().unwrap();
+            let mut ws = websocket.write().unwrap();
             ws.connect();
             drop(ws);
-            
+
             loop {
                 let mut ws = websocket.write().unwrap();
                 let message = ws.receive_message();
@@ -143,7 +157,7 @@ where T: WsOpMessage + Send + Sync + Clone + 'static,
                 }
 
                 let message = convert(message.unwrap());
-                
+
                 let mut ch = message_ch.write().unwrap();
                 let result = ch.send(message);
                 if result.is_err() {
@@ -155,7 +169,6 @@ where T: WsOpMessage + Send + Sync + Clone + 'static,
 
         self.handle = Some(handle);
     }
-
 
     /// Append subscribe list and send subscribe message to send queue
     pub fn subscribe(&mut self, message: &Vec<String>) {
@@ -189,20 +202,31 @@ where T: WsOpMessage + Send + Sync + Clone + 'static,
 }
 
 #[derive(Debug)]
-pub struct SimpleWebsocket<T> {
+pub struct SimpleWebsocket<T, U> {
     connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
     url: String,
-    subscribe_message: Arc<RwLock<T>>,
+    subscribe_message: Arc<RwLock<U>>,
+    init_fn: Option<fn(&T) -> String>,
+    config: T,
 }
 
-impl <T>SimpleWebsocket<T>
-    where T: WsOpMessage
+impl<T, U> SimpleWebsocket<T, U>
+where
+    T: Clone,
+    U: WsOpMessage,
 {
-    pub fn new(url: &str, subscribe_message: Arc<RwLock<T>>) -> Self {
+    pub fn new(
+        config: &T,
+        url: &str,
+        subscribe_message: Arc<RwLock<U>>,
+        init_fn: Option<fn(&T) -> String>,
+    ) -> Self {
         SimpleWebsocket {
             connection: None,
             url: url.to_string(),
             subscribe_message: subscribe_message.clone(),
+            init_fn,
+            config: config.clone(),
         }
     }
 
@@ -227,6 +251,18 @@ impl <T>SimpleWebsocket<T>
         }
 
         self.connection = Some(socket);
+
+        if self.init_fn.is_some() {
+            let message = (self.init_fn.as_ref().unwrap())(&self.config);
+            self.send_message(&message);
+            self.flush();
+
+            log::debug!("init message: {}", message);
+
+            let accept = self.receive_message().unwrap();
+            log::debug!("accept message: {}", accept);
+        }
+
 
         let message: String = self.subscribe_message.read().unwrap().to_string();
 
@@ -328,17 +364,19 @@ impl <T>SimpleWebsocket<T>
 }
 
 #[derive(Debug)]
-pub struct AutoConnectClient<T> {
-    client: Option<SimpleWebsocket<T>>,
-    next_client: Option<SimpleWebsocket<T>>,
+pub struct AutoConnectClient<T, U> {
+    client: Option<SimpleWebsocket<T, U>>,
+    next_client: Option<SimpleWebsocket<T, U>>,
     pub url: String,
-    subscribe_message: Arc<RwLock<T>>,
+    subscribe_message: Arc<RwLock<U>>,
     last_message: String,
     last_connect_time: MicroSec,
     last_ping_time: MicroSec,
     sync_interval: MicroSec,
     sync_records: i64,
     sync_mode: bool,
+    init_fn: Option<fn(&T) -> String>,
+    config: T,
 }
 
 const SYNC_RECORDS: i64 = 3;
@@ -347,10 +385,17 @@ const SYNC_RECORDS: i64 = 3;
 const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6 hours
 const PING_INTERVAL: MicroSec = MICRO_SECOND * 60 * 3; // every 3 min
 
-impl <T>AutoConnectClient<T>
-    where T: WsOpMessage
-     {
-    pub fn new(url: &str, message: Arc<RwLock<T>>) -> Self {
+impl<T, U> AutoConnectClient<T, U>
+where
+    T: Clone,
+    U: WsOpMessage,
+{
+    pub fn new(
+        config: &T,
+        url: &str,
+        message: Arc<RwLock<U>>,
+        init_fn: Option<fn(&T) -> String>,
+    ) -> Self {
         AutoConnectClient {
             client: None,
             next_client: None,
@@ -362,13 +407,17 @@ impl <T>AutoConnectClient<T>
             sync_interval: SYNC_INTERVAL,
             sync_records: 0,
             sync_mode: false,
+            init_fn: init_fn,
+            config: config.clone(),
         }
     }
 
     pub fn connect(&mut self) {
         self.client = Some(SimpleWebsocket::new(
+            &self.config,
             self.url.as_str(),
             self.subscribe_message.clone(),
+            self.init_fn,
         ));
         self.client.as_mut().unwrap().connect();
         self.last_connect_time = NOW();
@@ -380,8 +429,10 @@ impl <T>AutoConnectClient<T>
         }
 
         self.next_client = Some(SimpleWebsocket::new(
+            &self.config,            
             self.url.as_str(),
             self.subscribe_message.clone(),
+            self.init_fn,
         ));
         self.next_client.as_mut().unwrap().connect();
         self.last_connect_time = NOW();
@@ -525,7 +576,11 @@ impl <T>AutoConnectClient<T>
 
 #[cfg(test)]
 mod test_exchange_ws {
+    use polars_core::config;
+
     use crate::common::init_debug_log;
+    use crate::exchange::binance::BinanceConfig;
+    use crate::exchange::bybit::config::BybitServerConfig;
     use crate::exchange::bybit::message::BybitWsMessage;
 
     use super::*;
@@ -535,29 +590,34 @@ mod test_exchange_ws {
 
     #[test]
     fn ws_loop() {
+        let config = BinanceConfig::BTCUSDT();
         let mut message = BinanceWsOpMessage::new();
-        
+
         message.add_params(&vec![
             "btcusdt@trade".to_string(),
             "btcusdt@depth".to_string(),
         ]);
 
         let mut ws1 = SimpleWebsocket::new(
+            &config,
             "wss://stream.binance.com/ws",
             Arc::new(RwLock::new(message)),
+            None,
         );
         ws1.connect();
 
         let mut message2 = BinanceWsOpMessage::new();
-        
+
         message2.add_params(&vec![
             "btcusdt@trade".to_string(),
             "btcusdt@depth".to_string(),
         ]);
 
         let mut ws2 = SimpleWebsocket::new(
+            &config,
             "wss://stream.binance.com/ws",
             Arc::new(RwLock::new(message2)),
+            None,
         );
 
         ws2.connect();
@@ -575,16 +635,20 @@ mod test_exchange_ws {
 
     #[test]
     fn test_reconnect() {
+        let config = BinanceConfig::BTCUSDT();        
+
         let mut message = BinanceWsOpMessage::new();
-        
+
         message.add_params(&vec![
             "btcusdt@trade".to_string(),
             "btcusdt@depth".to_string(),
         ]);
 
         let mut ws = AutoConnectClient::new(
+            &config,
             "wss://stream.binance.com/ws",
             Arc::new(RwLock::new(message)),
+            None,
         );
 
         ws.connect();
@@ -621,8 +685,10 @@ mod test_exchange_ws {
     fn test_websocket_client() {
         init_debug_log();
 
-        let mut ws: WebSocketClient<BinanceWsOpMessage>  = WebSocketClient::new(
-                "wss://stream.binance.com/ws", vec![]);
+        let config = BinanceConfig::BTCUSDT();
+
+        let mut ws: WebSocketClient<BinanceConfig, BinanceWsOpMessage> =
+            WebSocketClient::new(&config, "wss://stream.binance.com/ws", vec![], None);
 
         log::debug!("subscribe");
         ws.subscribe(&mut vec![
@@ -631,12 +697,10 @@ mod test_exchange_ws {
         ]);
 
         log::debug!("connect");
-        ws.connect(
-            |message| {
-                let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
-                return message.into();
-            }
-        );
+        ws.connect(|message| {
+            let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
+            return message.into();
+        });
 
         let ch = ws.open_channel();
 
@@ -666,20 +730,22 @@ mod test_exchange_ws {
 
     #[test]
     pub fn bybit_ws_connect_test() {
-        let mut ws: WebSocketClient<BybitWsOpMessage> = WebSocketClient::new(
+        let config = BybitServerConfig::new(false);
+
+        let mut ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage> = WebSocketClient::new(
+            &config,
             "wss://stream.bybit.com/v5/public/spot",
             vec!["publicTrade.BTCUSDT".to_string()],
+            None,
         );
 
         // ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()]);
 
         log::debug!("connect");
-        ws.connect(
-            |message| {
-                let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
-                return message.into();
-            }
-        );
+        ws.connect(|message| {
+            let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
+            return message.into();
+        });
         let ch = ws.open_channel();
 
         for _ in 0..3 {
@@ -693,23 +759,26 @@ mod test_exchange_ws {
     pub fn bybit_ws_connect_test2() {
         init_debug_log();
 
-        let mut ws: WebSocketClient<BybitWsOpMessage> = WebSocketClient::new(
+        let config = BybitServerConfig::new(false);
+
+        let mut ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage> = WebSocketClient::new(
+            &config,
             "wss://stream.bybit.com/v5/public/spot",
-            vec!["publicTrade.BTCUSDT".to_string(),
-                            "orderbook.200.BTCUSDT".to_string()
+            vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
             ],
+            None,
         );
 
-//        log::debug!("subscribe");
+        //        log::debug!("subscribe");
         //ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()]);
 
         log::debug!("connect");
-        ws.connect(
-            |message| {
-                let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
-                return message.into();
-            }   
-        );
+        ws.connect(|message| {
+            let message: BybitWsMessage = serde_json::from_str(&message).unwrap();
+            return message.into();
+        });
         let ch = ws.open_channel();
 
         for _ in 0..5 {
@@ -718,17 +787,12 @@ mod test_exchange_ws {
             println!("{:?}", message.unwrap());
         }
 
-
-
-//        ws.subscribe(&mut vec!["orderbook.200.BTCUSDT".to_string()]);
-
+        //        ws.subscribe(&mut vec!["orderbook.200.BTCUSDT".to_string()]);
 
         for _ in 0..10 {
             let message = ch.recv();
 
             println!("{:?}", message.unwrap());
         }
-
     }
-
 }

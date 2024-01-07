@@ -15,7 +15,7 @@ use common::{
 };
 use exchange::BoardItem;
 use exchange::bybit::{BybitMarket, Bybit};
-use exchange::bybit::config::BybitConfig;
+use exchange::bybit::config::{BybitConfig, BybitServerConfig};
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
 use exchange::binance::{BinanceMarket, BinanceConfig};
@@ -72,6 +72,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Bybit>()?;
     m.add_class::<BybitMarket>()?;
     m.add_class::<BybitConfig>()?;
+    m.add_class::<BybitServerConfig>()?;
     
     Ok(())
 }
