@@ -41,7 +41,9 @@ pub enum OrderStatus {
     #[strum(ascii_case_insensitive)]
     Rejected, // システムからの拒否（指値範囲外、数量不足など）
     #[strum(ascii_case_insensitive)]
-    Error, // その他エラー
+    Error, // エラー
+    #[strum(ascii_case_insensitive)]
+    Unknown, // その他未定義状態
 }
 
 pub fn orderstatus_deserialize<'de, D>(deserializer: D) -> Result<OrderStatus, D::Error>
@@ -148,19 +150,26 @@ impl OrderSide {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 /// enum order type
 pub enum OrderType {
-    #[strum(ascii_case_insensitive, serialize = "Limit")]
     Limit,
-    #[strum(ascii_case_insensitive, serialize = "Market")]
     Market,
+    Unknown,
 }
 #[pymethods]
 impl OrderType {
+    pub fn to_string(&self) -> String {
+        match self {
+            OrderType::Limit => "Limit".to_string(),
+            OrderType::Market => "Market".to_string(),
+            OrderType::Unknown => "Unknown".to_string(),
+        }   
+    }
+
     pub fn __str__(&self) -> String {
-        self.__repr__()
+        self.to_string()
     }
 
     pub fn __repr__(&self) -> String {
-        serde_json::to_string(&self).unwrap()
+        self.to_string()
     }
 }
 
@@ -838,6 +847,9 @@ impl Order {
             }
             OrderStatus::Canceled | OrderStatus::Rejected | OrderStatus::Error => {
                 self.update_balance_canceled(config);
+            }
+            _ => {
+                log::warn!("Order.update_balance: Unknown order status. order={:?}", self);
             }
         }
     }
