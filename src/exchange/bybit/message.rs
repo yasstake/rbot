@@ -640,6 +640,80 @@ pub struct BybitWsOrderbookMessage {
     pub timestamp: BybitTimestamp,
 }
 
+#[serde(untagged)]
+#[derive(Debug, Clone, Deserialize)]
+pub enum BybitUserStreamMessage {
+    Status(BybitWsStatus),
+    Execution(BybitExecutionMessage),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BybitExecutionMessage {
+    pub id: String,
+    pub topic: String,
+    pub creationTime: BybitTimestamp,
+    pub data: Vec<BybitExecution>,
+}
+
+/*
+             "category": "linear",
+            "symbol": "XRPUSDT",
+            "execFee": "0.005061",
+            "execId": "7e2ae69c-4edf-5800-a352-893d52b446aa",
+            "execPrice": "0.3374",
+            "execQty": "25",
+            "execType": "Trade",
+            "execValue": "8.435",
+            "isMaker": false,
+            "feeRate": "0.0006",
+            "tradeIv": "",
+            "markIv": "",
+            "blockTradeId": "",
+            "markPrice": "0.3391",
+            "indexPrice": "",
+            "underlyingPrice": "",
+            "leavesQty": "0",
+            "orderId": "f6e324ff-99c2-4e89-9739-3086e47f9381",
+            "orderLinkId": "",
+            "orderPrice": "0.3207",
+            "orderQty": "25",
+            "orderType": "Market",
+            "stopOrderType": "UNKNOWN",
+            "side": "Sell",
+            "execTime": "1672364174443",
+            "isLeverage": "0",
+            "closedSize": "",
+            "seq": 4688002127
+ */
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitExecution {
+    pub category: String,
+    pub symbol: String,
+    pub orderId: String,
+    pub orderLinkId: String,
+    pub side: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub orderPrice: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub orderQty: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    pub leavesQty: Decimal,
+    pub orderType: String,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    pub execFee: Decimal,
+    pub execId: String,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    pub execPrice: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    pub execQty: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    pub execValue: Decimal,
+    pub execTime: BybitTimestamp,
+    pub isMaker: bool,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    pub feeRate: Decimal,
+    pub seq: i64,
+}
 
 
 #[cfg(test)]

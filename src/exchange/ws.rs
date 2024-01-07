@@ -206,7 +206,7 @@ pub struct SimpleWebsocket<T, U> {
     connection: Option<WebSocket<MaybeTlsStream<TcpStream>>>,
     url: String,
     subscribe_message: Arc<RwLock<U>>,
-    f: Option<fn(&T) -> String>,
+    init_fn: Option<fn(&T) -> String>,
     config: T,
 }
 
@@ -225,7 +225,7 @@ where
             connection: None,
             url: url.to_string(),
             subscribe_message: subscribe_message.clone(),
-            f: init_fn,
+            init_fn,
             config: config.clone(),
         }
     }
@@ -251,6 +251,18 @@ where
         }
 
         self.connection = Some(socket);
+
+        if self.init_fn.is_some() {
+            let message = (self.init_fn.as_ref().unwrap())(&self.config);
+            self.send_message(&message);
+            self.flush();
+
+            log::debug!("init message: {}", message);
+
+            let accept = self.receive_message().unwrap();
+            log::debug!("accept message: {}", accept);
+        }
+
 
         let message: String = self.subscribe_message.read().unwrap().to_string();
 

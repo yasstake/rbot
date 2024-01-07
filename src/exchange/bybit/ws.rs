@@ -1,10 +1,13 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    sync::{Arc, RwLock},
+    thread::{self, JoinHandle},
+};
 
 use openssl::sign;
 
 use crate::{
     common::NOW,
-    exchange::{hmac_sign, AutoConnectClient, BybitWsOpMessage, WsOpMessage},
+    exchange::{hmac_sign, AutoConnectClient, BybitWsOpMessage, WsOpMessage, bybit::message::BybitUserStreamMessage},
 };
 
 use super::config::BybitServerConfig;
@@ -24,80 +27,70 @@ fn make_auth_message(config: &BybitServerConfig) -> String {
     message.to_string()
 }
 
+pub fn listen_userdata_stream<F>(config: &BybitServerConfig, mut f: F) -> JoinHandle<()> 
+where
+    F: FnMut(BybitUserStreamMessage) + Send + 'static
+{
 
-
-pub fn listen_userdata_stream<F>(config: &BybitServerConfig, mut f: F) {
     let url = config.private_ws.clone();
 
     let mut message = BybitWsOpMessage::new();
-    message.add_params(&vec!["execution".to_string()]);
+    message.add_params(&vec!["execution".to_string(), "wallet".to_string()]);
 
     let auth_message = make_auth_message;
 
-    let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> = AutoConnectClient::new(
-        config,
-        &url,
-        Arc::new(RwLock::new(message)),
-        None
-    );
-
-
-    /*
-
-        let message = BybitWsOpMessage::new();
-        let mut websocket: AutoConnectClient<BybitWsOpMessage> = AutoConnectClient::new(
-            url.as_str(),
+    let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> =
+        AutoConnectClient::new(
+            config,
+            &url,
             Arc::new(RwLock::new(message)),
+            Some(make_auth_message),
         );
-        websocket.connect();
-        let now = NOW();
-        let mut key_extend_timer: MicroSec = now;
-        let cc = config.clone();
-        let handle = thread::spawn(move || {
-            let config = cc;
-            loop {
-                let msg = websocket.receive_message();
-                if msg.is_err() {
-                    log::warn!("Error in websocket.receive_message: {:?}", msg);
-                    continue;
-                }
-                let msg = msg.unwrap();
-                log::debug!("raw msg: {}", msg);
-                let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
-                if msg.is_err() {
-                    log::warn!("Error in serde_json::from_str: {:?}", msg);
-                    continue;
-                }
-                let msg = msg.unwrap();
-                f(msg);
-                let now = NOW();
-                if key_extend_timer + KEY_EXTEND_INTERVAL < now {
-                    match extend_listen_key(&config, &key.clone()) {
-                        Ok(key) => {
-                            log::debug!("Key extend success: {:?}", key);
-                        }
-                        Err(e) => {
-                            let key = create_listen_key(&config);
-                            websocket.url = make_user_stream_endpoint(&config, key.unwrap());
-                            log::error!("Key extend error: {}  / NEW url={}", e, websocket.url);
-                        }
-                    }
-                    key_extend_timer = now;
-                }
-            }
-        });
-        handle
 
-    */
+    websocket.connect();
+    let handle = thread::spawn(move || loop {
+        let msg = websocket.receive_message();
+        if msg.is_err() {
+            log::warn!("Error in websocket.receive_message: {:?}", msg);
+            continue;
+        }
+        let msg = msg.unwrap();
+        log::debug!("raw msg: {}", msg);
+        let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
+        if msg.is_err() {
+            log::warn!("Error in serde_json::from_str: {:?}", msg);
+            continue;
+        }
+        let msg = msg.unwrap();
+        f(msg);
+    });
+    handle
 }
 
 #[cfg(test)]
 mod test_ws {
+    use crate::common::init_debug_log;
+
     #[test]
     fn test_make_auth_message() {
         use crate::exchange::bybit::config::BybitServerConfig;
         let config = BybitServerConfig::new(false);
         let msg = super::make_auth_message(&config);
         println!("{}", msg);
+    }
+
+    #[test]
+    fn test_connect() {
+        use crate::exchange::bybit::config::BybitServerConfig;
+        use crate::exchange::bybit::ws::listen_userdata_stream;
+        let config = BybitServerConfig::new(true);
+
+        init_debug_log();
+
+        listen_userdata_stream(&config, |msg| {
+            println!("{:?}", msg);
+        });
+
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
