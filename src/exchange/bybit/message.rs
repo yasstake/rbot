@@ -16,6 +16,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 
+use crate::common::AccountStatus;
 use crate::common::HHMM;
 use crate::common::LogStatus;
 use crate::common::MarketConfig;
@@ -656,11 +657,23 @@ pub enum BybitUserStreamMessage {
     data(BybitUserMessageData),
 }
 
+impl BybitUserStreamMessage {
+    pub fn convert_to_market_message(&self, config: &MarketConfig) -> Vec<MarketMessage> {
+        vec![]
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitUserMessageData {
     pub topic: String,
     pub timestamp: BybitTimestamp,    
     pub data: BybitUserMessage,
+}
+
+impl BybitUserMessageData {
+    pub fn convert_to_market_message(&self, config: &MarketConfig) -> Vec<MarketMessage> {
+        vec![]
+    }
 }
 
 
@@ -671,7 +684,7 @@ pub enum BybitUserMessage {
         id: String,
           //topic: String,
         creationTime: BybitTimestamp,
-        data: Vec<BybitUserData>,
+        data: Vec<BybitOrderStatus>,
     },
     wallet{
         id: String,
@@ -687,22 +700,76 @@ pub enum BybitUserMessage {
     },
 }
 
-#[serde(untagged)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BybitUserData {
-    execution(BybitExecution),    
-    order_update(BybitOrderStatus),
-    account_status(BybitAccountStatus),
+impl BybitUserMessage {
+    pub fn convert_to_market_message(&self, config: &MarketConfig) -> Vec<MarketMessage> {
+        match self {
+            BybitUserMessage::order{id, creationTime, data} => {
+                let mut message: Vec<MarketMessage> = vec![];
+
+                for order in data {
+                    let o: Order = order.into();
+
+                    let market_message = MarketMessage {
+                        trade: None,
+                        order: Some(o),
+                        account: None,
+                        orderbook: None,
+                        message: None,
+                    };
+
+                    message.push(market_message);
+                }
+
+                message
+            },
+            BybitUserMessage::wallet{id, creationTime, data} => {
+                let mut message: Vec<MarketMessage> = vec![];
+
+                for account in data {
+                    let a: AccountStatus = account.into();
+
+                    let market_message = MarketMessage {
+                        trade: None,
+                        order: None,
+                        account: Some(a),
+                        orderbook: None,
+                        message: None,
+                    };
+
+                    message.push(market_message);
+                }
+
+                message
+            },
+            _ => {
+                log::warn!("un supported message {:?}", self);
+                vec![]
+            }
+            /*
+            BybitUserMessage::execution{id, creationTime, data} => {
+                let mut message: Vec<MarketMessage> = vec![];
+
+                for execution in data.iter() {
+                    let e: Trade = execution.into();
+
+                    let market_message = MarketMessage {
+                        trade: Some(e),
+                        order: None,
+                        account: None,
+                        orderbook: None,
+                        message: None,
+                    };
+
+                    message.push(market_message);
+                }
+
+                message
+            },
+            */
+        }
+    }
 }
 
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct BybitExecutionMessage {
-    pub id: String,
-    pub topic: String,
-    pub creationTime: BybitTimestamp,
-    pub data: Vec<BybitExecution>,
-}
 
 
 /*
@@ -795,17 +862,6 @@ impl BybitOrderUpdateMessage {
     }
 }
 
-//
-///
-/// 
-/*
-{"topic":"order","id":"100467532_BTCUSDT_8842263442","creationTime":1704706900005,"data":[{"category":"linear","symbol":"BTCUSDT","orderId":"d8276771-f430-4953-9c3a-050daa6ac297","orderLinkId":"","blockTradeId":"","side":"Buy","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","timeInForce":"IOC","isLeverage":"","price":"46064.5","qty":"0.01","avgPrice":"43871.5","leavesQty":"0","leavesValue":"0","cumExecQty":"0.01","cumExecValue":"438.715","cumExecFee":"0.24129325","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"","takeProfit":"","stopLoss":"","triggerBy":"","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"placeType":"","lastPriceOnCreated":"43871","closeOnTrigger":false,"reduceOnly":false,"smpGroup":0,"smpType":"None","smpOrderId":"","slLimitPrice":"0","tpLimitPrice":"0","tpslMode":"UNKNOWN","createType":"CreateByUser","marketUnit":"","createdTime":"1704706900000","updatedTime":"1704706900004","feeCurrency":""}]}
-*/
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BybitOrderUpdate {
-
-}
-
 /*
 {"id":"100467532_wallet_1704705368721","topic":"wallet","creationTime":1704705368720,"data":[{"accountIMRate":"0.0312","accountMMRate":"0.0017","totalEquity":"10011.98943823","totalWalletBalance":"10003.19038373","totalMarginBalance":"10011.98943823","totalAvailableBalance":"9698.9208178","totalPerpUPL":"8.79905449","totalInitialMargin":"313.06862043","totalMaintenanceMargin":"17.32645111","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10007.37603788","usdValue":"10011.98943823","walletBalance":"9998.58103788","availableToWithdraw":"9694.45167558","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"40.418","totalPositionIM":"272.5063623","totalPositionMM":"14.9004673","unrealisedPnl":"8.795","cumRealisedPnl":"-1.41896212","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
 */
@@ -838,6 +894,25 @@ pub struct BybitAccountStatus {
     #[serde(deserialize_with = "string_to_decimal")]    
     totalMaintenanceMargin: Decimal, // account total maintenance margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     coin: Vec<BybitAccountCoin>,
+}
+
+// TODO: implment
+// TODO: MarketConfigを引き継ぐように変更する。
+// Margin取引のときは、homeだけ有効
+// home_freeは有効マージン相当として扱う
+impl Into<AccountStatus> for &BybitAccountStatus {
+    fn into(self) -> AccountStatus {
+        let account = AccountStatus{
+            home: dec![0.0],
+            home_free:  dec![0.0],
+            home_locked:  dec![0.0],
+            foreign:  dec![0.0],
+            foreign_free:  dec![0.0],
+            foreign_locked:  dec![0.0],
+        };
+
+        account
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
