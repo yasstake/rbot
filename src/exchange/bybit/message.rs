@@ -11,6 +11,7 @@ use polars_core::series::Series;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
@@ -652,16 +653,38 @@ pub struct BybitWsOrderbookMessage {
 #[derive(Debug, Clone, Deserialize)]
 pub enum BybitUserStreamMessage {
     status(BybitWsStatus),
-    data(BybitUserMessage),
+    data(BybitUserMessageData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitUserMessageData {
+    pub topic: String,
+    pub timestamp: BybitTimestamp,    
+    pub data: BybitUserMessage,
 }
 
 
+#[serde(tag="topic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BybitUserMessage {
-    pub id: String,
-    pub topic: String,
-    pub creationTime: BybitTimestamp,
-    pub data: Vec<BybitUserData>,
+pub enum BybitUserMessage {
+    order{
+        id: String,
+          //topic: String,
+        creationTime: BybitTimestamp,
+        data: Vec<BybitUserData>,
+    },
+    wallet{
+        id: String,
+        //topic: String,
+        creationTime: BybitTimestamp,
+        data: Vec<BybitAccountStatus>,
+    },
+    execution{
+        id: String,
+        //topic: String,
+        creationTime: BybitTimestamp,
+        data: Vec<BybitExecution>,
+    },
 }
 
 #[serde(untagged)]
@@ -786,15 +809,76 @@ pub struct BybitOrderUpdate {
 /*
 {"id":"100467532_wallet_1704705368721","topic":"wallet","creationTime":1704705368720,"data":[{"accountIMRate":"0.0312","accountMMRate":"0.0017","totalEquity":"10011.98943823","totalWalletBalance":"10003.19038373","totalMarginBalance":"10011.98943823","totalAvailableBalance":"9698.9208178","totalPerpUPL":"8.79905449","totalInitialMargin":"313.06862043","totalMaintenanceMargin":"17.32645111","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10007.37603788","usdValue":"10011.98943823","walletBalance":"9998.58103788","availableToWithdraw":"9694.45167558","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"40.418","totalPositionIM":"272.5063623","totalPositionMM":"14.9004673","unrealisedPnl":"8.795","cumRealisedPnl":"-1.41896212","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
 */
+
+/*
+ {"id":"100467532_wallet_1704710084610","topic":"wallet","creationTime":1704710084610,
+ "data":[{"accountIMRate":"0.0774","accountMMRate":"0.0043","totalEquity":"10024.53809208","totalWalletBalance":"10002.88388718","totalMarginBalance":"10024.53809208","totalAvailableBalance":"9248.37416492","totalPerpUPL":"21.65420489","totalInitialMargin":"776.16392715","totalMaintenanceMargin":"43.89672512","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10019.01761338","usdValue":"10024.53809208","walletBalance":"9997.37533338","availableToWithdraw":"9243.28111703","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"282.926","totalPositionIM":"492.81049635","totalPositionMM":"26.94655135","unrealisedPnl":"21.64228","cumRealisedPnl":"-2.62466662","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitAccountStatus {
-
+    accountType: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    accountLTV: Decimal,         // account total borrowed size / (account total equity + account total borrowed size). In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    accountIMRate: Decimal,      // account initial margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    accountMMRate: Decimal,      // account maintenance margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalEquity: Decimal,        // account total equity. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalWalletBalance: Decimal, // account total wallet balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalMarginBalance: Decimal, // account total margin balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalAvailableBalance: Decimal, // account total available balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalPerpUPL: Decimal,       // account total unrealized PnL. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalInitialMargin: Decimal, // account total initial margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    #[serde(deserialize_with = "string_to_decimal")]    
+    totalMaintenanceMargin: Decimal, // account total maintenance margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    coin: Vec<BybitAccountCoin>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitAccountCoin {
+    coin: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    equity: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]    
+    usdValue: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]        
+    walletBalance: Decimal,
+    free: Option<String>,
+    #[serde(deserialize_with = "string_to_decimal")]            
+    locked: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                
+    spotHedgingQty: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                    
+    borrowAmount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                        
+    availableToWithdraw: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                            
+    availableToBorrow: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                
+    accruedInterest: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                    
+    totalOrderIM: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                        
+    totalPositionIM: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                            
+    unrealisedPnl: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                                
+    cumRealisedPnl: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]                                                    
+    bonus: Decimal,
+    collateralSwitch: bool,
+    marginCollateral: bool,
+}
 
 #[cfg(test)]
 mod bybit_message_test {
-    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData, BybitWsOrderbook, BybitWsTrade, BybitMultiOrderStatus};
+    use crate::exchange::bybit::message::{BybitRestResponse, BybitTradeResponse, BybitWsStatus, BybitWsData, BybitWsOrderbook, BybitWsTrade, BybitMultiOrderStatus, BybitUserStreamMessage, BybitAccountStatus};
 
     use super::{BybitRestBoard, BybitWsMessage};
 
@@ -974,5 +1058,28 @@ const BYBIT_ORDER_1: &str =r#"{"topic":"publicTrade.BTCUSDT","ts":1703430744103,
 
         println!("{:?}", result);
         assert!(result.is_ok());
+    }
+
+
+    #[test]
+    fn test_parse_user_stream_data() {
+        let message: &str = r#"{"success":true,"ret_msg":"","op":"subscribe","conn_id":"cm6ickhqo29n65o1kpog-74ew"}"#;
+        let result = serde_json::from_str::<BybitUserStreamMessage>(message);
+        println!("{:?}", result);
+
+        let message: &str = r#"
+        {"accountIMRate":"0.0929","accountMMRate":"0.0052","totalEquity":"10140.2751031","totalWalletBalance":"10005.94544876","totalMarginBalance":"10140.2751031","totalAvailableBalance":"9197.25798225","totalPerpUPL":"134.32965434","totalInitialMargin":"943.01712085","totalMaintenanceMargin":"53.64509097","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10131.33926188","usdValue":"10140.2751031","walletBalance":"9997.12798188","availableToWithdraw":"9189.15314918","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"404.18","totalPositionIM":"538.0061127","totalPositionMM":"29.4178177","unrealisedPnl":"134.21128","cumRealisedPnl":"-2.87201812","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}
+        "#;
+
+        let result = serde_json::from_str::<BybitAccountStatus>(message);
+        println!("{:?}", result);
+
+
+        let message: &str = r#"
+        {"id":"100467532_wallet_1704721219498","topic":"wallet","creationTime":1704721219498,"data":[{"accountIMRate":"0.0929","accountMMRate":"0.0052","totalEquity":"10140.2751031","totalWalletBalance":"10005.94544876","totalMarginBalance":"10140.2751031","totalAvailableBalance":"9197.25798225","totalPerpUPL":"134.32965434","totalInitialMargin":"943.01712085","totalMaintenanceMargin":"53.64509097","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10131.33926188","usdValue":"10140.2751031","walletBalance":"9997.12798188","availableToWithdraw":"9189.15314918","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"404.18","totalPositionIM":"538.0061127","totalPositionMM":"29.4178177","unrealisedPnl":"134.21128","cumRealisedPnl":"-2.87201812","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
+        "#;
+
+        let result = serde_json::from_str::<BybitUserStreamMessage>(message);
+        println!("{:?}", result);
     }
 }
