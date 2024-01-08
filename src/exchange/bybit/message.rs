@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use crate::common::HHMM;
 use crate::common::LogStatus;
+use crate::common::MarketConfig;
 use crate::common::MarketMessage;
 use crate::common::MicroSec;
 use crate::common::MultiMarketMessage;
@@ -435,6 +436,42 @@ pub struct BybitOrderStatus {
     pub updatedTime: BybitTimestamp,
 }
 
+impl Into<Order> for &BybitOrderStatus {
+    fn into(self) -> Order {
+        Order {
+        symbol: self.symbol.clone(),
+        create_time: self.createdTime,
+        status: bybit_order_status(&self.orderStatus),
+        order_id: self.orderId.clone(),
+        client_order_id: self.orderLinkId.clone(),
+        order_side: OrderSide::from(&self.side),
+        order_type: OrderType::from(&self.orderType),
+        order_price: self.price,
+        order_size: self.qty,
+        remain_size: self.leavesQty,
+        transaction_id: self.orderId.clone(),
+        update_time: self.updatedTime,
+        execute_price: self.avgPrice,
+        execute_size: self.cumExecQty,
+        quote_vol: self.price * self.qty,
+        commission: self.cumExecFee,
+        commission_asset: "".to_string(),
+        is_maker: true,
+        message: "".to_string(),
+        commission_home: dec![0.0],
+        commission_foreign: dec![0.0],
+        home_change: dec![0.0],
+        foreign_change: dec![0.0],
+        free_home_change: dec![0.0],
+        free_foreign_change: dec![0.0],
+        lock_home_change: dec![0.0],
+        lock_foreign_change: dec![0.0],
+        log_id: 0,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BybitMultiOrderStatus {
@@ -449,36 +486,7 @@ impl Into<Vec<Order>> for BybitMultiOrderStatus {
         let mut orders: Vec<Order> = vec![];
 
         for order in self.list.iter() {
-            let o = Order {
-                symbol: order.symbol.clone(),
-                create_time: order.createdTime,
-                status: bybit_order_status(&order.orderStatus),
-                order_id: order.orderId.clone(),
-                client_order_id: order.orderLinkId.clone(),
-                order_side: OrderSide::from(&order.side),
-                order_type: OrderType::from(&order.orderType),
-                order_price: order.price,
-                order_size: order.qty,
-                remain_size: order.leavesQty,
-                transaction_id: order.orderId.clone(),
-                update_time: order.updatedTime,
-                execute_price: order.avgPrice,
-                execute_size: order.cumExecQty,
-                quote_vol: order.price * order.qty,
-                commission: order.cumExecFee,
-                commission_asset: "".to_string(),
-                is_maker: true,
-                message: "".to_string(),
-                commission_home: dec![0.0],
-                commission_foreign: dec![0.0],
-                home_change: dec![0.0],
-                foreign_change: dec![0.0],
-                free_home_change: dec![0.0],
-                free_foreign_change: dec![0.0],
-                lock_home_change: dec![0.0],
-                lock_foreign_change: dec![0.0],
-                log_id: 0,
-            };
+            let o: Order = order.into();
             orders.push(o);
         }
 
@@ -643,9 +651,27 @@ pub struct BybitWsOrderbookMessage {
 #[serde(untagged)]
 #[derive(Debug, Clone, Deserialize)]
 pub enum BybitUserStreamMessage {
-    Status(BybitWsStatus),
-    Execution(BybitExecutionMessage),
+    status(BybitWsStatus),
+    data(BybitUserMessage),
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitUserMessage {
+    pub id: String,
+    pub topic: String,
+    pub creationTime: BybitTimestamp,
+    pub data: Vec<BybitUserData>,
+}
+
+#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BybitUserData {
+    execution(BybitExecution),    
+    order_update(BybitOrderStatus),
+    account_status(BybitAccountStatus),
+}
+
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BybitExecutionMessage {
@@ -654,6 +680,7 @@ pub struct BybitExecutionMessage {
     pub creationTime: BybitTimestamp,
     pub data: Vec<BybitExecution>,
 }
+
 
 /*
              "category": "linear",
@@ -713,6 +740,55 @@ pub struct BybitExecution {
     #[serde(deserialize_with = "string_to_decimal")]        
     pub feeRate: Decimal,
     pub seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitOrderUpdateMessage {
+    pub id: String,
+    pub topic: String,
+    pub creationTime: BybitTimestamp,
+    pub data: Vec<BybitOrderStatus>,
+}
+
+impl BybitOrderUpdateMessage {
+    pub fn convert_to_market_message(&self, config: &MarketConfig) -> Vec<MarketMessage> {
+        let mut message: Vec<MarketMessage> = vec![];
+
+        for order in self.data.iter() {
+            let o: Order = order.into();
+
+            let market_message = MarketMessage {
+                trade: None,
+                order: Some(o),
+                account: None,
+                orderbook: None,
+                message: None,
+            };
+
+            message.push(market_message);
+        }
+
+        message
+    }
+}
+
+//
+///
+/// 
+/*
+{"topic":"order","id":"100467532_BTCUSDT_8842263442","creationTime":1704706900005,"data":[{"category":"linear","symbol":"BTCUSDT","orderId":"d8276771-f430-4953-9c3a-050daa6ac297","orderLinkId":"","blockTradeId":"","side":"Buy","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","timeInForce":"IOC","isLeverage":"","price":"46064.5","qty":"0.01","avgPrice":"43871.5","leavesQty":"0","leavesValue":"0","cumExecQty":"0.01","cumExecValue":"438.715","cumExecFee":"0.24129325","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"","takeProfit":"","stopLoss":"","triggerBy":"","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"placeType":"","lastPriceOnCreated":"43871","closeOnTrigger":false,"reduceOnly":false,"smpGroup":0,"smpType":"None","smpOrderId":"","slLimitPrice":"0","tpLimitPrice":"0","tpslMode":"UNKNOWN","createType":"CreateByUser","marketUnit":"","createdTime":"1704706900000","updatedTime":"1704706900004","feeCurrency":""}]}
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitOrderUpdate {
+
+}
+
+/*
+{"id":"100467532_wallet_1704705368721","topic":"wallet","creationTime":1704705368720,"data":[{"accountIMRate":"0.0312","accountMMRate":"0.0017","totalEquity":"10011.98943823","totalWalletBalance":"10003.19038373","totalMarginBalance":"10011.98943823","totalAvailableBalance":"9698.9208178","totalPerpUPL":"8.79905449","totalInitialMargin":"313.06862043","totalMaintenanceMargin":"17.32645111","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10007.37603788","usdValue":"10011.98943823","walletBalance":"9998.58103788","availableToWithdraw":"9694.45167558","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"40.418","totalPositionIM":"272.5063623","totalPositionMM":"14.9004673","unrealisedPnl":"8.795","cumRealisedPnl":"-1.41896212","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitAccountStatus {
+
 }
 
 

@@ -582,7 +582,7 @@ mod test_exchange_ws {
     use crate::exchange::binance::BinanceConfig;
     use crate::exchange::bybit::config::BybitServerConfig;
     use crate::exchange::bybit::message::BybitWsMessage;
-
+    
     use super::*;
     use std::thread::sleep;
     use std::thread::spawn;

@@ -455,6 +455,17 @@ pub fn do_rest_request(
         body
     );
 
+    if response.status().as_str() != "200" {
+        return Err(format!(
+            "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
+            response.status().as_str(),
+            response.content_length(),
+            method,
+            url,
+            body
+        ));
+    }
+
     Ok(response.text().unwrap())
 }
 

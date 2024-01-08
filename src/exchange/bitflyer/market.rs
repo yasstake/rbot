@@ -9,9 +9,9 @@ use std::thread::{self, sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::{
-    flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
-    MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
-    FLOOR_DAY, HHMM, NOW,
+    flush_log, time_string, to_naive_datetime, AccountStatus, LogStatus, MarketConfig,
+    MarketMessage, MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType,
+    Trade, DAYS, FLOOR_DAY, HHMM, NOW,
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableDb};
@@ -34,9 +34,6 @@ use super::rest::new_market_order;
 use super::rest::order_status;
 use super::rest::trade_list;
 use super::rest::{cancel_order, get_recent_trade};
-
-use super::message::BybitOrderStatus;
-use super::message::{BybitAccountInformation, BybitWsMessage};
 
 #[derive(Debug)]
 pub struct BitflyerOrderBook {
@@ -997,7 +994,7 @@ impl BitflyerMarket {
     }
 
     #[getter]
-    pub fn get_order_status(&self) -> PyResult<Vec<BybitOrderStatus>> {
+    pub fn get_order_status(&self) -> PyResult<Vec<Order>> {
         let status = order_status(&self.server_config.rest_server, &self.config);
 
         // TODO: IMPLEMENT convert_pyresult(status)
@@ -1022,7 +1019,7 @@ impl BitflyerMarket {
     }
 
     #[getter]
-    pub fn get_trade_list(&self) -> PyResult<Vec<BybitOrderStatus>> {
+    pub fn get_trade_list(&self) -> PyResult<Vec<Order>> {
         /*
         let status = trade_list(&self.server_config.rest_server, &self.config);
         */
@@ -1033,7 +1030,7 @@ impl BitflyerMarket {
     }
 
     #[getter]
-    pub fn get_account(&self) -> PyResult<BybitAccountInformation> {
+    pub fn get_account(&self) -> PyResult<AccountStatus> {
         let status = get_balance(&self.server_config.rest_server, &self.config);
 
         //convert_pyresult(status)
@@ -1044,14 +1041,16 @@ impl BitflyerMarket {
 
     #[getter]
     pub fn get_recent_trades(&self) -> Vec<Trade> {
-        let trades = get_recent_trade(&self.server_config.rest_server, &self.config);
+        let trades = get_recent_trade(&self.server_config, &self.config);
 
         if trades.is_err() {
             log::error!("Error in get_recent_trade: {:?}", trades);
             return vec![];
         }
 
-        trades.unwrap().into()
+        // TODO: implemnt
+        // trades.unwrap().into()
+        return vec![];
     }
 }
 
@@ -1099,5 +1098,45 @@ impl BitflyerMarket {
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
         self.db.connection.validate_by_date(date)
+    }
+}
+
+#[cfg(test)]
+mod test_message {
+    #[test]
+    fn parse_bitflyer_time() {
+        use chrono::prelude::*;
+        let date_str = "2024-01-07T14:51:28.033";
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.3f");
+        println!("timestamp: {:?}", timestamp);
+
+        let date_str = "2024-01-07T14:51:28+09:00";
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S");
+        println!("timestamp: {:?}", timestamp);
+
+        let date_str = "2024-01-07T14:51:28Z";
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S");
+        println!("timestamp: {:?}", timestamp);
+
+        let date_str = "2024-01-07T14:51:28";
+        //                  %Y-%m-%dT%H:%M:%S");
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S");
+        println!("timestamp: {:?}", timestamp);
+
+        let date_str = "2024-01-07T14:51:28.033";
+        //                  %Y-%m-%dT%H:%M:%S");
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.3f");
+        println!("timestamp: {:?}", timestamp);
+
+        let date_str = "2024-01-07T14:51:28.033+0000";
+        //                  %Y-%m-%dT%H:%M:%S");
+        let timestamp = DateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S%.3f%z");
+        println!("timestamp: {:?}", timestamp);
+
+        let dt = DateTime::parse_from_str(
+            "1983 Apr 13 12:09:14.274 +0000", "%Y %b %d %H:%M:%S%.3f %z");
+
+        println!("dt: {:?}", dt);
+
     }
 }

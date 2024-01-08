@@ -59,7 +59,6 @@ pub fn CEIL(microsecond: MicroSec, unit_sec: i64) -> MicroSec {
 pub fn time_string(t: MicroSec) -> String {
     let datetime = to_naive_datetime(t);
 
-    // return datetime.format("%Y-%m-%d-%H:%M:%S.").to_string() + format!("{:06}", nano).as_str();
     return datetime.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
 }
 

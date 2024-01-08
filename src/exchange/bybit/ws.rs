@@ -35,9 +35,8 @@ where
     let url = config.private_ws.clone();
 
     let mut message = BybitWsOpMessage::new();
-    message.add_params(&vec!["execution".to_string(), "wallet".to_string()]);
-
-    let auth_message = make_auth_message;
+//    message.add_params(&vec!["execution".to_string(), "order".to_string(), "wallet".to_string()]);
+    message.add_params(&vec!["order".to_string()]);
 
     let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> =
         AutoConnectClient::new(

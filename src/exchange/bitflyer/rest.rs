@@ -15,6 +15,7 @@ use tungstenite::client;
 use tungstenite::http::response;
 
 
+use crate::common::AccountStatus;
 use crate::common::LogStatus;
 use crate::common::MarketConfig;
 use crate::common::MicroSec;
@@ -28,6 +29,7 @@ use crate::common::flush_log;
 use crate::common::msec_to_microsec;
 use crate::common::time_string;
 use crate::db::sqlite::TradeTable;
+use crate::exchange::bitflyer::message::BitflyerExecutionResponse;
 use crate::exchange::hmac_sign;
 use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
@@ -37,143 +39,13 @@ use crate::exchange::rest_put;
 
 use super::Bitflyer;
 use super::config::BitflyerServerConfig;
-use super::message::BybitAccountInformation;
-use super::message::BybitKlines;
-use super::message::BybitKlinesResponse;
-use super::message::BybitMultiOrderStatus;
-use super::message::BybitOrderStatus;
-use super::message::BitflyerRestBoard;
-use super::message::BitflyerRestResponse;
-use super::message::BybitTimestamp;
-use super::message::BybitTradeResponse;
 
-pub fn bitflyer_rest_get(server: &str, path: &str, params: &str) -> Result<BitflyerRestResponse, String> {
-    let query = format!("{}?{}", path, params);
-
-    let result = 
-    rest_get(server, &query, vec![], None, None);
-
-    match result {
-        Ok(result) => {
-            let result = from_str::<BitflyerRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        },
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
-
-pub fn bitflyer_post_sign(server: &BitflyerServerConfig, path: &str, body: &str) -> Result<BitflyerRestResponse, String> {
-    let timestamp = format!("{}", NOW()/ 1_000);
-    let api_key = server.api_key.clone();
-    let recv_window = "5000";
-
-    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
-    let sign = hmac_sign(&server.api_secret, &param_to_sign);
-
-    let mut headers: Vec<(&str, &str)> =  vec![];
-    headers.push(("X-BAPI-SIGN", &sign));
-    headers.push(("X-BAPI-API-KEY", &server.api_key));
-    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-    headers.push(("Content-Type", "application/json"));            
-
-    let result = rest_post(&server.rest_server, path, headers, &body);
-
-    match result {
-        Ok(result) => {
-            let result = from_str::<BitflyerRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        },
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
-
-pub fn bitflyer_get_sign(server: &BitflyerServerConfig, path: &str, query_string: &str) -> Result<BitflyerRestResponse, String> {
-    let timestamp = format!("{}", NOW()/ 1_000);
-    let api_key = server.api_key.clone();
-    let recv_window = "5000";
-
-    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
-    let sign = hmac_sign(&server.api_secret, &param_to_sign);
-
-    let mut headers: Vec<(&str, &str)> =  vec![];
-    headers.push(("X-BAPI-SIGN", &sign));
-    headers.push(("X-BAPI-API-KEY", &server.api_key));
-    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-
-    let result = rest_get(&server.rest_server, path, headers, Some(query_string), None);
-
-    parse_rest_result(result)
-}
-
-fn parse_rest_result(result: Result<String, String>) -> Result<BitflyerRestResponse, String> {
-    match result {
-        Ok(result) => {
-            if result == "" {
-                let response = BitflyerRestResponse {
-                    return_code: 0,
-                    return_message: "Ok".to_string(),
-                    return_ext_info: Value::Null,
-                    time: NOW() / 1_000,
-                    body: Value::Null,
-                };
-                return Ok(response);
-            }
-
-            log::debug!("rest response: {}", result);
-
-            let result = from_str::<BitflyerRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        },
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
 
 
 /// https://bybit-exchange.github.io/docs/v5/market/orderbook
-
+/*
 pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BitflyerRestBoard, String> {
-    /*
+
     let path = "/v5/market/orderbook";
 
     let params = format!("category={}&symbol={}&limit={}",
@@ -199,11 +71,37 @@ pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<Bitflye
         let result = result.unwrap_err();
         return Err(result.to_string());
     }
-    */
+
     Err("Not implemented".to_string())
 }
+    */
 
-pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTradeResponse, String> {
+pub fn get_recent_trade(server: &BitflyerServerConfig, config: &MarketConfig) -> Result<Vec<BitflyerExecutionResponse>, String> {
+    let path = "/v1/executions";
+
+    let query = format!("{}?product_code={}&count={}", path, config.trade_symbol, 1000);
+
+    let result = 
+    rest_get(&server.rest_server, &query, vec![], None, None);
+
+    println!("result={:?}", result);
+
+    if result.is_err() {
+        let result = result.unwrap_err();
+        return Err(result);
+    }
+
+    let message = result.unwrap();
+
+    let orders = serde_json::from_str::<Vec<BitflyerExecutionResponse>>(&message);
+    
+    if orders.is_err() {
+        let orders = orders.unwrap_err();
+        return Err(orders.to_string());
+    }
+    
+    Ok(orders.unwrap())
+
     /*
     let path = "/v5/market/recent-trade";
 
@@ -231,11 +129,11 @@ pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTrad
         return Err(result.to_string());
     }
     */
-    Err("Not implemented".to_string())
 }
 
-pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
     /*
+pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
+
     let mut klines = BybitKlines::new();
 
     let mut start_time = TradeTable::ohlcv_start(start_time) / 1_000;
@@ -271,15 +169,17 @@ pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec
     }
 
     Ok(klines)
-    */
+
     Err("Not implemented".to_string())
 }
 
+    */
 
+    /*
 /// https://bybit-exchange.github.io/docs/v5/market/kline
 /// 
 fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
-    /*
+
     if end_time <= start_time {
         return Err("end_time <= start_time".to_string());
     }
@@ -311,10 +211,11 @@ fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec
         let result = result.unwrap_err();
         return Err(result.to_string());
     }
-    */
+
     Err("Not implemented".to_string())
 }
 
+    */
 
 pub fn new_limit_order(
     server: &BitflyerServerConfig,
@@ -580,14 +481,14 @@ pub fn cancell_all_orders(
 
 pub fn get_balance(
     server: &str,
-    config: &MarketConfig) -> Result<BybitAccountInformation, String> {
+    config: &MarketConfig) -> Result<AccountStatus, String> {
     return Err("Not implemented".to_string());
 }
 
 
 pub fn order_status(
     server: &str,
-    config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
+    config: &MarketConfig) -> Result<Vec<Order>, String> {
     return Err("Not implemented".to_string());
 }
 
@@ -634,8 +535,30 @@ pub fn open_orders(
 
 pub fn trade_list(
     server: &str,
-    config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
+    config: &MarketConfig) -> Result<Vec<Order>, String> {
     return Err("Not implemented".to_string());
 }
 
 
+#[cfg(test)]
+mod test_restapi {
+    use super::*;
+    use crate::exchange::bitflyer::{config::BitflyerServerConfig, rest::get_recent_trade};
+
+    #[test]
+    fn test_recent_trade() {
+        let server = BitflyerServerConfig::new();
+        let config = MarketConfig::new_bitflyer(
+            "FX",
+            "JPY", 
+            "BTC",
+            0,
+            0);
+
+        println!("market_config={:?}", config);
+
+        let r = get_recent_trade(&server, &config);
+
+        println!("r={:?}", r);
+    }
+}
