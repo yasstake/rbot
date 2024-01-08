@@ -11,6 +11,7 @@ use polars_core::series::Series;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
@@ -37,8 +38,35 @@ use crate::exchange::string_to_i64;
 
 use super::bybit_order_status;
 
-pub type BybitTimestamp = i64;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitflyerExecutionResponse {
+    pub id: i64,
+    pub side: String,
+    pub price: Decimal,
+    pub size: Decimal,
+    pub exec_date: String,
+    pub buy_child_order_acceptance_id: String,
+    pub sell_child_order_acceptance_id: String,
+}
 
+impl Into<Trade> for BitflyerExecutionResponse {
+    fn into(self) -> Trade {
+        let t = Trade::new(
+            msec_to_microsec(self.exec_date.parse::<i64>().unwrap()),
+            OrderSide::from(&self.side),
+            self.price,
+            self.size,
+            LogStatus::FixRestApiBlock,
+            &self.id.to_string(),
+        );
+        t
+    }
+}
+
+
+// pub type BybitTimestamp = i64;
+
+/*
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BitflyerRestResponse {
@@ -900,3 +928,5 @@ const BYBIT_ORDER_1: &str =r#"{"topic":"publicTrade.BTCUSDT","ts":1703430744103,
         assert!(result.is_ok());
     }
 }
+*/
+

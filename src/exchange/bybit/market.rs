@@ -15,7 +15,9 @@ use crate::common::{
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableDb};
+use crate::exchange::bybit::message::BybitUserStreamMessage;
 use crate::exchange::bybit::rest::{open_orders, get_trade_kline};
+use crate::exchange::bybit::ws::listen_userdata_stream;
 use crate::exchange::{
     download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
     WebSocketClient,
@@ -186,6 +188,7 @@ pub struct BybitMarket {
     pub board: Arc<Mutex<BybitOrderBook>>,
     pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
+    pub user_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
 }
 
@@ -728,23 +731,19 @@ impl BybitMarket {
     */
 
     pub fn start_user_stream(&mut self) {
-        /*
-        let mut agent_channel = self.channel.clone();
+        let mut agent_channel = self.agent_channel.clone();
 
-        let cfg = self.config.clone();
+        let server_config = self.server_config.clone();
+        let market_config = self.config.clone();
 
         self.user_handler = Some(listen_userdata_stream(
-            &self.config,
-            move |message: BinanceUserStreamMessage| {
+            &server_config,
+            move |message: BybitUserStreamMessage| {
                 log::debug!("UserStream: {:?}", message);
-                let mutl_agent_channel = agent_channel.borrow_mut();
-                let m = message.convert_to_market_message(&cfg);
-                let _ = mutl_agent_channel.lock().unwrap().send(m);
             },
         ));
 
         log::info!("start_user_stream");
-        */
     }
 
     /*
@@ -1072,6 +1071,7 @@ impl BybitMarket {
                 None
             ),
             public_handler: None,
+            user_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
         };
     }

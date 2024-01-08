@@ -2,18 +2,18 @@ from rbot import Bybit
 from rbot import BybitConfig, BybitMarket
 from rbot import init_debug_log
 
-bybit = Bybit()
+bybit = Bybit(True)
 
-market = bybit.open_market(BybitConfig.SPOT_BTCUSDT)
+market = bybit.open_market(BybitConfig.BTCUSDT)
 
-#init_debug_log()
 
-#market.download_latest(verbose=True)
-market.start_market_stream()
-
-market.download(ndays=1, verbose=True)
+init_debug_log()
 
 #market.start_market_stream()
+market.download(ndays=1, verbose=True)
+
+market.start_user_stream()
 
 from time import sleep
-sleep(10)
+print("Sleeping 500 seconds")
+sleep(500)
