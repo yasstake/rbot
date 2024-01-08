@@ -731,7 +731,7 @@ impl BybitMarket {
     */
 
     pub fn start_user_stream(&mut self) {
-        let mut agent_channel = self.agent_channel.clone();
+        let agent_channel = self.agent_channel.clone();
 
         let server_config = self.server_config.clone();
         let market_config = self.config.clone();
@@ -740,6 +740,14 @@ impl BybitMarket {
             &server_config,
             move |message: BybitUserStreamMessage| {
                 log::debug!("UserStream: {:?}", message);
+
+                let ms = message.convert_to_market_message(&market_config);
+                
+                for m in ms {
+                    let mut mutl_agent_channel = agent_channel.write().unwrap();                    
+                    let _ = mutl_agent_channel.send(m);
+                    drop(mutl_agent_channel);
+                }
             },
         ));
 
