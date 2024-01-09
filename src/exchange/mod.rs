@@ -11,12 +11,17 @@ pub use ws::*;
 
 pub mod bybit;
 pub mod binance;
+pub mod bitflyer;
 
 pub mod orderbook;
 pub use orderbook::*;
 
+
+
 pub mod skelton;
 pub use skelton::*;
+
+
 
 
 pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
