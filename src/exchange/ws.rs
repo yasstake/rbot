@@ -20,6 +20,7 @@ pub trait WsOpMessage {
     fn new() -> Self;
     fn add_params(&mut self, params: &Vec<String>);
     fn to_string(&self) -> String;
+    fn make_message(&self) -> Vec<String>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,10 @@ impl WsOpMessage for BinanceWsOpMessage {
     fn add_params(&mut self, params: &Vec<String>) {
         log::debug!("add_params: {:?} / {:?}", self.params, params);
         self.params.extend(params.clone());
+    }
+
+    fn make_message(&self) -> Vec<String> {
+        vec![self.to_string()]
     }
 
     fn to_string(&self) -> String {
@@ -73,12 +78,22 @@ impl WsOpMessage for BybitWsOpMessage {
         self.args.extend(params.clone());
     }
 
-    fn to_string(&self) -> String {
-        if self.args.len() == 0 {
-            return "".to_string();
-        } else {
-            return serde_json::to_string(&self).unwrap();
+    fn make_message(&self) -> Vec<String> {
+        let mut messages: Vec<String> = vec![];
+        for arg in &self.args {
+            let m = BybitWsOpMessage {
+                op: "subscribe".to_string(),
+                args: vec![arg.clone()],
+                id: NOW() % 1000,
+            };
+            messages.push(m.to_string());
         }
+
+        messages
+    }
+
+    fn to_string(&self) -> String {
+        serde_json::to_string(self).unwrap()
     }
 }
 
@@ -178,13 +193,19 @@ where
         lock.add_params(message);
         drop(lock);
 
-        let message = self.subscribe_list.as_ref().read().unwrap().to_string();
+        let message = self.subscribe_list.as_ref().read().unwrap().make_message();
 
         log::debug!("call subscribe: {:?}", message);
 
         let websocket = self.connection.clone();
         let mut lock = websocket.write().unwrap();
-        lock.send_message(&message);
+
+        for m in &message {
+            lock.send_message(m);
+
+            // TODO: receive status
+        }
+
         drop(lock);
     }
 
@@ -262,7 +283,6 @@ where
             let accept = self.receive_message().unwrap();
             log::debug!("accept message: {}", accept);
         }
-
 
         let message: String = self.subscribe_message.read().unwrap().to_string();
 
@@ -429,7 +449,7 @@ where
         }
 
         self.next_client = Some(SimpleWebsocket::new(
-            &self.config,            
+            &self.config,
             self.url.as_str(),
             self.subscribe_message.clone(),
             self.init_fn,
@@ -635,7 +655,7 @@ mod test_exchange_ws {
 
     #[test]
     fn test_reconnect() {
-        let config = BinanceConfig::BTCUSDT();        
+        let config = BinanceConfig::BTCUSDT();
 
         let mut message = BinanceWsOpMessage::new();
 
