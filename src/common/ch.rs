@@ -10,6 +10,8 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
