@@ -6,6 +6,7 @@ pub mod db;
 pub mod exchange;
 pub mod fs;
 pub mod session;
+pub mod net;
 //pub mod sim;
 
 use common::{
@@ -24,6 +25,8 @@ use exchange::binance::{BinanceMarket, BinanceConfig};
 use common::*;
 use session::{Session, ExecuteMode, Logger};
 use session::Runner;
+
+// use net::{Broadcast, BroadcastMessage};
 //use sim::back::BackTester;
 //use sim::session::DummySession;
 
@@ -63,6 +66,9 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Session>()?;
     m.add_class::<Runner>()?;
     m.add_class::<ExecuteMode>()?;
+
+    //m.add_class::<Broadcast>()?;
+    //m.add_class::<BroadcastMessage>()?;
     
     // Binance
     m.add_class::<BinanceMarket>()?;
