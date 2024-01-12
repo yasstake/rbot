@@ -7,7 +7,7 @@ use serde_derive::{Serialize, Deserialize};
 
 use crate::{
     common::{FeeType, MarketConfig, PriceType},
-    fs::db_full_path, exchange::to_mask_string,
+    exchange::to_mask_string,
 };
 
 #[pyclass]

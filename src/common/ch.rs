@@ -10,8 +10,6 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use serde_derive::Deserialize;
-use serde_derive::Serialize;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
@@ -262,72 +260,6 @@ where
 }
 
 
-/*
-#[derive(Debug)]
-pub struct MultiChannel {
-    channels: Vec<Channel<MarketMessage>>,
-}
-
-impl MultiChannel {
-    pub fn new() -> Self {
-        Self {
-            channels: Vec::new(),
-        }
-    }
-
-    pub fn close(&mut self) {
-        loop {
-            match self.channels.pop() {
-                Some(channel) => drop(channel),
-                None => break,
-            }
-        }
-    }
-
-    pub fn add_channel(&mut self, channel: Sender<MarketMessage>) {
-        self.channels.push(Channel {
-            sender: channel,
-            valid: true,
-        });
-    }
-
-    pub fn open_channel(&mut self, buffer_size: usize) -> MarketStream {
-        let (sender, receiver) = 
-            if buffer_size == 0 {
-                unbounded()
-            }
-            else {
-                bounded(buffer_size)
-            };
-        self.add_channel(sender);
-
-        MarketStream { reciver: receiver }
-    }
-
-    pub fn send(&mut self, message: MarketMessage) -> Result<()> {
-        let mut has_error: bool = false;
-
-        for channel in self.channels.iter_mut() {
-            let result = channel.sender.send(message.clone());
-
-            if result.is_err() {
-                log::warn!("Send ERROR: {:?}. remove channel", result);                
-                channel.valid = false;
-                has_error = true;
-            }
-        }
-
-        // remove invalid channels
-        if has_error {
-            log::warn!("Send ERROR: removing invalid channels");
-            self.channels.retain(|x| x.valid);
-        }
-
-        Ok(())
-    }
-}
-
-*/
 
 
 #[cfg(test)]

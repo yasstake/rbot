@@ -1,11 +1,12 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use crate::net::{BroadcastMessage, BroadcastMessageContent, UdpSender};
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::common::{
-    flush_log, time_string, AccountStatus, MarketMessage, MarketStream, MicroSec, Order, Trade,
-    FLOOR_SEC, NOW, SEC, LogStatus,
+    flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec, Order,
+    Trade, FLOOR_SEC, NOW, SEC,
 };
 use crossbeam_channel::Receiver;
 
@@ -195,6 +196,90 @@ impl Runner {
         self.run(market, &reciever, agent, log_memory, log_file)
     }
 
+    pub fn start_proxy(&mut self, market: PyObject, port: i64) -> Result<(), PyErr> {
+        let sender = UdpSender::open(port, port + 1);
+
+        let stream = Self::get_market_stream(&market);
+        let reciever = stream.reciver;
+
+        let r = Python::with_gil(|py| {
+            let r = market.call_method0(py, "start_market_stream");
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+            println!("--- start market stream ---");
+
+            let r = market.call_method0(py, "start_user_stream");
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+            println!("--- start user stream ---");
+
+            Ok(())
+        });
+
+        if r.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                format!("Proxy Send error {}", r.unwrap_err())
+            ));
+        }
+
+        loop {
+            let message = reciever.recv();
+
+            println!("Proxy: {:?}", message);
+
+            if message.is_err() {
+                log::info!("Data stream is closed {:?}", message);
+                break;
+            }
+
+            let exchange = "BYBIT".to_string();
+            let symbol = "BTCUSDT".to_string();
+            let agent_id = "".to_string();
+
+            let message = match message.unwrap() {
+                MarketMessage {
+                    trade: Some(trade), ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::trade(trade),
+                },
+                MarketMessage {
+                    order: Some(order), ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::order(order),
+                },
+                MarketMessage {
+                    account: Some(account),
+                    ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::account(account),
+                },
+                _ => {
+                    panic!("Unknown message type");
+                }
+            };
+
+            let r = sender.send_message(&message);
+
+            if r.is_err() {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Proxy Send error"
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 const WARMUP_STEPS: i64 = 10;
@@ -322,13 +407,13 @@ impl Runner {
                 }
 
                 let message = message.unwrap();
-                if self.execute_mode == ExecuteMode::BackTest &&
-                    message.trade.is_some() && 
-                    message.trade.as_ref().unwrap().status == LogStatus::UnFix {
+                if self.execute_mode == ExecuteMode::BackTest
+                    && message.trade.is_some()
+                    && message.trade.as_ref().unwrap().status == LogStatus::UnFix
+                {
                     log::info!("UnFix trade is found. Stop running.");
                     break;
                 }
-
 
                 if 0 < warm_up_loop {
                     // in warm up loop, we don't call agent, just update session

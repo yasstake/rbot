@@ -327,10 +327,9 @@ pub fn get_board_snapshot(config: &BinanceConfig) -> Result<BinanceRestBoard, St
     }
 }
 
-use hmac::{Hmac, Mac};
+
 use rust_decimal::Decimal;
 use serde_json::Value;
-use sha2::Sha256;
 
 /// Parses the result of a Binance API call and returns a `serde_json::Value` or an error message.
 ///
