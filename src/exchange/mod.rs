@@ -6,7 +6,7 @@ use sha2::Sha256;
 use polars_core::export::num::FromPrimitive;
 pub use rest::*;
 use rust_decimal::Decimal;
-use serde::{Deserializer, Deserialize, de, Serialize, Serializer};
+use serde::{Deserializer, Deserialize, de, Serializer};
 pub use ws::*;
 
 pub mod bybit;

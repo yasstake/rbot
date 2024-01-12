@@ -213,8 +213,6 @@ impl BinanceMarket {
 
         log::info!("db is opend success. db_path= {}", db_name);
 
-        let symbol = config.market_config.trade_symbol.clone();
-
         return BinanceMarket {
             config: config.clone(),
             db,

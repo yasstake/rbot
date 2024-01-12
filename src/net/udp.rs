@@ -9,18 +9,19 @@ use pyo3::pymethods;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
-use crate::common::{Trade, Order, AccountStatus, OrderSide, LogStatus};
+use crate::common::{Trade, Order, AccountStatus};
 
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BroadcastMessage {
-    exchange: String,
-    symbol: String,
-    agent_id: String,
-    msg: BroadcastMessageContent,
+    pub exchange: String,
+    pub symbol: String,
+    pub agent_id: String,
+    pub msg: BroadcastMessageContent,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BroadcastMessageContent {
     trade(Trade),
@@ -28,14 +29,17 @@ pub enum BroadcastMessageContent {
     order(Order),
 }
 
-
-pub struct UdbSender{
+#[derive(Debug)]
+#[pyclass]
+pub struct UdpSender{
     socket: Socket,
     remote_addir: SockAddr
 }
 
-impl UdbSender {
-    pub fn open(local_port: usize, remote_port: usize) -> Self {
+#[pymethods]
+impl UdpSender {
+    #[staticmethod]
+    pub fn open(local_port: i64, remote_port: i64) -> Self {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
 
         let local_addr = format!("127.0.0.1:{}", local_port);
@@ -62,16 +66,19 @@ impl UdbSender {
     }
 }
 
-const UDP_SIZE: usize = 2048;
+const UDP_SIZE: usize = 4096;
 
+#[pyclass]
 struct UdpReceiver {
     socket: Socket,
     local_addr: SockAddr,
     buf: [MaybeUninit<u8>; UDP_SIZE],
 }
 
+#[pymethods]
 impl UdpReceiver {
-    pub fn open(local_port: usize) -> Self {
+    #[staticmethod]
+    pub fn open(local_port: i64) -> Self {
         let local_addr = format!("127.0.0.1:{}", local_port);
         let local_addr: SocketAddr = local_addr.parse().unwrap();
  
@@ -128,7 +135,6 @@ fn broadcast(message: &str) {
 }
 
 
-
 fn receive() -> String {
     const UDP_SIZE: usize = 2048;
         
@@ -161,7 +167,7 @@ mod test_udp {
 
     #[test]
     fn send_test2() {
-        let sender = super::UdbSender::open(12450, 12345);
+        let sender = super::UdpSender::open(12450, 12345);
         sender.send("hello world").unwrap();
     }
 
@@ -176,5 +182,22 @@ mod test_udp {
         let mut receiver = super::UdpReceiver::open(12456);
         let msg = receiver.receive().unwrap();
         println!("{}", msg);
+    }
+
+    #[test]
+    fn receive_test3() {
+        let mut receiver = super::UdpReceiver::open(12456);
+
+        let mut count = 100;
+
+        loop {
+            let msg = receiver.receive_message().unwrap();
+            println!("{:?}", msg);
+
+            if count == 0 {
+                break;
+            }
+            count -= 1;
+        }
     }
 }

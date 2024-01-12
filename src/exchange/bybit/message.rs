@@ -11,7 +11,6 @@ use polars_core::series::Series;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use serde::de;
 use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
@@ -32,7 +31,6 @@ use crate::common::msec_to_microsec;
 use crate::common::time_string;
 use crate::db::df::KEY;
 use crate::exchange::BoardItem;
-use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
