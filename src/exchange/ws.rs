@@ -783,7 +783,7 @@ mod test_exchange_ws {
 
         let mut ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage> = WebSocketClient::new(
             &config,
-            "wss://stream.bybit.com/v5/public/spot",
+            "wss://stream.bybit.com/v5/public/linear",
             vec![
                 "publicTrade.BTCUSDT".to_string(),
                 "orderbook.200.BTCUSDT".to_string(),

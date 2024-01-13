@@ -104,10 +104,6 @@ impl BybitOrderBook {
         self.board.update(&bids, &asks, board.snapshot);
     }
 
-    pub fn clip_depth(&mut self) {
-        self.board.clip_depth();
-    }
-
     /*
     pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
         if self.last_update_id == 0 {
@@ -158,6 +154,8 @@ impl BybitOrderBook {
     */
 
     fn reflesh_board(&mut self) {
+        // TODO: implement
+        println!("reflesh board :NOT IMPLEMENTED");
         // TODO: reflesh board from rest api
     }
 }
@@ -493,6 +491,9 @@ impl BybitMarket {
             db_channel.send(trades).unwrap();
         }
 
+        let agent_channel = self.agent_channel.clone();
+        let ws_channel = self.public_ws.open_channel();
+
         self.public_ws.connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
 
@@ -501,12 +502,11 @@ impl BybitMarket {
                 println!("ERR: {:?}", message);
             }
 
-            return m.unwrap().into();
+            let m = m.unwrap();
+
+            return m.into();
         });
 
-
-        let agent_channel = self.agent_channel.clone();
-        let ws_channel = self.public_ws.open_channel();
 
         let board = self.board.clone();
 
@@ -547,7 +547,6 @@ impl BybitMarket {
                         let orderbook = m.orderbook.unwrap();
                         let mut b = board.write().unwrap();
                         b.update(&orderbook);
-                        b.clip_depth();
                         drop(b);
                     }
                 }

@@ -553,6 +553,8 @@ impl BinanceMarket {
         let mut subscribe_message = BinanceWsOpMessage::new();
         subscribe_message.add_params(&self.config.public_subscribe_channel);        
 
+        let mut agent_channel = self.channel.clone();
+
         // TODO: parameterize
         let mut websocket: AutoConnectClient<BinanceConfig, BinanceWsOpMessage> = 
                 AutoConnectClient::new(
@@ -564,7 +566,6 @@ impl BinanceMarket {
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
-        let mut agent_channel = self.channel.clone();
 
         let handler = std::thread::spawn(move || {loop {
             let message = websocket.receive_message();
