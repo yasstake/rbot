@@ -92,10 +92,6 @@ impl BitflyerOrderBook {
         self.board.update(&bids, &asks, board.snapshot);
     }
 
-    pub fn clip_depth(&mut self) {
-        self.board.clip_depth();
-    }
-
     /*
     pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
         if self.last_update_id == 0 {

@@ -19,7 +19,7 @@ use exchange::bybit::{BybitMarket, Bybit};
 use exchange::bybit::config::{BybitConfig, BybitServerConfig};
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
-use exchange::binance::{BinanceMarket, BinanceConfig};
+use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
 // use exchange::bb::BBMarket;
 
 use common::*;
@@ -71,6 +71,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     //m.add_class::<BroadcastMessage>()?;
     
     // Binance
+    m.add_class::<Binance>()?;
     m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;
 

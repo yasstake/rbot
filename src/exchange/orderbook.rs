@@ -104,9 +104,9 @@ impl BoardItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Board {
-    asc: bool,
-    max_depth: u32,
-    board: HashMap<Decimal, Decimal>,
+    pub asc: bool,
+    pub max_depth: u32,
+    pub board: HashMap<Decimal, Decimal>,
 }
 
 impl Board {
@@ -253,6 +253,13 @@ impl OrderBookRaw {
             self.asks.set(item.price, item.size);
         }
     }
+
+    /*
+    pub fn clip_depth(&mut self) {
+        self.bids.clip_depth();
+        self.asks.clip_depth();
+    }
+    */
 }
 
 #[pyclass]
@@ -307,16 +314,21 @@ impl OrderBook {
     }
 
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
+        log::debug!("update bids: {:?}, asks: {:?}", bids_diff, asks_diff);
+
         self.board
             .lock()
             .unwrap()
             .update(bids_diff, asks_diff, force);
     }
 
+    /*
     pub fn clip_depth(&mut self) {
-        self.board.lock().unwrap().bids.clip_depth();
-        self.board.lock().unwrap().asks.clip_depth();
+        let mut board = self.board.lock().unwrap();
+        board.clip_depth();
+        drop(board);
     }
+    */
 }
 
 #[cfg(test)]

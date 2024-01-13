@@ -2,8 +2,11 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::str::FromStr;
 
+use ndarray::iter::AxisChunksIter;
 use polars_core::export::num::ToPrimitive;
 use polars_core::frame::DataFrame;
 use polars_core::prelude::NamedFrom;
@@ -30,7 +33,9 @@ use crate::common::Trade;
 use crate::common::msec_to_microsec;
 use crate::common::time_string;
 use crate::db::df::KEY;
+use crate::exchange::Board;
 use crate::exchange::BoardItem;
+use crate::exchange::OrderBook;
 use crate::exchange::OrderBookRaw;
 use crate::exchange::string_to_decimal;
 use crate::exchange::string_to_i64;
@@ -526,6 +531,12 @@ impl Into<MultiMarketMessage> for BybitWsMessage {
 
         match self {
             BybitWsMessage::Status(status) => {
+                if status.success == false {
+                    log::warn!("status: {}", status.ret_msg);
+                }
+                else {
+                    log::debug!("status: {}", status.ret_msg);
+                }
             //    MarketMessage::Status(status)
             // return Null message
             },
@@ -543,24 +554,25 @@ impl Into<MultiMarketMessage> for BybitWsMessage {
                 }
             },
             BybitWsMessage::Orderbook(orderbook) => {
-                let mut board = OrderBookRaw::new(0);
-
+                let mut snapshot = false;
                 if orderbook.message_type  == "snapshot" {
-                    board.snapshot = true;
+                    log::debug!("snapshot");
+                    snapshot = true;
                 }
 
-                let mut bids: Vec<BoardItem> = vec![];
-                let mut asks: Vec<BoardItem> = vec![];  
+                if orderbook.data.update_id == 1 {
+                    log::debug!("snapshot");
 
-                for item in  orderbook.data.bids.iter() {
-                    bids.push(BoardItem{price: item.0, size: item.1});
+                    // TODO: debug
+                    if snapshot == false {
+                        log::debug!("force snapshot");
+                    }
+
+                    snapshot = true;
                 }
 
-                for item in  orderbook.data.asks.iter() {
-                    asks.push(BoardItem{price: item.0, size: item.1});
-                }
-
-                board.update(&bids, &asks, true);
+                let mut board: OrderBookRaw = orderbook.data.into();
+                board.snapshot = snapshot;
 
                 message.orderbook = Some(board);
             },
@@ -634,6 +646,35 @@ pub struct BybitWsOrderbook {
     pub sequence: i64,
     #[serde(rename = "cts")]
     pub create_timestamp: Option<BybitTimestamp>
+}
+
+impl Into<OrderBookRaw> for BybitWsOrderbook {
+    fn into(self) -> OrderBookRaw {
+
+        let mut bids: HashMap<Decimal, Decimal> = HashMap::new();
+        for item in  self.bids.iter() {
+            bids.insert(item.0, item.1);
+        }
+
+        let mut asks: HashMap<Decimal, Decimal> = HashMap::new();
+        for item in  self.asks.iter() {
+            asks.insert(item.0, item.1);
+        }
+
+        OrderBookRaw {
+            snapshot: false,
+            asks: Board {
+                asc: false,
+                max_depth: 0,
+                board: asks,
+            },
+            bids: Board {
+                asc: true,
+                max_depth: 0,
+                board: bids,
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
