@@ -1,6 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use crate::net::{BroadcastMessage, BroadcastMessageContent, UdpSender};
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
@@ -196,8 +195,9 @@ impl Runner {
         self.run(market, &reciever, agent, log_memory, log_file)
     }
 
+    /*
     pub fn start_proxy(&mut self, market: PyObject, port: i64) -> Result<(), PyErr> {
-        let sender = UdpSender::open(port, port + 1);
+        let sender = UdpSender::open_with_port(port, port + 1);
 
         let stream = Self::get_market_stream(&market);
         let reciever = stream.reciver;
@@ -280,6 +280,7 @@ impl Runner {
 
         Ok(())
     }
+    */
 }
 
 const WARMUP_STEPS: i64 = 10;

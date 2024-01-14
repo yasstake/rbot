@@ -4,6 +4,7 @@ mod ch;
 mod logger;
 mod config;
 mod account;
+mod env;
 
 
 use std::io::Write;
@@ -15,6 +16,7 @@ pub use logger::*;
 pub use order::*;
 pub use config::*;
 pub use account::*;
+pub use env::*;
 
 pub fn flush_log() {
     let _ = std::io::stdout().flush();

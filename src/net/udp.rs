@@ -9,7 +9,10 @@ use pyo3::pymethods;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
+use crate::MarketMessage;
 use crate::common::{Trade, Order, AccountStatus};
+
+use super::{get_udp_source_port, get_udp_port};
 
 
 #[pyclass]
@@ -32,37 +35,104 @@ pub enum BroadcastMessageContent {
 #[derive(Debug)]
 #[pyclass]
 pub struct UdpSender{
+    exchange_name: String,
+    symbol: String,
     socket: Socket,
-    remote_addir: SockAddr
+    remote_addr: SockAddr
 }
 
 #[pymethods]
 impl UdpSender {
     #[staticmethod]
-    pub fn open(local_port: i64, remote_port: i64) -> Self {
+    pub fn open(market_name: &str, symbol: &str) -> Self {
+        let udp_port = get_udp_port();
+        let udp_source_port = get_udp_source_port();
+
+        Self::open_with_port(market_name, symbol, udp_source_port, udp_port)
+    }
+
+    #[staticmethod]
+    pub fn open_with_port(market_name: &str, symbol: &str, local_port: i64, remote_port: i64) -> Self {
+
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
 
-        let local_addr = format!("127.0.0.1:{}", local_port);
-        let local_addr: SocketAddr = local_addr.parse().unwrap();
-        socket.bind(&local_addr.into()).unwrap();
+        for i in 0..100 {
+            let port = local_port + i;
+            if port == remote_port {
+                continue;
+            }
+
+            let local_addr = format!("127.0.0.1:{}", port);
+            let local_addr: SocketAddr = local_addr.parse().unwrap();
+            
+            if socket.bind(&local_addr.into()).is_ok() {
+                break;
+            }
+        };
+
+        log::debug!("open_with_port: {} / {} local={}, remote={}", market_name, symbol, local_port, remote_port);
 
         let remote_addr = format!("127.0.0.1:{}", remote_port);
         let remote_addr: SocketAddr = remote_addr.parse().unwrap();
-        let remote_addr = SockAddr::from(remote_addr);
-    
+        
         Self {
+            exchange_name: market_name.to_string(),
+            symbol: symbol.to_string(),
             socket: socket,
-            remote_addir: remote_addr,
+            remote_addr: SockAddr::from(remote_addr),
         }
     }
 
     pub fn send(&self, message: &str) -> Result<usize, std::io::Error> {
-        self.socket.send_to(message.as_bytes(), &self.remote_addir)
+        self.socket.send_to(message.as_bytes(), &self.remote_addr)
+    }
+
+    pub fn send_market_message(&self, message: &MarketMessage) -> Result<usize, std::io::Error> {
+        let exchange = self.exchange_name.clone();
+        let symbol = self.symbol.clone();
+        let agent_id = "".to_string();
+
+        let message = match message {
+            MarketMessage {
+                trade: Some(trade), ..
+            } => BroadcastMessage {
+                exchange: exchange,
+                symbol: symbol,
+                agent_id: agent_id,
+                msg: BroadcastMessageContent::trade(trade.clone()),
+            },
+            MarketMessage {
+                order: Some(order), ..
+            } => BroadcastMessage {
+                exchange: exchange,
+                symbol: symbol,
+                agent_id: agent_id,
+                msg: BroadcastMessageContent::order(order.clone()),
+            },
+            MarketMessage {
+                account: Some(account),
+                ..
+            } => BroadcastMessage {
+                exchange: exchange,
+                symbol: symbol,
+                agent_id: agent_id,
+                msg: BroadcastMessageContent::account(account.clone()),
+            },
+            _ => {
+                panic!("Unknown message type {:?}", message);
+            }
+        };
+
+        let msg = serde_json::to_string(&message).unwrap();
+
+        log::debug!("send_market_message: {}", msg);
+
+        self.socket.send_to(msg.as_bytes(), &self.remote_addr)
     }
 
     pub fn send_message(&self, message: &BroadcastMessage) -> Result<usize, std::io::Error> {
         let msg = serde_json::to_string(message).unwrap();
-        self.socket.send_to(msg.as_bytes(), &self.remote_addir)
+        self.socket.send_to(msg.as_bytes(), &self.remote_addr)
     }
 }
 
@@ -167,7 +237,7 @@ mod test_udp {
 
     #[test]
     fn send_test2() {
-        let sender = super::UdpSender::open(12450, 12345);
+        let sender = super::UdpSender::open_with_port("EXA", "BCTUSD", 12450, 12345);
         sender.send("hello world").unwrap();
     }
 
@@ -186,7 +256,7 @@ mod test_udp {
 
     #[test]
     fn receive_test3() {
-        let mut receiver = super::UdpReceiver::open(12456);
+        let mut receiver = super::UdpReceiver::open(10002);
 
         let mut count = 100;
 

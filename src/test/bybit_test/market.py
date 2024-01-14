@@ -15,6 +15,7 @@ market = bybit.open_market(BybitConfig.BTCUSDT)
 #market.start_user_stream()
 init_debug_log()
 
+market.broadcast_message = True
 market.start_market_stream()
 
 register(market)
