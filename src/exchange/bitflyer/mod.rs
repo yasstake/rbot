@@ -2,7 +2,7 @@
 pub mod market;
 pub use market::*;
 
-use crate::common::{Order, OrderStatus};
+use crate::common::OrderStatus;
 
 pub mod rest;
 

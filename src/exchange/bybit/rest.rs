@@ -1,39 +1,30 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-
-use chrono::format::parse;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use serde_json::Value;
 use serde_json::from_str;
+use serde_json::Value;
 
 use rust_decimal::Decimal;
-use tungstenite::client;
-use tungstenite::http::response;
 
-
-use crate::common::LogStatus;
 use crate::common::MarketConfig;
 use crate::common::MicroSec;
 use crate::common::Order;
 use crate::common::OrderSide;
 use crate::common::OrderStatus;
 use crate::common::OrderType;
-use crate::common::Trade;
+
 use crate::common::NOW;
-use crate::common::flush_log;
+
 use crate::common::msec_to_microsec;
-use crate::common::time_string;
+
 use crate::db::sqlite::TradeTable;
 use crate::exchange::hmac_sign;
-use crate::exchange::rest_delete;
+
 use crate::exchange::rest_get;
 use crate::exchange::rest_post;
-use crate::exchange::rest_put;
 
-
-use super::Bybit;
 use super::config::BybitServerConfig;
 use super::message::BybitAccountInformation;
 use super::message::BybitKlines;
@@ -48,8 +39,7 @@ use super::message::BybitTradeResponse;
 pub fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRestResponse, String> {
     let query = format!("{}?{}", path, params);
 
-    let result = 
-    rest_get(server, &query, vec![], None, None);
+    let result = rest_get(server, &query, vec![], None, None);
 
     match result {
         Ok(result) => {
@@ -66,27 +56,31 @@ pub fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRes
                 let result = result.unwrap_err();
                 return Err(result.to_string());
             }
-        },
+        }
         Err(err) => {
             return Err(err.to_string());
         }
     }
 }
 
-pub fn bybit_post_sign(server: &BybitServerConfig, path: &str, body: &str) -> Result<BybitRestResponse, String> {
-    let timestamp = format!("{}", NOW()/ 1_000);
+pub fn bybit_post_sign(
+    server: &BybitServerConfig,
+    path: &str,
+    body: &str,
+) -> Result<BybitRestResponse, String> {
+    let timestamp = format!("{}", NOW() / 1_000);
     let api_key = server.api_key.clone();
     let recv_window = "5000";
 
     let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
     let sign = hmac_sign(&server.api_secret, &param_to_sign);
 
-    let mut headers: Vec<(&str, &str)> =  vec![];
+    let mut headers: Vec<(&str, &str)> = vec![];
     headers.push(("X-BAPI-SIGN", &sign));
     headers.push(("X-BAPI-API-KEY", &server.api_key));
     headers.push(("X-BAPI-TIMESTAMP", &timestamp));
     headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-    headers.push(("Content-Type", "application/json"));            
+    headers.push(("Content-Type", "application/json"));
 
     let result = rest_post(&server.rest_server, path, headers, &body);
 
@@ -105,22 +99,26 @@ pub fn bybit_post_sign(server: &BybitServerConfig, path: &str, body: &str) -> Re
                 let result = result.unwrap_err();
                 return Err(result.to_string());
             }
-        },
+        }
         Err(err) => {
             return Err(err.to_string());
         }
     }
 }
 
-pub fn bybit_get_sign(server: &BybitServerConfig, path: &str, query_string: &str) -> Result<BybitRestResponse, String> {
-    let timestamp = format!("{}", NOW()/ 1_000);
+pub fn bybit_get_sign(
+    server: &BybitServerConfig,
+    path: &str,
+    query_string: &str,
+) -> Result<BybitRestResponse, String> {
+    let timestamp = format!("{}", NOW() / 1_000);
     let api_key = server.api_key.clone();
     let recv_window = "5000";
 
     let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
     let sign = hmac_sign(&server.api_secret, &param_to_sign);
 
-    let mut headers: Vec<(&str, &str)> =  vec![];
+    let mut headers: Vec<(&str, &str)> = vec![];
     headers.push(("X-BAPI-SIGN", &sign));
     headers.push(("X-BAPI-API-KEY", &server.api_key));
     headers.push(("X-BAPI-TIMESTAMP", &timestamp));
@@ -160,24 +158,25 @@ fn parse_rest_result(result: Result<String, String>) -> Result<BybitRestResponse
                 let result = result.unwrap_err();
                 return Err(result.to_string());
             }
-        },
+        }
         Err(err) => {
             return Err(err.to_string());
         }
     }
 }
 
-
 /// https://bybit-exchange.github.io/docs/v5/market/orderbook
 
 pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BybitRestBoard, String> {
     let path = "/v5/market/orderbook";
 
-    let params = format!("category={}&symbol={}&limit={}",
+    let params = format!(
+        "category={}&symbol={}&limit={}",
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
-        200);
-    
+        200
+    );
+
     let r = bybit_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -201,11 +200,13 @@ pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BybitRe
 pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTradeResponse, String> {
     let path = "/v5/market/recent-trade";
 
-    let params = format!("category={}&symbol={}&limit={}",
+    let params = format!(
+        "category={}&symbol={}&limit={}",
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
-        1000);
-    
+        1000
+    );
+
     let r = bybit_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -226,7 +227,12 @@ pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTrad
     }
 }
 
-pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
+pub fn get_trade_kline(
+    server: &str,
+    config: &MarketConfig,
+    start_time: MicroSec,
+    end_time: MicroSec,
+) -> Result<BybitKlines, String> {
     let mut klines = BybitKlines::new();
 
     let mut start_time = TradeTable::ohlcv_start(start_time) / 1_000;
@@ -247,11 +253,11 @@ pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec
         let klines_len = r.klines.len();
 
         if klines_len == 0 {
-            log::debug!{"End of data"};
+            log::debug! {"End of data"};
             break;
         }
 
-        start_time = r.klines[0].timestamp + 60 * 1_000;    // increase 60[sec] = 1 min
+        start_time = r.klines[0].timestamp + 60 * 1_000; // increase 60[sec] = 1 min
 
         r.append(&klines);
         klines = r;
@@ -264,23 +270,29 @@ pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec
     Ok(klines)
 }
 
-
 /// https://bybit-exchange.github.io/docs/v5/market/kline
-/// 
-fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
+///
+fn get_trade_kline_raw(
+    server: &str,
+    config: &MarketConfig,
+    start_time: MicroSec,
+    end_time: MicroSec,
+) -> Result<BybitKlines, String> {
     if end_time <= start_time {
         return Err("end_time <= start_time".to_string());
     }
 
     let path = "/v5/market/kline";
 
-    let params = format!("category={}&symbol={}&interval=1&start={}&end={}&limit={}", // 1 min
+    let params = format!(
+        "category={}&symbol={}&interval=1&start={}&end={}&limit={}", // 1 min
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
         start_time,
         end_time,
-        1000);
-    
+        1000
+    );
+
     let r = bybit_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -317,7 +329,7 @@ struct BybitOrderRequest<'a> {
 struct BybitOrderRestResponse {
     #[serde(rename = "orderId")]
     pub order_id: String,
-    #[serde(rename = "orderLinkId")]    
+    #[serde(rename = "orderLinkId")]
     pub order_link_id: String,
 }
 
@@ -332,8 +344,17 @@ pub fn new_limit_order(
     side: OrderSide,
     price: Decimal,
     size: Decimal,
-    client_order_id: Option<&str>) -> Result<Order, String>{
-        new_order(server, config, side, price, size, OrderType::Limit, client_order_id)
+    client_order_id: Option<&str>,
+) -> Result<Order, String> {
+    new_order(
+        server,
+        config,
+        side,
+        price,
+        size,
+        OrderType::Limit,
+        client_order_id,
+    )
 }
 
 pub fn new_market_order(
@@ -343,9 +364,16 @@ pub fn new_market_order(
     size: Decimal,
     client_order_id: Option<&str>,
 ) -> Result<Order, String> {
-    new_order(server, config, side, dec![0.0], size, OrderType::Market, client_order_id)
+    new_order(
+        server,
+        config,
+        side,
+        dec![0.0],
+        size,
+        OrderType::Market,
+        client_order_id,
+    )
 }
-
 
 /// create new limit order
 /// https://bybit-exchange.github.io/docs/v5/order/create-order
@@ -354,7 +382,7 @@ pub fn new_order(
     config: &MarketConfig,
     side: OrderSide,
     price: Decimal, // when order_type is Market, this value is ignored.
-    size: Decimal,              
+    size: Decimal,
     order_type: OrderType,
     client_order_id: Option<&str>,
 ) -> Result<Order, String> {
@@ -431,7 +459,7 @@ pub fn new_order(
         is_maker: is_maker,
         message: "".to_string(),
         commission_home: dec![0.0],
-        commission_foreign:dec![0.0],
+        commission_foreign: dec![0.0],
         home_change: dec![0.0],
         foreign_change: dec![0.0],
         free_home_change: dec![0.0],
@@ -449,12 +477,11 @@ struct CancelOrderMessage {
     category: String,
     symbol: String,
     #[serde(rename = "orderId")]
-    order_id: String,    
+    order_id: String,
 }
 
-
 pub fn cancel_order(
-    server: &BybitServerConfig, 
+    server: &BybitServerConfig,
     config: &MarketConfig,
     order_id: &str,
 ) -> Result<Order, String> {
@@ -503,7 +530,7 @@ pub fn cancel_order(
         is_maker: true,
         message: "".to_string(),
         commission_home: dec![0.0],
-        commission_foreign:dec![0.0],
+        commission_foreign: dec![0.0],
         home_change: dec![0.0],
         foreign_change: dec![0.0],
         free_home_change: dec![0.0],
@@ -524,9 +551,8 @@ struct CancelAllMessage {
 
 pub fn cancell_all_orders(
     server: &BybitServerConfig,
-    config: &MarketConfig
+    config: &MarketConfig,
 ) -> Result<Vec<Order>, String> {
-
     let message = CancelAllMessage {
         category: config.trade_category.clone(),
         symbol: config.trade_symbol.clone(),
@@ -578,7 +604,7 @@ pub fn cancell_all_orders(
             is_maker: true,
             message: "".to_string(),
             commission_home: dec![0.0],
-            commission_foreign:dec![0.0],
+            commission_foreign: dec![0.0],
             home_change: dec![0.0],
             foreign_change: dec![0.0],
             free_home_change: dec![0.0],
@@ -588,22 +614,16 @@ pub fn cancell_all_orders(
             log_id: 0,
         };
         orders.push(order);
-
     }
 
     return Ok(orders);
 }
 
-pub fn get_balance(
-    server: &str,
-    config: &MarketConfig) -> Result<BybitAccountInformation, String> {
+pub fn get_balance(server: &str, config: &MarketConfig) -> Result<BybitAccountInformation, String> {
     return Err("Not implemented".to_string());
 }
 
-
-pub fn order_status(
-    server: &str,
-    config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
+pub fn order_status(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
     return Err("Not implemented".to_string());
 }
 
@@ -611,18 +631,21 @@ pub fn order_status(
 struct OpenOrderRequest {
     category: String,
     symbol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]    
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "orderId")]
     order_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]        
+    #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
 }
 
 pub fn open_orders(
     server: &BybitServerConfig,
-    config: &MarketConfig) -> Result<Vec<Order>, String> {
-
-    let query_string = format!("category={}&symbol={}&limit=50", config.trade_category, config.trade_symbol);
+    config: &MarketConfig,
+) -> Result<Vec<Order>, String> {
+    let query_string = format!(
+        "category={}&symbol={}&limit=50",
+        config.trade_category, config.trade_symbol
+    );
 
     let path = "/v5/order/realtime";
 
@@ -639,7 +662,7 @@ pub fn open_orders(
         return Ok(vec![]);
     }
 
-    let mut orders: Vec<Order> = vec![];
+    let orders: Vec<Order> = vec![];
 
     println!("result.body={:?}", result.body);
 
@@ -655,27 +678,35 @@ pub fn open_orders(
     Ok(orders)
 }
 
-pub fn trade_list(
-    server: &str,
-    config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
+pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
     return Err("Not implemented".to_string());
 }
 
-
 #[cfg(test)]
-mod bybit_rest_test{
+#[allow(non_snake_case)]
+#[allow(unused_imports)]
+#[allow(dead_code)]
+#[allow(unused_variables)]
+mod bybit_rest_test {
     use std::{thread::sleep, time::Duration};
 
     use pyo3::ffi::Py_Initialize;
     use rust_decimal_macros::dec;
 
-    use crate::{exchange::bybit::{message::BybitKlines, config::{BybitServerConfig, BybitConfig}}, common::{NOW, time_string, HHMM, init_debug_log, OrderSide}, db::sqlite::TradeTable};
+    use crate::{
+        common::{init_debug_log, time_string, OrderSide, HHMM, NOW},
+        db::sqlite::TradeTable,
+        exchange::bybit::{
+            config::{BybitConfig, BybitServerConfig},
+            message::BybitKlines,
+        },
+    };
 
     use super::get_board_snapshot;
 
     #[test]
     fn get_board_snapshot_test() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let r = get_board_snapshot(&server_config.rest_server, &config).unwrap();
@@ -685,27 +716,33 @@ mod bybit_rest_test{
 
     #[test]
     fn get_trade_history_test() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         //let config = BybitConfig::SPOT_BTCUSDT();
-        let config = BybitConfig::BTCUSDT();        
+        let config = BybitConfig::BTCUSDT();
         let r = super::get_recent_trade(&server_config.rest_server, &config).unwrap();
 
         println!("{:?}", time_string(r.trades[0].time * 1000));
         let l = r.trades.len();
-        println!("{:?} / rec={}", time_string(r.trades[l-1].time * 1000), l);        
+        println!("{:?} / rec={}", time_string(r.trades[l - 1].time * 1000), l);
 
         print!("{:?}", r);
     }
 
     #[test]
     fn get_trade_kline_test() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        let start_time = (NOW() - HHMM(0,2));
+        let start_time = NOW() - HHMM(0, 2);
         let now = NOW();
 
-        let r = super::get_trade_kline_raw(&server_config.rest_server, &config, start_time/1000, now/1000).unwrap();
+        let r = super::get_trade_kline_raw(
+            &server_config.rest_server,
+            &config,
+            start_time / 1000,
+            now / 1000,
+        )
+        .unwrap();
 
         println!("{:?}({:?})", time_string(now), now);
         println!("{:?}", r.__str__());
@@ -713,46 +750,59 @@ mod bybit_rest_test{
         let start_time = TradeTable::ohlcv_start(start_time);
         let now = TradeTable::ohlcv_start(now);
 
-        let r = super::get_trade_kline_raw(&server_config.rest_server, &config, start_time/1000, now/1000).unwrap();
+        let r = super::get_trade_kline_raw(
+            &server_config.rest_server,
+            &config,
+            start_time / 1000,
+            now / 1000,
+        )
+        .unwrap();
 
         println!("{:?}({:?})", time_string(now), now);
         println!("{:?}", r.__str__());
 
         let now = now - 1;
 
-        let r = super::get_trade_kline_raw(&server_config.rest_server, &config, start_time/1000, now/1000).unwrap();
+        let r = super::get_trade_kline_raw(
+            &server_config.rest_server,
+            &config,
+            start_time / 1000,
+            now / 1000,
+        )
+        .unwrap();
 
         println!("{:?}({:?})", time_string(now), now);
         println!("{:?}", r.__str__());
-
     }
 
     #[test]
     fn get_trade_kline_from_test() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
-        
+
         init_debug_log();
 
         let now = NOW();
-        let start_time = now- HHMM(24,10);
+        let start_time = now - HHMM(24, 10);
 
-        let r = super::get_trade_kline(&server_config.rest_server, &config, start_time, now).unwrap();
+        let r =
+            super::get_trade_kline(&server_config.rest_server, &config, start_time, now).unwrap();
 
         println!("{:?}", r.__str__());
     }
 
     #[test]
     fn get_trade_kline_to_df() {
-        let server_config = BybitServerConfig::new(false);    
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
-        
+
         init_debug_log();
 
         let now = NOW();
-        let start_time = now- HHMM(0, 10);
+        let start_time = now - HHMM(0, 10);
 
-        let r = super::get_trade_kline(&server_config.rest_server, &config, start_time, now).unwrap();
+        let r =
+            super::get_trade_kline(&server_config.rest_server, &config, start_time, now).unwrap();
 
         let df = r.to_dataframe();
 
@@ -761,17 +811,25 @@ mod bybit_rest_test{
 
     #[test]
     fn test_new_limit_order() {
-        let server_config = BybitServerConfig::new(true);    
+        let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
-        let r = super::new_limit_order(&server_config, &config, OrderSide::Buy, dec![40000.0], dec![0.001], None).unwrap();
+        let r = super::new_limit_order(
+            &server_config,
+            &config,
+            OrderSide::Buy,
+            dec![40000.0],
+            dec![0.001],
+            None,
+        )
+        .unwrap();
 
         println!("{:?}", r);
     }
 
     #[test]
     fn test_binance_cancel_all_orders() {
-        let server_config = BybitServerConfig::new(true);    
+        let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
         let r = super::cancell_all_orders(&server_config, &config).unwrap();
@@ -782,8 +840,8 @@ mod bybit_rest_test{
     #[test]
     fn test_open_orders() {
         init_debug_log();
-        
-        let server_config = BybitServerConfig::new(true);    
+
+        let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
         let r = super::open_orders(&server_config, &config).unwrap();
@@ -791,4 +849,3 @@ mod bybit_rest_test{
         println!("{:?}", r);
     }
 }
-
