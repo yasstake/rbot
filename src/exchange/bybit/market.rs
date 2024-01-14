@@ -507,9 +507,7 @@ impl BybitMarket {
             return m.into();
         });
 
-
         let board = self.board.clone();
-
         let db_channel_for_after = db_channel.clone();
 
         let handler = std::thread::spawn(move || {
@@ -527,6 +525,13 @@ impl BybitMarket {
                     }
                 }
 
+                if message.orderbook.is_some() {
+                    let orderbook = message.orderbook.clone().unwrap();
+                    let mut b = board.write().unwrap();
+                    b.update(&orderbook);
+                    drop(b);
+                }
+
                 let messages = message.extract();
 
                 // update board
@@ -536,18 +541,11 @@ impl BybitMarket {
                     if m.trade.is_some() {
                         let mut ch = agent_channel.write().unwrap();
                         let r = ch.send(m.clone());
+                        drop(ch);
 
                         if r.is_err() {
                             log::error!("Error in db_channel.send: {:?}", r);
                         }
-                    }
-
-                    if m.orderbook.is_some() {
-                        log::debug!("BoardUpdate: {:?}", m.orderbook);
-                        let orderbook = m.orderbook.unwrap();
-                        let mut b = board.write().unwrap();
-                        b.update(&orderbook);
-                        drop(b);
                     }
                 }
             }
@@ -556,9 +554,8 @@ impl BybitMarket {
         self.public_handler = Some(handler);
 
         // update recent trade
-
         // wait for channel open
-        sleep(Duration::from_millis(1000));     // TODO: fix to wait for channel open
+        sleep(Duration::from_millis(100));     // TODO: fix to wait for channel open
         let trade = self.get_recent_trades();
         db_channel_for_after.send(trade).unwrap();
 

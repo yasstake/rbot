@@ -314,8 +314,6 @@ impl OrderBook {
     }
 
     pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
-        log::debug!("update bids: {:?}, asks: {:?}", bids_diff, asks_diff);
-
         self.board
             .lock()
             .unwrap()

@@ -556,12 +556,12 @@ impl Into<MultiMarketMessage> for BybitWsMessage {
             BybitWsMessage::Orderbook(orderbook) => {
                 let mut snapshot = false;
                 if orderbook.message_type  == "snapshot" {
-                    log::debug!("snapshot");
+                    log::debug!("Board SNAP SHOT");
                     snapshot = true;
                 }
 
                 if orderbook.data.update_id == 1 {
-                    log::debug!("snapshot");
+                    log::debug!("Board SNAP SHOT");
 
                     // TODO: debug
                     if snapshot == false {
