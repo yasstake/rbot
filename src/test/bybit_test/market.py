@@ -10,11 +10,12 @@ market = bybit.open_market(BybitConfig.BTCUSDT)
 
 
 #market.start_market_stream()
-market.download(ndays=1, verbose=True)
+#market.download(ndays=1, verbose=True)
 
 #market.start_user_stream()
+init_debug_log()
+
 market.start_market_stream()
 
-init_debug_log()
 register(market)
 start(port=5000)
