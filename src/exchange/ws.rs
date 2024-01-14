@@ -596,8 +596,6 @@ where
 
 #[cfg(test)]
 mod test_exchange_ws {
-    use polars_core::config;
-
     use crate::common::init_debug_log;
     use crate::exchange::binance::BinanceConfig;
     use crate::exchange::bybit::config::BybitServerConfig;

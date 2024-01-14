@@ -3,7 +3,6 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use openssl::sign;
 
 use crate::{
     common::NOW,

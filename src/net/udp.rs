@@ -119,7 +119,7 @@ impl UdpReceiver {
     }
 }    
 
-
+/// TODO: 送信ポートをいくつかの範囲から利用できるようにする。
 fn broadcast(message: &str) {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
 
@@ -141,7 +141,7 @@ fn receive() -> String {
     let local_addr = "127.0.0.1:12456";
     let local_addr: SocketAddr = local_addr.parse().unwrap();
  
-    let mut socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
     socket.set_reuse_address(true).unwrap();
     socket.set_reuse_port(true).unwrap();
 
