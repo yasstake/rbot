@@ -1,4 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
+#![allow(unused_imports)]
 
 use crossbeam_channel::Sender;
 use csv::StringRecord;
@@ -23,6 +24,7 @@ use crate::exchange::{
     WebSocketClient,
 };
 use crate::fs::db_full_path;
+use crate::net::{UdpSender, udp};
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -40,6 +42,7 @@ use super::rest::trade_list;
 
 use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitWsMessage};
+
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
@@ -194,6 +197,8 @@ pub struct BybitMarket {
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
+    #[pyo3(get, set)]
+    pub broadcast_message: bool
 }
 
 #[pymethods]
@@ -510,11 +515,19 @@ impl BybitMarket {
         let board = self.board.clone();
         let db_channel_for_after = db_channel.clone();
 
+        let udp_sender = if self.broadcast_message {
+            Some(self.open_udp())
+        }
+        else {
+            None
+        };
+
         let handler = std::thread::spawn(move || {
             loop {
                 let message = ws_channel.recv();
 
                 let message = message.unwrap();
+
 
                 if message.trade.len() != 0 {
                     log::debug!("Trade: {:?}", message.trade);
@@ -539,6 +552,12 @@ impl BybitMarket {
                 // send message to agent
                 for m in messages {
                     if m.trade.is_some() {
+                        // broadcast only trade message
+                        if udp_sender.is_some() {
+                            let sender = udp_sender.as_ref().unwrap();
+                            let _ = sender.send_market_message(&m);
+                        }
+
                         let mut ch = agent_channel.write().unwrap();
                         let r = ch.send(m.clone());
                         drop(ch);
@@ -571,6 +590,14 @@ impl BybitMarket {
         let server_config = self.server_config.clone();
         let market_config = self.config.clone();
 
+
+        let udp_sender = if self.broadcast_message {
+            Some(self.open_udp())
+        }
+        else {
+            None
+        };
+
         self.user_handler = Some(listen_userdata_stream(
             &server_config,
             move |message: BybitUserStreamMessage| {
@@ -579,6 +606,11 @@ impl BybitMarket {
                 let ms = message.convert_to_market_message(&market_config);
                 
                 for m in ms {
+                    if udp_sender.is_some() {
+                        let sender = udp_sender.as_ref().unwrap();
+                        let _ = sender.send_market_message(&m);
+                    }
+            
                     let mut mutl_agent_channel = agent_channel.write().unwrap();                    
                     let _ = mutl_agent_channel.send(m);
                     drop(mutl_agent_channel);
@@ -897,7 +929,12 @@ impl BybitMarket {
             public_handler: None,
             user_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
+            broadcast_message: false,
         };
+    }
+
+    pub fn open_udp(&self) -> UdpSender {
+        UdpSender::open(&self.server_config.exchange_name, &self.config.trade_symbol)
     }
 
     pub fn make_db_path(

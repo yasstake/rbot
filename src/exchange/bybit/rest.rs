@@ -33,7 +33,7 @@ use super::message::BybitMultiOrderStatus;
 use super::message::BybitOrderStatus;
 use super::message::BybitRestBoard;
 use super::message::BybitRestResponse;
-use super::message::BybitTimestamp;
+//use super::message::BybitTimestamp;
 use super::message::BybitTradeResponse;
 
 pub fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRestResponse, String> {
