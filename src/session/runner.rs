@@ -283,30 +283,13 @@ impl Runner {
     */
 }
 
+
+
+
 const WARMUP_STEPS: i64 = 10;
 
 impl Runner {
-    pub fn run(
-        &mut self,
-        market: PyObject,
-        receiver: &Receiver<MarketMessage>,
-        agent: &PyAny,
-        log_memory: bool,
-        log_file: Option<String>,
-    ) -> Result<Py<Session>, PyErr> {
-        if self.verbose {
-            println!("--- run {:?} mode ---", self.execute_mode);
-            flush_log();
-        }
-
-        if !self.update_agent_info(agent) {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
-            ));
-        }
-
-        flush_log();
-
+    pub fn prepare_data(&self, market: &PyObject) -> Result<(), PyErr> {
         // prepare market data
         // 1. start market & user stream
         // 2. download market data
@@ -355,9 +338,37 @@ impl Runner {
             Ok(())
         });
 
+        r
+    }
+
+
+    pub fn run(
+        &mut self,
+        market: PyObject,
+        receiver: &Receiver<MarketMessage>,
+        agent: &PyAny,
+        log_memory: bool,
+        log_file: Option<String>,
+    ) -> Result<Py<Session>, PyErr> {
+        if self.verbose {
+            println!("--- run {:?} mode ---", self.execute_mode);
+            flush_log();
+        }
+
+        if !self.update_agent_info(agent) {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
+            ));
+        }
+
+        flush_log();
+
+        let r = self.prepare_data(&market);
+
         if r.is_err() {
             return Err(r.unwrap_err());
         }
+
 
         let result = Python::with_gil(|py| {
             if self.verbose {

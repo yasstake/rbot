@@ -1,27 +1,42 @@
 use std::mem::MaybeUninit;
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use socket2::SockAddr;
-use socket2::{Socket, Domain, Type};
+use socket2::{Domain, Socket, Type};
 
 use pyo3::pyclass;
 use pyo3::pymethods;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
+use crate::common::{AccountStatus, Order, Trade};
 use crate::MarketMessage;
-use crate::common::{Trade, Order, AccountStatus};
+use crate::exchange::bitflyer::market;
 
-use super::{get_udp_source_port, get_udp_port};
+use super::{get_udp_port, get_udp_source_port};
 
+/// TODO: BroadcastMessageにliniiearの種別を加える
+/// TODO: Sender,Receiverを実装する。
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BroadcastMessage {
     pub exchange: String,
+    pub category: String,
     pub symbol: String,
     pub agent_id: String,
     pub msg: BroadcastMessageContent,
+}
+
+impl Into<MarketMessage> for BroadcastMessage {
+    fn into(self) -> MarketMessage {
+        let msg = match self.msg {
+            BroadcastMessageContent::trade(trade) => MarketMessage::from_trade(trade),
+            BroadcastMessageContent::order(order) => MarketMessage::from_order(order),
+            BroadcastMessageContent::account(account) => MarketMessage::from_account(account),
+        };
+        msg
+    }
 }
 
 #[allow(non_camel_case_types)]
@@ -34,27 +49,39 @@ pub enum BroadcastMessageContent {
 
 #[derive(Debug)]
 #[pyclass]
-pub struct UdpSender{
+pub struct UdpSender {
     exchange_name: String,
+    category: String,
     symbol: String,
     socket: Socket,
-    remote_addr: SockAddr
+    remote_addr: SockAddr,
 }
 
 #[pymethods]
 impl UdpSender {
     #[staticmethod]
-    pub fn open(market_name: &str, symbol: &str) -> Self {
+    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
         let udp_port = get_udp_port();
         let udp_source_port = get_udp_source_port();
 
-        Self::open_with_port(market_name, symbol, udp_source_port, udp_port)
+        Self::open_with_port(
+            market_name,
+            market_category,
+            symbol,
+            udp_source_port,
+            udp_port,
+        )
     }
 
     #[staticmethod]
-    pub fn open_with_port(market_name: &str, symbol: &str, local_port: i64, remote_port: i64) -> Self {
-
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
+    pub fn open_with_port(
+        market_name: &str,
+        market_category: &str,
+        symbol: &str,
+        local_port: i64,
+        remote_port: i64,
+    ) -> Self {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
         for i in 0..100 {
             let port = local_port + i;
@@ -64,19 +91,26 @@ impl UdpSender {
 
             let local_addr = format!("127.0.0.1:{}", port);
             let local_addr: SocketAddr = local_addr.parse().unwrap();
-            
+
             if socket.bind(&local_addr.into()).is_ok() {
                 break;
             }
-        };
+        }
 
-        log::debug!("open_with_port: {} / {} local={}, remote={}", market_name, symbol, local_port, remote_port);
+        log::debug!(
+            "open_with_port: {} / {} local={}, remote={}",
+            market_name,
+            symbol,
+            local_port,
+            remote_port
+        );
 
         let remote_addr = format!("127.0.0.1:{}", remote_port);
         let remote_addr: SocketAddr = remote_addr.parse().unwrap();
-        
+
         Self {
             exchange_name: market_name.to_string(),
+            category: market_category.to_string(),
             symbol: symbol.to_string(),
             socket: socket,
             remote_addr: SockAddr::from(remote_addr),
@@ -89,6 +123,7 @@ impl UdpSender {
 
     pub fn send_market_message(&self, message: &MarketMessage) -> Result<usize, std::io::Error> {
         let exchange = self.exchange_name.clone();
+        let category = self.category.clone();
         let symbol = self.symbol.clone();
         let agent_id = "".to_string();
 
@@ -97,6 +132,7 @@ impl UdpSender {
                 trade: Some(trade), ..
             } => BroadcastMessage {
                 exchange: exchange,
+                category: category,
                 symbol: symbol,
                 agent_id: agent_id,
                 msg: BroadcastMessageContent::trade(trade.clone()),
@@ -105,6 +141,7 @@ impl UdpSender {
                 order: Some(order), ..
             } => BroadcastMessage {
                 exchange: exchange,
+                category: category,
                 symbol: symbol,
                 agent_id: agent_id,
                 msg: BroadcastMessageContent::order(order.clone()),
@@ -114,6 +151,7 @@ impl UdpSender {
                 ..
             } => BroadcastMessage {
                 exchange: exchange,
+                category: category,
                 symbol: symbol,
                 agent_id: agent_id,
                 msg: BroadcastMessageContent::account(account.clone()),
@@ -138,8 +176,12 @@ impl UdpSender {
 
 const UDP_SIZE: usize = 4096;
 
+#[derive(Debug)]
 #[pyclass]
-struct UdpReceiver {
+pub struct UdpReceiver {
+    market_name: String,
+    market_category: String,
+    symbol: String,
     socket: Socket,
     local_addr: SockAddr,
     buf: [MaybeUninit<u8>; UDP_SIZE],
@@ -148,18 +190,27 @@ struct UdpReceiver {
 #[pymethods]
 impl UdpReceiver {
     #[staticmethod]
-    pub fn open(local_port: i64) -> Self {
+    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
+        let udp_port = get_udp_port();
+        Self::open_with_port(market_name, market_category, symbol, udp_port)
+    }
+
+    #[staticmethod]
+    pub fn open_with_port(market_name: &str, market_category: &str, symbol: &str, local_port: i64) -> Self {
         let local_addr = format!("127.0.0.1:{}", local_port);
         let local_addr: SocketAddr = local_addr.parse().unwrap();
- 
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
+
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
         socket.set_reuse_address(true).unwrap();
         socket.set_reuse_port(true).unwrap();
-    
+
         socket.bind(&local_addr.into()).unwrap();
         let buf = [MaybeUninit::uninit(); UDP_SIZE]; // Initialize the buffer with a properly sized array
 
         Self {
+            market_name: market_name.to_string(),
+            market_category: market_category.to_string(),
+            symbol: symbol.to_string(),
             socket: socket,
             local_addr: local_addr.into(),
             buf: buf,
@@ -171,13 +222,16 @@ impl UdpReceiver {
 
         if let Some(sendr_ip) = addr.as_socket_ipv4() {
             if *(sendr_ip.ip()) != IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)) {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("invalid address 1 {:?}/{:?}", addr, self.local_addr)));                
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("invalid address 1 {:?}/{:?}", addr, self.local_addr),
+                ));
             }
         }
 
         let msg = &self.buf[..amt];
         let m = unsafe { std::mem::transmute::<_, &[u8]>(msg) };
-        
+
         let msg = std::str::from_utf8(m).unwrap();
         Ok(msg.to_string())
     }
@@ -187,76 +241,44 @@ impl UdpReceiver {
         let msg = serde_json::from_str::<BroadcastMessage>(&msg)?;
         Ok(msg)
     }
-}    
 
-/// TODO: 送信ポートをいくつかの範囲から利用できるようにする。
-fn broadcast(message: &str) {
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
+    pub fn receive_market_message(&mut self) -> Result<MarketMessage, std::io::Error> {
+        let mut msg: BroadcastMessage;
 
-    let local_addr = "127.0.0.1:12450";
-    let local_addr: SocketAddr = local_addr.parse().unwrap();
-    socket.bind(&local_addr.into()).unwrap();
+        loop {
+            msg = self.receive_message()?;
 
-    let remote_addr = "127.0.0.1:12345";
-    let remote_addr: SocketAddr = remote_addr.parse().unwrap();
-    let remote_addr = SockAddr::from(remote_addr);
+            if (msg.exchange == self.market_name || self.market_name == "")
+                && (msg.category == self.market_category || self.market_category == "")
+                && (msg.symbol == self.symbol || self.symbol == "")
+            {
+                break;
+            }
+        }
 
-    socket.send_to(message.as_bytes(), &remote_addr).unwrap();
+        let market_message: MarketMessage = msg.into();
+        Ok(market_message)
+    }
 }
-
-
-fn receive() -> String {
-    const UDP_SIZE: usize = 2048;
-        
-    let local_addr = "127.0.0.1:12456";
-    let local_addr: SocketAddr = local_addr.parse().unwrap();
- 
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();    
-    socket.set_reuse_address(true).unwrap();
-    socket.set_reuse_port(true).unwrap();
-
-    socket.bind(&local_addr.into()).unwrap();
-
-    let mut buf = [MaybeUninit::uninit(); UDP_SIZE]; // Initialize the buffer with a properly sized array
-    let (amt, _) = socket.recv_from(&mut buf).unwrap();
-    let msg = &buf[..amt];
-    let m = unsafe { std::mem::transmute::<_, &[u8]>(msg) };
-    
-    let msg = std::str::from_utf8(m).unwrap();
-    msg.to_string()
-}
-
 
 #[cfg(test)]
 mod test_udp {
     #[test]
-    fn send_test() {
-        let msg = "hello world";
-        super::broadcast(msg);
-    }
-
-    #[test]
     fn send_test2() {
-        let sender = super::UdpSender::open_with_port("EXA", "BCTUSD", 12450, 12345);
+        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
         sender.send("hello world").unwrap();
     }
 
     #[test]
-    fn receive_test() {
-        let msg = super::receive();
-        println!("{}", msg);
-    }
-
-    #[test]
     fn receive_test2() {
-        let mut receiver = super::UdpReceiver::open(12456);
+        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT");
         let msg = receiver.receive().unwrap();
         println!("{}", msg);
     }
 
     #[test]
     fn receive_test3() {
-        let mut receiver = super::UdpReceiver::open(10002);
+        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT");
 
         let mut count = 100;
 

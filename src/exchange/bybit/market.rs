@@ -934,7 +934,7 @@ impl BybitMarket {
     }
 
     pub fn open_udp(&self) -> UdpSender {
-        UdpSender::open(&self.server_config.exchange_name, &self.config.trade_symbol)
+        UdpSender::open(&self.server_config.exchange_name, &self.config.trade_category, &self.config.trade_symbol)
     }
 
     pub fn make_db_path(
