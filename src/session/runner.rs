@@ -1,11 +1,17 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::sync::Arc;
+
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
+use tungstenite::client;
 
-use crate::common::{
-    flush_log, time_string, AccountStatus, MarketMessage, MarketStream, MicroSec, Order, Trade,
-    FLOOR_SEC, NOW, SEC, LogStatus,
+use crate::{
+    common::{
+        flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,
+        Order, Trade, FLOOR_SEC, NOW, SEC,
+    },
+    net::UdpReceiver,
 };
 use crossbeam_channel::Receiver;
 
@@ -40,6 +46,11 @@ pub struct Runner {
     last_print_real_time: MicroSec,
 
     execute_mode: ExecuteMode,
+    agent_id: String,
+
+    exchange_name: String,
+    category: String,
+    symbol: String,
 }
 
 #[pymethods]
@@ -67,6 +78,12 @@ impl Runner {
             last_print_tick_time: 0,
             last_print_loop_count: 0,
             last_print_real_time: 0,
+
+            agent_id: "".to_string(),
+
+            exchange_name: "".to_string(),
+            category: "".to_string(),
+            symbol: "".to_string(),
         }
     }
 
@@ -86,54 +103,6 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    pub fn update_agent_info(&mut self, agent: &PyAny) -> bool {
-        self.has_on_init = has_method(agent, "on_init");
-        self.has_on_clock = has_method(agent, "on_clock");
-        self.has_on_tick = has_method(agent, "on_tick");
-        self.has_on_update = has_method(agent, "on_update");
-        self.has_account_update = has_method(agent, "on_account_update");
-
-        if (!self.has_on_init)
-            && (!self.has_on_clock)
-            && (!self.has_on_tick)
-            && (!self.has_on_update)
-            && (!self.has_account_update)
-        {
-            log::error!("Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update");
-            return false;
-        }
-
-        if self.verbose {
-            println!(
-                "has_on_init:        {}",
-                if self.has_on_init { "YES" } else { " no  " }
-            );
-            println!(
-                "has_on_clock:       {}",
-                if self.has_on_clock { "YES" } else { " no  " }
-            );
-            println!(
-                "has_on_tick:        {}",
-                if self.has_on_tick { "YES" } else { " no  " }
-            );
-            println!(
-                "has_on_update:      {}",
-                if self.has_on_update { "YES" } else { " no  " }
-            );
-            println!(
-                "has_account_update: {}",
-                if self.has_account_update {
-                    "YES"
-                } else {
-                    " no  "
-                }
-            );
-            flush_log();
-        }
-
-        true
-    }
-
     #[pyo3(signature = (*, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
@@ -145,6 +114,10 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
+        self.update_market_info(&market)?;        
+        self.update_agent_info(agent)?;
+
+
         let stream = Self::open_backtest_stream(&market, start_time, end_time);
         let reciever = stream.reciver;
         self.execute_time = execute_time;
@@ -155,7 +128,7 @@ impl Runner {
         self.run(market, &reciever, agent, true, log_file)
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn dry_run(
         &mut self,
         market: PyObject,
@@ -164,18 +137,41 @@ impl Runner {
         execute_time: i64,
         verbose: bool,
         log_file: Option<String>,
+        client: bool,
     ) -> Result<Py<Session>, PyErr> {
-        let stream = Self::get_market_stream(&market);
-        let reciever = stream.reciver;
-
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Dry;
 
-        self.run(market, &reciever, agent, log_memory, log_file)
+        self.update_market_info(&market)?;                
+        self.update_agent_info(agent)?;
+
+        let receiver = if client {
+            UdpReceiver::open_channel(
+                &self.exchange_name,
+                &self.category,
+                &self.symbol.as_str(),
+                &self.agent_id.as_str(),
+            )
+            .unwrap()
+        } else {
+            let stream = Self::get_market_stream(&market);
+            let reciever = stream.reciver;
+
+            let r = self.prepare_data(&market);
+
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+
+            reciever
+        };
+
+
+        self.run(market, &receiver, agent, log_memory, log_file)
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None))]
+    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run(
         &mut self,
         market: PyObject,
@@ -184,43 +180,135 @@ impl Runner {
         execute_time: i64,
         verbose: bool,
         log_file: Option<String>,
+        client: bool,
     ) -> Result<Py<Session>, PyErr> {
-        let stream = Self::get_market_stream(&market);
-        let reciever = stream.reciver;
+        self.update_market_info(&market)?;                
+        self.update_agent_info(agent)?;
 
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
 
-        self.run(market, &reciever, agent, log_memory, log_file)
+        let receiver = if client {
+            UdpReceiver::open_channel(
+                &self.exchange_name,
+                &self.category,
+                &self.symbol.as_str(),
+                &self.agent_id.as_str(),
+            )
+            .unwrap()
+        } else {
+            let stream = Self::get_market_stream(&market);
+            let reciever = stream.reciver;
+
+            let r = self.prepare_data(&market);
+
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+
+            reciever
+        };
+
+        self.run(market, &receiver, agent, log_memory, log_file)
     }
 
+    /*
+    pub fn start_proxy(&mut self, market: PyObject, port: i64) -> Result<(), PyErr> {
+        let sender = UdpSender::open_with_port(port, port + 1);
+
+        let stream = Self::get_market_stream(&market);
+        let reciever = stream.reciver;
+
+        let r = Python::with_gil(|py| {
+            let r = market.call_method0(py, "start_market_stream");
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+            println!("--- start market stream ---");
+
+            let r = market.call_method0(py, "start_user_stream");
+            if r.is_err() {
+                return Err(r.unwrap_err());
+            }
+            println!("--- start user stream ---");
+
+            Ok(())
+        });
+
+        if r.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                format!("Proxy Send error {}", r.unwrap_err())
+            ));
+        }
+
+        loop {
+            let message = reciever.recv();
+
+            println!("Proxy: {:?}", message);
+
+            if message.is_err() {
+                log::info!("Data stream is closed {:?}", message);
+                break;
+            }
+
+            let exchange = "BYBIT".to_string();
+            let symbol = "BTCUSDT".to_string();
+            let agent_id = "".to_string();
+
+            let message = match message.unwrap() {
+                MarketMessage {
+                    trade: Some(trade), ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::trade(trade),
+                },
+                MarketMessage {
+                    order: Some(order), ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::order(order),
+                },
+                MarketMessage {
+                    account: Some(account),
+                    ..
+                } => BroadcastMessage {
+                    exchange: exchange,
+                    symbol: symbol,
+                    agent_id: agent_id,
+                    msg: BroadcastMessageContent::account(account),
+                },
+                _ => {
+                    panic!("Unknown message type");
+                }
+            };
+
+            let r = sender.send_message(&message);
+
+            if r.is_err() {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Proxy Send error"
+                ));
+            }
+        }
+
+        Ok(())
+    }
+    */
 }
 
 const WARMUP_STEPS: i64 = 10;
 
 impl Runner {
-    pub fn run(
-        &mut self,
-        market: PyObject,
-        receiver: &Receiver<MarketMessage>,
-        agent: &PyAny,
-        log_memory: bool,
-        log_file: Option<String>,
-    ) -> Result<Py<Session>, PyErr> {
-        if self.verbose {
-            println!("--- run {:?} mode ---", self.execute_mode);
-            flush_log();
-        }
+    pub fn agent_id(&self) -> String {
+        "".to_string()
+    }
 
-        if !self.update_agent_info(agent) {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
-            ));
-        }
-
-        flush_log();
-
+    pub fn prepare_data(&self, market: &PyObject) -> Result<(), PyErr> {
         // prepare market data
         // 1. start market & user stream
         // 2. download market data
@@ -269,8 +357,100 @@ impl Runner {
             Ok(())
         });
 
-        if r.is_err() {
-            return Err(r.unwrap_err());
+        r
+    }
+
+    pub fn update_market_info(&mut self, market: &PyObject) -> Result<(), PyErr> {
+        let r = Python::with_gil(|py| {
+            let exchange_name = market.getattr(py, "exchange_name").unwrap();
+            let category = market.getattr(py, "trade_category").unwrap();
+            let symbol = market.getattr(py, "trade_symbol").unwrap();
+
+            self.exchange_name = exchange_name.extract::<String>(py).unwrap();
+            self.category = category.extract::<String>(py).unwrap();
+            self.symbol = symbol.extract::<String>(py).unwrap();
+
+            Ok(())
+        });
+
+        r
+    }
+
+    pub fn update_agent_info(&mut self, agent: &PyAny) -> Result<(), PyErr> {
+        self.has_on_init = has_method(agent, "on_init");
+        self.has_on_clock = has_method(agent, "on_clock");
+        self.has_on_tick = has_method(agent, "on_tick");
+        self.has_on_update = has_method(agent, "on_update");
+        self.has_account_update = has_method(agent, "on_account_update");
+
+        if (!self.has_on_init)
+            && (!self.has_on_clock)
+            && (!self.has_on_tick)
+            && (!self.has_on_update)
+            && (!self.has_account_update)
+        {
+            log::error!("Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update");
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "Agent has no method to call. Please implement at least one of on_init, on_clock, on_tick, on_update, on_account_update",
+            ));
+        }
+
+        if self.verbose {
+            println!(
+                "has_on_init:        {}",
+                if self.has_on_init { "YES" } else { " no  " }
+            );
+            println!(
+                "has_on_clock:       {}",
+                if self.has_on_clock { "YES" } else { " no  " }
+            );
+            println!(
+                "has_on_tick:        {}",
+                if self.has_on_tick { "YES" } else { " no  " }
+            );
+            println!(
+                "has_on_update:      {}",
+                if self.has_on_update { "YES" } else { " no  " }
+            );
+            println!(
+                "has_account_update: {}",
+                if self.has_account_update {
+                    "YES"
+                } else {
+                    " no  "
+                }
+            );
+            flush_log();
+        }
+
+        let agent_class = agent.getattr("__class__").unwrap();
+        let agent_name = agent_class.getattr("__name__").unwrap();
+        let agent_name = agent_name.extract::<String>().unwrap();
+        log::info!("Agent name: {}", agent_name);
+
+        let time = NOW() / 1_000_000;
+
+        self.agent_id = format!("{}{}", agent_name, Runner::int_to_base64(time));
+
+        Ok(())
+    }
+
+    pub fn run(
+        &mut self,
+        market: PyObject,
+        receiver: &Receiver<MarketMessage>,
+        agent: &PyAny,
+        log_memory: bool,
+        log_file: Option<String>,
+    ) -> Result<Py<Session>, PyErr> {
+        if self.verbose {
+            print!("--- run {:?} mode --- ", self.execute_mode);
+            print!("market: {}, ", self.exchange_name);
+            print!("agent_id: {}, ", self.agent_id);
+            print!("log_memory: {}, ", log_memory);
+            println!("duration: {}[sec], ", self.execute_time);
+
+            flush_log();
         }
 
         let result = Python::with_gil(|py| {
@@ -279,7 +459,8 @@ impl Runner {
                 flush_log();
             }
 
-            let mut session = Session::new(market, self.execute_mode.clone(), None, log_memory);
+            let session_name = self.agent_id.clone();
+            let mut session = Session::new(market, self.execute_mode.clone(), Some(&session_name), log_memory);
 
             if log_file.is_some() {
                 let log_file = log_file.unwrap();
@@ -322,13 +503,13 @@ impl Runner {
                 }
 
                 let message = message.unwrap();
-                if self.execute_mode == ExecuteMode::BackTest &&
-                    message.trade.is_some() && 
-                    message.trade.as_ref().unwrap().status == LogStatus::UnFix {
+                if self.execute_mode == ExecuteMode::BackTest
+                    && message.trade.is_some()
+                    && message.trade.as_ref().unwrap().status == LogStatus::UnFix
+                {
                     log::info!("UnFix trade is found. Stop running.");
                     break;
                 }
-
 
                 if 0 < warm_up_loop {
                     // in warm up loop, we don't call agent, just update session
@@ -368,6 +549,7 @@ impl Runner {
                         self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
 
                     if remain_time < 0 {
+                        log::debug!("remain_time out break");
                         break;
                     }
                 }
@@ -701,5 +883,46 @@ impl Runner {
                 panic!("Error in open_backtest_channel: {:?}", err);
             }
         })
+    }
+
+    // base 64 generated by co pilot!!
+    pub fn int_to_base64(num: i64) -> String {
+        let mut num = num;
+        let mut result = String::new();
+
+        loop {
+            let r = num % 64;
+            num = num / 64;
+
+            let c = match r {
+                0..=25 => (r + 65) as u8 as char,
+                26..=51 => (r + 71) as u8 as char,
+                52..=61 => (r - 4) as u8 as char,
+                62 => '+',
+                63 => '/',
+                _ => panic!("Invalid number"),
+            };
+
+            result.push(c);
+
+            if num == 0 {
+                break;
+            }
+        }
+
+        result
+    }
+}
+
+
+#[cfg(test)]
+mod runner_test {
+    #[test]
+    fn test_int_to_base64() {
+        let b64 = super::Runner::int_to_base64(0);
+        println!("b64: {}", b64);
+
+        let b64 = super::Runner::int_to_base64(1000001);
+        println!("b64: {}", b64);
     }
 }

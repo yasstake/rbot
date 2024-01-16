@@ -15,4 +15,6 @@ print("rbot version: ", rbot.__version__)
 print("!!! ABSOLUTELY NO WARRANTY !!!")
 print("!!!  USE AT YOUR OWN RISK  !!!")
 print("See document at https://github.com/yasstake/rusty-bot")
-print(" All rights reserved. (c) 2022-2023 rbot developers / yasstake")
+print(" All rights reserved. (c) 2022-2024 rbot developers / yasstake")
+# print(" For some exchange, referer link may be included.")    // at this point(2024.1), no referer link
+

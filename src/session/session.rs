@@ -204,6 +204,7 @@ impl Session {
     }
 
     #[getter]
+    // TODO: リモート動作時にRESTでコールする。
     pub fn get_board(&self) -> Result<Py<PyAny>, PyErr> {
         if self.execute_mode == ExecuteMode::BackTest {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -413,7 +414,7 @@ impl Session {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
-        let local_id = self.new_order_id(&side);
+        let local_id = self.new_order_id();
 
         Python::with_gil(|py| {
             self.market
@@ -440,11 +441,12 @@ impl Session {
         return execute_price;
     }
 
+    // TODO: 各Marketではなく、Sessionで実装する。
     pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
-        let local_id = self.new_order_id(&side);
+        let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
 
         let transaction_id = self.dummy_transaction_id();
@@ -469,7 +471,7 @@ impl Session {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
 
-        let local_id = self.new_order_id(&side);
+        let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
 
         let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
@@ -529,7 +531,7 @@ impl Session {
         let sizedp = size.round_dp(size_scale);
 
         // first push order to order list
-        let local_id = self.new_order_id(&side);
+        let local_id = self.new_order_id();
 
         log::debug!(
             "limit_order: side={:?}, size={}, price={}",
@@ -589,7 +591,7 @@ impl Session {
         let sizedp = size.round_dp(size_scale);
 
         // first push order to order list
-        let local_id = self.new_order_id(&side);
+        let local_id = self.new_order_id();
 
         let order_side = OrderSide::from(&side);
 
@@ -819,10 +821,10 @@ impl Session {
         self.update_psudo_position(order);
     }
 
-    fn new_order_id(&mut self, side: &str) -> String {
+    fn new_order_id(&mut self) -> String {
         self.order_number += 1;
 
-        format!("{}-{:04}{:}", self.session_name, self.order_number, side)
+        format!("{}-{:04}", self.session_name, self.order_number)
     }
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {

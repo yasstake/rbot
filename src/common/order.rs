@@ -340,38 +340,6 @@ impl Into<MarketMessage> for &Trade {
     }
 }
 
-/*
-#[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct OrderFill {
-    // 約定時に確定するデータ
-    pub transaction_id: String,
-    pub update_time: MicroSec, // in us
-    pub price: Decimal,
-    pub filled_size: Decimal,     // 約定数
-    pub quote_vol: Decimal,       // in opposite currency
-    pub commission: Decimal,      //
-    pub commission_asset: String, //
-    pub maker: bool,
-}
-
-#[pymethods]
-impl OrderFill {
-    #[new]
-    pub fn new() -> Self {
-        return OrderFill {
-            transaction_id: "".to_string(),
-            update_time: 0,
-            price: dec![0.0],
-            filled_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            maker: false,
-        };
-    }
-}
-*/
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -590,6 +558,10 @@ impl Order {
 
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn is_my_order(&self, agent_id: &str) -> bool {
+        return self.client_order_id.starts_with(agent_id);
     }
 
     pub fn update(&mut self, order: &Order) {
@@ -872,69 +844,7 @@ impl Order {
         }
     }
 
-    /*
-    fn calc_execute_vol(&self) -> Decimal {
-        return self.execute_price * self.execute_size;
-    }
-    */
 
-    /*
-    fn calc_home_lock_change(&self) -> Decimal {
-        match self.is_maker {
-            true => {
-                match self.order_side {
-                    OrderSide::Buy => {
-                        return -self.calc_quote_vol();
-                    }
-                    OrderSide::Sell => {
-                        dec![0,0]
-                    }
-                    _ => {
-                        log::warn!("Order.calc_home_lock_change: Unknown order side. order={:?}", self);
-                        return dec![0.0];
-                    }
-
-                }
-            }
-            false => {
-                return dec![0.0];
-            }
-        }
-    }
-
-    fn calc_home_change(&self) -> Decimal {
-        let change = self.calc_execute_vol() - self.commission_home;
-        match self.order_side {
-            OrderSide::Buy => {
-                -change
-            }
-            OrderSide::Sell => {
-                change
-            }
-            _ => {
-                log::warn!("Order.calc_home_change: Unknown order side. order={:?}", self);
-                dec![0.0]
-            }
-        }
-    }
-
-    fn calc_foreign_change(&self) -> Decimal {
-        let change = self.execute_size - self.commission_foreign;
-
-        match self.order_side {
-            OrderSide::Buy => {
-                change
-            }
-            OrderSide::Sell => {
-                -change
-            }
-            _ => {
-                log::warn!("Order.calc_foreign_change: Unknown order side. order={:?}", self);
-                return dec![0.0]
-            }
-        }
-    }
-    */
 
     // TODO: BackTest時の計算を追加する。
     // 通常は、約定時にサーバからのデータで確定するが、

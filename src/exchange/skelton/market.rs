@@ -1,4 +1,6 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
+#![allow(dead_code)]
+#![allow(unused_variables)]
 
 use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, self};

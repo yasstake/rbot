@@ -1,11 +1,13 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
+#![allow(unused_imports)]
 
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
+use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, JoinHandle, sleep};
+use std::sync::{Arc, RwLock};
+use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 
 use crate::common::{
@@ -23,6 +25,7 @@ use crate::exchange::{
     WebSocketClient,
 };
 use crate::fs::db_full_path;
+use crate::net::{UdpSender, udp};
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -41,6 +44,7 @@ use super::rest::trade_list;
 use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitWsMessage};
 
+
 #[derive(Debug)]
 pub struct BybitOrderBook {
     board: OrderBook,
@@ -57,6 +61,12 @@ impl BybitOrderBook {
         let (bids, asks) = self.board.get_board_vec().unwrap();
 
         Ok((bids, asks))
+    }
+
+    fn get_board_json(&self, size: usize) -> Result<String, ()> {
+        let json = self.board.get_json(size).unwrap();
+
+        Ok(json)
     }
 
     fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
@@ -96,10 +106,6 @@ impl BybitOrderBook {
         let bids = board.get_bids();
         let asks = board.get_asks();
         self.board.update(&bids, &asks, board.snapshot);
-    }
-
-    pub fn clip_depth(&mut self) {
-        self.board.clip_depth();
     }
 
     /*
@@ -152,6 +158,8 @@ impl BybitOrderBook {
     */
 
     fn reflesh_board(&mut self) {
+        // TODO: implement
+        println!("reflesh board :NOT IMPLEMENTED");
         // TODO: reflesh board from rest api
     }
 }
@@ -185,16 +193,39 @@ pub struct BybitMarket {
     pub server_config: BybitServerConfig,
     pub config: MarketConfig,
     pub db: TradeTable,
-    pub board: Arc<Mutex<BybitOrderBook>>,
+    pub board: Arc<RwLock<BybitOrderBook>>,
     pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
+    #[pyo3(get, set)]
+    pub broadcast_message: bool
 }
 
 #[pymethods]
 impl BybitMarket {
+
     /*-------------------　共通実装（コピペ） ---------------------------------------*/
+    #[getter]
+    pub fn get_config(&self) -> MarketConfig {
+        return self.config.clone();
+    }
+
+    #[getter]
+    pub fn get_exchange_name(&self) -> String {
+        return self.server_config.exchange_name.clone();
+    }
+
+    #[getter]
+    pub fn get_trade_category(&self) -> String {
+        return self.config.trade_category.clone();
+    }
+
+    #[getter]
+    pub fn get_trade_symbol(&self) -> String {
+        return self.config.trade_symbol.clone();
+    }
+
     pub fn drop_table(&mut self) -> PyResult<()> {
         match self.db.drop_table() {
             Ok(_) => Ok(()),
@@ -262,19 +293,24 @@ impl BybitMarket {
         return self.db.info();
     }
 
+    pub fn get_board_json(&self, size: usize) -> PyResult<String> {
+        let board = self.board.read().unwrap();
+        return Ok(board.get_board_json(size).unwrap());
+    }
+
     #[getter]
     pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        self.board.lock().unwrap().get_board()
+        self.board.write().unwrap().get_board()
     }
 
     #[getter]
     pub fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
-        Ok(self.board.lock().unwrap().get_board_vec().unwrap())
+        Ok(self.board.read().unwrap().get_board_vec().unwrap())
     }
 
     #[getter]
     pub fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
-        self.board.lock().unwrap().get_edge_price()
+        self.board.read().unwrap().get_edge_price()
     }
 
     #[getter]
@@ -332,8 +368,6 @@ impl BybitMarket {
         let mut download_rec: i64 = 0;
 
         let tx = &self.db.start_thread();
-
-        let now = NOW();
 
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
@@ -472,6 +506,9 @@ impl BybitMarket {
             db_channel.send(trades).unwrap();
         }
 
+        let agent_channel = self.agent_channel.clone();
+        let ws_channel = self.public_ws.open_channel();
+
         self.public_ws.connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
 
@@ -480,22 +517,27 @@ impl BybitMarket {
                 println!("ERR: {:?}", message);
             }
 
-            return m.unwrap().into();
+            let m = m.unwrap();
+
+            return m.into();
         });
 
-
-        let agent_channel = self.agent_channel.clone();
-        let ws_channel = self.public_ws.open_channel();
-
         let board = self.board.clone();
-
         let db_channel_for_after = db_channel.clone();
+
+        let udp_sender = if self.broadcast_message {
+            Some(self.open_udp())
+        }
+        else {
+            None
+        };
 
         let handler = std::thread::spawn(move || {
             loop {
                 let message = ws_channel.recv();
 
                 let message = message.unwrap();
+
 
                 if message.trade.len() != 0 {
                     log::debug!("Trade: {:?}", message.trade);
@@ -506,6 +548,13 @@ impl BybitMarket {
                     }
                 }
 
+                if message.orderbook.is_some() {
+                    let orderbook = message.orderbook.clone().unwrap();
+                    let mut b = board.write().unwrap();
+                    b.update(&orderbook);
+                    drop(b);
+                }
+
                 let messages = message.extract();
 
                 // update board
@@ -513,19 +562,19 @@ impl BybitMarket {
                 // send message to agent
                 for m in messages {
                     if m.trade.is_some() {
+                        // broadcast only trade message
+                        if udp_sender.is_some() {
+                            let sender = udp_sender.as_ref().unwrap();
+                            let _ = sender.send_market_message(&m);
+                        }
+
                         let mut ch = agent_channel.write().unwrap();
                         let r = ch.send(m.clone());
+                        drop(ch);
 
                         if r.is_err() {
                             log::error!("Error in db_channel.send: {:?}", r);
                         }
-                    }
-
-                    if m.orderbook.is_some() {
-                        log::debug!("BoardUpdate: {:?}", m.orderbook);
-                        let orderbook = m.orderbook.unwrap();
-                        board.lock().unwrap().update(&orderbook);
-                        board.lock().unwrap().clip_depth();
                     }
                 }
             }
@@ -534,9 +583,8 @@ impl BybitMarket {
         self.public_handler = Some(handler);
 
         // update recent trade
-
         // wait for channel open
-        sleep(Duration::from_millis(1000));     // TODO: fix to wait for channel open
+        sleep(Duration::from_millis(100));     // TODO: fix to wait for channel open
         let trade = self.get_recent_trades();
         db_channel_for_after.send(trade).unwrap();
 
@@ -545,196 +593,20 @@ impl BybitMarket {
         log::info!("start_market_stream");
     }
 
-/*
-    pub fn make_kline_df(&self, from_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
-        let start_time = self.db.start_time();
-
-        // let mut df = self.db.make_kline_df();
-
-        if df.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in make_kline_df: {:?}",
-                df
-            )));
-        }
-
-        let df = df.unwrap();
-
-        return Ok(PyDataFrame(df));
-    }
-*/
-
-    /*
-    #[pyo3(signature = (verbose = false))]
-    pub fn latest_stable_time(&mut self, verbose: bool) -> (BinanceMessageId, MicroSec) {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and (status = "E" or status = "e") order by time_stamp desc"#;
-
-        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(4)]);
-
-        if r.len() == 0 {
-            log::warn!("no record");
-            return (0, 0);
-        }
-
-        let id: BinanceMessageId = r[0].id.parse().unwrap();
-
-        if verbose {
-            println!("latest_stable_message: {:?}({:?}) / message id={:?}", r[0].time, time_string(r[0].time), r[0].id);
-        }
-
-        return (id, r[0].time);
-    }
-
-    pub fn latest_fix_time(&mut self) -> (BinanceMessageId, MicroSec) {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" order by time_stamp desc"#;
-
-        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(2)]);
-
-        if r.len() == 0 {
-            log::warn!("no record");
-            return (0, 0);
-        }
-
-        let id: BinanceMessageId = r[0].id.parse().unwrap();
-
-        return (id, r[0].time);
-    }
-
-    #[pyo3(signature = (allow_gap_rec=50))]
-    pub fn analyze_db(&mut self, allow_gap_rec: u64) -> i64 {
-        let mut first_id: BinanceMessageId = 0;
-        let mut first_time: MicroSec = 0;
-
-        let mut last_id: BinanceMessageId = 0;
-        let mut last_time: MicroSec = 0;
-
-        let mut gap_count: i64 = 0;
-        let mut record_count: i64 = 0;
-
-        self.db.connection.select(0, 0, |trade|{
-            if first_id == 0 {
-                first_id = trade.id.parse::<BinanceMessageId>().unwrap();
-                first_time = trade.time;
-            }
-
-            let id = trade.id.clone();
-            let id = id.parse::<BinanceMessageId>().unwrap();
-
-            let time = trade.time;
-
-            if last_id != 0 && id + allow_gap_rec < last_id {
-                println!("MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]",
-                    time_string(last_time), last_id,
-                    time_string(time), id,
-                    last_id - id - 1);
-                gap_count += 1;
-            }
-
-            last_id = id;
-            last_time = time;
-            record_count += 1;
-        });
-
-        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}",
-            time_string(first_time), first_id,
-            time_string(last_time), last_id,
-            last_id - first_id + 1,
-            gap_count,
-            record_count
-        );
-
-        if 1 < gap_count {
-            println!("WARNING database has {} gaps. Download with force option, or drop-and-create database.", gap_count);
-        }
-
-        gap_count
-    }
-    */
-
-    /*
-        // TODO: implment retry logic
-        pub fn start_market_stream(&mut self) {
-
-            let endpoint = &self.config.public_ws_endpoint;
-            let subscribe_message: Value =
-                serde_json::from_str(&self.config.public_subscribe_message).unwrap();
-
-            // TODO: parameterize
-            let mut websocket = AutoConnectClient::new(endpoint, Some(subscribe_message));
-
-            websocket.connect();
-
-            let db_channel = self.db.start_thread();
-            let board = self.board.clone();
-
-            let mut agent_channel = self.channel.clone();
-
-            let handler = std::thread::spawn(move || {loop {
-                let message = websocket.receive_message();
-                if message.is_err() {
-                    log::warn!("Error in websocket.receive_message: {:?}", message);
-                    continue;
-                }
-                let m = message.unwrap();
-
-                let message_value = serde_json::from_str::<Value>(&m);
-
-                if message_value.is_err() {
-                    log::warn!("Error in serde_json::from_str: {:?}", message_value);
-                    continue;
-                }
-                let message_value: Value = message_value.unwrap();
-
-                if message_value.is_object() {
-                    let o = message_value.as_object().unwrap();
-
-                    if o.contains_key("e") {
-                        log::debug!("Message: {:?}", &m);
-
-                        let message: BinancePublicWsMessage =
-                            serde_json::from_str(&m).unwrap();
-
-                        match message.clone() {
-                            BinancePublicWsMessage::Trade(trade) => {
-                                log::debug!("Trade: {:?}", trade);
-                                let r = db_channel.send(vec![trade.to_trade()]);
-
-                                if r.is_err() {
-                                    log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
-                                }
-
-                                let multi_agent_channel = agent_channel.borrow_mut();
-
-                                let r = multi_agent_channel.lock().unwrap().send(message.into());
-
-                                if r.is_err() {
-                                    log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
-                                }
-                            }
-                            BinancePublicWsMessage::BoardUpdate(board_update) => {
-                                board.lock().unwrap().update(&board_update);
-                            }
-                        }
-                    } else if o.contains_key("result") {
-                        let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
-                        log::debug!("Result: {:?}", message);
-                    } else {
-                        continue;
-                    }
-                }}
-            });
-
-            self.public_handler = Some(handler);
-
-            log::info!("start_market_stream");
-        }
-    */
 
     pub fn start_user_stream(&mut self) {
         let agent_channel = self.agent_channel.clone();
 
         let server_config = self.server_config.clone();
         let market_config = self.config.clone();
+
+
+        let udp_sender = if self.broadcast_message {
+            Some(self.open_udp())
+        }
+        else {
+            None
+        };
 
         self.user_handler = Some(listen_userdata_stream(
             &server_config,
@@ -744,6 +616,11 @@ impl BybitMarket {
                 let ms = message.convert_to_market_message(&market_config);
                 
                 for m in ms {
+                    if udp_sender.is_some() {
+                        let sender = udp_sender.as_ref().unwrap();
+                        let _ = sender.send_market_message(&m);
+                    }
+            
                     let mut mutl_agent_channel = agent_channel.write().unwrap();                    
                     let _ = mutl_agent_channel.send(m);
                     drop(mutl_agent_channel);
@@ -754,25 +631,6 @@ impl BybitMarket {
         log::info!("start_user_stream");
     }
 
-    /*
-    pub fn is_user_stream_running(&self) -> bool {
-        if let Some(handler) = &self.user_handler {
-            return !handler.is_finished();
-        }
-        return false;
-    }
-
-    pub fn is_market_stream_running(&self) -> bool {
-        if let Some(handler) = &self.public_handler {
-            return !handler.is_finished();
-        }
-        return false;
-    }
-
-    pub fn is_db_thread_running(&self) -> bool {
-        return self.db.is_thread_running();
-    }
-    */
 
     /* TODO: implment */
 
@@ -910,7 +768,7 @@ impl BybitMarket {
         size: Decimal,
         transaction_id: &str,
     ) -> Vec<Order> {
-        let (bids, asks) = self.board.lock().unwrap().get_board_vec().unwrap();
+        let (bids, asks) = self.board.read().unwrap().get_board_vec().unwrap();
 
         let board = if side == OrderSide::Buy { asks } else { bids };
 
@@ -1009,17 +867,10 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.server_config, &self.config);
+        let orders = open_orders(&self.server_config, &self.config);
 
-        log::debug!("OpenOrder: {:?}", status);
-
-
-
-        // convert_pyresult_vec(status)
-        // TODO: implement
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        log::debug!("OpenOrder: {:?}", orders);
+        Ok(orders.unwrap())
     }
 
     #[getter]
@@ -1071,7 +922,7 @@ impl BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: db.unwrap(),
-            board: Arc::new(Mutex::new(BybitOrderBook::new(config))),
+            board: Arc::new(RwLock::new(BybitOrderBook::new(config))),
             public_ws: WebSocketClient::new(
                 &server_config,
                 &format!("{}/{}", &server_config.public_ws, config.trade_category),
@@ -1081,7 +932,12 @@ impl BybitMarket {
             public_handler: None,
             user_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
+            broadcast_message: false,
         };
+    }
+
+    pub fn open_udp(&self) -> UdpSender {
+        UdpSender::open(&self.server_config.exchange_name, &self.config.trade_category, &self.config.trade_symbol)
     }
 
     pub fn make_db_path(

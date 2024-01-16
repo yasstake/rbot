@@ -1,4 +1,4 @@
-use pyo3::{pyclass, pymethods};
+use pyo3::pyclass;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
@@ -22,9 +22,9 @@ pub enum PriceType {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
-    #[pyo3(set)]    
+    #[pyo3(set, get)]    
     pub trade_category: String,
-    #[pyo3(set)]    
+    #[pyo3(set, get)]    
     pub trade_symbol: String,
 
     #[pyo3(set)]

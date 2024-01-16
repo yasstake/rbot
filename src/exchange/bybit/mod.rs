@@ -2,19 +2,14 @@
 pub mod market;
 pub use market::*;
 
-use crate::common::{Order, OrderStatus};
+
 
 pub mod rest;
-
-
 pub mod ws;
-
-
 pub mod message;
-
-
 pub mod config;
 
+use crate::common::OrderStatus;
 
 pub fn bybit_order_status(status: &str) -> OrderStatus {
     match status {
@@ -31,5 +26,4 @@ pub fn bybit_order_status(status: &str) -> OrderStatus {
     "Rejected"
     */
     }
-
 }

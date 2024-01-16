@@ -6,6 +6,7 @@ pub mod db;
 pub mod exchange;
 pub mod fs;
 pub mod session;
+pub mod net;
 //pub mod sim;
 
 use common::{
@@ -18,12 +19,14 @@ use exchange::bybit::{BybitMarket, Bybit};
 use exchange::bybit::config::{BybitConfig, BybitServerConfig};
 use pyo3::prelude::*;
 // use exchange::ftx::FtxMarket;
-use exchange::binance::{BinanceMarket, BinanceConfig};
+use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
 // use exchange::bb::BBMarket;
 
 use common::*;
 use session::{Session, ExecuteMode, Logger};
 use session::Runner;
+
+// use net::{Broadcast, BroadcastMessage};
 //use sim::back::BackTester;
 //use sim::session::DummySession;
 
@@ -63,8 +66,12 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Session>()?;
     m.add_class::<Runner>()?;
     m.add_class::<ExecuteMode>()?;
+
+    //m.add_class::<Broadcast>()?;
+    //m.add_class::<BroadcastMessage>()?;
     
     // Binance
+    m.add_class::<Binance>()?;
     m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;
 
