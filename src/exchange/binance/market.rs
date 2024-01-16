@@ -11,36 +11,39 @@ use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{sleep, JoinHandle, self};
+use std::thread::{self, sleep, JoinHandle};
 use std::time::Duration;
 
-use crate::common::{convert_pyresult_vec, MarketMessage, time_string, OrderType, OrderStatus, LogStatus, FLOOR_DAY, flush_log};
 use crate::common::DAYS;
+use crate::common::NOW;
 use crate::common::{convert_pyresult, MarketStream};
+use crate::common::{
+    convert_pyresult_vec, flush_log, time_string, LogStatus, MarketMessage, OrderStatus, OrderType,
+    FLOOR_DAY,
+};
 use crate::common::{to_naive_datetime, MicroSec};
 use crate::common::{MarketConfig, MultiChannel};
 use crate::common::{Order, OrderSide, Trade};
-use crate::common::NOW;
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
 
-use super::message::{BinanceUserStreamMessage, BinanceMessageId};
 use super::message::{
-    BinanceListOrdersResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
-    BinanceAccountInformation
+    BinanceAccountInformation, BinanceListOrdersResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
 };
-use super::rest::{cancel_order, get_balance};
+use super::message::{BinanceMessageId, BinanceUserStreamMessage};
 use super::rest::cancell_all_orders;
 use super::rest::open_orders;
+use super::rest::{cancel_order, get_balance};
 use super::rest::{new_limit_order, new_market_order, order_status, trade_list};
 use super::ws::listen_userdata_stream;
 
 use crate::exchange::{
-    AutoConnectClient, OrderBook, BoardItem, download_log, latest_archive_date, WsOpMessage, BinanceWsOpMessage};
+    download_log, latest_archive_date, AutoConnectClient, BinanceWsOpMessage, BoardItem, OrderBook,
+    WsOpMessage,
+};
 
 use crate::exchange::binance::config::BinanceConfig;
-
 
 #[pyclass]
 pub struct BinanceAccount {
@@ -143,7 +146,7 @@ impl BinanceOrderBook {
         let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
         let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
 
-        if asks_edge < bids_edge{
+        if asks_edge < bids_edge {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
             self.reflesh_board();
@@ -168,17 +171,13 @@ pub struct Binance {
 impl Binance {
     #[new]
     pub fn new(test_net: bool) -> Self {
-
-        return Binance {
-            test_net,
-        };
+        return Binance { test_net };
     }
 
     pub fn open_market(&self, config: &BinanceConfig) -> BinanceMarket {
         return BinanceMarket::create(config);
     }
 }
-
 
 #[derive(Debug)]
 #[pyclass(name = "BinanceMarket")]
@@ -213,8 +212,6 @@ impl BinanceMarket {
 
         log::info!("db is opend success. db_path= {}", db_name);
 
-        let symbol = config.market_config.trade_symbol.clone();
-
         return BinanceMarket {
             config: config.clone(),
             db,
@@ -229,7 +226,7 @@ impl BinanceMarket {
     pub fn new(config: &BinanceConfig) -> Self {
         println!("Warning: depricated use open_market as below");
         println!("> binance = Binance()");
-        println!("> market = binance.open_market(config)");        
+        println!("> market = binance.open_market(config)");
 
         Self::create(config)
     }
@@ -243,7 +240,21 @@ impl BinanceMarket {
             ))),
         }
     }
-    
+
+    #[getter]
+    pub fn get_market_name(&self) -> (String, String, String) {
+        /*
+        self.server_config.exchange_name.clone(),
+        self.config.trade_category.clone(),
+        self.config.trade_symbol.clone(),
+        */
+        (
+            self.config.exchange_name.clone(),
+            self.config.market_config.trade_category.clone(),
+            self.config.market_config.trade_symbol.clone(),
+        )
+    }
+
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.db.get_cache_duration();
@@ -254,7 +265,14 @@ impl BinanceMarket {
     }
 
     #[pyo3(signature = (*, ndays, force = false, low_priority=false, verbose=true, archive_only=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, low_priority: bool, verbose: bool, archive_only: bool) -> i64 {
+    pub fn download(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        low_priority: bool,
+        verbose: bool,
+        archive_only: bool,
+    ) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -283,9 +301,9 @@ impl BinanceMarket {
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
-            if ! force && self.validate_db_by_date(date) {
+            if !force && self.validate_db_by_date(date) {
                 log::info!("{} is valid", time_string(date));
-                
+
                 if verbose {
                     println!("{} skip download", time_string(date));
                     flush_log();
@@ -297,7 +315,7 @@ impl BinanceMarket {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
-                },
+                }
                 Err(e) => {
                     log::error!("Error in download_log: {:?}", e);
                     if verbose {
@@ -335,7 +353,7 @@ impl BinanceMarket {
     }
 
     #[pyo3(signature = (force=false, verbose = true))]
-    pub fn download_latest(&mut self, force:bool, verbose: bool) -> i64 {
+    pub fn download_latest(&mut self, force: bool, verbose: bool) -> i64 {
         if verbose {
             println!("start download from rest API");
             flush_log();
@@ -346,32 +364,39 @@ impl BinanceMarket {
         if force {
             let (fix_id, _fix_time) = self.latest_fix_time();
             start_id = fix_id + 1;
-        }
-        else {
-            let (stable_id, _stable_time)= self.latest_stable_time(verbose);
+        } else {
+            let (stable_id, _stable_time) = self.latest_stable_time(verbose);
             start_id = stable_id + 1;
         }
 
         if start_id == 1 {
-            println!("ERROR: no record in database path= {}", self.get_file_name());
+            println!(
+                "ERROR: no record in database path= {}",
+                self.get_file_name()
+            );
             flush_log();
 
             return 0;
         }
-        
+
         let ch = self.db.start_thread();
 
-        let record_number = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), start_id, verbose,&mut |row|
-        {
-            //TODO:
-            while 100 < ch.len() {
-                sleep(Duration::from_millis(100));
-            }
+        let record_number = download_historical_trades_from_id(
+            &BinanceConfig::BTCUSDT(),
+            start_id,
+            verbose,
+            &mut |row| {
+                //TODO:
+                while 100 < ch.len() {
+                    sleep(Duration::from_millis(100));
+                }
 
-            ch.send(row.clone()).unwrap();
+                ch.send(row.clone()).unwrap();
 
-            Ok(())
-        }).unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
 
         if verbose {
             println!("\nREST downloaded: {}[rec]", record_number);
@@ -385,7 +410,7 @@ impl BinanceMarket {
     pub fn latest_stable_time(&mut self, verbose: bool) -> (BinanceMessageId, MicroSec) {
         let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and (status = "E" or status = "e") order by time_stamp desc"#;
 
-        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(4)]);
+        let r = self.db.connection.select_query(sql, vec![NOW() - DAYS(4)]);
 
         if r.len() == 0 {
             log::warn!("no record");
@@ -395,7 +420,12 @@ impl BinanceMarket {
         let id: BinanceMessageId = r[0].id.parse().unwrap();
 
         if verbose {
-            println!("latest_stable_message: {:?}({:?}) / message id={:?}", r[0].time, time_string(r[0].time), r[0].id);
+            println!(
+                "latest_stable_message: {:?}({:?}) / message id={:?}",
+                r[0].time,
+                time_string(r[0].time),
+                r[0].id
+            );
         }
 
         return (id, r[0].time);
@@ -404,7 +434,7 @@ impl BinanceMarket {
     pub fn latest_fix_time(&mut self) -> (BinanceMessageId, MicroSec) {
         let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp and status = "E" order by time_stamp desc"#;
 
-        let r = self.db.connection.select_query(sql, vec![NOW()-DAYS(2)]);
+        let r = self.db.connection.select_query(sql, vec![NOW() - DAYS(2)]);
 
         if r.len() == 0 {
             log::warn!("no record");
@@ -427,7 +457,7 @@ impl BinanceMarket {
         let mut gap_count: i64 = 0;
         let mut record_count: i64 = 0;
 
-        self.db.connection.select(0, 0, |trade|{
+        self.db.connection.select(0, 0, |trade| {
             if first_id == 0 {
                 first_id = trade.id.parse::<BinanceMessageId>().unwrap();
                 first_time = trade.time;
@@ -439,10 +469,14 @@ impl BinanceMarket {
             let time = trade.time;
 
             if last_id != 0 && id + allow_gap_rec < last_id {
-                println!("MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]", 
-                    time_string(last_time), last_id,
-                    time_string(time), id,
-                    last_id - id - 1);
+                println!(
+                    "MISSING: FROM: {}({})  -> TO: {}({}), {}[rec]",
+                    time_string(last_time),
+                    last_id,
+                    time_string(time),
+                    id,
+                    last_id - id - 1
+                );
                 gap_count += 1;
             }
 
@@ -451,9 +485,12 @@ impl BinanceMarket {
             record_count += 1;
         });
 
-        println!("Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}", 
-            time_string(first_time), first_id,
-            time_string(last_time), last_id,
+        println!(
+            "Database analyze / BEGIN: {}({})  -> END: {}({}), {}[rec]  / {}[gap] / total rec {}",
+            time_string(first_time),
+            first_id,
+            time_string(last_time),
+            last_id,
             last_id - first_id + 1,
             gap_count,
             record_count
@@ -504,12 +541,11 @@ impl BinanceMarket {
     ) -> PyResult<PyDataFrame> {
         return self.db.py_vap(start_time, end_time, price_unit);
     }
-    
 
     pub fn info(&mut self) -> String {
         return self.db.info();
     }
-    
+
     #[getter]
     pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
         self.board.lock().unwrap().get_board()
@@ -545,30 +581,36 @@ impl BinanceMarket {
     }
 
     pub fn _repr_html_(&self) -> String {
-        return format!("<b>Binance DB ({})</b>{}", self.config.market_config.trade_symbol, self.db._repr_html_());
+        return format!(
+            "<b>Binance DB ({})</b>{}",
+            self.config.market_config.trade_symbol,
+            self.db._repr_html_()
+        );
     }
 
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
-
         let endpoint = &self.config.public_ws_endpoint;
         let mut subscribe_message = BinanceWsOpMessage::new();
-        subscribe_message.add_params(&self.config.public_subscribe_channel);        
+        subscribe_message.add_params(&self.config.public_subscribe_channel);
+
+        let mut agent_channel = self.channel.clone();
 
         // TODO: parameterize
-        let mut websocket: AutoConnectClient<BinanceConfig, BinanceWsOpMessage> = 
-                AutoConnectClient::new(
-                    &self.config,
-                    endpoint, Arc::new(RwLock::new(subscribe_message)), None);
+        let mut websocket: AutoConnectClient<BinanceConfig, BinanceWsOpMessage> =
+            AutoConnectClient::new(
+                &self.config,
+                endpoint,
+                Arc::new(RwLock::new(subscribe_message)),
+                None,
+            );
 
         websocket.connect();
 
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
-        let mut agent_channel = self.channel.clone();
-
-        let handler = std::thread::spawn(move || {loop {
+        let handler = std::thread::spawn(move || loop {
             let message = websocket.receive_message();
             if message.is_err() {
                 log::warn!("Error in websocket.receive_message: {:?}", message);
@@ -590,20 +632,19 @@ impl BinanceMarket {
                 if o.contains_key("e") {
                     log::debug!("Message: {:?}", &m);
 
-                    let message: BinancePublicWsMessage =
-                        serde_json::from_str(&m).unwrap();
+                    let message: BinancePublicWsMessage = serde_json::from_str(&m).unwrap();
 
                     match message.clone() {
                         BinancePublicWsMessage::Trade(trade) => {
                             log::debug!("Trade: {:?}", trade);
                             let r = db_channel.send(vec![trade.to_trade()]);
-                            
+
                             if r.is_err() {
                                 log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
                             }
 
                             let multi_agent_channel = agent_channel.borrow_mut();
-                            
+
                             let r = multi_agent_channel.lock().unwrap().send(message.into());
 
                             if r.is_err() {
@@ -620,7 +661,7 @@ impl BinanceMarket {
                 } else {
                     continue;
                 }
-            }}
+            }
         });
 
         self.public_handler = Some(handler);
@@ -691,21 +732,25 @@ impl BinanceMarket {
     pub fn get_channel(&mut self) -> MarketStream {
         let ch = self.channel.lock().unwrap().open_channel(0);
 
-        return MarketStream{reciver: ch}
+        return MarketStream { reciver: ch };
     }
 
-    pub fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+    pub fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> MarketStream {
         let channel = self.channel.lock().unwrap().open_channel(1_000);
         let sender = self.channel.clone();
 
         let mut table_db = self.db.connection.clone_connection();
 
         thread::spawn(move || {
-            let mut channel = sender.lock().unwrap();            
+            let mut channel = sender.lock().unwrap();
             table_db.select(time_from, time_to, |trade| {
                 let message: MarketMessage = trade.into();
                 let r = channel.send(message);
-        
+
                 if r.is_err() {
                     log::error!("Error in channel.send: {:?}", r);
                 }
@@ -713,7 +758,7 @@ impl BinanceMarket {
             channel.close();
         });
 
-        return MarketStream{reciver: channel};
+        return MarketStream { reciver: channel };
     }
 
     /*
@@ -753,7 +798,8 @@ impl BinanceMarket {
         let size_dp = size.round_dp(size_scale);
         let order_side = OrderSide::from(side);
 
-        let response = new_limit_order(&self.config, order_side, price_dp, size_dp, client_order_id);
+        let response =
+            new_limit_order(&self.config, order_side, price_dp, size_dp, client_order_id);
 
         if response.is_err() {
             log::error!(
@@ -809,7 +855,7 @@ impl BinanceMarket {
     ) -> PyResult<Vec<Order>> {
         let size_scale = self.config.market_config.size_scale;
         let size = size.round_dp(size_scale);
-        
+
         let order_side = OrderSide::from(side);
 
         let response = new_market_order(&self.config, order_side, size, client_order_id);
@@ -837,7 +883,6 @@ impl BinanceMarket {
         convert_pyresult(response)
     }
 
-
     pub fn dry_market_order(
         &self,
         create_time: MicroSec,
@@ -849,11 +894,7 @@ impl BinanceMarket {
     ) -> Vec<Order> {
         let (bids, asks) = self.board.lock().unwrap().get_board_vec().unwrap();
 
-        let board = if side == OrderSide::Buy {
-            asks
-        } else {
-            bids
-        };
+        let board = if side == OrderSide::Buy { asks } else { bids };
 
         let mut orders: Vec<Order> = vec![];
         let mut split_index = 0;
@@ -871,12 +912,11 @@ impl BinanceMarket {
             split_index += 1;
 
             if remain_size <= item.size {
-                order_status = OrderStatus::Filled;                
+                order_status = OrderStatus::Filled;
                 execute_size = remain_size;
                 remain_size = dec![0.0];
-            }
-            else {
-                order_status = OrderStatus::PartiallyFilled;                
+            } else {
+                order_status = OrderStatus::PartiallyFilled;
                 execute_size = item.size;
                 remain_size -= item.size;
             }
@@ -958,8 +998,7 @@ impl BinanceMarket {
     }
 }
 
-use crate::exchange::binance::rest::{get_board_snapshot, download_historical_trades_from_id};
-
+use crate::exchange::binance::rest::{download_historical_trades_from_id, get_board_snapshot};
 
 impl BinanceMarket {
     pub fn db_path(config: &BinanceConfig) -> PyResult<String> {
@@ -984,25 +1023,33 @@ impl BinanceMarket {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         return format!(
             "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-            config.history_web_base,
-            symbol, symbol, yyyy, mm, dd
+            config.history_web_base, symbol, symbol, yyyy, mm, dd
         );
     }
 
-    pub fn download_log(&mut self, tx: &Sender<Vec<Trade>>, date: MicroSec, low_priority: bool, verbose: bool) -> PyResult<i64> {
+    pub fn download_log(
+        &mut self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        low_priority: bool,
+        verbose: bool,
+    ) -> PyResult<i64> {
         let date = FLOOR_DAY(date);
         let url = Self::make_historical_data_url_timestamp(&self.config, date);
 
-        match download_log(&url, tx, false, low_priority, verbose, &BinanceMarket::rec_to_trade) {
-            Ok(download_rec) => {
-                Ok(download_rec)
-            }
-            Err(e) => {
-                Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in download_logs: {:?}",
-                    e
-                )))
-            }
+        match download_log(
+            &url,
+            tx,
+            false,
+            low_priority,
+            verbose,
+            &BinanceMarket::rec_to_trade,
+        ) {
+            Ok(download_rec) => Ok(download_rec),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in download_logs: {:?}",
+                e
+            ))),
         }
     }
 
@@ -1038,7 +1085,14 @@ impl BinanceMarket {
             _ => OrderSide::Unknown,
         };
 
-        let trade = Trade::new(timestamp, order_side, price, size, LogStatus::FixArchiveBlock, &id);
+        let trade = Trade::new(
+            timestamp,
+            order_side,
+            price,
+            size,
+            LogStatus::FixArchiveBlock,
+            &id,
+        );
 
         return trade;
     }
@@ -1060,8 +1114,11 @@ impl BinanceMarket {
 #[cfg(test)]
 mod binance_test {
     use std::{thread::sleep, time::Duration};
-    
-    use crate::{common::{TODAY, DAYS, init_debug_log, init_log, time_string}, exchange::binance::rest::{download_historical_trades, download_historical_trades_from_id}};
+
+    use crate::{
+        common::{init_debug_log, init_log, time_string, DAYS, TODAY},
+        exchange::binance::rest::{download_historical_trades, download_historical_trades_from_id},
+    };
 
     use super::*;
 
@@ -1084,7 +1141,7 @@ mod binance_test {
         );
 
         println!("{} / {}", TODAY(), time_string(TODAY()));
-        println!("{} / {}", DAYS(1), time_string(DAYS(1)));        
+        println!("{} / {}", DAYS(1), time_string(DAYS(1)));
     }
 
     #[test]
@@ -1208,9 +1265,13 @@ mod binance_test {
         })).unwrap();
         */
 
-        let ((fid, ftime), (eid, etime), rec_no) = download_historical_trades(&BinanceConfig::BTCUSDT(), 1, &mut |row|Ok({
-            println!("{:?}", row);
-        })).unwrap();
+        let ((fid, ftime), (eid, etime), rec_no) =
+            download_historical_trades(&BinanceConfig::BTCUSDT(), 1, &mut |row| {
+                Ok({
+                    println!("{:?}", row);
+                })
+            })
+            .unwrap();
 
         println!("{} / {}", fid, time_string(ftime));
         println!("{} / {}", eid, time_string(etime));
@@ -1219,16 +1280,24 @@ mod binance_test {
 
     #[test]
     fn test_download_historical_data2() {
-//        init_debug_log();
-let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
-//let market = BinanceMarket::new("BTCBUSD", true);
+        //        init_debug_log();
+        let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
+        //let market = BinanceMarket::new("BTCBUSD", true);
 
-        let (stable_id, stable_time)= market.latest_stable_time(true);
+        let (stable_id, stable_time) = market.latest_stable_time(true);
         println!("STABLETIME: {:?}", time_string(stable_time));
 
-        let rec_no = download_historical_trades_from_id(&BinanceConfig::BTCUSDT(), stable_id, true,&mut |_row|Ok({
-            // println!("{:?}", _row);
-        })).unwrap();
+        let rec_no = download_historical_trades_from_id(
+            &BinanceConfig::BTCUSDT(),
+            stable_id,
+            true,
+            &mut |_row| {
+                Ok({
+                    // println!("{:?}", _row);
+                })
+            },
+        )
+        .unwrap();
 
         println!("{}", rec_no);
     }
@@ -1240,13 +1309,13 @@ let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
         let mut last_id: BinanceMessageId = 0;
         let mut last_time: MicroSec = 0;
 
-        market.db.connection.select(0, 0, |trade|{
+        market.db.connection.select(0, 0, |trade| {
             let id = trade.id.clone();
             let id = id.parse::<BinanceMessageId>().unwrap();
 
             let time = trade.time;
 
-            if last_id != 0 && id != last_id + 1{
+            if last_id != 0 && id != last_id + 1 {
                 println!("{} / {}", time, time_string(time));
             }
 
@@ -1254,5 +1323,4 @@ let mut market = BinanceMarket::new(&BinanceConfig::BTCUSDT());
             last_time = time;
         });
     }
-
 }

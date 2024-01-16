@@ -1,39 +1,32 @@
-// Copyright(c) 2022-2023. yasstake. All rights reserved.
-
-use crossbeam_channel::Sender;
-use csv::StringRecord;
-use polars_core::export::num::FromPrimitive;
+// Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, sleep, JoinHandle};
-use std::time::Duration;
 
 use crate::common::{
-    flush_log, time_string, to_naive_datetime, AccountStatus, LogStatus, MarketConfig,
+    flush_log, time_string, AccountStatus, MarketConfig,
     MarketMessage, MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType,
-    Trade, DAYS, FLOOR_DAY, HHMM, NOW,
+    Trade, DAYS, HHMM, NOW,
 };
 use crate::db::df::KEY;
-use crate::db::sqlite::{TradeTable, TradeTableDb};
+use crate::db::sqlite::TradeTable;
 use crate::exchange::{
-    download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
-    WebSocketClient,
+    BoardItem, OrderBook, OrderBookRaw,
 };
 use crate::fs::db_full_path;
-use chrono::Datelike;
+
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 use super::config::BitflyerServerConfig;
+use super::rest::{new_limit_order, cancel_order, get_recent_trade};
 use super::rest::cancell_all_orders;
 use super::rest::get_balance;
-use super::rest::new_limit_order;
 use super::rest::new_market_order;
 use super::rest::order_status;
-use super::rest::trade_list;
-use super::rest::{cancel_order, get_recent_trade};
+
+//use super::rest::{cancel_order, get_recent_trade};
 
 #[derive(Debug)]
 pub struct BitflyerOrderBook {
@@ -90,10 +83,6 @@ impl BitflyerOrderBook {
         let bids = board.get_bids();
         let asks = board.get_asks();
         self.board.update(&bids, &asks, board.snapshot);
-    }
-
-    pub fn clip_depth(&mut self) {
-        self.board.clip_depth();
     }
 
     /*
@@ -298,6 +287,7 @@ impl BitflyerMarket {
 
     /*--------------　ここまでコピペ　--------------------------*/
 
+    #[allow(unused_variables)]
     #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
     pub fn download(
         &mut self,
@@ -995,7 +985,7 @@ impl BitflyerMarket {
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<Order>> {
-        let status = order_status(&self.server_config.rest_server, &self.config);
+        let _status = order_status(&self.server_config.rest_server, &self.config);
 
         // TODO: IMPLEMENT convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -1032,6 +1022,8 @@ impl BitflyerMarket {
     #[getter]
     pub fn get_account(&self) -> PyResult<AccountStatus> {
         let status = get_balance(&self.server_config.rest_server, &self.config);
+
+        status.unwrap();
 
         //convert_pyresult(status)
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -1095,6 +1087,7 @@ impl BitflyerMarket {
         return db_path.to_str().unwrap().to_string();
     }
 
+    #[allow(dead_code)]
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
         self.db.connection.validate_by_date(date)

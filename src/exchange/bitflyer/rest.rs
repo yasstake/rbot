@@ -1,43 +1,18 @@
-// Copyright(c) 2022-2023. yasstake. All rights reserved.
-
-
-use std::f32::consts::E;
-
-use chrono::format::parse;
-use rust_decimal_macros::dec;
-use serde_derive::Deserialize;
-use serde_derive::Serialize;
-use serde_json::Value;
-use serde_json::from_str;
+// Copyright(c) 2022-2024. yasstake. All rights reserved.
+#![allow(unused_variables)]
+#![allow(dead_code)]
 
 use rust_decimal::Decimal;
-use tungstenite::client;
-use tungstenite::http::response;
-
+use rust_decimal_macros::dec;
 
 use crate::common::AccountStatus;
-use crate::common::LogStatus;
 use crate::common::MarketConfig;
-use crate::common::MicroSec;
 use crate::common::Order;
 use crate::common::OrderSide;
-use crate::common::OrderStatus;
 use crate::common::OrderType;
-use crate::common::Trade;
-use crate::common::NOW;
-use crate::common::flush_log;
-use crate::common::msec_to_microsec;
-use crate::common::time_string;
-use crate::db::sqlite::TradeTable;
 use crate::exchange::bitflyer::message::BitflyerExecutionResponse;
-use crate::exchange::hmac_sign;
-use crate::exchange::rest_delete;
 use crate::exchange::rest_get;
-use crate::exchange::rest_post;
-use crate::exchange::rest_put;
 
-
-use super::Bitflyer;
 use super::config::BitflyerServerConfig;
 
 
@@ -52,7 +27,7 @@ pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<Bitflye
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
         200);
-    
+
     let r = bitflyer_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -76,13 +51,18 @@ pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<Bitflye
 }
     */
 
-pub fn get_recent_trade(server: &BitflyerServerConfig, config: &MarketConfig) -> Result<Vec<BitflyerExecutionResponse>, String> {
+pub fn get_recent_trade(
+    server: &BitflyerServerConfig,
+    config: &MarketConfig,
+) -> Result<Vec<BitflyerExecutionResponse>, String> {
     let path = "/v1/executions";
 
-    let query = format!("{}?product_code={}&count={}", path, config.trade_symbol, 1000);
+    let query = format!(
+        "{}?product_code={}&count={}",
+        path, config.trade_symbol, 1000
+    );
 
-    let result = 
-    rest_get(&server.rest_server, &query, vec![], None, None);
+    let result = rest_get(&server.rest_server, &query, vec![], None, None);
 
     println!("result={:?}", result);
 
@@ -94,12 +74,12 @@ pub fn get_recent_trade(server: &BitflyerServerConfig, config: &MarketConfig) ->
     let message = result.unwrap();
 
     let orders = serde_json::from_str::<Vec<BitflyerExecutionResponse>>(&message);
-    
+
     if orders.is_err() {
         let orders = orders.unwrap_err();
         return Err(orders.to_string());
     }
-    
+
     Ok(orders.unwrap())
 
     /*
@@ -109,7 +89,7 @@ pub fn get_recent_trade(server: &BitflyerServerConfig, config: &MarketConfig) ->
         config.trade_category.as_str(),
         config.trade_symbol.as_str(),
         1000);
-    
+
     let r = bitflyer_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -131,7 +111,7 @@ pub fn get_recent_trade(server: &BitflyerServerConfig, config: &MarketConfig) ->
     */
 }
 
-    /*
+/*
 pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
 
     let mut klines = BybitKlines::new();
@@ -175,9 +155,9 @@ pub fn get_trade_kline(server: &str, config: &MarketConfig, start_time: MicroSec
 
     */
 
-    /*
+/*
 /// https://bybit-exchange.github.io/docs/v5/market/kline
-/// 
+///
 fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec, end_time: MicroSec) -> Result<BybitKlines, String> {
 
     if end_time <= start_time {
@@ -192,7 +172,7 @@ fn get_trade_kline_raw(server: &str, config: &MarketConfig, start_time: MicroSec
         start_time,
         end_time,
         1000);
-    
+
     let r = bitflyer_rest_get(server, path, &params);
 
     if r.is_err() {
@@ -223,8 +203,17 @@ pub fn new_limit_order(
     side: OrderSide,
     price: Decimal,
     size: Decimal,
-    client_order_id: Option<&str>) -> Result<Order, String>{
-        new_order(server, config, side, price, size, OrderType::Limit, client_order_id)
+    client_order_id: Option<&str>,
+) -> Result<Order, String> {
+    new_order(
+        server,
+        config,
+        side,
+        price,
+        size,
+        OrderType::Limit,
+        client_order_id,
+    )
 }
 
 pub fn new_market_order(
@@ -234,18 +223,27 @@ pub fn new_market_order(
     size: Decimal,
     client_order_id: Option<&str>,
 ) -> Result<Order, String> {
-    new_order(server, config, side, dec![0.0], size, OrderType::Market, client_order_id)
+    new_order(
+        server,
+        config,
+        side,
+        dec![0.0],
+        size,
+        OrderType::Market,
+        client_order_id,
+    )
 }
-
 
 /// create new limit order
 /// https://bybit-exchange.github.io/docs/v5/order/create-order
+#[allow(dead_code)]
+#[allow(unused_variables)]
 pub fn new_order(
     server: &BitflyerServerConfig,
     config: &MarketConfig,
     side: OrderSide,
     price: Decimal, // when order_type is Market, this value is ignored.
-    size: Decimal,              
+    size: Decimal,
     order_type: OrderType,
     client_order_id: Option<&str>,
 ) -> Result<Order, String> {
@@ -338,8 +336,9 @@ pub fn new_order(
     Err("Not implemented".to_string())
 }
 
+#[allow(unused_variables)]
 pub fn cancel_order(
-    server: &BitflyerServerConfig, 
+    server: &BitflyerServerConfig,
     config: &MarketConfig,
     order_id: &str,
 ) -> Result<Order, String> {
@@ -404,10 +403,9 @@ pub fn cancel_order(
     Err("Not implemented".to_string())
 }
 
-
 pub fn cancell_all_orders(
     server: &BitflyerServerConfig,
-    config: &MarketConfig
+    config: &MarketConfig,
 ) -> Result<Vec<Order>, String> {
     /*
     let message = CancelAllMessage {
@@ -479,24 +477,19 @@ pub fn cancell_all_orders(
     Err("Not implemented".to_string())
 }
 
-pub fn get_balance(
-    server: &str,
-    config: &MarketConfig) -> Result<AccountStatus, String> {
+pub fn get_balance(server: &str, config: &MarketConfig) -> Result<AccountStatus, String> {
     return Err("Not implemented".to_string());
 }
 
-
-pub fn order_status(
-    server: &str,
-    config: &MarketConfig) -> Result<Vec<Order>, String> {
+pub fn order_status(server: &str, config: &MarketConfig) -> Result<Vec<Order>, String> {
     return Err("Not implemented".to_string());
 }
-
 
 pub fn open_orders(
     server: &BitflyerServerConfig,
-    config: &MarketConfig) -> Result<Vec<Order>, String> {
-        /*
+    config: &MarketConfig,
+) -> Result<Vec<Order>, String> {
+    /*
 
     let query_string = format!("category={}&symbol={}&limit=50", config.trade_category, config.trade_symbol);
 
@@ -533,12 +526,9 @@ pub fn open_orders(
     Err("Not implemented".to_string())
 }
 
-pub fn trade_list(
-    server: &str,
-    config: &MarketConfig) -> Result<Vec<Order>, String> {
+pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<Order>, String> {
     return Err("Not implemented".to_string());
 }
-
 
 #[cfg(test)]
 mod test_restapi {
@@ -548,12 +538,7 @@ mod test_restapi {
     #[test]
     fn test_recent_trade() {
         let server = BitflyerServerConfig::new();
-        let config = MarketConfig::new_bitflyer(
-            "FX",
-            "JPY", 
-            "BTC",
-            0,
-            0);
+        let config = MarketConfig::new_bitflyer("FX", "JPY", "BTC", 0, 0);
 
         println!("market_config={:?}", config);
 
