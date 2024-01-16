@@ -1,7 +1,9 @@
 use std::mem::MaybeUninit;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::str::FromStr;
 
-use socket2::SockAddr;
+use crossbeam_channel::Receiver;
+use socket2::{SockAddr, Protocol};
 use socket2::{Domain, Socket, Type};
 
 use pyo3::pyclass;
@@ -10,7 +12,7 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 use crate::common::{AccountStatus, Order, Trade};
-use crate::MarketMessage;
+use crate::{MarketMessage, env_rbot_multicast_addr, env_rbot_multicast_port};
 use crate::exchange::bitflyer::market;
 
 use super::{get_udp_port, get_udp_source_port};
@@ -24,7 +26,6 @@ pub struct BroadcastMessage {
     pub exchange: String,
     pub category: String,
     pub symbol: String,
-    pub agent_id: String,
     pub msg: BroadcastMessageContent,
 }
 
@@ -54,71 +55,37 @@ pub struct UdpSender {
     category: String,
     symbol: String,
     socket: Socket,
-    remote_addr: SockAddr,
+    multicast_addr: SockAddr,
 }
 
 #[pymethods]
 impl UdpSender {
     #[staticmethod]
-    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
-        let udp_port = get_udp_port();
-        let udp_source_port = get_udp_source_port();
-
-        Self::open_with_port(
-            market_name,
-            market_category,
-            symbol,
-            udp_source_port,
-            udp_port,
-        )
-    }
-
-    #[staticmethod]
-    pub fn open_with_port(
+    pub fn open(
         market_name: &str,
         market_category: &str,
         symbol: &str,
-        local_port: i64,
-        remote_port: i64,
     ) -> Self {
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+        socket.set_reuse_address(true).unwrap();
+        socket.set_reuse_port(true).unwrap();
 
-        for i in 0..100 {
-            let port = local_port + i;
-            if port == remote_port {
-                continue;
-            }
+        let multicast_addr = format!("{}:{}", env_rbot_multicast_addr(), env_rbot_multicast_port());
 
-            let local_addr = format!("127.0.0.1:{}", port);
-            let local_addr: SocketAddr = local_addr.parse().unwrap();
-
-            if socket.bind(&local_addr.into()).is_ok() {
-                break;
-            }
-        }
-
-        log::debug!(
-            "open_with_port: {} / {} local={}, remote={}",
-            market_name,
-            symbol,
-            local_port,
-            remote_port
-        );
-
-        let remote_addr = format!("127.0.0.1:{}", remote_port);
-        let remote_addr: SocketAddr = remote_addr.parse().unwrap();
+        let multicast_addr: SocketAddr = multicast_addr.parse().unwrap();
 
         Self {
             exchange_name: market_name.to_string(),
             category: market_category.to_string(),
             symbol: symbol.to_string(),
             socket: socket,
-            remote_addr: SockAddr::from(remote_addr),
+            multicast_addr: multicast_addr.into(),
         }
     }
 
     pub fn send(&self, message: &str) -> Result<usize, std::io::Error> {
-        self.socket.send_to(message.as_bytes(), &self.remote_addr)
+        log::debug!("UDP send: [{:?}], {}", &self.multicast_addr, message);
+        self.socket.send_to(message.as_bytes(), &self.multicast_addr)
     }
 
     pub fn send_market_message(&self, message: &MarketMessage) -> Result<usize, std::io::Error> {
@@ -134,7 +101,6 @@ impl UdpSender {
                 exchange: exchange,
                 category: category,
                 symbol: symbol,
-                agent_id: agent_id,
                 msg: BroadcastMessageContent::trade(trade.clone()),
             },
             MarketMessage {
@@ -143,7 +109,6 @@ impl UdpSender {
                 exchange: exchange,
                 category: category,
                 symbol: symbol,
-                agent_id: agent_id,
                 msg: BroadcastMessageContent::order(order.clone()),
             },
             MarketMessage {
@@ -153,7 +118,6 @@ impl UdpSender {
                 exchange: exchange,
                 category: category,
                 symbol: symbol,
-                agent_id: agent_id,
                 msg: BroadcastMessageContent::account(account.clone()),
             },
             _ => {
@@ -163,48 +127,54 @@ impl UdpSender {
 
         let msg = serde_json::to_string(&message).unwrap();
 
-        log::debug!("send_market_message: {}", msg);
+        log::debug!("send:[{:?}] {}", &self.multicast_addr, msg);
 
-        self.socket.send_to(msg.as_bytes(), &self.remote_addr)
+        self.socket.send_to(msg.as_bytes(), &self.multicast_addr)
     }
 
     pub fn send_message(&self, message: &BroadcastMessage) -> Result<usize, std::io::Error> {
         let msg = serde_json::to_string(message).unwrap();
-        self.socket.send_to(msg.as_bytes(), &self.remote_addr)
+        self.socket.send_to(msg.as_bytes(), &self.multicast_addr)
     }
 }
 
 const UDP_SIZE: usize = 4096;
 
 #[derive(Debug)]
-#[pyclass]
+
 pub struct UdpReceiver {
     market_name: String,
     market_category: String,
     symbol: String,
     socket: Socket,
-    local_addr: SockAddr,
     buf: [MaybeUninit<u8>; UDP_SIZE],
 }
 
-#[pymethods]
 impl UdpReceiver {
-    #[staticmethod]
-    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
-        let udp_port = get_udp_port();
-        Self::open_with_port(market_name, market_category, symbol, udp_port)
-    }
+    pub fn open(market_name: &str, market_category: &str, symbol: &str, agent_id: &str) -> Self {
+        let multicast_addr = Ipv4Addr::from_str(&env_rbot_multicast_addr());
+        if multicast_addr.is_err() {
+            log::error!("multicast_addr error {:?}", multicast_addr);
+        }
+        let multicast_addr = multicast_addr.unwrap();
+        let multicast_port = env_rbot_multicast_port();
 
-    #[staticmethod]
-    pub fn open_with_port(market_name: &str, market_category: &str, symbol: &str, local_port: i64) -> Self {
-        let local_addr = format!("127.0.0.1:{}", local_port);
-        let local_addr: SocketAddr = local_addr.parse().unwrap();
-
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         socket.set_reuse_address(true).unwrap();
         socket.set_reuse_port(true).unwrap();
 
-        socket.bind(&local_addr.into()).unwrap();
+        let addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, multicast_port as u16);
+        let addr = SockAddr::from(addr);
+        let r = socket.bind(&addr);
+        if r.is_err() {
+            log::error!("bind error");
+        }
+        
+        let r = socket.join_multicast_v4(&multicast_addr, &Ipv4Addr::UNSPECIFIED);
+        if r.is_err() {
+            log::error!("join_multicast_v4 error");
+        }
+
         let buf = [MaybeUninit::uninit(); UDP_SIZE]; // Initialize the buffer with a properly sized array
 
         Self {
@@ -212,7 +182,6 @@ impl UdpReceiver {
             market_category: market_category.to_string(),
             symbol: symbol.to_string(),
             socket: socket,
-            local_addr: local_addr.into(),
             buf: buf,
         }
     }
@@ -220,6 +189,7 @@ impl UdpReceiver {
     pub fn receive(&mut self) -> Result<String, std::io::Error> {
         let (amt, addr) = self.socket.recv_from(&mut self.buf)?;
 
+        /*
         if let Some(sendr_ip) = addr.as_socket_ipv4() {
             if *(sendr_ip.ip()) != IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)) {
                 return Err(std::io::Error::new(
@@ -228,6 +198,7 @@ impl UdpReceiver {
                 ));
             }
         }
+        */
 
         let msg = &self.buf[..amt];
         let m = unsafe { std::mem::transmute::<_, &[u8]>(msg) };
@@ -248,6 +219,8 @@ impl UdpReceiver {
         loop {
             msg = self.receive_message()?;
 
+            log::debug!("receive_market_message raw: {:?}", msg);
+
             if (msg.exchange == self.market_name || self.market_name == "")
                 && (msg.category == self.market_category || self.market_category == "")
                 && (msg.symbol == self.symbol || self.symbol == "")
@@ -259,10 +232,30 @@ impl UdpReceiver {
         let market_message: MarketMessage = msg.into();
         Ok(market_message)
     }
+
+    pub fn open_channel(market_name: &str, market_category: &str, symbol: &str, agent_id: &str) -> Result<Receiver<MarketMessage>, std::io::Error> {
+        let mut udp = Self::open(market_name, market_category, symbol, agent_id);
+        let (tx, rx) = crossbeam_channel::unbounded();
+        
+        std::thread::spawn(move || loop {
+            let msg = udp.receive_market_message().unwrap();
+
+            let r = tx.send(msg.clone());
+            
+            if r.is_err() {
+                log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                break;
+            }
+        });
+
+        Ok(rx)
+    }
 }
 
 #[cfg(test)]
 mod test_udp {
+    use crate::common::init_debug_log;
+
     #[test]
     fn send_test2() {
         let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
@@ -271,14 +264,16 @@ mod test_udp {
 
     #[test]
     fn receive_test2() {
-        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT");
+        init_debug_log();        
+        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT", "x");
         let msg = receiver.receive().unwrap();
         println!("{}", msg);
     }
 
     #[test]
     fn receive_test3() {
-        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT");
+        init_debug_log();
+        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT", "b");
 
         let mut count = 100;
 

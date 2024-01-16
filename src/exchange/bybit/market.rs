@@ -4,6 +4,7 @@
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
+use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 
 use std::sync::{Arc, RwLock};
 use std::thread::{JoinHandle, sleep};
@@ -215,6 +216,16 @@ impl BybitMarket {
         return self.server_config.exchange_name.clone();
     }
 
+    #[getter]
+    pub fn get_trade_category(&self) -> String {
+        return self.config.trade_category.clone();
+    }
+
+    #[getter]
+    pub fn get_trade_symbol(&self) -> String {
+        return self.config.trade_symbol.clone();
+    }
+
     pub fn drop_table(&mut self) -> PyResult<()> {
         match self.db.drop_table() {
             Ok(_) => Ok(()),
@@ -224,7 +235,6 @@ impl BybitMarket {
             ))),
         }
     }
-
 
     #[getter]
     pub fn get_cache_duration(&self) -> MicroSec {
@@ -857,17 +867,10 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        let status = open_orders(&self.server_config, &self.config);
+        let orders = open_orders(&self.server_config, &self.config);
 
-        log::debug!("OpenOrder: {:?}", status);
-
-
-
-        // convert_pyresult_vec(status)
-        // TODO: implement
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        log::debug!("OpenOrder: {:?}", orders);
+        Ok(orders.unwrap())
     }
 
     #[getter]
