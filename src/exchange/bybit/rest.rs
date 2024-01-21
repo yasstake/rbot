@@ -320,8 +320,10 @@ struct BybitOrderRequest<'a> {
     pub side: String,
     pub order_type: String,
     pub qty: Decimal,
-    #[serde(rename = "orderLinkedId")]
+    #[serde(skip_serializing_if = "Option::is_none")]    
+    #[serde(rename = "orderLinkId")]
     pub order_link_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub price: Option<Decimal>,
 }
 

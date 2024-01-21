@@ -680,27 +680,26 @@ pub struct BybitWsOrderbookMessage {
 #[serde(untagged)]
 pub enum BybitUserStreamMessage {
     status(BybitWsStatus),
-    data(BybitUserMessageData),
+    message(BybitUserMessage),
 }
 
 impl BybitUserStreamMessage {
     // TODO: implement
     pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        vec![]
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BybitUserMessageData {
-    pub topic: String,
-    pub timestamp: BybitTimestamp,
-    pub data: BybitUserMessage,
-}
-
-impl BybitUserMessageData {
-    // TODO: implment
-    pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        vec![]
+        match self {
+            BybitUserStreamMessage::status(status) => {
+                if status.success == false {
+                    log::warn!("status: {}", status.ret_msg);
+                } else {
+                    log::debug!("status: {}", status.ret_msg);
+                }
+               
+                return vec![];
+            }
+            BybitUserStreamMessage::message(data) => {
+                return data.convert_to_market_message(_config);
+            }
+        }
     }
 }
 
@@ -777,10 +776,13 @@ impl BybitUserMessage {
                 }
 
                 message
-            }
-            _ => {
-                log::warn!("un supported message {:?}", self);
-                vec![]
+            },
+            BybitUserMessage::execution{
+                id,
+                creationTime,
+                data,
+            } => { 
+                vec![]              // ignore
             } /*
               BybitUserMessage::execution{id, creationTime, data} => {
                   let mut message: Vec<MarketMessage> = vec![];
@@ -859,6 +861,7 @@ pub struct BybitExecution {
     pub execQty: Decimal,
     #[serde(deserialize_with = "string_to_decimal")]
     pub execValue: Decimal,
+    #[serde(deserialize_with = "string_to_i64")]
     pub execTime: BybitTimestamp,
     pub isMaker: bool,
     #[serde(deserialize_with = "string_to_decimal")]
@@ -990,9 +993,10 @@ pub struct BybitAccountCoin {
 #[allow(unused_imports)]
 #[allow(unused_variables)]
 mod bybit_message_test {
+    use polars_core::utils::rayon::result;
+
     use crate::exchange::bybit::message::{
-        BybitAccountStatus, BybitMultiOrderStatus, BybitRestResponse, BybitTradeResponse,
-        BybitUserStreamMessage, BybitWsData, BybitWsOrderbook, BybitWsStatus, BybitWsTrade,
+        BybitAccountStatus, BybitExecution, BybitMultiOrderStatus, BybitRestResponse, BybitTradeResponse, BybitUserMessage, BybitUserStreamMessage, BybitWsData, BybitWsOrderbook, BybitWsStatus, BybitWsTrade
     };
 
     use super::{BybitRestBoard, BybitWsMessage};
@@ -1173,22 +1177,86 @@ mod bybit_message_test {
 
     #[test]
     fn test_parse_user_stream_data() {
+        // Control message
         let message: &str = r#"{"success":true,"ret_msg":"","op":"subscribe","conn_id":"cm6ickhqo29n65o1kpog-74ew"}"#;
         let result = serde_json::from_str::<BybitUserStreamMessage>(message);
         println!("{:?}", result);
+        assert!(result.is_ok());
 
+        // Wallet message
         let message: &str = r#"
         {"accountIMRate":"0.0929","accountMMRate":"0.0052","totalEquity":"10140.2751031","totalWalletBalance":"10005.94544876","totalMarginBalance":"10140.2751031","totalAvailableBalance":"9197.25798225","totalPerpUPL":"134.32965434","totalInitialMargin":"943.01712085","totalMaintenanceMargin":"53.64509097","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10131.33926188","usdValue":"10140.2751031","walletBalance":"9997.12798188","availableToWithdraw":"9189.15314918","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"404.18","totalPositionIM":"538.0061127","totalPositionMM":"29.4178177","unrealisedPnl":"134.21128","cumRealisedPnl":"-2.87201812","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}
         "#;
-
         let result = serde_json::from_str::<BybitAccountStatus>(message);
         println!("{:?}", result);
+        assert!(result.is_ok());
 
+        // wallet all
         let message: &str = r#"
         {"id":"100467532_wallet_1704721219498","topic":"wallet","creationTime":1704721219498,"data":[{"accountIMRate":"0.0929","accountMMRate":"0.0052","totalEquity":"10140.2751031","totalWalletBalance":"10005.94544876","totalMarginBalance":"10140.2751031","totalAvailableBalance":"9197.25798225","totalPerpUPL":"134.32965434","totalInitialMargin":"943.01712085","totalMaintenanceMargin":"53.64509097","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10131.33926188","usdValue":"10140.2751031","walletBalance":"9997.12798188","availableToWithdraw":"9189.15314918","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"404.18","totalPositionIM":"538.0061127","totalPositionMM":"29.4178177","unrealisedPnl":"134.21128","cumRealisedPnl":"-2.87201812","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
         "#;
 
         let result = serde_json::from_str::<BybitUserStreamMessage>(message);
         println!("{:?}", result);
+        assert!(result.is_ok());
+
+
+        // Execution
+        let message = r#"{
+            "category":"linear",
+            "symbol":"BTCUSDT",
+            "closedSize":"0",
+            "execFee":"0.02285465",
+            "execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699",
+            "execPrice":"41553.9",
+            "execQty":"0.001",
+            "execType":"Trade",
+            "execValue":"41.5539",
+            "feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}"#;
+        let result = serde_json::from_str::<BybitExecution>(message);
+        println!("{:?}", result);
+        assert!(result.is_ok());
+
+
+        let message = r#"{"topic":"execution",
+        "id":"100467532_BTCUSDT_8883610598",
+        "creationTime":1705761437507,
+        "data":[
+            {"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}"#;
+            let result = serde_json::from_str::<BybitUserStreamMessage>(message);
+            println!("{:?}", result);
+            assert!(result.is_ok());
+        }
+
+    #[test]
+    fn test__user_message() {
+        let message = r#"{"id":"100467532_wallet_1705725452732","topic":"wallet","creationTime":1705725452731,"data":[{"accountIMRate":"0.0696","accountMMRate":"0.0038","totalEquity":"9593.08110909","totalWalletBalance":"10248.69855009","totalMarginBalance":"9593.08110909","totalAvailableBalance":"8925.14525897","totalPerpUPL":"-655.61744099","totalInitialMargin":"667.93585011","totalMaintenanceMargin":"36.52228963","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"9597.90885725","usdValue":"9593.08110909","walletBalance":"10253.85623978","availableToWithdraw":"8929.63686632","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"668.27199093","totalPositionMM":"36.54066959","unrealisedPnl":"-655.94738253","cumRealisedPnl":"253.85623978","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}"#;
+        let result = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", result);
+
+        let message = r#"{"topic":"order","id":"100467532_BTCUSDT_8883348664","creationTime":1705740966799,"data":[{"category":"linear","symbol":"BTCUSDT","orderId":"6e77763c-5589-41de-b52b-36358a577c6d","orderLinkId":"","blockTradeId":"","side":"Sell","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","timeInForce":"IOC","isLeverage":"","price":"39484.4","qty":"0.001","avgPrice":"41562","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"41.562","cumExecFee":"0.0228591","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"","takeProfit":"","stopLoss":"","triggerBy":"","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"placeType":"","lastPriceOnCreated":"41562.5","closeOnTrigger":true,"reduceOnly":true,"smpGroup":0,"smpType":"None","smpOrderId":"","slLimitPrice":"0","tpLimitPrice":"0","tpslMode":"UNKNOWN","createType":"CreateByClosing","marketUnit":"","createdTime":"1705740966794","updatedTime":"1705740966797","feeCurrency":""}]}"#;
+        let result = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", result);
+
+        let message = r#"{"id":"100467532_wallet_1705740966800","topic":"wallet","creationTime":1705740966800,"data":[{"accountIMRate":"0.0692","accountMMRate":"0.0037","totalEquity":"9585.24656517","totalWalletBalance":"10244.82447339","totalMarginBalance":"9585.24656517","totalAvailableBalance":"8921.8608955","totalPerpUPL":"-659.57790822","totalInitialMargin":"663.38566967","totalMaintenanceMargin":"36.27348878","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"9588.79441911","usdValue":"9585.24656517","walletBalance":"10248.61646149","availableToWithdraw":"8925.16320589","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"663.63121322","totalPositionMM":"36.28691494","unrealisedPnl":"-659.82204238","cumRealisedPnl":"248.61646149","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}"#;
+        let result = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", result);
+
+        let message = r#"{"topic":"execution","id":"100467532_BTCUSDT_8883610598","creationTime":1705761437507,"data":[{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}"#;
+        let result = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", result);
     }
+
+    #[test]
+    fn test_bybit_execution() {
+        let message = r#"{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}"#;
+        let result = serde_json::from_str::<BybitExecution>(message);
+        println!("{:?}", result);
+    }
+
 }
+
+/*
+[2024-01-20T14:37:17Z DEBUG rbot::exchange::bybit::ws] raw msg: {"topic":"execution","id":"100467532_BTCUSDT_8883610598","creationTime":1705761437507,"data":[{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}
+[2024-01-20T14:37:17Z WARN  rbot::exchange::bybit::ws] Error in serde_json::from_str: Err(Error("data did not match any variant of untagged enum BybitUserStreamMessage", line: 0, column: 0))
+*/

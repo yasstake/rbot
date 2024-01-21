@@ -3,29 +3,30 @@
 
 use crossbeam_channel::Sender;
 use csv::StringRecord;
+use futures::lock;
 use polars_core::export::num::FromPrimitive;
 use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 
-use std::sync::{Arc, RwLock};
-use std::thread::{JoinHandle, sleep};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use crate::common::{
     flush_log, time_string, to_naive_datetime, LogStatus, MarketConfig, MarketMessage,
     MarketStream, MicroSec, MultiChannel, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS,
-    FLOOR_DAY, NOW, HHMM,
+    FLOOR_DAY, HHMM, NOW,
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableDb};
 use crate::exchange::bybit::message::BybitUserStreamMessage;
-use crate::exchange::bybit::rest::{open_orders, get_trade_kline};
+use crate::exchange::bybit::rest::{get_trade_kline, open_orders};
 use crate::exchange::bybit::ws::listen_userdata_stream;
 use crate::exchange::{
     download_log, latest_archive_date, BoardItem, BybitWsOpMessage, OrderBook, OrderBookRaw,
     WebSocketClient,
 };
 use crate::fs::db_full_path;
-use crate::net::{UdpSender, udp};
+use crate::net::{udp, UdpSender};
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -33,17 +34,16 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 use super::config::BybitServerConfig;
-use super::rest::{cancel_order, get_recent_trade};
 use super::rest::cancell_all_orders;
 use super::rest::get_balance;
 use super::rest::new_limit_order;
 use super::rest::new_market_order;
 use super::rest::order_status;
 use super::rest::trade_list;
+use super::rest::{cancel_order, get_recent_trade};
 
 use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitWsMessage};
-
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
@@ -198,12 +198,17 @@ pub struct BybitMarket {
     pub public_handler: Option<JoinHandle<()>>,
     pub user_handler: Option<JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
-    #[pyo3(get, set)]
-    pub broadcast_message: bool
+    pub broadcast_message: bool,
+    pub udp_sender: Option<Arc<Mutex<UdpSender>>>,
 }
 
 #[pymethods]
 impl BybitMarket {
+    #[setter]
+    pub fn set_broadcast_message(&mut self, broadcast_message: bool) {
+        self.broadcast_message = broadcast_message;
+        self.open_udp();
+    }
 
     /*-------------------　共通実装（コピペ） ---------------------------------------*/
     #[getter]
@@ -343,7 +348,14 @@ impl BybitMarket {
     /*--------------　ここまでコピペ　--------------------------*/
 
     #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
-    pub fn download(&mut self, ndays: i64, force: bool, verbose: bool, archive_only: bool, low_priority: bool) -> i64 {
+    pub fn download(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        archive_only: bool,
+        low_priority: bool,
+    ) -> i64 {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -396,7 +408,7 @@ impl BybitMarket {
             }
         }
 
-        if ! archive_only {
+        if !archive_only {
             let rec = self.download_latest(verbose);
             download_rec += rec;
         }
@@ -417,7 +429,7 @@ impl BybitMarket {
             println!("download_latest");
             flush_log();
         }
-        let start_time = NOW() - DAYS(2) ;
+        let start_time = NOW() - DAYS(2);
 
         let fix_time = self.db.connection.latest_fix_time(start_time);
         let fix_time = TradeTable::ohlcv_end(fix_time);
@@ -436,7 +448,11 @@ impl BybitMarket {
         if verbose {
             print!("fill out with kline data ");
             print!("FROM: fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
-            println!(" TO:unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
+            println!(
+                " TO:unfix_time: {:?}/{:?}",
+                time_string(unfix_time),
+                unfix_time
+            );
             flush_log();
         }
 
@@ -465,7 +481,7 @@ impl BybitMarket {
         if verbose {
             println!("downloaded klines: {} rec", rec);
             flush_log();
-        }        
+        }
 
         return rec as i64;
     }
@@ -490,17 +506,22 @@ impl BybitMarket {
             if last_time.is_err() {
                 let now = NOW();
 
-                log::debug!("db has gap, so delete after FIX data now={:?} / db_end={:?}", 
-                        time_string(now), time_string(rest_start_time));
+                log::debug!(
+                    "db has gap, so delete after FIX data now={:?} / db_end={:?}",
+                    time_string(now),
+                    time_string(rest_start_time)
+                );
 
                 let delete_message = self.db.connection.make_expire_control_message(now);
 
                 log::debug!("delete_message: {:?}", delete_message);
 
                 db_channel.send(delete_message).unwrap();
-            }
-            else {
-                log::debug!("db has no gap, so continue to receive data {}", time_string(rest_start_time));
+            } else {
+                log::debug!(
+                    "db has no gap, so continue to receive data {}",
+                    time_string(rest_start_time)
+                );
             }
 
             db_channel.send(trades).unwrap();
@@ -525,19 +546,13 @@ impl BybitMarket {
         let board = self.board.clone();
         let db_channel_for_after = db_channel.clone();
 
-        let udp_sender = if self.broadcast_message {
-            Some(self.open_udp())
-        }
-        else {
-            None
-        };
+        let udp_sender = self.udp_sender.clone();
 
         let handler = std::thread::spawn(move || {
             loop {
                 let message = ws_channel.recv();
 
                 let message = message.unwrap();
-
 
                 if message.trade.len() != 0 {
                     log::debug!("Trade: {:?}", message.trade);
@@ -564,8 +579,8 @@ impl BybitMarket {
                     if m.trade.is_some() {
                         // broadcast only trade message
                         if udp_sender.is_some() {
-                            let sender = udp_sender.as_ref().unwrap();
-                            let _ = sender.send_market_message(&m);
+                            let sender = udp_sender.as_ref().unwrap().as_ref();
+                            sender.lock().unwrap().send_market_message(&m);
                         }
 
                         let mut ch = agent_channel.write().unwrap();
@@ -584,7 +599,7 @@ impl BybitMarket {
 
         // update recent trade
         // wait for channel open
-        sleep(Duration::from_millis(100));     // TODO: fix to wait for channel open
+        sleep(Duration::from_millis(100)); // TODO: fix to wait for channel open
         let trade = self.get_recent_trades();
         db_channel_for_after.send(trade).unwrap();
 
@@ -593,20 +608,14 @@ impl BybitMarket {
         log::info!("start_market_stream");
     }
 
-
     pub fn start_user_stream(&mut self) {
+        
         let agent_channel = self.agent_channel.clone();
 
         let server_config = self.server_config.clone();
         let market_config = self.config.clone();
 
-
-        let udp_sender = if self.broadcast_message {
-            Some(self.open_udp())
-        }
-        else {
-            None
-        };
+        let udp_sender = self.udp_sender.clone();
 
         self.user_handler = Some(listen_userdata_stream(
             &server_config,
@@ -614,14 +623,14 @@ impl BybitMarket {
                 log::debug!("UserStream: {:?}", message);
 
                 let ms = message.convert_to_market_message(&market_config);
-                
+
                 for m in ms {
                     if udp_sender.is_some() {
-                        let sender = udp_sender.as_ref().unwrap();
-                        let _ = sender.send_market_message(&m);
+                        let sender = udp_sender.as_ref().unwrap().as_ref();
+                        sender.lock().unwrap().send_market_message(&m);
                     }
-            
-                    let mut mutl_agent_channel = agent_channel.write().unwrap();                    
+
+                    let mut mutl_agent_channel = agent_channel.write().unwrap();
                     let _ = mutl_agent_channel.send(m);
                     drop(mutl_agent_channel);
                 }
@@ -630,7 +639,6 @@ impl BybitMarket {
 
         log::info!("start_user_stream");
     }
-
 
     /* TODO: implment */
 
@@ -756,7 +764,7 @@ impl BybitMarket {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err));
         }
 
-        Ok(vec![response.unwrap()])        
+        Ok(vec![response.unwrap()])
     }
 
     pub fn dry_market_order(
@@ -832,9 +840,10 @@ impl BybitMarket {
 
         if response.is_err() {
             log::error!("Error in cancel_order: {:?}", response);
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                format!("Error in cancel_order {:?}", response),
-            ));
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in cancel_order {:?}",
+                response
+            )));
         }
 
         let order = response.unwrap();
@@ -847,9 +856,10 @@ impl BybitMarket {
 
         if response.is_err() {
             log::error!("Error in cancel_all_orders: {:?}", response);
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                format!("Error in cancel_all_orders {:?}", response),
-            ));
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in cancel_all_orders {:?}",
+                response
+            )));
         }
 
         return Ok(response.unwrap());
@@ -895,7 +905,7 @@ impl BybitMarket {
 
     #[getter]
     pub fn get_recent_trades(&self) -> Vec<Trade> {
-        let trades = get_recent_trade(&self.server_config.rest_server, &self.config);        
+        let trades = get_recent_trade(&self.server_config.rest_server, &self.config);
 
         if trades.is_err() {
             log::error!("Error in get_recent_trade: {:?}", trades);
@@ -927,17 +937,26 @@ impl BybitMarket {
                 &server_config,
                 &format!("{}/{}", &server_config.public_ws, config.trade_category),
                 config.public_subscribe_channel.clone(),
-                None
+                None,
             ),
             public_handler: None,
             user_handler: None,
             agent_channel: Arc::new(RwLock::new(MultiChannel::new())),
             broadcast_message: false,
+            udp_sender: None,
         };
     }
 
-    pub fn open_udp(&self) -> UdpSender {
-        UdpSender::open(&self.server_config.exchange_name, &self.config.trade_category, &self.config.trade_symbol)
+    pub fn open_udp(&mut self) {
+        if ! self.broadcast_message{
+            return;
+        }
+
+        self.udp_sender = Some(Arc::new(Mutex::new(UdpSender::open(
+            &self.server_config.exchange_name,
+            &self.config.trade_category,
+            &self.config.trade_symbol,
+        ))));
     }
 
     pub fn make_db_path(
@@ -1059,7 +1078,6 @@ impl BybitMarket {
     fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
         self.db.connection.validate_by_date(date)
     }
-
 }
 
 #[cfg(test)]
@@ -1068,7 +1086,7 @@ mod test_bybit_market {
     use rust_decimal_macros::dec;
 
     use crate::{
-        common::{time_string, NOW, DAYS},
+        common::{time_string, DAYS, NOW},
         exchange::bybit::config::{BybitConfig, BybitServerConfig},
     };
 
@@ -1138,13 +1156,13 @@ mod test_bybit_market {
     }
 
     #[test]
-    fn test_lastest_fix_time(){
+    fn test_lastest_fix_time() {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let mut market = super::BybitMarket::new(&server_config, &config);
 
-        let start_time = NOW() - DAYS(2) ;
+        let start_time = NOW() - DAYS(2);
 
         let fix_time = market.db.connection.latest_fix_time(start_time);
 
@@ -1152,6 +1170,5 @@ mod test_bybit_market {
 
         let unfix_time = market.db.connection.first_unfix_time(fix_time);
         println!("unfix_time: {:?}/{:?}", time_string(unfix_time), unfix_time);
-
     }
 }

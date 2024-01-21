@@ -92,7 +92,6 @@ impl UdpSender {
         let exchange = self.exchange_name.clone();
         let category = self.category.clone();
         let symbol = self.symbol.clone();
-        let agent_id = "".to_string();
 
         let message = match message {
             MarketMessage {

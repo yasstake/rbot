@@ -27,7 +27,6 @@ class MyAgent:
         #session.limit_order('Sell', ask_edge, 0.001)        
         pass
 
-
     def on_tick(self, session, side, price, size):
 
         #print("tick: ", time_string(session.current_timestamp), side, price, size)
