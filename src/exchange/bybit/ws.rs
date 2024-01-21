@@ -92,3 +92,10 @@ mod test_ws {
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
+
+
+/*
+TODO: reconnet ws when disconnected.
+[2024-01-20T04:55:43Z WARN  rbot::exchange::bybit::ws] Error in websocket.receive_message: Err("Disconnected wss://stream-testnet.bybit.com/v5/private: Trying to work with closed connection")
+[2024-01-20T04:55:43Z ERROR rbot::exchange::ws] Disconnected from server
+*/

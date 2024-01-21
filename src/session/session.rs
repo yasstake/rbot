@@ -638,6 +638,11 @@ impl Session {
         }
 
         if let Some(order) = &message.order {
+            if ! order.is_my_order(&self.session_name) {
+                log::debug!("on_message: skip my order: {:?}", order);
+                return result;
+            }
+
             let mut order = order.clone();
             log::debug!("on_message: order={:?}", order);
             self.on_order_update(&mut order);

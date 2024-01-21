@@ -14,7 +14,7 @@ class SkeltonAgent:      # クラス名は任意です
         Args:
             session: セッション情報（Botの初期化時用に渡されます）
         """
-        session.clock_interval_sec = 10        # 10秒ごとにon_clockを呼び出します。
+        session.clock_interval_sec = 60        # 10秒ごとにon_clockを呼び出します。
 
     
     def on_tick(self, session, side, price, size):
@@ -27,7 +27,8 @@ class SkeltonAgent:      # クラス名は任意です
         """
         
         # on_tickは高頻度によびだされるので、100回に1回だけ内容をプリントします。
-        print("on_tick: ", side, price, size)
+        #print("on_tick: ", side, price, size)
+        pass
     
     def on_clock(self, session, clock):
         """定期的にフレームワークから呼び出される処理です。
@@ -39,6 +40,7 @@ class SkeltonAgent:      # クラス名は任意です
         """
         # 現在の時刻をプリントします。
         print("on_clock: ", clock, ": ", time_string(clock))
+        session.market_order("Buy", 0.001)
     
     def on_update(self, session, updated_order):
         """自分の注文状態が変化した場合に呼び出される処理です。
@@ -57,18 +59,17 @@ from rbot import init_debug_log
 
 
 
-bybit  = Bybit(True)
+bybit  = Bybit(testnet=True)
 
 market = bybit.open_market(BybitConfig.BTCUSDT)
 
 from rbot import Runner
 from rbot import NOW, DAYS
 
-
-
 agent = SkeltonAgent()
 runner = Runner()
 
+from rbot import init_debug_log
 init_debug_log()
 
 session = runner.real_run(
