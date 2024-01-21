@@ -479,6 +479,12 @@ where
     }
 
     pub fn receive_message(&mut self) -> Result<String, String> {
+        let client = self.client.as_mut();
+        if client.is_none() {
+            log::debug!("Try reconnect");
+            self.connect();
+        }
+
         let now = NOW();
 
         // if connection exceed sync interval, reconnect
@@ -571,10 +577,6 @@ where
     }
 
     fn _receive_message(&mut self) -> Result<String, String> {
-        let client = self.client.as_mut();
-        if client.is_none() {
-            self.connect();
-        }
 
         let result = self.client.as_mut().unwrap().receive_message();
 
@@ -583,7 +585,10 @@ where
                 return result;
             }
             Err(e) => {
-                log::debug!("recive error{}", e);
+                log::debug!("recive error{}, try reconnect!!", e);
+
+                self.client.as_mut().unwrap().close();
+                self.client = None;
                 Err(e)
             }
         }
