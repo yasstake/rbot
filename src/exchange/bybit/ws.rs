@@ -33,7 +33,7 @@ fn make_auth_message(config: &BybitServerConfig) -> String {
 
 const INTERVAL_SEC: i64 = 20;
 //const SWITCH_INTERVAL: i64 = 60 * 60 * 12; // 12 hours
-const SWITCH_INTERVAL_SEC: i64 = 60; // 1min for test
+const SWITCH_INTERVAL_SEC: i64 = 60 * 60; // 1min for test
 pub const SYNC_RECORDS: i64 = 0; // no overlap
 
 pub fn listen_userdata_stream<F>(

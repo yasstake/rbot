@@ -6,8 +6,7 @@ use crate::{
     common::{
         flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,
         Order, Trade, FLOOR_SEC, NOW, SEC,
-    },
-    net::UdpReceiver,
+    }, net::UdpReceiver, RUNTIME
 };
 use crossbeam_channel::Receiver;
 
@@ -185,6 +184,7 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
 
+        RUNTIME.block_on(async move {
         let receiver = if client {
             UdpReceiver::open_channel(
                 &self.exchange_name,
@@ -207,6 +207,7 @@ impl Runner {
         };
 
         self.run(market, &receiver, agent, log_memory, log_file)
+        })
     }
 
     /*

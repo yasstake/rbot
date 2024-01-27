@@ -8,9 +8,7 @@ use futures::SinkExt;
 use futures::StreamExt;
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
-use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tokio::time::Duration;
 use tokio_tungstenite::WebSocketStream;
 
@@ -22,7 +20,6 @@ use crate::common::MultiMarketMessage;
 use crate::common::{MicroSec, MultiChannel, MICRO_SECOND, NOW};
 use crate::RUNTIME;
 use tokio_tungstenite::{connect_async, MaybeTlsStream};
-
 use tungstenite::Error;
 use tungstenite::Message;
 
@@ -145,9 +142,9 @@ where
                 sync_wait_records,
                 init_fn,
             );
-    
+
             client.subscribe(&subscribe).await;
-    
+
             WebSocketClient {
                 // handle: None,
                 connection: Arc::new(Mutex::new(client)),
@@ -187,8 +184,7 @@ where
     }
 
     pub fn receive_text(&mut self) -> Result<String, String> {
-        let result = 
-            RUNTIME.block_on(async { Self::_receive_text(&self.connection).await });
+        let result = RUNTIME.block_on(async { Self::_receive_text(&self.connection).await });
 
         result
     }
@@ -242,10 +238,13 @@ where
         handle
     }
 
-    pub async fn send_message_channel(ch: &Arc<Mutex<MultiChannel<MultiMarketMessage>>>, message: MultiMarketMessage) -> Result<(), anyhow::Error> {
-    //    log::debug!("send_message_channel: {:?}", message);
+    pub async fn send_message_channel(
+        ch: &Arc<Mutex<MultiChannel<MultiMarketMessage>>>,
+        message: MultiMarketMessage,
+    ) -> Result<(), anyhow::Error> {
+        //    log::debug!("send_message_channel: {:?}", message);
         let mut lock = ch.as_ref().lock().await;
-    //        log::debug!("send_message_channel: lock ok");
+        //        log::debug!("send_message_channel: lock ok");
         lock.send(message)
     }
 
@@ -477,7 +476,7 @@ where
     }
 
     pub async fn receive_text(&mut self) -> Result<String, String> {
-        for _i in 0..MAX_RETRY {
+        loop {
             let message = self.read_stream.as_mut().unwrap().next().await;
 
             if message.is_none() {
@@ -519,8 +518,6 @@ where
                 }
             };
         }
-
-        return Err("No message, retry over".to_string());
     }
 }
 
@@ -661,7 +658,7 @@ where
             if self.sync_wait_records == 0 {
                 self.switch().await;
                 self.sync_mode = false;
-                log::info!("SWITCH");                
+                log::info!("SWITCH");
             }
             // in sync mode, read forward sync_wait_records.
             else if self.sync_records <= self.sync_wait_records {
@@ -748,7 +745,7 @@ where
             self.connect().await;
             websocket = self.client.as_mut();
         }
-       
+
         let result = websocket.unwrap().receive_text().await;
 
         match result {
@@ -1086,5 +1083,4 @@ mod test_exchange_ws {
             //println!("{:?}", message.unwrap());
         }
     }
-
 }

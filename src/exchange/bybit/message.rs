@@ -897,7 +897,38 @@ impl BybitOrderUpdateMessage {
 
         message
     }
+
 }
+
+pub fn merge_order_execution(order: &Vec<BybitOrderUpdateMessage>, execution: &Vec<BybitExecution>, config: &MarketConfig) 
+    -> Vec<MarketMessage>{
+    let mut execution_map: HashMap<String, BybitExecution> = HashMap::new();
+
+    for exec in execution.iter() {
+        execution_map.insert(exec.orderId.clone(), exec.clone());
+    }
+
+    let m: Vec<MarketMessage>= vec![];
+    
+    // order.convert_to_market_message(config);
+/*
+    let mut message: Vec<MarketMessage> = vec![];
+
+    for o in order.iter() {
+
+
+
+        let mut order = order_map.get_mut(&e.orderId).unwrap();
+        order.cumExecQty += e.execQty;
+        order.cumExecValue += e.execValue;
+        order.cumExecFee += e.execFee;
+        order.leavesQty -= e.execQty;
+    }
+*/
+    m
+}
+
+
 
 /*
 {"id":"100467532_wallet_1704705368721","topic":"wallet","creationTime":1704705368720,"data":[{"accountIMRate":"0.0312","accountMMRate":"0.0017","totalEquity":"10011.98943823","totalWalletBalance":"10003.19038373","totalMarginBalance":"10011.98943823","totalAvailableBalance":"9698.9208178","totalPerpUPL":"8.79905449","totalInitialMargin":"313.06862043","totalMaintenanceMargin":"17.32645111","coin":[{"coin":"USDC","equity":"0","usdValue":"0","walletBalance":"0","availableToWithdraw":"0","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"0","totalPositionIM":"0","totalPositionMM":"0","unrealisedPnl":"0","cumRealisedPnl":"0","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"},{"coin":"USDT","equity":"10007.37603788","usdValue":"10011.98943823","walletBalance":"9998.58103788","availableToWithdraw":"9694.45167558","availableToBorrow":"","borrowAmount":"0","accruedInterest":"0","totalOrderIM":"40.418","totalPositionIM":"272.5063623","totalPositionMM":"14.9004673","unrealisedPnl":"8.795","cumRealisedPnl":"-1.41896212","bonus":"0","collateralSwitch":true,"marginCollateral":true,"locked":"0","spotHedgingQty":"0"}],"accountLTV":"0","accountType":"UNIFIED"}]}
