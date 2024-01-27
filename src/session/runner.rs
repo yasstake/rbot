@@ -1,11 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use std::sync::Arc;
-
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
-use tungstenite::client;
-
 use crate::{
     common::{
         flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,

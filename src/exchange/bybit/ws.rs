@@ -3,10 +3,15 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use tokio::runtime::Runtime;
 
 use crate::{
     common::NOW,
-    exchange::{hmac_sign, AutoConnectClient, BybitWsOpMessage, WsOpMessage, bybit::message::BybitUserStreamMessage},
+    exchange::{
+        bybit::message::BybitUserStreamMessage, hmac_sign, AutoConnectClient, BybitWsOpMessage,
+        WsOpMessage,
+    },
+    RUNTIME, SEC,
 };
 
 use super::config::BybitServerConfig;
@@ -26,42 +31,68 @@ fn make_auth_message(config: &BybitServerConfig) -> String {
     message.to_string()
 }
 
-pub fn listen_userdata_stream<F>(config: &BybitServerConfig, mut f: F) -> JoinHandle<()> 
+const INTERVAL_SEC: i64 = 20;
+//const SWITCH_INTERVAL: i64 = 60 * 60 * 12; // 12 hours
+const SWITCH_INTERVAL_SEC: i64 = 60; // 1min for test
+pub const SYNC_RECORDS: i64 = 0; // no overlap
+
+pub fn listen_userdata_stream<F>(
+    config: &BybitServerConfig,
+    mut f: F,
+) -> tokio::task::JoinHandle<()>
 where
-    F: FnMut(BybitUserStreamMessage) + Send + 'static
+    F: FnMut(BybitUserStreamMessage) + Send + 'static,
 {
+    RUNTIME.block_on(async move { _listen_userdata_stream(config, f).await })
+}
 
+pub async fn _listen_userdata_stream<F>(
+    config: &BybitServerConfig,
+    mut f: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: FnMut(BybitUserStreamMessage) + Send + 'static,
+{
     let url = config.private_ws.clone();
-
-    let mut message = BybitWsOpMessage::new();
-    message.add_params(&vec!["execution".to_string(), "order".to_string(), "wallet".to_string()]);
-    // message.add_params(&vec!["order".to_string()]);
 
     let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> =
         AutoConnectClient::new(
             config,
             &url,
-            Arc::new(RwLock::new(message)),
+            // Arc::new(RwLock::new(message)),
+            INTERVAL_SEC,
+            SWITCH_INTERVAL_SEC,
+            SYNC_RECORDS,
             Some(make_auth_message),
         );
 
-    websocket.connect();
-    let handle = thread::spawn(move || loop {
-        let msg = websocket.receive_message();
-        if msg.is_err() {
-            log::warn!("Error in websocket.receive_message: {:?}", msg);
-            continue;
+    websocket.subscribe(&vec![
+        "execution".to_string(),
+        "order".to_string(),
+        "wallet".to_string(),
+    ]);
+
+    websocket.connect().await;
+
+    let handle = tokio::task::spawn(async move {
+        loop {
+            let msg = websocket.receive_text().await;
+            if msg.is_err() {
+                log::warn!("Error in websocket.receive_message: {:?}", msg);
+                continue;
+            }
+            let msg = msg.unwrap();
+            log::debug!("raw msg: {}", msg);
+            let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
+            if msg.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", msg);
+                continue;
+            }
+            let msg = msg.unwrap();
+            f(msg);
         }
-        let msg = msg.unwrap();
-        log::debug!("raw msg: {}", msg);
-        let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
-        if msg.is_err() {
-            log::warn!("Error in serde_json::from_str: {:?}", msg);
-            continue;
-        }
-        let msg = msg.unwrap();
-        f(msg);
     });
+
     handle
 }
 
@@ -92,7 +123,6 @@ mod test_ws {
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
 }
-
 
 /*
 TODO: reconnet ws when disconnected.

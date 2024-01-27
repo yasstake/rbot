@@ -1,4 +1,4 @@
-use std::env::{var, VarError};
+use std::env::VarError;
 
 pub fn env_rbot_db_root() -> Result<String, VarError> {
     std::env::var("RBOT_DB_ROOT")

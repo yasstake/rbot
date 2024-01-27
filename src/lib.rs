@@ -25,6 +25,12 @@ use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
 use common::*;
 use session::{Session, ExecuteMode, Logger};
 use session::Runner;
+use once_cell::sync::Lazy;
+
+
+pub static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Runtime::new().unwrap());
+
+
 
 // use net::{Broadcast, BroadcastMessage};
 //use sim::back::BackTester;
@@ -80,6 +86,6 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<BybitMarket>()?;
     m.add_class::<BybitConfig>()?;
     m.add_class::<BybitServerConfig>()?;
-    
+
     Ok(())
 }
