@@ -18,6 +18,7 @@ use crate::common::{
 };
 use crate::db::df::KEY;
 use crate::db::sqlite::{TradeTable, TradeTableDb};
+use crate::exchange::binance::ws::SWITCH_INTERVAL;
 use crate::exchange::bybit::message::BybitUserStreamMessage;
 use crate::exchange::bybit::rest::{get_trade_kline, open_orders};
 use crate::exchange::bybit::ws::listen_userdata_stream;
@@ -27,6 +28,7 @@ use crate::exchange::{
 };
 use crate::fs::db_full_path;
 use crate::net::{udp, UdpSender};
+use crate::SEC;
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -44,6 +46,7 @@ use super::rest::{cancel_order, get_recent_trade};
 
 use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitWsMessage};
+use super::ws::SYNC_RECORDS;
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
@@ -196,7 +199,7 @@ pub struct BybitMarket {
     pub board: Arc<RwLock<BybitOrderBook>>,
     pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     pub public_handler: Option<JoinHandle<()>>,
-    pub user_handler: Option<JoinHandle<()>>,
+    pub user_handler: Option<tokio::task::JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
     pub broadcast_message: bool,
     pub udp_sender: Option<Arc<Mutex<UdpSender>>>,
@@ -486,127 +489,6 @@ impl BybitMarket {
         return rec as i64;
     }
 
-    // TODO: implment retry logic
-    pub fn start_market_stream(&mut self) {
-        // if thread is working, do nothing.
-        if self.public_handler.is_some() {
-            println!("market stream is already running.");
-            return;
-        }
-
-        // delete unstable data
-        let db_channel = self.db.start_thread();
-
-        // if the latest data is overrap with REST minute, do not delete data.
-        let trades = self.get_recent_trades();
-        let l = trades.len();
-        if l != 0 {
-            let rest_start_time = trades[l - 1].time;
-            let last_time = self.db.end_time(rest_start_time);
-            if last_time.is_err() {
-                let now = NOW();
-
-                log::debug!(
-                    "db has gap, so delete after FIX data now={:?} / db_end={:?}",
-                    time_string(now),
-                    time_string(rest_start_time)
-                );
-
-                let delete_message = self.db.connection.make_expire_control_message(now);
-
-                log::debug!("delete_message: {:?}", delete_message);
-
-                db_channel.send(delete_message).unwrap();
-            } else {
-                log::debug!(
-                    "db has no gap, so continue to receive data {}",
-                    time_string(rest_start_time)
-                );
-            }
-
-            db_channel.send(trades).unwrap();
-        }
-
-        let agent_channel = self.agent_channel.clone();
-        let ws_channel = self.public_ws.open_channel();
-
-        self.public_ws.connect(|message| {
-            let m = serde_json::from_str::<BybitWsMessage>(&message);
-
-            if m.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", message);
-                println!("ERR: {:?}", message);
-            }
-
-            let m = m.unwrap();
-
-            return m.into();
-        });
-
-        let board = self.board.clone();
-        let db_channel_for_after = db_channel.clone();
-
-        let udp_sender = self.udp_sender.clone();
-
-        let handler = std::thread::spawn(move || {
-            loop {
-                let message = ws_channel.recv();
-
-                let message = message.unwrap();
-
-                if message.trade.len() != 0 {
-                    log::debug!("Trade: {:?}", message.trade);
-                    let r = db_channel.send(message.trade.clone());
-
-                    if r.is_err() {
-                        log::error!("Error in db_channel.send: {:?}", r);
-                    }
-                }
-
-                if message.orderbook.is_some() {
-                    let orderbook = message.orderbook.clone().unwrap();
-                    let mut b = board.write().unwrap();
-                    b.update(&orderbook);
-                    drop(b);
-                }
-
-                let messages = message.extract();
-
-                // update board
-
-                // send message to agent
-                for m in messages {
-                    if m.trade.is_some() {
-                        // broadcast only trade message
-                        if udp_sender.is_some() {
-                            let sender = udp_sender.as_ref().unwrap().as_ref();
-                            sender.lock().unwrap().send_market_message(&m);
-                        }
-
-                        let mut ch = agent_channel.write().unwrap();
-                        let r = ch.send(m.clone());
-                        drop(ch);
-
-                        if r.is_err() {
-                            log::error!("Error in db_channel.send: {:?}", r);
-                        }
-                    }
-                }
-            }
-        });
-
-        self.public_handler = Some(handler);
-
-        // update recent trade
-        // wait for channel open
-        sleep(Duration::from_millis(100)); // TODO: fix to wait for channel open
-        let trade = self.get_recent_trades();
-        db_channel_for_after.send(trade).unwrap();
-
-        // TODO: store recent trade timestamp.
-
-        log::info!("start_market_stream");
-    }
 
     pub fn start_user_stream(&mut self) {
         
@@ -916,6 +798,8 @@ impl BybitMarket {
     }
 }
 
+const PING_INTERVAL_SEC: i64 = 20;
+
 impl BybitMarket {
     pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
         let db = TradeTable::open(&Self::make_db_path(
@@ -937,6 +821,9 @@ impl BybitMarket {
                 &server_config,
                 &format!("{}/{}", &server_config.public_ws, config.trade_category),
                 config.public_subscribe_channel.clone(),
+                PING_INTERVAL_SEC,
+                SWITCH_INTERVAL,
+                SYNC_RECORDS,
                 None,
             ),
             public_handler: None,
@@ -969,6 +856,134 @@ impl BybitMarket {
 
         return db_path.to_str().unwrap().to_string();
     }
+
+
+    // TODO: IMPL
+    pub async fn start_market_stream(&mut self) {
+        // if thread is working, do nothing.
+        if self.public_handler.is_some() {
+            println!("market stream is already running.");
+            return;
+        }
+
+        // delete unstable data
+        let db_channel = self.db.start_thread();
+
+        // if the latest data is overrap with REST minute, do not delete data.
+        let trades = self.get_recent_trades();
+        let l = trades.len();
+        if l != 0 {
+            let rest_start_time = trades[l - 1].time;
+            let last_time = self.db.end_time(rest_start_time);
+            if last_time.is_err() {
+                let now = NOW();
+
+                log::debug!(
+                    "db has gap, so delete after FIX data now={:?} / db_end={:?}",
+                    time_string(now),
+                    time_string(rest_start_time)
+                );
+
+                let delete_message = self.db.connection.make_expire_control_message(now);
+
+                log::debug!("delete_message: {:?}", delete_message);
+
+                db_channel.send(delete_message).unwrap();
+            } else {
+                log::debug!(
+                    "db has no gap, so continue to receive data {}",
+                    time_string(rest_start_time)
+                );
+            }
+
+            db_channel.send(trades).unwrap();
+        }
+
+        let agent_channel = self.agent_channel.clone();
+        let ws_channel = self.public_ws._open_channel().await;
+
+        self.public_ws.connect(|message| {
+            let m = serde_json::from_str::<BybitWsMessage>(&message);
+
+            if m.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", message);
+                println!("ERR: {:?}", message);
+            }
+
+            let m = m.unwrap();
+
+            return m.into();
+        });
+
+        let board = self.board.clone();
+        let db_channel_for_after = db_channel.clone();
+
+        let udp_sender = self.udp_sender.clone();
+
+        let handler = std::thread::spawn(move || {
+            loop {
+                let message = ws_channel.recv();
+
+                let message = message.unwrap();
+
+                if message.trade.len() != 0 {
+                    log::debug!("Trade: {:?}", message.trade);
+                    let r = db_channel.send(message.trade.clone());
+
+                    if r.is_err() {
+                        log::error!("Error in db_channel.send: {:?}", r);
+                    }
+                }
+
+                if message.orderbook.is_some() {
+                    let orderbook = message.orderbook.clone().unwrap();
+                    let mut b = board.write().unwrap();
+                    b.update(&orderbook);
+                    drop(b);
+                }
+
+                let messages = message.extract();
+
+                // update board
+
+                // send message to agent
+                for m in messages {
+                    if m.trade.is_some() {
+                        // broadcast only trade message
+                        if udp_sender.is_some() {
+                            let sender = udp_sender.as_ref().unwrap().as_ref();
+                            sender.lock().unwrap().send_market_message(&m);
+                        }
+
+                        let mut ch = agent_channel.write().unwrap();
+                        let r = ch.send(m.clone());
+                        drop(ch);
+
+                        if r.is_err() {
+                            log::error!("Error in db_channel.send: {:?}", r);
+                        }
+                    }
+                }
+            }
+        });
+
+        self.public_handler = Some(handler);
+
+        // update recent trade
+        // wait for channel open
+        sleep(Duration::from_millis(100)); // TODO: fix to wait for channel open
+        let trade = self.get_recent_trades();
+        db_channel_for_after.send(trade).unwrap();
+
+        // TODO: store recent trade timestamp.
+
+        log::info!("start_market_stream");
+    }
+
+
+
+
+
 
     fn history_web_url(&self, date: MicroSec) -> String {
         Self::make_historical_data_url_timestamp(

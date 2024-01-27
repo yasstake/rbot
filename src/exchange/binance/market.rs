@@ -13,6 +13,7 @@ use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, sleep, JoinHandle};
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 use crate::common::DAYS;
 use crate::common::NOW;
@@ -27,6 +28,7 @@ use crate::common::{Order, OrderSide, Trade};
 use crate::db::df::KEY;
 use crate::db::sqlite::TradeTable;
 use crate::exchange::binance::message::{BinancePublicWsMessage, BinanceWsRespond};
+use crate::exchange::binance::ws::PING_INTERVAL;
 
 use super::message::{
     BinanceAccountInformation, BinanceListOrdersResponse, BinanceOrderStatus, BinanceWsBoardUpdate,
@@ -44,6 +46,8 @@ use crate::exchange::{
 };
 
 use crate::exchange::binance::config::BinanceConfig;
+
+use super::ws::SWITCH_INTERVAL;
 
 #[pyclass]
 pub struct BinanceAccount {
@@ -179,6 +183,9 @@ impl Binance {
     }
 }
 
+const SYNC_RECORDS_FOR_PUBLIC: i64 = 3;
+
+
 #[derive(Debug)]
 #[pyclass(name = "BinanceMarket")]
 pub struct BinanceMarket {
@@ -189,6 +196,8 @@ pub struct BinanceMarket {
     pub user_handler: Option<JoinHandle<()>>,
     pub channel: Arc<Mutex<MultiChannel<MarketMessage>>>,
 }
+
+
 
 #[pymethods]
 impl BinanceMarket {
@@ -591,8 +600,10 @@ impl BinanceMarket {
     // TODO: implment retry logic
     pub fn start_market_stream(&mut self) {
         let endpoint = &self.config.public_ws_endpoint;
+        /*
         let mut subscribe_message = BinanceWsOpMessage::new();
         subscribe_message.add_params(&self.config.public_subscribe_channel);
+        */
 
         let mut agent_channel = self.channel.clone();
 
@@ -601,69 +612,88 @@ impl BinanceMarket {
             AutoConnectClient::new(
                 &self.config,
                 endpoint,
-                Arc::new(RwLock::new(subscribe_message)),
+//                Arc::new(RwLock::new(subscribe_message)),
+                PING_INTERVAL,
+                SWITCH_INTERVAL,
+                SYNC_RECORDS_FOR_PUBLIC,
                 None,
             );
+
+        websocket.subscribe(&self.config.public_subscribe_channel);
 
         websocket.connect();
 
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
-        let handler = std::thread::spawn(move || loop {
-            let message = websocket.receive_message();
-            if message.is_err() {
-                log::warn!("Error in websocket.receive_message: {:?}", message);
-                continue;
-            }
-            let m = message.unwrap();
+        let handler = std::thread::spawn(move || {
+            let rt = Runtime::new().unwrap();
 
-            let message_value = serde_json::from_str::<Value>(&m);
+            rt.block_on(async move {
+                loop {
+                    let message = websocket.receive_text().await;
+                    if message.is_err() {
+                        log::warn!("Error in websocket.receive_message: {:?}", message);
+                        continue;
+                    }
+                    let m = message.unwrap();
 
-            if message_value.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", message_value);
-                continue;
-            }
-            let message_value: Value = message_value.unwrap();
+                    let message_value = serde_json::from_str::<Value>(&m);
 
-            if message_value.is_object() {
-                let o = message_value.as_object().unwrap();
+                    if message_value.is_err() {
+                        log::warn!("Error in serde_json::from_str: {:?}", message_value);
+                        continue;
+                    }
+                    let message_value: Value = message_value.unwrap();
 
-                if o.contains_key("e") {
-                    log::debug!("Message: {:?}", &m);
+                    if message_value.is_object() {
+                        let o = message_value.as_object().unwrap();
 
-                    let message: BinancePublicWsMessage = serde_json::from_str(&m).unwrap();
+                        if o.contains_key("e") {
+                            log::debug!("Message: {:?}", &m);
 
-                    match message.clone() {
-                        BinancePublicWsMessage::Trade(trade) => {
-                            log::debug!("Trade: {:?}", trade);
-                            let r = db_channel.send(vec![trade.to_trade()]);
+                            let message: BinancePublicWsMessage = serde_json::from_str(&m).unwrap();
 
-                            if r.is_err() {
-                                log::error!("Error in db_channel.send: {:?} {:?}", trade, r);
+                            match message.clone() {
+                                BinancePublicWsMessage::Trade(trade) => {
+                                    log::debug!("Trade: {:?}", trade);
+                                    let r = db_channel.send(vec![trade.to_trade()]);
+
+                                    if r.is_err() {
+                                        log::error!(
+                                            "Error in db_channel.send: {:?} {:?}",
+                                            trade,
+                                            r
+                                        );
+                                    }
+
+                                    let multi_agent_channel = agent_channel.borrow_mut();
+
+                                    let r =
+                                        multi_agent_channel.lock().unwrap().send(message.into());
+
+                                    if r.is_err() {
+                                        log::error!(
+                                            "Error in agent_channel.send: {:?} {:?}",
+                                            trade,
+                                            r
+                                        );
+                                    }
+                                }
+                                BinancePublicWsMessage::BoardUpdate(board_update) => {
+                                    board.lock().unwrap().update(&board_update);
+                                }
                             }
-
-                            let multi_agent_channel = agent_channel.borrow_mut();
-
-                            let r = multi_agent_channel.lock().unwrap().send(message.into());
-
-                            if r.is_err() {
-                                log::error!("Error in agent_channel.send: {:?} {:?}", trade, r);
-                            }
-                        }
-                        BinancePublicWsMessage::BoardUpdate(board_update) => {
-                            board.lock().unwrap().update(&board_update);
+                        } else if o.contains_key("result") {
+                            let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
+                            log::debug!("Result: {:?}", message);
+                        } else {
+                            continue;
                         }
                     }
-                } else if o.contains_key("result") {
-                    let message: BinanceWsRespond = serde_json::from_str(&m).unwrap();
-                    log::debug!("Result: {:?}", message);
-                } else {
-                    continue;
                 }
-            }
+            })
         });
-
         self.public_handler = Some(handler);
 
         log::info!("start_market_stream");

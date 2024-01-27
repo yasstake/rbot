@@ -28,7 +28,7 @@ serde_derive = {version = "1.0"}
 serde_with = {version = "3.4.0"}
 
 log = {version = "0.4"}
-env_logger = {version = "0.10.0"}
+env_logger = {version = "0.11.0"}
 
 directories= "5.0.1"
 
@@ -71,6 +71,7 @@ sha2 = {version="0.10.7"}
 hex = {version="0.4.3"}
 
 tungstenite = {version="0.21", features=["native-tls"]}
+tokio-tungstenite = {version="0.21.0", features=["native-tls"]}
 
 crossbeam-channel = {version="0.5.9"}
 
@@ -80,6 +81,8 @@ thiserror = {version="1.0.50"}
 socket2 = {version="0.5.5"}
 
 rmp-serde = {version="1.1.2"}
+
+once_cell = {version="1.19.0"}
 
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]

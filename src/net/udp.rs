@@ -1,5 +1,5 @@
 use std::mem::MaybeUninit;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
 use crossbeam_channel::Receiver;
@@ -13,9 +13,7 @@ use serde_derive::Serialize;
 
 use crate::common::{AccountStatus, Order, Trade};
 use crate::{MarketMessage, env_rbot_multicast_addr, env_rbot_multicast_port};
-use crate::exchange::bitflyer::market;
 
-use super::{get_udp_port, get_udp_source_port};
 
 /// TODO: BroadcastMessageにliniiearの種別を加える
 /// TODO: Sender,Receiverを実装する。
