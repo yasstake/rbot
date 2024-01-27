@@ -3,8 +3,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
 use crossbeam_channel::Receiver;
-use socket2::{SockAddr, Protocol};
 use socket2::{Domain, Socket, Type};
+use socket2::{Protocol, SockAddr};
 
 use pyo3::pyclass;
 use pyo3::pymethods;
@@ -12,8 +12,7 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 use crate::common::{AccountStatus, Order, Trade};
-use crate::{MarketMessage, env_rbot_multicast_addr, env_rbot_multicast_port};
-
+use crate::{env_rbot_multicast_addr, env_rbot_multicast_port, MarketMessage};
 
 /// TODO: BroadcastMessageにliniiearの種別を加える
 /// TODO: Sender,Receiverを実装する。
@@ -59,16 +58,16 @@ pub struct UdpSender {
 #[pymethods]
 impl UdpSender {
     #[staticmethod]
-    pub fn open(
-        market_name: &str,
-        market_category: &str,
-        symbol: &str,
-    ) -> Self {
+    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         socket.set_reuse_address(true).unwrap();
         socket.set_reuse_port(true).unwrap();
 
-        let multicast_addr = format!("{}:{}", env_rbot_multicast_addr(), env_rbot_multicast_port());
+        let multicast_addr = format!(
+            "{}:{}",
+            env_rbot_multicast_addr(),
+            env_rbot_multicast_port()
+        );
 
         let multicast_addr: SocketAddr = multicast_addr.parse().unwrap();
 
@@ -83,7 +82,8 @@ impl UdpSender {
 
     pub fn send(&self, message: &str) -> Result<usize, std::io::Error> {
         log::debug!("UDP send: [{:?}], {}", &self.multicast_addr, message);
-        self.socket.send_to(message.as_bytes(), &self.multicast_addr)
+        self.socket
+            .send_to(message.as_bytes(), &self.multicast_addr)
     }
 
     pub fn send_market_message(&self, message: &MarketMessage) -> Result<usize, std::io::Error> {
@@ -166,7 +166,7 @@ impl UdpReceiver {
         if r.is_err() {
             log::error!("bind error");
         }
-        
+
         let r = socket.join_multicast_v4(&multicast_addr, &Ipv4Addr::UNSPECIFIED);
         if r.is_err() {
             log::error!("join_multicast_v4 error");
@@ -230,18 +230,26 @@ impl UdpReceiver {
         Ok(market_message)
     }
 
-    pub fn open_channel(market_name: &str, market_category: &str, symbol: &str, agent_id: &str) -> Result<Receiver<MarketMessage>, std::io::Error> {
+    pub fn open_channel(
+        market_name: &str,
+        market_category: &str,
+        symbol: &str,
+        agent_id: &str,
+    ) -> Result<Receiver<MarketMessage>, std::io::Error> {
         let mut udp = Self::open(market_name, market_category, symbol, agent_id);
         let (tx, rx) = crossbeam_channel::unbounded();
-        
-        std::thread::spawn(move || loop {
-            let msg = udp.receive_market_message().unwrap();
 
-            let r = tx.send(msg.clone());
-            
-            if r.is_err() {
-                log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
-                break;
+        // TOD: change to async
+        tokio::task::spawn(async move {
+            loop {
+                let msg = udp.receive_market_message().unwrap();
+                let r = tx.send(msg.clone());
+
+                if r.is_err() {
+                    log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                    break;
+                }
+                tokio::task::yield_now();
             }
         });
 
@@ -261,7 +269,7 @@ mod test_udp {
 
     #[test]
     fn receive_test2() {
-        init_debug_log();        
+        init_debug_log();
         let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT", "x");
         let msg = receiver.receive().unwrap();
         println!("{}", msg);

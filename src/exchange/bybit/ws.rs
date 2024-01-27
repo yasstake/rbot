@@ -38,7 +38,7 @@ pub const SYNC_RECORDS: i64 = 0; // no overlap
 
 pub fn listen_userdata_stream<F>(
     config: &BybitServerConfig,
-    mut f: F,
+    f: F,
 ) -> tokio::task::JoinHandle<()>
 where
     F: FnMut(BybitUserStreamMessage) + Send + 'static,
@@ -70,7 +70,7 @@ where
         "execution".to_string(),
         "order".to_string(),
         "wallet".to_string(),
-    ]);
+    ]).await;
 
     websocket.connect().await;
 
