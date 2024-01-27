@@ -38,7 +38,6 @@ use polars::prelude::Float64Type;
 use crossbeam_channel::Sender;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::thread;
 use std::time::Duration;
 
 use super::df::convert_timems_to_datetime;
@@ -577,8 +576,8 @@ impl TradeTableDb {
             let receiver = channel.open_channel(1000);
     
             let mut table_db = self.clone_connection();
-    
-            thread::spawn(move || {
+
+            tokio::task::spawn(async move {
                 // let mut channel = sender.lock().unwrap();
                 table_db.select(time_from, time_to, |trade| {
                     let message: MarketMessage = trade.into();
@@ -605,7 +604,7 @@ pub struct TradeTable {
     is_running: Arc<RwLock<bool>>,
     terminate: Arc<RwLock<bool>>,
     tx: Option<Sender<Vec<Trade>>>,
-    handle: Option<thread::JoinHandle<()>>,
+    handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TradeTable {
@@ -658,7 +657,8 @@ impl TradeTable {
         let is_running = self.is_running.clone();
         let terminate = self.terminate.clone();
 
-        let handle = thread::spawn(move || {
+        // TODO: change to thread pool
+        let handle = tokio::task::spawn(async move {
             let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
             let mut running = is_running.write().unwrap();
             *running = true;
@@ -702,10 +702,8 @@ impl TradeTable {
             *terminate = true;
             drop(terminate);
 
-            let r = handle.join();
-            if r.is_err() {
-                log::error!("join error {:?}", r);
-            }
+            let r = handle.abort();
+            log::error!("DB Thread terminatted");
 
             self.handle = None;
             self.tx = None;

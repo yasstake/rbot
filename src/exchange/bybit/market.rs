@@ -28,7 +28,7 @@ use crate::exchange::{
 };
 use crate::fs::db_full_path;
 use crate::net::{udp, UdpSender};
-use crate::SEC;
+use crate::{RUNTIME, SEC};
 use chrono::Datelike;
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -489,9 +489,13 @@ impl BybitMarket {
         return rec as i64;
     }
 
+    pub fn start_market_stream(&mut self) {
+        RUNTIME.block_on(async move {
+            self._start_market_stream().await
+        })
+    }
 
     pub fn start_user_stream(&mut self) {
-        
         let agent_channel = self.agent_channel.clone();
 
         let server_config = self.server_config.clone();
@@ -858,8 +862,7 @@ impl BybitMarket {
     }
 
 
-    // TODO: IMPL
-    pub async fn start_market_stream(&mut self) {
+    pub async fn _start_market_stream(&mut self) {
         // if thread is working, do nothing.
         if self.public_handler.is_some() {
             println!("market stream is already running.");
@@ -902,7 +905,7 @@ impl BybitMarket {
         let agent_channel = self.agent_channel.clone();
         let ws_channel = self.public_ws._open_channel().await;
 
-        self.public_ws.connect(|message| {
+        self.public_ws._connect(|message| {
             let m = serde_json::from_str::<BybitWsMessage>(&message);
 
             if m.is_err() {
@@ -913,7 +916,7 @@ impl BybitMarket {
             let m = m.unwrap();
 
             return m.into();
-        });
+        }).await;
 
         let board = self.board.clone();
         let db_channel_for_after = db_channel.clone();

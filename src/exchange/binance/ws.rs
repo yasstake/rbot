@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread;
-use std::thread::JoinHandle;
+use tokio::task::JoinHandle;
 
 use tokio::runtime::Runtime;
 
@@ -63,52 +63,49 @@ where
 
     let cc = config.clone();
 
-    let handle = thread::spawn(move || {
+    // TODO: change to async
+    let handle = tokio::task::spawn(async move {
         let config = cc;
+        loop {
+            let msg = websocket.receive_text().await;
 
-        let rt = Runtime::new().unwrap();
-
-        rt.block_on(async move {
-            loop {
-                let msg = websocket.receive_text().await;
-
-                if msg.is_err() {
-                    log::warn!("Error in websocket.receive_message: {:?}", msg);
-                    continue;
-                }
-
-                let msg = msg.unwrap();
-                log::debug!("raw msg: {}", msg);
-
-                let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
-
-                if msg.is_err() {
-                    log::warn!("Error in serde_json::from_str: {:?}", msg);
-                    continue;
-                }
-
-                let msg = msg.unwrap();
-                f(msg);
-
-                let now = NOW();
-
-                if key_extend_timer + KEY_EXTEND_INTERVAL < now {
-                    match extend_listen_key(&config, &key.clone()) {
-                        Ok(key) => {
-                            log::debug!("Key extend success: {:?}", key);
-                        }
-                        Err(e) => {
-                            let key = create_listen_key(&config);
-
-                            websocket.url = make_user_stream_endpoint(&config, key.unwrap());
-                            log::error!("Key extend error: {}  / NEW url={}", e, websocket.url);
-                        }
-                    }
-                    key_extend_timer = now;
-                }
+            if msg.is_err() {
+                log::warn!("Error in websocket.receive_message: {:?}", msg);
+                continue;
             }
-        });
+
+            let msg = msg.unwrap();
+            log::debug!("raw msg: {}", msg);
+
+            let msg = serde_json::from_str::<BinanceUserStreamMessage>(msg.as_str());
+
+            if msg.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", msg);
+                continue;
+            }
+
+            let msg = msg.unwrap();
+            f(msg);
+
+            let now = NOW();
+
+            if key_extend_timer + KEY_EXTEND_INTERVAL < now {
+                match extend_listen_key(&config, &key.clone()) {
+                    Ok(key) => {
+                        log::debug!("Key extend success: {:?}", key);
+                    }
+                    Err(e) => {
+                        let key = create_listen_key(&config);
+
+                        websocket.url = make_user_stream_endpoint(&config, key.unwrap());
+                        log::error!("Key extend error: {}  / NEW url={}", e, websocket.url);
+                    }
+                }
+                key_extend_timer = now;
+            }
+        }
     });
+
     return handle;
 }
 

@@ -2,8 +2,6 @@
 
 use core::panic;
 use crossbeam_channel::Receiver;
-use flate2::write;
-use futures::executor::block_on;
 use futures::stream::SplitSink;
 use futures::stream::SplitStream;
 use futures::SinkExt;
@@ -17,7 +15,7 @@ use tokio::time::Duration;
 use tokio_tungstenite::WebSocketStream;
 
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use url::Url;
 
 use crate::common::MultiMarketMessage;
@@ -138,22 +136,24 @@ where
         sync_wait_records: i64,
         init_fn: Option<fn(&T) -> String>,
     ) -> Self {
-        let mut client: AutoConnectClient<T, U> = AutoConnectClient::new(
-            &config,
-            url,
-            ping_interval_sec,
-            switch_interval_sec,
-            sync_wait_records,
-            init_fn,
-        );
-
-        client.subscribe(&subscribe);
-
-        WebSocketClient {
-            // handle: None,
-            connection: Arc::new(Mutex::new(client)),
-            message: Arc::new(Mutex::new(MultiChannel::new())),
-        }
+        RUNTIME.block_on(async {
+            let mut client: AutoConnectClient<T, U> = AutoConnectClient::new(
+                &config,
+                url,
+                ping_interval_sec,
+                switch_interval_sec,
+                sync_wait_records,
+                init_fn,
+            );
+    
+            client.subscribe(&subscribe).await;
+    
+            WebSocketClient {
+                // handle: None,
+                connection: Arc::new(Mutex::new(client)),
+                message: Arc::new(Mutex::new(MultiChannel::new())),
+            }
+        })
     }
 
     pub fn connect<F>(&mut self, convert: F)
@@ -165,14 +165,17 @@ where
         RUNTIME.block_on(async {
             self._connect(convert).await;
         });
-        /*
-        unsafe { RUNTIME.block_on(futures::future::lazy(|_| {
-            self._connect(convert).await;
-        })) };
-        */
     }
 
-    pub async fn connect_websocket(&mut self) {
+    pub fn connect_websocket(&mut self) {
+        log::debug!("blocking connect start");
+
+        RUNTIME.block_on(async {
+            self._connect_websocket().await;
+        });
+    }
+
+    pub async fn _connect_websocket(&mut self) {
         log::debug!("connect start");
 
         let websocket = self.connection.clone();
@@ -184,9 +187,8 @@ where
     }
 
     pub fn receive_text(&mut self) -> Result<String, String> {
-        log::debug!("receive_text start");
-
-        let result = block_on(async { Self::_receive_text(&self.connection).await });
+        let result = 
+            RUNTIME.block_on(async { Self::_receive_text(&self.connection).await });
 
         result
     }
@@ -214,41 +216,37 @@ where
     where
         F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static,
     {
-        self.connect_websocket().await;
+        self._connect_websocket().await;
 
         let websocket = self.connection.clone();
-        /*
-                // for debug
-                for i in 0..30 {
-                    let message = Self::receive_text(&websocket).await;
-                    println!("{}: {}", i, message.unwrap());
-                }
-        */
         let message_ch = self.message.clone();
 
         let handle = tokio::spawn(async move {
             loop {
                 let message = Self::_receive_text(&websocket).await;
-                log::debug!("websocket.receive_message: {:?}", message);
-
                 if message.is_err() {
                     log::warn!("Error in websocket.receive_message: {:?}", message);
                     continue;
                 }
                 let m = message.unwrap();
-                let mut ch = message_ch.lock().await;
+
                 let m = convert(m);
-                let result = ch.send(m);
+                let result = Self::send_message_channel(&message_ch, m).await;
                 if result.is_err() {
                     log::warn!("Error in websocket.receive_message: {:?}", result);
                     continue;
                 }
             }
-        })
-        .await
-        .unwrap();
+        });
 
         handle
+    }
+
+    pub async fn send_message_channel(ch: &Arc<Mutex<MultiChannel<MultiMarketMessage>>>, message: MultiMarketMessage) -> Result<(), anyhow::Error> {
+    //    log::debug!("send_message_channel: {:?}", message);
+        let mut lock = ch.as_ref().lock().await;
+    //        log::debug!("send_message_channel: lock ok");
+        lock.send(message)
     }
 
     /*
@@ -290,7 +288,9 @@ where
 
     /// get receive queue
     pub async fn _open_channel(&mut self) -> Receiver<MultiMarketMessage> {
+        log::debug!("open_channel");
         let mut lock = self.message.as_ref().lock().await;
+        log::debug!("open_channel lock ok");
         lock.open_channel(0)
     }
 }
@@ -373,7 +373,7 @@ where
             log::debug!("accept message: {:?}", accept);
         }
 
-        let message: String = self.subscribe_message.read().unwrap().to_string();
+        let message: String = self.subscribe_message.read().await.to_string();
 
         if message != "" {
             self.send_text(message).await;
@@ -391,14 +391,15 @@ where
         let handle = tokio::spawn(async move {
             // let write_stream = write_stream.clone();
             loop {
-                tokio::time::sleep(Duration::from_secs(ping_interval + random)).await;
+                let random = NOW() % 5_000;
+                let mut sleeptime = (ping_interval as i64) * 1_000 + random - 2_500;
+                if sleeptime < 0 {
+                    sleeptime = 2_500;
+                }
+                tokio::time::sleep(Duration::from_millis(sleeptime as u64)).await;
+                log::debug!("SEND PING {:?}", sleeptime);
                 let message = Self::ping_message();
                 Self::_send_message(&mut write_stream, message).await;
-
-                random += 1;
-                if 2 < random {
-                    random = 0;
-                }
             }
         });
 
@@ -430,7 +431,7 @@ where
         >,
         message: Message,
     ) {
-        log::debug!("Sent message {}", message);
+        log::debug!("Sent message {:?}", message);
         let mut write_stream = write_stream.lock().await;
         let result = write_stream.send(message).await;
         match result {
@@ -456,9 +457,8 @@ where
     }
 
     pub fn ping_message() -> Message {
-        // let t = NOW();
-        //let message = format!("{:?}", t).into_bytes();
-        let message: Vec<u8> = vec![];
+        let t = NOW();
+        let message = format!("{:?}", t).into_bytes();
         Message::Ping(message)
     }
 
@@ -470,6 +470,10 @@ where
     pub async fn close(&mut self) {
         log::debug!(">>>Close connection<<<");
         self.send_message(Message::Close(None)).await;
+        self.write_sream = None;
+        self.read_stream = None;
+        self.ping_thread.as_mut().unwrap().abort();
+        self.ping_thread = None;
     }
 
     pub async fn receive_text(&mut self) -> Result<String, String> {
@@ -761,11 +765,11 @@ where
         }
     }
 
-    pub fn subscribe(&mut self, message: &Vec<String>) {
+    pub async fn subscribe(&mut self, message: &Vec<String>) {
         self.subscribe_message
             .as_ref()
             .write()
-            .unwrap()
+            .await
             .add_params(message);
     }
 }
@@ -1035,7 +1039,10 @@ mod test_exchange_ws {
             return message.into();
         });
 
+        println!("-OPEN CHANNEL-");
         let ch = ws.open_channel();
+
+        println!("start receive");
 
         for _ in 0..5 {
             let message = ch.recv();
@@ -1051,4 +1058,33 @@ mod test_exchange_ws {
             println!("{:?}", message.unwrap());
         }
     }
+
+    #[test]
+    fn simple_websocket_connect() {
+        init_debug_log();
+
+        let config = BybitServerConfig::new(false);
+
+        let mut ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage> = WebSocketClient::new(
+            &config,
+            "wss://stream.bybit.com/v5/public/linear",
+            vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
+            ],
+            10,
+            30,
+            0,
+            None,
+        );
+
+        ws.connect_websocket();
+
+        for i in 0..3000 {
+            let message = ws.receive_text();
+
+            //println!("{:?}", message.unwrap());
+        }
+    }
+
 }

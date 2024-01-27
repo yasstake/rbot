@@ -11,9 +11,10 @@ use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, sleep, JoinHandle};
+use std::thread::sleep;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tokio::task::JoinHandle;
 
 use crate::common::DAYS;
 use crate::common::NOW;
@@ -626,10 +627,8 @@ impl BinanceMarket {
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
-        let handler = std::thread::spawn(move || {
-            let rt = Runtime::new().unwrap();
-
-            rt.block_on(async move {
+        // TODO: change to tokio
+        let handler = tokio::task::spawn(async move {
                 loop {
                     let message = websocket.receive_text().await;
                     if message.is_err() {
@@ -692,7 +691,6 @@ impl BinanceMarket {
                         }
                     }
                 }
-            })
         });
         self.public_handler = Some(handler);
 
@@ -775,7 +773,8 @@ impl BinanceMarket {
 
         let mut table_db = self.db.connection.clone_connection();
 
-        thread::spawn(move || {
+        // TODO: change to tokio
+        tokio::task::spawn(async move {
             let mut channel = sender.lock().unwrap();
             table_db.select(time_from, time_to, |trade| {
                 let message: MarketMessage = trade.into();
