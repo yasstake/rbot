@@ -4,6 +4,7 @@ use core::panic;
 use crossbeam_channel::Receiver;
 use futures::stream::SplitSink;
 use futures::stream::SplitStream;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
 use serde_derive::{Deserialize, Serialize};
@@ -385,7 +386,6 @@ where
         let mut write_stream = self.write_sream.as_mut().unwrap().clone();
         let ping_interval = self.ping_interval_sec as u64;
         log::debug!("start ping: interval: {}", ping_interval);
-        let mut random = 0;
 
         let handle = tokio::spawn(async move {
             // let write_stream = write_stream.clone();
@@ -468,11 +468,20 @@ where
 
     pub async fn close(&mut self) {
         log::debug!(">>>Close connection<<<");
-        self.send_message(Message::Close(None)).await;
-        self.write_sream = None;
-        self.read_stream = None;
         self.ping_thread.as_mut().unwrap().abort();
-        self.ping_thread = None;
+        self.ping_thread = None;        
+
+        self.send_message(Message::Close(None)).await;
+
+        let mut write_stream = self.write_sream.as_mut().unwrap().clone();
+        write_stream.lock().await.close().await;
+        self.write_sream = None;
+
+        /*
+        let mut read_stream = self.read_stream.as_mut().unwrap();
+        read_stream.
+        self.read_stream = None;
+        */
     }
 
     pub async fn receive_text(&mut self) -> Result<String, String> {
@@ -635,7 +644,7 @@ where
     pub async fn receive_text(&mut self) -> Result<String, String> {
         let client = self.client.as_mut();
         if client.is_none() {
-            log::debug!("Try reconnect");
+            log::info!("Try reconnect");
             self.connect().await;
         }
 
@@ -782,7 +791,6 @@ mod test_exchange_ws {
     use super::*;
     use std::thread;
     use std::thread::sleep;
-    use std::thread::spawn;
     use std::time::Duration;
 
     #[test]

@@ -198,7 +198,7 @@ pub struct BybitMarket {
     pub db: TradeTable,
     pub board: Arc<RwLock<BybitOrderBook>>,
     pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
-    pub public_handler: Option<JoinHandle<()>>,
+    pub public_handler: Option<tokio::task::JoinHandle<()>>,
     pub user_handler: Option<tokio::task::JoinHandle<()>>,
     pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
     pub broadcast_message: bool,
@@ -923,10 +923,9 @@ impl BybitMarket {
 
         let udp_sender = self.udp_sender.clone();
 
-        let handler = std::thread::spawn(move || {
+        let handler = tokio::task::spawn(async move {
             loop {
                 let message = ws_channel.recv();
-
                 let message = message.unwrap();
 
                 if message.trade.len() != 0 {

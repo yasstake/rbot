@@ -6,7 +6,7 @@ use env_logger::Env;
 #[pyfunction]
 /// Initializes the logger with a warning level filter.
 pub fn init_log() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 }
 
 #[pyfunction]
