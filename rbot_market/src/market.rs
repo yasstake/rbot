@@ -161,7 +161,8 @@ where
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> PyResult<Vec<Order>> 
+    {
         let price = self.price_dp(price);
         let size = self.size_dp(size);
         let order_side = Self::order_side(side);

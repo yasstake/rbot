@@ -515,11 +515,6 @@ pub struct AutoConnectClient<T, U> {
     config: T,
 }
 
-const SYNC_RECORDS: i64 = 3;
-
-// TODO: tuning sync interval (possibly 6-12 hours)
-const SYNC_INTERVAL: MicroSec = MICRO_SECOND * 60 * 60 * 6; // every 6 hours
-
 impl<T, U> AutoConnectClient<T, U>
 where
     T: Clone,
@@ -750,7 +745,6 @@ where
 
 #[cfg(test)]
 mod test_exchange_ws {
-    use crate::common::init_debug_log;
     /*
     use crate::exchange::binance::ws::PING_INTERVAL;
     use crate::exchange::binance::BinanceConfig;

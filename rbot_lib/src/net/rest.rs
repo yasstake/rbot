@@ -9,8 +9,7 @@ use std::{
     time::Duration,
 };
 use crate::common::{
-    flush_log, AccountStatus, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType,
-    ServerConfig, Trade, DAYS, TODAY,
+    flush_log, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, TODAY
 };
 use crossbeam_channel::Sender;
 use csv::StringRecord;
@@ -20,7 +19,6 @@ use rust_decimal::Decimal;
 use tempfile::tempdir;
 use zip::ZipArchive;
 
-use crate::common::BoardItem;
 
 pub trait RestApi<T>
 where
@@ -29,15 +27,15 @@ where
     fn get_board_snapshot(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = Result<(Vec<BoardItem>, Vec<BoardItem>), String>> + Send;
+    ) -> impl std::future::Future<Output = Result<BoardTransfer, String>> + Send;
 
-    fn get_recent_trade(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
-    fn get_trade_kline(
+    fn get_recent_trades(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
+    fn get_trade_klines(
         server: &T,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<Vec<Kline>, String>> + Send;
     fn new_order(
         server: &T,
         config: &MarketConfig,
@@ -57,7 +55,6 @@ where
 
     fn get_account(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<AccountStatus, String>> + Send;
 
-    fn get_recent_trades(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
     fn log_download(
         server: &T,
         config: &MarketConfig,
