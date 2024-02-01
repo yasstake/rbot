@@ -27,11 +27,26 @@ pub struct BoardTransfer {
 }
 
 impl BoardTransfer {
+    pub fn new() -> Self {
+        BoardTransfer {
+            bids: vec![],
+            asks: vec![],
+        }
+    }
+
     pub fn from_orderbook(order_book: &OrderBookRaw) -> Self {
         BoardTransfer {
             bids: order_book.bids.get(),
             asks: order_book.asks.get(),
         }
+    }
+
+    pub fn insert_bid(&mut self, bid: &(Decimal, Decimal)) {
+        self.bids.push(BoardItem::from_decimal(bid.0, bid.1));
+    }
+
+    pub fn insert_ask(&mut self, ask: &(Decimal, Decimal)) {
+        self.asks.push(BoardItem::from_decimal(ask.0, ask.1));
     }
 
     pub fn to_json(&self) -> String {

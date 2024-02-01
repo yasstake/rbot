@@ -150,7 +150,8 @@ pub struct UdpReceiver {
 }
 
 impl UdpReceiver {
-    pub fn open(market_name: &str, market_category: &str, symbol: &str, agent_id: &str) -> Self {
+    // TODO: remove aget_id from param
+    pub fn open(market_name: &str, market_category: &str, symbol: &str, _agent_id: &str) -> Self {
         let multicast_addr = Ipv4Addr::from_str(&env_rbot_multicast_addr());
         if multicast_addr.is_err() {
             log::error!("multicast_addr error {:?}", multicast_addr);
@@ -185,10 +186,11 @@ impl UdpReceiver {
         }
     }
 
+    // TODO: check address for security reson.
     pub fn receive(&mut self) -> Result<String, std::io::Error> {
-        let (amt, addr) = self.socket.recv_from(&mut self.buf)?;
+        let (amt, _addr) = self.socket.recv_from(&mut self.buf)?;
 
-        /*
+        /* TODO: implment
         if let Some(sendr_ip) = addr.as_socket_ipv4() {
             if *(sendr_ip.ip()) != IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)) {
                 return Err(std::io::Error::new(

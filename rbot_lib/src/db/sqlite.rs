@@ -1,7 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use async_std::sync::Arc;
-use async_std::sync::RwLock;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Sender;
 use numpy::IntoPyArray;
@@ -603,7 +601,6 @@ pub struct TradeTable {
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
     cache_duration: MicroSec,
-    terminate: Arc<RwLock<bool>>,
     tx: Option<Sender<Vec<Trade>>>,
     handle: Option<JoinHandle<()>>,
 }
@@ -662,7 +659,6 @@ impl TradeTable {
         let file_name = self.file_name.clone();
 
         self.tx = Some(tx);
-        let is_running = self.is_running();
 
         let handle = spawn(async move {
             let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
@@ -1408,7 +1404,6 @@ impl TradeTable {
                     cache_ohlcvv: ohlcv,
                     cache_duration: 0,
                     tx: None,
-                    terminate: Arc::new(RwLock::new(false)),
                     handle: None,
                 })
             }
@@ -1569,7 +1564,7 @@ mod test_transaction_table {
     #[test]
     fn test_info() {
         init_debug_log();
-        let mut db = TradeTable::open("test.db").unwrap();
+        let db = TradeTable::open("test.db").unwrap();
         println!("{}", db.info());
     }
 

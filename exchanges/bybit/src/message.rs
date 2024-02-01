@@ -17,20 +17,19 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rbot_lib::common::{
-    msec_to_microsec, 
-    string_to_decimal,
-    string_to_i64,
-     time_string, 
-     AccountStatus, 
-     OrderStatus,
-     Board, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderType, Trade, HHMM, SEC
+    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board, BoardTransfer, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, HHMM, SEC
 };
 
-
 use rbot_lib::db::KEY;
-
-
 pub type BybitTimestamp = i64;
+
+pub fn bybit_timestamp_to_microsec(timestamp: BybitTimestamp) -> MicroSec {
+    timestamp * 1000
+}
+
+pub fn microsec_to_bybit_timestamp(timestamp: MicroSec) -> BybitTimestamp {
+    timestamp / 1000
+}
 
 pub fn bybit_order_status(status: &str) -> OrderStatus {
     match status {
@@ -78,6 +77,22 @@ pub struct BybitRestBoard {
     pub asks: Vec<(Decimal, Decimal)>,
 }
 
+impl Into<BoardTransfer> for BybitRestBoard {
+    fn into(self) -> BoardTransfer {
+        let mut bt = BoardTransfer::new();
+
+        for bid in self.bids.iter() {
+            bt.insert_bid(bid);
+        }
+
+        for ask in self.asks.iter() {
+            bt.insert_ask(ask);
+        }
+
+        bt
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BybitKline {
@@ -101,6 +116,7 @@ impl BybitKline {
         }
     }
 
+    /*
     pub fn extract_trade(&self) -> Vec<Trade> {
         let mut trades = Vec::new();
 
@@ -154,6 +170,7 @@ impl BybitKline {
 
         trades
     }
+    */
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +205,7 @@ impl BybitKlines {
         s
     }
 
+    /*
     pub fn to_dataframe(&self) -> DataFrame {
         let mut time = Vec::<MicroSec>::new();
         let mut order_side = Vec::<f64>::new();
@@ -230,12 +248,13 @@ impl BybitKlines {
 
         df.unwrap()
     }
+    */
 }
 
-impl Into<Vec<Trade>> for BybitKlines {
+/* 
+impInto<Vec<Trade>> for BybitKlines {
     fn into(self) -> Vec<Trade> {
-        let mut trades = Vec::new();
-
+        let mut trades = Vec::new(
         for kline in self.klines.iter() {
             let mut t: Vec<Trade> = kline.extract_trade();
             trades.append(&mut t);
@@ -244,6 +263,7 @@ impl Into<Vec<Trade>> for BybitKlines {
         trades
     }
 }
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
@@ -257,6 +277,35 @@ pub struct BybitKlinesResponse {
     pub klines: Vec<(String, String, String, String, String, String, String)>,
 }
 
+impl Into<Vec<Kline>> for BybitKlinesResponse {
+    fn into(self) -> Vec<Kline> {
+        let mut klines = Vec::new();
+        for kline in self.klines {
+            let timestamp: BybitTimestamp = kline.0.parse().unwrap();
+            let open = Decimal::from_str(&kline.1).unwrap();
+            let high = Decimal::from_str(&kline.2).unwrap();
+            let low = Decimal::from_str(&kline.3).unwrap();
+            let close = Decimal::from_str(&kline.4).unwrap();
+            let volume = Decimal::from_str(&kline.5).unwrap();
+            // let turnover = Decimal::from_str(&kline.6).unwrap();            // ignore turnover
+
+            let kline = Kline {
+                timestamp: bybit_timestamp_to_microsec(timestamp),
+                open,
+                high,
+                low,
+                close,
+                volume,
+            };
+
+            klines.push(kline);
+        }
+
+        klines
+    }
+}
+
+/*
 impl Into<BybitKlines> for BybitKlinesResponse {
     fn into(self) -> BybitKlines {
         let mut klines = Vec::new();
@@ -288,6 +337,7 @@ impl Into<BybitKlines> for BybitKlinesResponse {
         }
     }
 }
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]

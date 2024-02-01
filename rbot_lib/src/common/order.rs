@@ -6,6 +6,7 @@ use crate::common::time::time_string;
 use super::time::MicroSec;
 use super::MarketConfig;
 use super::MarketMessage;
+use super::SEC;
 use polars_core::prelude::DataFrame;
 use polars_core::prelude::NamedFrom;
 use polars_core::prelude::TimeUnit;
@@ -27,7 +28,6 @@ pub struct TimeChunk {
     pub start: MicroSec,
     pub end: MicroSec,
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumString, Serialize, Deserialize)]
@@ -163,7 +163,7 @@ impl OrderType {
             OrderType::Limit => "Limit".to_string(),
             OrderType::Market => "Market".to_string(),
             OrderType::Unknown => "Unknown".to_string(),
-        }   
+        }
     }
 
     pub fn __str__(&self) -> String {
@@ -218,8 +218,8 @@ pub enum LogStatus {
     FixRestApiStart,
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
-    ExpireControl,  // 削除指示
-    Unknown, // 未知のステータス / 未確定のステータス
+    ExpireControl, // 削除指示
+    Unknown,       // 未知のステータス / 未確定のステータス
 }
 
 impl Default for LogStatus {
@@ -342,7 +342,6 @@ impl Into<MarketMessage> for &Trade {
     }
 }
 
-
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
@@ -398,7 +397,7 @@ impl Default for AccountStatus {
 
             foreign: dec![0.0],
             foreign_free: dec![0.0],
-            foreign_locked: dec![0.0]
+            foreign_locked: dec![0.0],
         };
     }
 }
@@ -447,11 +446,6 @@ impl AccountStatus {
         return self.foreign_locked.to_f64().unwrap();
     }
 }
-
-
-
-
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -823,7 +817,10 @@ impl Order {
                 self.update_balance_canceled(config);
             }
             _ => {
-                log::warn!("Order.update_balance: Unknown order status. order={:?}", self);
+                log::warn!(
+                    "Order.update_balance: Unknown order status. order={:?}",
+                    self
+                );
             }
         }
     }
@@ -845,8 +842,6 @@ impl Order {
             false => dec![0.0],
         }
     }
-
-
 
     // TODO: BackTest時の計算を追加する。
     // 通常は、約定時にサーバからのデータで確定するが、
@@ -882,13 +877,12 @@ impl Order {
             //self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
             self.free_home_change = -home_lock_size;
-            self.lock_home_change =  home_lock_size;            
+            self.lock_home_change = home_lock_size;
 
             self.foreign_change = dec![0.0];
             self.free_foreign_change = dec![0.0];
             self.lock_foreign_change = dec![0.0];
-        }
-        else {
+        } else {
             //self.commission_home = dec![0.0];
             //self.commission_foreign = dec![0.0];
             self.home_change = dec![0.0];
@@ -921,14 +915,13 @@ impl Order {
             //self.commission_home = dec![0.0];
             //self.commission_foreign = dec![0.0];
             self.home_change = -home_change;
-            self.free_home_change = dec![0.0];            
-            self.lock_home_change = -home_lock_size_change;            
+            self.free_home_change = dec![0.0];
+            self.lock_home_change = -home_lock_size_change;
 
             self.foreign_change = foreign_change;
             self.free_foreign_change = foreign_change;
             self.lock_foreign_change = dec![0.0];
-        }
-        else {
+        } else {
             //self.commission_home = dec![0.0];
             //self.commission_foreign = dec![0.0];
             self.home_change = home_change;
@@ -971,9 +964,90 @@ impl Order {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Kline {
+    pub timestamp: MicroSec,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+}
 
+impl Kline {
+    pub fn new(
+        timestamp: MicroSec,
+        open: Decimal,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Self {
+        return Kline {
+            timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+        };
+    }
 
+    /// OHLCをTradeに4分割する。
+    pub fn extract_to_trades(&self, unit_sec: i64) -> Vec<Trade> {
+        let mut trades = Vec::new();
 
+        let vol = self.volume / Decimal::from(4);
+        let mut remain_vol = self.volume.clone();
+        let tick = SEC(unit_sec);
+
+        let t = Trade::new(
+            self.timestamp,
+            OrderSide::Buy,
+            self.open,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 0),
+        );
+        trades.push(t);
+
+        remain_vol -= vol;
+
+        let t = Trade::new(
+            self.timestamp + tick,
+            OrderSide::Buy,
+            self.high,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 1),
+        );
+        trades.push(t);
+        remain_vol -= vol;
+
+        let t = Trade::new(
+            self.timestamp + tick * 2,
+            OrderSide::Sell,
+            self.low,
+            vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 2),
+        );
+        trades.push(t);
+        remain_vol -= vol;
+
+        let t = Trade::new(
+            self.timestamp + tick * 3,
+            OrderSide::Buy,
+            self.close,
+            remain_vol,
+            LogStatus::UnFix,
+            &format!("KLINE{}-{}", self.timestamp, 3),
+        );
+        trades.push(t);
+
+        trades
+    }
+}
 
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]
@@ -981,14 +1055,7 @@ mod order_tests {
     use super::*;
 
     fn create_config() -> MarketConfig {
-        let mut config = MarketConfig::new(
-            "SPOT",
-            "BTC",
-            "USDT",
-            2,
-            4,
-            1000,
-        );
+        let mut config = MarketConfig::new("SPOT", "BTC", "USDT", 2, 4, 1000);
 
         config.taker_fee = dec![0.0001];
         config.maker_fee = dec![0.0001];
@@ -1028,15 +1095,12 @@ mod order_tests {
 
         println!("order={:?}", order);
         assert_eq!(order.home_change, dec![0.0], "Incorrect home_lock value");
-        assert_eq!(order.lock_home_change,
+        assert_eq!(
+            order.lock_home_change,
             dec![0.12345],
             "Incorrect home_lock value"
         );
-        assert_eq!(
-            order.foreign_change,
-            dec![0.0],
-            "Incorrect home_lock value"
-        );
+        assert_eq!(order.foreign_change, dec![0.0], "Incorrect home_lock value");
         assert_eq!(
             order.lock_foreign_change,
             dec![0.0],
@@ -1050,15 +1114,12 @@ mod order_tests {
 
         println!("order={:?}", order);
         assert_eq!(order.home_change, dec![0.0], "Incorrect home_lock value");
-        assert_eq!(order.lock_home_change,
-            dec![0.0],
-            "Incorrect home_lock value"
-        );
         assert_eq!(
-            order.foreign_change,
+            order.lock_home_change,
             dec![0.0],
             "Incorrect home_lock value"
         );
+        assert_eq!(order.foreign_change, dec![0.0], "Incorrect home_lock value");
         assert_eq!(
             order.lock_foreign_change,
             dec![0.0001],
@@ -1108,7 +1169,7 @@ mod order_tests {
 
         // maker ではない場合はLockしないのでLockの数は変化しない。
         order.is_maker = false;
-        order.update_balance(&market_config);        
+        order.update_balance(&market_config);
         assert_eq!(order.lock_home_change, dec![0.0]);
         assert_eq!(order.lock_foreign_change, dec![0.0]);
     }
@@ -1126,7 +1187,7 @@ mod order_tests {
         order.update_balance(&market_config);
 
         assert_eq!(order.home_change, dec![0.0]);
-        assert_eq!(order.foreign_change, dec![0.0]);        
+        assert_eq!(order.foreign_change, dec![0.0]);
 
         assert_eq!(order.free_home_change, dec![0.12345]);
         assert_eq!(order.free_foreign_change, dec![0.0]);
@@ -1134,14 +1195,12 @@ mod order_tests {
         assert_eq!(order.lock_home_change, dec![-0.12345]);
         assert_eq!(order.lock_foreign_change, dec![0.0]);
 
-
         order.order_side = OrderSide::Sell;
-        order.update_balance(&market_config);        
+        order.update_balance(&market_config);
         assert_eq!(order.free_home_change, dec![0.0]);
         assert_eq!(order.free_foreign_change, dec![0.0001]);
 
         assert_eq!(order.lock_home_change, dec![0.0]);
         assert_eq!(order.lock_foreign_change, dec![-0.0001]);
-
     }
 }
