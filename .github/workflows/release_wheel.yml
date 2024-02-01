@@ -25,7 +25,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter --features "extension-module"
+        args: ./rbot --release -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
