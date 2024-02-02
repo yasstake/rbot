@@ -1052,9 +1052,11 @@ impl Session {
 
 #[cfg(test)]
 mod session_tests {
+    /*
     use rbot_lib::common::init_debug_log;
 
     use super::*;
+    */
 
     /*
     fn new_session() -> Session {

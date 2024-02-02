@@ -14,20 +14,28 @@ use tokio_tungstenite::WebSocketStream;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use url::Url;
 
+use crate::common::MarketConfig;
 use crate::common::MultiMarketMessage;
 use crate::common::{MicroSec, MultiChannel, MICRO_SECOND, NOW};
-use tokio_tungstenite::{connect_async, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::{connect_async, MaybeTlsStream};
 
 pub trait WsOpMessage {
     fn new() -> Self;
     fn add_params(&mut self, params: &Vec<String>);
     fn to_string(&self) -> String;
     fn make_message(&self) -> Vec<String>;
+
+    /// if the exhcnage requres application level ping message, return the message.
+    fn get_ping_message() -> String {
+        "".to_string()
+    }
 }
 
+//  TODO: move to binance module
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsOpMessage {
     method: String,
@@ -62,7 +70,6 @@ impl WsOpMessage for BinanceWsOpMessage {
     }
 }
 
-
 #[derive(Debug)]
 /// Tは、WsMessageを実装した型。Subscribeメッセージの取引所の差分を実装する。
 /// WebSocketClientは、文字列のメッセージのやり取りを行う。
@@ -75,7 +82,7 @@ where
     //handle: Option<tokio::task::JoinHandle<()>>,
     connection: Arc<Mutex<AutoConnectClient<T, U>>>,
     message: Arc<Mutex<MultiChannel<MultiMarketMessage>>>,
-    //  control_ch: MultiChannel<String>, // send sbscribe message
+    handle: Option<JoinHandle<()>>, //  control_ch: MultiChannel<String>, // send sbscribe message
 }
 
 impl<T, U> WebSocketClient<T, U>
@@ -85,29 +92,34 @@ where
 {
     pub async fn new(
         config: &T,
+        market_config: &MarketConfig,
         url: &str,
         subscribe: Vec<String>,
         ping_interval_sec: i64,
         switch_interval_sec: i64,
         sync_wait_records: i64,
         init_fn: Option<fn(&T) -> String>,
+        url_generator: Option<fn(&T, &MarketConfig) -> String>,
     ) -> Self {
-            let mut client: AutoConnectClient<T, U> = AutoConnectClient::new(
-                &config,
-                url,
-                ping_interval_sec,
-                switch_interval_sec,
-                sync_wait_records,
-                init_fn,
-            );
+        let mut client: AutoConnectClient<T, U> = AutoConnectClient::new(
+            &config,
+            market_config,
+            url,
+            ping_interval_sec,
+            switch_interval_sec,
+            sync_wait_records,
+            init_fn,
+            url_generator,
+        );
 
-            client.subscribe(&subscribe).await;
+        client.subscribe(&subscribe).await;
 
-            WebSocketClient {
-                // handle: None,
-                connection: Arc::new(Mutex::new(client)),
-                message: Arc::new(Mutex::new(MultiChannel::new())),
-            }
+        Self {
+            // handle: None,
+            connection: Arc::new(Mutex::new(client)),
+            message: Arc::new(Mutex::new(MultiChannel::new())),
+            handle: None,
+        }
     }
 
     pub async fn set_init_function(&mut self, init_fn: fn(&T) -> String) {
@@ -175,7 +187,7 @@ where
 
     /// connect to websocket server
     /// start listening thread
-    pub async fn connect<F>(&mut self, convert: F) -> tokio::task::JoinHandle<()>
+    pub async fn connect<F>(&mut self, convert: F)
     where
         F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static,
     {
@@ -202,7 +214,7 @@ where
             }
         });
 
-        handle
+        self.handle = Some(handle)
     }
 
     pub async fn send_message_channel(
@@ -264,14 +276,16 @@ where
 
 #[derive(Debug)]
 pub struct SimpleWebsocket<T, U> {
+    server: T,
+    config: MarketConfig,
     read_stream: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     write_sream: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>>,
     url: String,
     subscribe_message: Arc<RwLock<U>>,
     init_fn: Option<fn(&T) -> String>,
+    url_generator: Option<fn(&T, &MarketConfig) -> String>,
     ping_interval_sec: i64,
     ping_thread: Option<tokio::task::JoinHandle<()>>,
-    config: T,
 }
 
 impl<T, U> SimpleWebsocket<T, U>
@@ -280,28 +294,38 @@ where
     U: WsOpMessage,
 {
     pub fn new(
-        config: &T,
+        server: &T,
+        config: &MarketConfig,
         url: &str,
         subscribe_message: Arc<RwLock<U>>,
         ping_interval_sec: i64,
         init_fn: Option<fn(&T) -> String>,
+        url_generator: Option<fn(&T, &MarketConfig) -> String>,
     ) -> Self {
         log::debug!("new SimpleWebsocket");
         SimpleWebsocket {
+            server: server.clone(),
+            config: config.clone(),
             read_stream: None,
             write_sream: None,
             url: url.to_string(),
             subscribe_message: subscribe_message.clone(),
-            init_fn,
+            init_fn,       // auth message generator
+            url_generator, // url generator  for reconnect(auth url, if this parameter is set url parameter is ignores)
             ping_interval_sec,
             ping_thread: None,
-            config: config.clone(),
         }
     }
 
     pub async fn connect(&mut self) {
-        log::debug!("start connect: {}", self.url);
-        let url = Url::parse(&self.url).unwrap();
+        let url = if self.url_generator.is_some() {
+            (self.url_generator.as_ref().unwrap())(&self.server, &self.config)
+        } else {
+            self.url.clone()
+        };
+
+        log::debug!("start connect: {}", url);
+        let url = Url::parse(&url).unwrap();
 
         let client = connect_async(url).await;
         if client.is_err() {
@@ -329,7 +353,7 @@ where
         // self.connection = Some(socket);
 
         if self.init_fn.is_some() {
-            let message = (self.init_fn.as_ref().unwrap())(&self.config);
+            let message = (self.init_fn.as_ref().unwrap())(&self.server);
             log::debug!("init message: {}", message);
             self.send_text(message).await;
 
@@ -356,14 +380,20 @@ where
             // let write_stream = write_stream.clone();
             loop {
                 let random = NOW() % 5_000;
-                let mut sleeptime = (ping_interval as i64) * 1_000 + random - 2_500;
+                let mut sleeptime = (ping_interval as i64) * 1_000 - 5_000;
                 if sleeptime < 0 {
                     sleeptime = 2_500;
                 }
                 tokio::time::sleep(Duration::from_millis(sleeptime as u64)).await;
-                log::debug!("SEND PING {:?}", sleeptime);
                 let message = Self::ping_message();
                 Self::_send_message(&mut write_stream, message).await;
+
+                tokio::time::sleep(Duration::from_millis(random as u64)).await;
+                let user_ping = U::get_ping_message();
+                if user_ping != "" {
+                    let message = Message::Text(user_ping);
+                    Self::_send_message(&mut write_stream, message).await;
+                }
             }
         });
 
@@ -434,7 +464,7 @@ where
     pub async fn close(&mut self) {
         log::debug!(">>>Close connection<<<");
         self.ping_thread.as_mut().unwrap().abort();
-        self.ping_thread = None;        
+        self.ping_thread = None;
 
         self.send_message(Message::Close(None)).await;
 
@@ -500,6 +530,8 @@ where
 
 #[derive(Debug)]
 pub struct AutoConnectClient<T, U> {
+    server: T,
+    config: MarketConfig,
     client: Option<SimpleWebsocket<T, U>>,
     next_client: Option<SimpleWebsocket<T, U>>,
     pub url: String,
@@ -512,7 +544,7 @@ pub struct AutoConnectClient<T, U> {
     sync_wait_records: i64, // setting for number of records to sync
     ping_interval: MicroSec,
     init_fn: Option<fn(&T) -> String>,
-    config: T,
+    url_generator: Option<fn(&T, &MarketConfig) -> String>,
 }
 
 impl<T, U> AutoConnectClient<T, U>
@@ -521,12 +553,14 @@ where
     U: WsOpMessage,
 {
     pub fn new(
-        config: &T,
+        server: &T,
+        config: &MarketConfig,
         url: &str,
         ping_interval: MicroSec,
         switch_interval_sec: i64,
         sync_wait_records: i64,
         init_fn: Option<fn(&T) -> String>,
+        url_generator: Option<fn(&T, &MarketConfig) -> String>,
     ) -> Self {
         AutoConnectClient {
             client: None,
@@ -541,6 +575,8 @@ where
             sync_wait_records: sync_wait_records,
             ping_interval,
             init_fn: init_fn,
+            url_generator: url_generator,
+            server: server.clone(),
             config: config.clone(),
         }
     }
@@ -549,11 +585,13 @@ where
         log::debug!("connect: {}", self.url);
 
         self.client = Some(SimpleWebsocket::new(
+            &self.server,
             &self.config,
             self.url.as_str(),
             self.subscribe_message.clone(),
             self.ping_interval,
             self.init_fn,
+            self.url_generator,
         ));
         self.client.as_mut().unwrap().connect().await;
         self.last_connect_time = NOW();
@@ -565,11 +603,13 @@ where
         }
 
         self.next_client = Some(SimpleWebsocket::new(
+            &self.server,
             &self.config,
             self.url.as_str(),
             self.subscribe_message.clone(),
             self.ping_interval,
             self.init_fn,
+            self.url_generator,
         ));
         self.next_client.as_mut().unwrap().connect().await;
         self.last_connect_time = NOW();
@@ -745,6 +785,274 @@ where
 
 #[cfg(test)]
 mod test_exchange_ws {
+    use crate::common::{init_debug_log, init_log, FeeType, PriceType};
+    use crate::common::{MarketConfig, ServerConfig, NOW};
+    use crate::net::{AutoConnectClient, SimpleWebsocket};
+    use rust_decimal_macros::dec;
+    use serde_derive::Deserialize;
+    use serde_derive::Serialize;
+    use std::env;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    use super::WsOpMessage;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestServerConfig {
+        pub exchange_name: String,
+        pub testnet: bool,
+        pub rest_server: String,
+        pub public_ws: String,
+        pub private_ws: String,
+        pub db_base_dir: String,
+        pub history_web_base: String,
+        api_key: String,
+        api_secret: String,
+    }
+
+    impl TestServerConfig {
+        fn new() -> Self {
+            let testnet = false;
+            let rest_server = if testnet {
+                "https://api-testnet.bybit.com"
+            } else {
+                "https://api.bybit.com"
+            }
+            .to_string();
+
+            let public_ws_server = if testnet {
+                "wss://stream-testnet.bybit.com/v5/public"
+            } else {
+                "wss://stream.bybit.com/v5/public"
+            }
+            .to_string();
+
+            let private_ws_server = if testnet {
+                "wss://stream-testnet.bybit.com/v5/private"
+            } else {
+                "wss://stream.bybit.com/v5/private"
+            }
+            .to_string();
+
+            let api_key = env::var("BYBIT_API_KEY").unwrap_or_default();
+            let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
+
+            return TestServerConfig {
+                exchange_name: "BYBIT".to_string(),
+                testnet,
+                rest_server,
+                public_ws: public_ws_server,
+                private_ws: private_ws_server,
+                db_base_dir: "".to_string(),
+                history_web_base: "https://public.bybit.com".to_string(),
+                api_key,
+                api_secret,
+            };
+        }
+    }
+
+    impl ServerConfig for TestServerConfig {
+        fn get_public_ws_server(&self) -> String {
+            self.public_ws.clone()
+        }
+
+        fn get_user_ws_server(&self) -> String {
+            self.private_ws.clone()
+        }
+
+        fn get_rest_server(&self) -> String {
+            self.rest_server.clone()
+        }
+
+        fn get_api_key(&self) -> String {
+            self.api_key.clone()
+        }
+
+        fn get_api_secret(&self) -> String {
+            self.api_secret.clone()
+        }
+
+        fn get_historical_web_base(&self) -> String {
+            self.history_web_base.clone()
+        }
+    }
+
+    fn make_market_config() -> MarketConfig {
+        MarketConfig {
+            price_unit: dec![0.1],
+            price_scale: 3,
+            size_unit: dec![0.001],
+            size_scale: 4,
+            maker_fee: dec![0.00_01],
+            taker_fee: dec![0.00_01],
+            price_type: PriceType::Home,
+            fee_type: FeeType::Home,
+            home_currency: "USDT".to_string(),
+            foreign_currency: "BTC".to_string(),
+            market_order_price_slip: dec![0.01],
+            board_depth: 200,
+            trade_category: "linear".to_string(),
+            trade_symbol: "BTCUSDT".to_string(),
+            public_subscribe_channel: vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
+            ],
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestWsOpMessage {
+        op: String,
+        args: Vec<String>,
+        id: i64,
+    }
+
+    impl WsOpMessage for TestWsOpMessage {
+        fn new() -> Self {
+            TestWsOpMessage {
+                op: "subscribe".to_string(),
+                args: vec![],
+                id: NOW() % 1000,
+            }
+        }
+
+        fn add_params(&mut self, params: &Vec<String>) {
+            log::debug!("add_params: {:?} / {:?}", self.args, params);
+            self.args.extend(params.clone());
+        }
+
+        fn make_message(&self) -> Vec<String> {
+            let mut messages: Vec<String> = vec![];
+            for arg in &self.args {
+                let m = TestWsOpMessage {
+                    op: "subscribe".to_string(),
+                    args: vec![arg.clone()],
+                    id: NOW() % 1000,
+                };
+                messages.push(m.to_string());
+            }
+
+            messages
+        }
+        
+        fn to_string(&self) -> String {
+            serde_json::to_string(self).unwrap()
+        }
+
+        fn get_ping_message() -> String {
+            r#"{"op": "ping"}"#.to_string()
+        }
+    }
+
+    #[test]
+    fn test_ping_message() {
+        let message = SimpleWebsocket::<TestServerConfig, TestWsOpMessage>::ping_message();
+        println!("PING={:?}", message);
+    }
+
+    fn url_generator(server: &TestServerConfig, config: &MarketConfig) -> String {
+        format!("{}/{}", server.get_public_ws_server(), config.trade_category)
+    }
+
+    #[tokio::test]
+    async fn simple_connect() {
+        init_log();
+
+        let config = TestServerConfig::new();
+        let mut message = TestWsOpMessage::new();
+
+        message.add_params(&vec![
+            "publicTrade.BTCUSDT".to_string(), 
+            "orderbook.200.BTCUSDT".to_string(),                       
+        ]);
+
+        let mut ws = SimpleWebsocket::new(
+            &config,
+            &make_market_config(),
+            &config.get_public_ws_server(),
+            Arc::new(RwLock::new(message)),
+            10,
+            None,
+            Some(url_generator),
+        );
+
+        ws.connect().await;
+
+        let message = ws.receive_text().await;
+        println!("{}", message.unwrap());
+
+        for i in 0..10 {
+            let message = ws.receive_text().await;
+            println!("{}", message.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_auto_connect_client() {
+        init_log();
+
+        let config = TestServerConfig::new();
+        let mut message = TestWsOpMessage::new();
+
+        message.add_params(&vec![
+            "publicTrade.BTCUSDT".to_string(),
+            "orderbook.200.BTCUSDT".to_string(),
+        ]);
+
+        let mut ws: AutoConnectClient<TestServerConfig, TestWsOpMessage> = AutoConnectClient::new(
+            &config,
+            &make_market_config(),
+            &config.get_public_ws_server(),
+            10,
+            60,
+            0,
+            None,
+            Some(url_generator),
+        );
+
+        ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()]).await;
+
+        ws.connect().await;
+
+        for i in 0..10 {
+            let message = ws.receive_text().await;
+            println!("{}", message.unwrap());
+        }
+    }
+
+
+    #[tokio::test]
+    async fn test_websocket_client() {
+        init_log();
+
+        let config = TestServerConfig::new();
+        let mut message = TestWsOpMessage::new();
+
+        message.add_params(&vec![
+            "publicTrade.BTCUSDT".to_string(),
+            "orderbook.200.BTCUSDT".to_string(),
+        ]);
+
+        let mut ws: SimpleWebsocket<TestServerConfig, TestWsOpMessage> = SimpleWebsocket::new(
+            &config,
+            &make_market_config(),
+            &config.get_public_ws_server(),
+            Arc::new(RwLock::new(message)),
+            10,
+            None,
+            Some(url_generator),
+        );
+
+        ws.connect().await;
+
+        let message = ws.receive_text().await;
+        println!("{}", message.unwrap());
+
+        for i in 0..10 {
+            let message = ws.receive_text().await;
+            println!("{}", message.unwrap());
+        }
+    }
     /*
     use crate::exchange::binance::ws::PING_INTERVAL;
     use crate::exchange::binance::BinanceConfig;
@@ -758,42 +1066,6 @@ mod test_exchange_ws {
     use std::thread::sleep;
     use std::time::Duration;
 
-    #[test]
-    fn test_ping_message() {
-        let message = SimpleWebsocket::<BybitServerConfig, BybitWsOpMessage>::ping_message();
-        println!("PING={:?}", message);
-    }
-
-    #[tokio::test]
-    async fn simple_connect() {
-        init_debug_log();
-
-        let config = BinanceConfig::BTCUSDT();
-        let mut message = BinanceWsOpMessage::new();
-
-        message.add_params(&vec![
-            "btcusdt@trade".to_string(),
-            // "btcusdt@depth".to_string(),
-        ]);
-
-        let mut ws = SimpleWebsocket::new(
-            &config,
-            "wss://stream.binance.com/ws",
-            Arc::new(RwLock::new(message)),
-            1,
-            None,
-        );
-
-        ws.connect().await;
-
-        let message = ws.receive_text().await;
-        println!("{}", message.unwrap());
-
-        for i in 0..100 {
-            let message = ws.receive_text().await;
-            println!("{}", message.unwrap());
-        }
-    }
 
     #[tokio::test]
     async fn ws_loop() {

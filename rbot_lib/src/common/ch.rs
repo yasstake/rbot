@@ -304,7 +304,7 @@ mod channel_test {
     #[test]
     /// 4096個のメッセージを送信して、最後のメッセージが送信できるか確認する。
     fn test_channel_full() {
-        init_log();
+        // init_log();
 
         let mut channel = MultiChannel::new();
         let _receiver = channel.open_channel(0);
@@ -333,7 +333,7 @@ mod channel_test {
 
     #[test]
     fn test_channel_disconnect() {
-        init_log();
+        //init_log();
         let mut channel = MultiChannel::new();
         let receiver = channel.open_channel(0);
 

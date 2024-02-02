@@ -9,8 +9,9 @@ use std::{
     time::Duration,
 };
 use crate::common::{
-    flush_log, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, TODAY
+    flush_log, to_naive_datetime, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY
 };
+use chrono::Datelike;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use flate2::bufread::GzDecoder;
@@ -51,18 +52,87 @@ where
         order_id: &str,
     ) -> impl std::future::Future<Output = Result<Order, String>> + Send;
     fn open_orders(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Order>, String>> + Send;
-    fn latest_archive_date(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<MicroSec, String>> + Send;
 
     fn get_account(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<AccountStatus, String>> + Send;
 
-    fn log_download(
+    fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
+        let history_web_base = server.get_historical_web_base();
+        let category = &config.trade_category;
+        let symbol = &config.trade_symbol;
+
+        let timestamp = to_naive_datetime(date);
+
+        let yyyy = timestamp.year() as i64;
+        let mm = timestamp.month() as i64;
+        let dd = timestamp.day() as i64;
+
+        Self::format_historical_data_url(&history_web_base, &category, &symbol, yyyy, mm, dd)
+    }
+
+    fn format_historical_data_url(
+        history_web_base: &str,
+        category: &str,
+        symbol: &str,
+        yyyy: i64,
+        mm: i64,
+        dd: i64,
+    ) -> String;
+
+    /// Convert archived CSV trade log record to Trade struct
+    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
+    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
+    fn rec_to_trade(rec: &StringRecord) -> Trade;
+    fn archive_has_header() -> bool;
+
+    async fn latest_archive_date(server: &T, config: &MarketConfig) -> Result<MicroSec, String>{
+        let f = |date: MicroSec| -> String {
+            Self::history_web_url(server, config, date)
+        };
+
+
+            let mut latest = TODAY();
+            let mut i = 0;
+
+            loop {
+                let has_archive = has_archive(latest, &f).await;
+
+                if has_archive.is_err() {
+                    log::error!("Error in has_archive: {:?}", has_archive);
+                    return Err(format!("Error in has_archive: {:?}", has_archive));
+                }
+
+                let has_archive = has_archive.unwrap();
+
+                if has_archive {
+                    return Ok(latest);
+                }
+
+                latest -= DAYS(1);
+                i += 1;
+
+                if 5 < i {
+                    return Err(format!("get_latest_archive max retry error"));
+                }
+            }
+
+    }
+
+
+    fn download_archive(
         server: &T,
         config: &MarketConfig,
-        has_header: bool,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
         low_priority: bool,
         verbose: bool,
-        f: &(dyn Fn(&StringRecord) -> Trade + Send),
-    ) -> impl std::future::Future<Output = Result<i64, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<i64, String>>
+    {async move {
+        let date = FLOOR_DAY(date);
+        let url = Self::history_web_url(server, config, date);
+        let has_header = Self::archive_has_header();
+
+        download_archive_log(&url, tx, has_header, low_priority, verbose, &Self::rec_to_trade).await
+    } }
 }
 
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
@@ -343,6 +413,7 @@ where
     urls
 }
 
+/*
 pub async fn download_logs<F>(
     urls: Vec<String>,
     tx: Sender<Vec<Trade>>,
@@ -372,12 +443,13 @@ where
 
     return Ok(download_rec);
 }
+*/
 
 const MAX_BUFFER_SIZE: usize = 2000;
 const MAX_QUEUE_SIZE: usize = 100;
 const LOW_QUEUE_SIZE: usize = 5;
 
-pub async fn download_log<F>(
+pub async fn download_archive_log<F>(
     url: &String,
     tx: &Sender<Vec<Trade>>,
     has_header: bool,
@@ -608,14 +680,15 @@ where
 }
 */
 
-pub fn check_exist(url: &str) -> bool {
-    let client = reqwest::blocking::Client::new();
+pub async fn check_exist(url: &str) -> bool {
+    let client = reqwest::Client::new();
 
     let response = match client
         .head(url)
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html")
         .send()
+        .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -637,13 +710,13 @@ pub fn check_exist(url: &str) -> bool {
     }
 }
 
-fn has_archive<F>(date: MicroSec, f: &F) -> Result<bool, String>
+async fn has_archive<F>(date: MicroSec, f: &F) -> Result<bool, String>
 where
     F: Fn(MicroSec) -> String,
 {
     let url = f(date);
 
-    if check_exist(url.as_str()) {
+    if check_exist(url.as_str()).await {
         log::debug!("{} exists", url);
         return Ok(true);
     } else {
@@ -652,7 +725,7 @@ where
     return Ok(false);
 }
 
-pub fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String>
+pub async fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String>
 where
     F: Fn(MicroSec) -> String,
 {
@@ -660,7 +733,7 @@ where
     let mut i = 0;
 
     loop {
-        let has_archive = has_archive(latest, f);
+        let has_archive = has_archive(latest, f).await;
 
         if has_archive.is_err() {
             log::error!("Error in has_archive: {:?}", has_archive);
