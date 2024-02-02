@@ -91,6 +91,10 @@ impl ServerConfig for BybitServerConfig {
     fn get_api_secret(&self) -> String {
         self.api_secret.clone()
     }
+
+    fn get_historical_web_base(&self) -> String {
+        self.history_web_base.clone()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

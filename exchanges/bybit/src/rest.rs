@@ -379,13 +379,6 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         Ok(orders)
     }
 
-    async fn latest_archive_date(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
-    ) -> Result<MicroSec, String> {
-        todo!()
-    }
-
     async fn get_account(
         server: &BybitServerConfig,
         config: &MarketConfig,
@@ -393,16 +386,25 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         todo!()
     }
 
-    fn log_download(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
-        has_header: bool,
-        low_priority: bool,
-        verbose: bool,
-        f: &(dyn Fn(&StringRecord) -> Trade + Send),
-    ) -> impl std::future::Future<Output = Result<i64, String>> + Send {
-        async move { todo!() }
+    fn format_historical_data_url(
+        history_web_base: &str,
+        category: &str,
+        symbol: &str,
+        yyyy: i64,
+        mm: i64,
+        dd: i64,
+    ) -> String {
+        todo!()
     }
+
+    fn rec_to_trade(rec: &StringRecord) -> Trade {
+        todo!()
+    }
+
+    fn archive_has_header() -> bool {
+        todo!()
+    }
+
 }
 
 impl BybitRestApi {

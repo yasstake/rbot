@@ -28,7 +28,7 @@ use rbot_lib::net::{
     UdpSender,
     RestApi, 
     WebSocketClient,    
-    download_log, latest_archive_date,     
+    latest_archive_date,     
 };
 
 use rbot_market::MarketInterface;
@@ -37,7 +37,7 @@ use rbot_market::MarketImpl;
 use crate::message::BybitUserStreamMessage;
 
 use crate::rest::BybitRestApi;
-use crate::ws::{listen_userdata_stream, BybitWsOpMessage};
+use crate::ws::BybitWsOpMessage;
 
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -249,7 +249,7 @@ impl /* MarketInterface for */
     }
 
     fn get_cache_duration(&self) -> MicroSec {
-        todo!()
+        MarketImpl::get_cache_duration(self)
     }
 
     fn reset_cache_duration(&mut self) {
@@ -518,20 +518,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         todo!()
     }
 
-    fn format_historical_data_url(
-        history_web_base: &str,
-        symbol: &str,
-        yyyy: i64,
-        mm: i64,
-        dd: i64,
-    ) -> String {
-        todo!()
-    }
-
-    fn rec_to_trade(rec: &StringRecord) -> Trade {
-        todo!()
-    }
-
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         todo!()
     }
@@ -559,6 +545,20 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn get_server_config(&self) -> BybitServerConfig {
         todo!()
     }
+
+    fn set_enable_order_feature(&self, enable_order: bool) {
+        todo!()
+    }
+
+    fn get_enable_order_feature(&self) -> bool {
+        todo!()
+    }
+
+
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+        todo!()
+    }
+
 }
 
 
