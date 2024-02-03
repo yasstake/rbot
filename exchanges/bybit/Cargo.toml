@@ -24,8 +24,8 @@ polars-core = {workspace = true}
 pyo3-polars = {workspace = true}
 
 tokio = {workspace = true}
-
-
+futures = {workspace=true}
+async-stream = {workspace = true}
 
 
 

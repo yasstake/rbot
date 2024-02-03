@@ -5,16 +5,18 @@ use crossbeam_channel::Receiver;
 use futures::stream::SplitSink;
 use futures::stream::SplitStream;
 use futures::SinkExt;
+use futures::Stream;
 use futures::StreamExt;
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 use tokio_tungstenite::WebSocketStream;
-
-use std::sync::Arc;
+use async_stream::stream;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+
+use std::sync::Arc;
 use url::Url;
 
 use crate::common::MarketConfig;
@@ -69,6 +71,12 @@ impl WsOpMessage for BinanceWsOpMessage {
         }
     }
 }
+
+
+
+
+
+
 
 #[derive(Debug)]
 /// Tは、WsMessageを実装した型。Subscribeメッセージの取引所の差分を実装する。
@@ -184,6 +192,14 @@ where
 
         return Ok(message.to_string());
     }
+    
+
+    /// Receive message from websocket, and process one message
+    pub async fn process_event() {
+        log::debug!("start_event_loop");
+
+    }
+
 
     /// connect to websocket server
     /// start listening thread
@@ -644,6 +660,15 @@ where
         }
     }
 
+    pub async fn open_stream<'a>(&'a mut self) -> impl Stream<Item = Result<String, String>> + 'a {
+        stream! {
+            loop {
+                let message = self.receive_text().await;
+                yield message;
+            }
+        }
+    }
+
     pub async fn receive_text(&mut self) -> Result<String, String> {
         let client = self.client.as_mut();
         if client.is_none() {
@@ -783,11 +808,13 @@ where
     }
 }
 
+#[allow(unused_imports)]
 #[cfg(test)]
 mod test_exchange_ws {
     use crate::common::{init_debug_log, init_log, FeeType, PriceType};
     use crate::common::{MarketConfig, ServerConfig, NOW};
     use crate::net::{AutoConnectClient, SimpleWebsocket};
+    use async_std::stream::StreamExt;
     use rust_decimal_macros::dec;
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
@@ -981,7 +1008,7 @@ mod test_exchange_ws {
         let message = ws.receive_text().await;
         println!("{}", message.unwrap());
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let message = ws.receive_text().await;
             println!("{}", message.unwrap());
         }
@@ -1014,9 +1041,57 @@ mod test_exchange_ws {
 
         ws.connect().await;
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let message = ws.receive_text().await;
             println!("{}", message.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_auto_connect_client_stream() {
+        init_log();
+
+        let config = TestServerConfig::new();
+        /*
+        let mut message = TestWsOpMessage::new();
+
+        message.add_params(&vec![
+            "publicTrade.BTCUSDT".to_string(),
+            "orderbook.200.BTCUSDT".to_string(),
+        ]);
+        */
+
+        let mut ws: AutoConnectClient<TestServerConfig, TestWsOpMessage> = AutoConnectClient::new(
+            &config,
+            &make_market_config(),
+            &config.get_public_ws_server(),
+            10,
+            60,
+            0,
+            None,
+            Some(url_generator),
+        );
+
+        ws.subscribe(
+            &mut vec![
+                "publicTrade.BTCUSDT".to_string(),
+                "orderbook.200.BTCUSDT".to_string(),
+            ],
+        ).await;
+
+        ws.connect().await;
+
+        let mut s = Box::pin(ws.open_stream().await);
+
+        while let Some(message) = s.next().await {
+            match message {
+                Ok(m) => {
+                    println!("{}", m);
+                }
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            }
         }
     }
 
@@ -1048,7 +1123,7 @@ mod test_exchange_ws {
         let message = ws.receive_text().await;
         println!("{}", message.unwrap());
 
-        for i in 0..10 {
+        for _i in 0..10 {
             let message = ws.receive_text().await;
             println!("{}", message.unwrap());
         }
