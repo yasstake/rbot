@@ -390,6 +390,7 @@ mod bybit_ws_test {
 /*
     pub fn connect(&mut self) {
         BLOCK_ON(async {
+        BLOCK_ON(async {
             self.ws.connect(|message|{
                 let m = serde_json::from_str::<BybitWsMessage>(&message);
 
