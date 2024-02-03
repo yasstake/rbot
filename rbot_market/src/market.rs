@@ -1,12 +1,5 @@
-use rbot_lib::db::KEY::low;
-use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::MutexGuard;
-
-use chrono::Datelike;
 use crossbeam_channel::Sender;
-use csv::StringRecord;
-
 use rbot_lib::common::BLOCK_ON;
 use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
@@ -21,8 +14,8 @@ use tokio::sync::{Mutex, RwLock};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, to_naive_datetime, AccountStatus, MarketConfig, MarketStream,
-        MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY,
+        flush_log, time_string, AccountStatus, MarketConfig, MarketStream,
+        MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig, Trade, DAYS,
         NOW,
     },
     db::{df::KEY, sqlite::TradeTable},
@@ -296,9 +289,8 @@ where
     }
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
-        let result = BLOCK_ON(async {
-            T::latest_archive_date(&self.get_server_config(), &self.get_config()).await
-        });
+        let result = 
+            T::latest_archive_date(&self.get_server_config(), &self.get_config());
 
         if result.is_err() {
             return Err(result.unwrap_err());

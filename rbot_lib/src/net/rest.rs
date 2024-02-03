@@ -1,15 +1,8 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
 // Abloultely no warranty.
 
-use std::{
-    fs::File,
-    io::{copy, BufReader, Cursor, Write},
-    path::Path,
-    thread::sleep,
-    time::Duration,
-};
 use crate::common::{
-    flush_log, to_naive_datetime, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY
+    flush_log, to_naive_datetime, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, BLOCK_ON, DAYS, FLOOR_DAY, TODAY
 };
 use chrono::Datelike;
 use crossbeam_channel::Sender;
@@ -17,9 +10,15 @@ use csv::StringRecord;
 use flate2::bufread::GzDecoder;
 use reqwest::Method;
 use rust_decimal::Decimal;
+use std::{
+    fs::File,
+    io::{copy, BufReader, Cursor, Write},
+    path::Path,
+    thread::sleep,
+    time::Duration,
+};
 use tempfile::tempdir;
 use zip::ZipArchive;
-
 
 pub trait RestApi<T>
 where
@@ -30,7 +29,10 @@ where
         config: &MarketConfig,
     ) -> impl std::future::Future<Output = Result<BoardTransfer, String>> + Send;
 
-    fn get_recent_trades(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
+    fn get_recent_trades(
+        server: &T,
+        config: &MarketConfig,
+    ) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
     fn get_trade_klines(
         server: &T,
         config: &MarketConfig,
@@ -51,9 +53,15 @@ where
         config: &MarketConfig,
         order_id: &str,
     ) -> impl std::future::Future<Output = Result<Order, String>> + Send;
-    fn open_orders(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<Vec<Order>, String>> + Send;
+    fn open_orders(
+        server: &T,
+        config: &MarketConfig,
+    ) -> impl std::future::Future<Output = Result<Vec<Order>, String>> + Send;
 
-    fn get_account(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = Result<AccountStatus, String>> + Send;
+    fn get_account(
+        server: &T,
+        config: &MarketConfig,
+    ) -> impl std::future::Future<Output = Result<AccountStatus, String>> + Send;
 
     fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
         let history_web_base = server.get_historical_web_base();
@@ -84,12 +92,9 @@ where
     fn rec_to_trade(rec: &StringRecord) -> Trade;
     fn archive_has_header() -> bool;
 
-    async fn latest_archive_date(server: &T, config: &MarketConfig) -> Result<MicroSec, String>{
-        let f = |date: MicroSec| -> String {
-            Self::history_web_url(server, config, date)
-        };
-
-
+    fn latest_archive_date(server: &T, config: &MarketConfig) -> Result<MicroSec, String> {
+        BLOCK_ON(async {
+            let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
             let mut latest = TODAY();
             let mut i = 0;
 
@@ -114,9 +119,8 @@ where
                     return Err(format!("get_latest_archive max retry error"));
                 }
             }
-
+        })
     }
-
 
     fn download_archive(
         server: &T,
@@ -125,14 +129,23 @@ where
         date: MicroSec,
         low_priority: bool,
         verbose: bool,
-    ) -> impl std::future::Future<Output = Result<i64, String>>
-    {async move {
-        let date = FLOOR_DAY(date);
-        let url = Self::history_web_url(server, config, date);
-        let has_header = Self::archive_has_header();
+    ) -> impl std::future::Future<Output = Result<i64, String>> {
+        async move {
+            let date = FLOOR_DAY(date);
+            let url = Self::history_web_url(server, config, date);
+            let has_header = Self::archive_has_header();
 
-        download_archive_log(&url, tx, has_header, low_priority, verbose, &Self::rec_to_trade).await
-    } }
+            download_archive_log(
+                &url,
+                tx,
+                has_header,
+                low_priority,
+                verbose,
+                &Self::rec_to_trade,
+            )
+            .await
+        }
+    }
 }
 
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
@@ -784,7 +797,8 @@ mod test_exchange {
             vec![],
             None,
             None,
-        ).await;
+        )
+        .await;
 
         assert!(r.is_ok());
 

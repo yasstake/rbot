@@ -22,6 +22,9 @@ rust_decimal_macros = {workspace = true}
 serde = {workspace = true}
 
 tokio = {workspace = true}
+tokio-stream = {workspace = true}
+
+
 
 log = {workspace = true}    
 

@@ -34,7 +34,7 @@ use rbot_lib::net::{
 use rbot_market::MarketInterface;
 use rbot_market::MarketImpl;
 
-use crate::message::BybitUserStreamMessage;
+use crate::message::BybitUserWsMessage;
 
 use crate::rest::BybitRestApi;
 use crate::ws::BybitWsOpMessage;
@@ -47,12 +47,8 @@ use rust_decimal_macros::dec;
 use super::config::BybitServerConfig;
 
 use super::message::BybitOrderStatus;
-use super::message::{BybitAccountInformation, BybitWsMessage};
-use super::ws::make_auth_message;
+use super::message::{BybitAccountInformation, BybitPublicWsMessage};
 
-const SWITCH_INTERVAL_SEC: i64 = 60 * 3; // 3min for test
-const PING_INTERVAL_SEC: i64 = 60 * 3; // 3min for test
-const SYNC_RECORDS: i64 = 0; // no overlap
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
