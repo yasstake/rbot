@@ -25,7 +25,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter --features "extension-module"
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
@@ -57,7 +57,7 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: --release -o dist --find-interpreter
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
@@ -74,7 +74,7 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: --release -o dist --find-interpreter
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:

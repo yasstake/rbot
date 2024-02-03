@@ -21,7 +21,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: --release -o dist --find-interpreter --features "extension-module"
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
@@ -42,19 +42,3 @@ jobs:
         name: wheels
         path: dist
 
-  macos-intel:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    - uses: actions/checkout@v3
-    - uses: PyO3/maturin-action@v1
-      with:
-        command: build
-        args: --release -o dist --find-interpreter
-    - name: Upload wheels
-      uses: actions/upload-artifact@v3
-      with:
-        name: wheels
-        path: dist
