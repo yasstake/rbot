@@ -1,0 +1,38 @@
+[package]
+name = "bybit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rbot_lib = {workspace = true}
+rbot_market = {workspace = true}
+
+chrono = {workspace = true}
+log = {workspace = true}
+
+rust_decimal = {workspace = true}
+rust_decimal_macros = {workspace = true}
+serde = {workspace = true}
+serde_derive = {workspace = true}
+serde_json = {workspace = true}
+
+crossbeam-channel = {workspace = true}
+csv = {workspace = true}
+polars-core = {workspace = true}
+pyo3-polars = {workspace = true}
+
+tokio = {workspace = true}
+futures = {workspace=true}
+async-stream = {workspace = true}
+
+
+
+# https://pyo3.rs/v0.13.2/faq
+[dependencies.pyo3]
+version = "0.20"
+features = ["rust_decimal", "auto-initialize", "abi3-py38"]
+
+[features]
+extension-module = ["pyo3/extension-module"]

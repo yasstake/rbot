@@ -12,9 +12,8 @@ def terminate(_a, _b):
 signal.signal(signal.SIGINT, terminate)
 
 print("rbot version: ", rbot.__version__)
-print("!!! ABSOLUTELY NO WARRANTY !!!")
-print("!!!  USE AT YOUR OWN RISK  !!!")
-print("See document at https://github.com/yasstake/rusty-bot")
-print(" All rights reserved. (c) 2022-2024 rbot developers / yasstake")
-# print(" For some exchange, referer link may be included.")    // at this point(2024.1), no referer link
-
+print("!!! ABSOLUTELY NO WARRANTY. USE AT YOUR OWN RISK !!!")
+print("For some exchange, affliate referer link may be included.")
+print("Distributed under LGPL license. https://www.gnu.org/licenses/lgpl-3.0.txt")
+print("See the document at https://github.com/yasstake/rusty-bot")
+print("All rights reserved. (c) 2022-2024 rbot developers / yasstake")
