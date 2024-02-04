@@ -1,8 +1,6 @@
 use async_stream::stream;
 use futures::Stream;
 use futures::StreamExt;
-use polars_core::utils::rayon::vec;
-use polars_core::utils::rayon::yield_local;
 use rbot_lib::common::AccountStatus;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::Order;
@@ -13,7 +11,7 @@ use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ServerConfig
 
 use rbot_lib::net::{AutoConnectClient, WsOpMessage};
 
-use crate::market;
+
 use crate::message::merge_order_and_execution;
 use crate::message::BybitExecution;
 use crate::message::BybitOrderStatus;
@@ -285,11 +283,13 @@ impl BybitPrivateWsClient {
     pub async fn open_stream<'a>(
         &'a mut self,
     ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
+        let market_config = self.ws.get_config();
         let mut s = Box::pin(self.ws.open_stream().await);
 
         stream! {
             let mut last_orders: Vec<BybitOrderStatus> = vec![];
             let mut last_executions: Vec<BybitExecution> = vec![];
+
 
             while let Some(message) = s.next().await {
                 match message {
@@ -316,6 +316,7 @@ impl BybitPrivateWsClient {
                                                 creationTime,
                                                 mut data,
                                             } => {
+                                                println!("{}", serde_json::to_string(&data).unwrap().to_string());
                                                 if last_orders.len() == 0 {
                                                     last_orders.append(&mut data);
                                                 }
@@ -326,7 +327,9 @@ impl BybitPrivateWsClient {
 
                                                     let mut market_message = MultiMarketMessage::new();
                                                     for o in order.iter() {
-                                                        market_message.push(MarketMessage::Order(o.clone()));
+                                                        let mut o = o.clone();
+                                                        o.update_balance(&market_config);
+                                                        market_message.push(MarketMessage::Order(o));
                                                     }
                                                     yield Ok(market_message);
                                                 }
@@ -336,6 +339,7 @@ impl BybitPrivateWsClient {
                                                 creationTime,
                                                 mut data,
                                             } => {
+                                                println!("{}", serde_json::to_string(&data).unwrap().to_string());
                                                 if last_executions.len() == 0 {
                                                     last_executions.append(&mut data);
                                                 }
@@ -346,7 +350,9 @@ impl BybitPrivateWsClient {
 
                                                     let mut market_message = MultiMarketMessage::new();
                                                     for o in order.iter() {
-                                                        market_message.push(MarketMessage::Order(o.clone()));
+                                                        let mut o = o.clone();
+                                                        o.update_balance(&market_config);
+                                                        market_message.push(MarketMessage::Order(o));
                                                     }
                                                     yield Ok(market_message);
                                                 }

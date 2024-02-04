@@ -4,6 +4,7 @@
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
+use super::FeeType;
 use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
@@ -838,7 +839,38 @@ impl Order {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
 
-        if commission_asset == config.home_currency {
+        if self.commission_asset == "" {
+            match config.fee_type {
+                FeeType::Home => {
+                    self.commission_home = commission;
+                    self.commission_foreign = dec![0.0];
+                    self.commission_asset = config.home_currency.clone();
+                }
+                FeeType::Foreign => {
+                    self.commission_home = dec![0.0];
+                    self.commission_foreign = commission;
+                    self.commission_asset = config.foreign_currency.clone();
+                }
+                FeeType::Both => {
+                    match self.order_side {
+                        OrderSide::Buy => {
+                            self.commission_home = commission;
+                            self.commission_foreign = dec![0.0];
+                            self.commission_asset = config.home_currency.clone();
+                        }
+                        OrderSide::Sell => {
+                            self.commission_home = dec![0.0];
+                            self.commission_foreign = commission;
+                            self.commission_asset = config.foreign_currency.clone();
+                        }
+                        _ => {
+                            log::error!("Unknown order side: {:?}", self.order_side);
+                        }
+                    }
+                }
+            }
+        }
+        else if commission_asset == config.home_currency {
             self.commission_home = commission;
             self.commission_foreign = dec![0.0];
         } else {

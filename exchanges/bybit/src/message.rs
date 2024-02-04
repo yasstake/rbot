@@ -475,7 +475,8 @@ pub struct BybitOrderStatus {
     pub slTriggerBy: String,
     pub triggerDirection: i64,
     pub triggerBy: String,
-    pub lastPriceOnCreated: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub lastPriceOnCreated: Decimal,
     pub reduceOnly: bool,
     pub closeOnTrigger: bool,
     pub smpType: String,
@@ -511,9 +512,9 @@ impl Into<Order> for &BybitOrderStatus {
             quote_vol: self.price * self.qty,
             commission: self.cumExecFee,
             commission_asset: "".to_string(),
-            is_maker: true,
-            message: "".to_string(),
-            commission_home: dec![0.0],
+            is_maker: false,                        // DUMMY value
+            message: "".to_string(),                // DUMMY value
+            commission_home: dec![0.0],             // DUMMY value
             commission_foreign: dec![0.0],
             home_change: dec![0.0],
             foreign_change: dec![0.0],
@@ -883,12 +884,7 @@ pub fn merge_order_and_execution(
 
         let mut order: Order = o.into();
 
-        // TOTO: Implement merge methods
-        //order.cumExecQty = exec.execQty;
-        //order.cumExecValue = exec.execValue;
-        //order.cumExecFee = exec.execFee;
-        //   order.leavesQty -= exec.execQty;
-
+        order.is_maker = exec.isMaker;
         m.push(order);
     }
 
@@ -1250,6 +1246,46 @@ mod bybit_message_test {
         let result = serde_json::from_str::<BybitExecution>(message);
         println!("{:?}", result);
     }
+
+    #[test]
+    fn test_bybit_order() {
+        let message = r#"{"topic":"order","id":"100467532_BTCUSDT_8883348664","creationTime":1705740966799,"data":[{"category":"linear","symbol":"BTCUSDT","orderId":"6e77763c-5589-41de-b52b-36358a577c6d","orderLinkId":"","blockTradeId":"","side":"Sell","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","timeInForce":"IOC","isLeverage":"","price":"39484.4","qty":"0.001","avgPrice":"41562","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"41.562","cumExecFee":"0.0228591","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"","takeProfit":"","stopLoss":"","triggerBy":"","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"placeType":"","lastPriceOnCreated":"41562.5","closeOnTrigger":true,"reduceOnly":true,"smpGroup":0,"smpType":"None","smpOrderId":"","slLimitPrice":"0","tpLimitPrice":"0","tpslMode":"UNKNOWN","createType":"CreateByClosing","marketUnit":"","createdTime":"1705740966794","updatedTime":"1705740966797","feeCurrency":""}]}"#;
+        let order = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", order);
+
+
+        let message = r#"{"topic":"execution","id":"100467532_BTCUSDT_8883610598","creationTime":1705761437507,"data":[{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}"#;
+        let execution = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", execution);
+
+    }
+
+
+
+    #[test]
+    fn test_bybit_order_and_execution() {
+        let message = r#"
+        [{"orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","blockTradeId":"","symbol":"BTCUSDT","price":"40643.7","qty":"0.001","side":"Sell","isLeverage":"","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","avgPrice":"42782","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"42.782","cumExecFee":"0.0235301","timeInForce":"IOC","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"0","takeProfit":"0","stopLoss":"0","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"triggerBy":"","lastPriceOnCreated":"42782.8","reduceOnly":true,"closeOnTrigger":true,"smpType":"None","smpGroup":0,"smpOrderId":"","tpslMode":"UNKNOWN","tpLimitPrice":"0","slLimitPrice":"0","placeType":"","createdTime":1707036474698,"updatedTime":1707036474702}]
+        "#;
+        let order = serde_json::from_str::<Vec<BybitOrderStatus>>(message);        
+        println!("{:?}", order);
+        
+        let message = r#"        
+        [{"category":"linear","symbol":"BTCUSDT","orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","side":"Sell","orderPrice":"40643.7","orderQty":"0.001","leavesQty":"0","orderType":"Market","execFee":"0.0235301","execId":"be10c344-e1d3-5949-8f56-d45dd192acca","execPrice":"42782","execQty":"0.001","execValue":"42.782","execTime":1707036474699,"isMaker":false,"feeRate":"0.00055","seq":8909836703}]
+        "#;
+
+
+        let execution = serde_json::from_str::<Vec<BybitExecution>>(message);        
+        println!("{:?}", execution);
+
+    }
+
+    
+
+
+
+
+
 }
 
 /*

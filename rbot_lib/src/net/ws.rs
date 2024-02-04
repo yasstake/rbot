@@ -597,6 +597,10 @@ where
         }
     }
 
+    pub fn get_config(&self) -> MarketConfig {
+        self.config.clone()
+    }
+
     pub async fn connect(&mut self) {
         log::debug!("connect: {}", self.url);
 
