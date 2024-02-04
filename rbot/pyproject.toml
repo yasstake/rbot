@@ -4,13 +4,17 @@ build-backend = "maturin"
 
 [project]
 name = "rbot"
+authors = [{name="@yasstake"}]
+
 
 requires-python = ">=3.8"
 classifiers = [
+    "Intended Audience :: Developers",    
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
-]
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    ]
 
 [tool.maturin]
 python-source = "python"
