@@ -9,11 +9,58 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use serde_derive::Serialize; 
+use serde_derive::Deserialize; 
 
 use super::order::Order;
 use super::order::Trade;
 use super::AccountStatus;
 use super::OrderBookRaw;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ControlMessage {
+    pub status: bool,
+    pub operation: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MarketMessage {
+    Trade(Trade),
+    Order(Order),
+    Account(AccountStatus),
+    Orderbook(OrderBookRaw),    
+    Message(String),
+    Control(ControlMessage),
+}
+
+impl MarketMessage {
+    pub fn from_trade(trade: Trade) -> Self {
+        MarketMessage::Trade(trade)
+    }
+
+    pub fn from_order(order: Order) -> Self {
+        MarketMessage::Order(order)
+    }
+
+    pub fn from_account(account: AccountStatus) -> Self {
+        MarketMessage::Account(account)
+    }
+
+    pub fn from_orderbook(orderbook: OrderBookRaw) -> Self {
+        MarketMessage::Orderbook(orderbook)
+    }
+
+    pub fn from_message(message: String) -> Self {
+        MarketMessage::Message(message)
+    }
+
+    pub fn from_control(message: ControlMessage) -> Self {
+        MarketMessage::Control(message)
+    }
+}
+
+
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
@@ -80,84 +127,6 @@ impl MultiMarketMessage {
 }
 
 
-#[pyclass]
-#[derive(Debug, Clone, PartialEq)]
-pub struct MarketMessage {
-    pub trade: Option<Trade>,
-    pub order: Option<Order>,
-    pub account: Option<AccountStatus>,
-    pub orderbook: Option<OrderBookRaw>,    
-    pub message: Option<String>,
-}
-
-#[pymethods]
-impl MarketMessage {
-    #[new]
-    pub fn new() -> Self {
-        Self {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_trade(trade: Trade) -> Self {
-        Self {
-            trade: Some(trade),
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_order(order: Order) -> Self {
-        Self {
-            trade: None,
-            order: Some(order),
-            account: None,
-            orderbook: None,
-            message: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_account(account: AccountStatus) -> Self {
-        Self {
-            trade: None,
-            order: None,
-            account: Some(account),
-            orderbook: None,
-            message: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_orderbook(orderbook: OrderBookRaw) -> Self {
-        Self {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: Some(orderbook),
-            message: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_message(message: String) -> Self {
-        Self {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: None,
-            message: Some(message),
-        }
-    }
-}
 
 
 
@@ -278,27 +247,32 @@ mod channel_test {
             "ORDERID"
         );
 
-        let message = MarketMessage {
-            trade: Some(trade.clone()),
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        };
-
+        let message = MarketMessage::Trade(trade.clone());
         channel.send(message.clone()).unwrap();
 
         let result = receiver1.recv();
         assert!(result.is_ok());
 
         let result = result.unwrap();
-        assert_eq!(result.trade.unwrap(), trade);
+        match result {
+            MarketMessage::Trade(t) => {
+                assert_eq!(t, trade);
+            }
+            _ => {
+                assert!(false);
+            }
+        }
+
 
         let result = receiver2.recv();
-        assert!(result.is_ok());
-
-        let result = result.unwrap();
-        assert_eq!(result.trade.unwrap(), trade);
+        match result.unwrap() {
+            MarketMessage::Trade(t) => {
+                assert_eq!(t, trade);
+            }
+            _ => {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
@@ -309,24 +283,13 @@ mod channel_test {
         let mut channel = MultiChannel::new();
         let _receiver = channel.open_channel(0);
 
-        for _ in 0..4096 {
-            let message = MarketMessage {
-                trade: None,
-                order: None,
-                account: None,
-                orderbook: None,
-                message: None,
-            };
+        for i in 0..4096 {
+            let message = MarketMessage::Message(format!("test message {:?}", i));
             channel.send(message.clone()).unwrap();
         }
 
-        let message = MarketMessage {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        };
+        let message = MarketMessage::Message("LAST test message 4096".to_string()); 
+
         let result = channel.send(message.clone());
         assert_eq!(result.is_ok(), true);
     }
@@ -337,23 +300,11 @@ mod channel_test {
         let mut channel = MultiChannel::new();
         let receiver = channel.open_channel(0);
 
-        let message = MarketMessage {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        };
+        let message = MarketMessage::Message("test message1".to_string());
         channel.send(message.clone()).unwrap();
         drop(receiver);
 
-        let message = MarketMessage {
-            trade: None,
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        };
+        let message = MarketMessage::Message("test message2".to_string());
         let result = channel.send(message.clone());
         assert_eq!(result.is_ok(), true);
 

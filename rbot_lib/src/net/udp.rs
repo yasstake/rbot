@@ -13,8 +13,8 @@ use pyo3::pymethods;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
-use crate::common::{AccountStatus, Order, Trade};
 use crate::common::{env_rbot_multicast_addr, env_rbot_multicast_port, MarketMessage};
+use crate::common::{AccountStatus, Order, Trade};
 
 /// TODO: BroadcastMessageにliniiearの種別を加える
 /// TODO: Sender,Receiverを実装する。
@@ -25,30 +25,16 @@ pub struct BroadcastMessage {
     pub exchange: String,
     pub category: String,
     pub symbol: String,
-    pub msg: BroadcastMessageContent,
+    pub msg: MarketMessage,
 }
 
 impl Into<MarketMessage> for BroadcastMessage {
     fn into(self) -> MarketMessage {
-        let msg = match self.msg {
-            BroadcastMessageContent::trade(trade) => MarketMessage::from_trade(trade),
-            BroadcastMessageContent::order(order) => MarketMessage::from_order(order),
-            BroadcastMessageContent::account(account) => MarketMessage::from_account(account),
-        };
-        msg
+        self.msg
     }
 }
 
-#[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BroadcastMessageContent {
-    trade(Trade),
-    account(AccountStatus),
-    order(Order),
-}
-
 #[derive(Debug)]
-#[pyclass]
 pub struct UdpSender {
     exchange_name: String,
     category: String,
@@ -57,9 +43,7 @@ pub struct UdpSender {
     multicast_addr: SockAddr,
 }
 
-#[pymethods]
 impl UdpSender {
-    #[staticmethod]
     pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         socket.set_reuse_address(true).unwrap();
@@ -93,35 +77,11 @@ impl UdpSender {
         let category = self.category.clone();
         let symbol = self.symbol.clone();
 
-        let message = match message {
-            MarketMessage {
-                trade: Some(trade), ..
-            } => BroadcastMessage {
-                exchange: exchange,
-                category: category,
-                symbol: symbol,
-                msg: BroadcastMessageContent::trade(trade.clone()),
-            },
-            MarketMessage {
-                order: Some(order), ..
-            } => BroadcastMessage {
-                exchange: exchange,
-                category: category,
-                symbol: symbol,
-                msg: BroadcastMessageContent::order(order.clone()),
-            },
-            MarketMessage {
-                account: Some(account),
-                ..
-            } => BroadcastMessage {
-                exchange: exchange,
-                category: category,
-                symbol: symbol,
-                msg: BroadcastMessageContent::account(account.clone()),
-            },
-            _ => {
-                panic!("Unknown message type {:?}", message);
-            }
+        let message = BroadcastMessage {
+            exchange: exchange,
+            category: category,
+            symbol: symbol,
+            msg: message.clone(),
         };
 
         let msg = serde_json::to_string(&message).unwrap();
@@ -140,7 +100,6 @@ impl UdpSender {
 const UDP_SIZE: usize = 4096;
 
 #[derive(Debug)]
-
 pub struct UdpReceiver {
     market_name: String,
     market_category: String,
@@ -263,37 +222,48 @@ impl UdpReceiver {
 
 #[cfg(test)]
 mod test_udp {
+    use async_std::task::spawn;
+
     use crate::common::init_debug_log;
 
     #[test]
     fn send_test2() {
         let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
-        sender.send("hello world").unwrap();
+        let r = sender.send("hello world");
+
+        assert!(r.is_ok());
     }
 
-    #[test]
-    fn receive_test2() {
-        init_debug_log();
-        let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT", "x");
-        let msg = receiver.receive().unwrap();
-        println!("{}", msg);
-    }
 
     #[test]
     fn receive_test3() {
         init_debug_log();
+
+        // receive message
         let mut receiver = super::UdpReceiver::open("EXA", "linear", "BTCUSDT", "b");
+        let mut count = 0;
+        spawn({
+            async move {
+                loop {
+                    let msg = receiver.receive();
+                    assert!(msg.is_ok());
+                    let msg = msg.unwrap();
+                    println!("{}:{}", count, msg);
 
-        let mut count = 100;
-
-        loop {
-            let msg = receiver.receive_message().unwrap();
-            println!("{:?}", msg);
-
-            if count == 0 {
-                break;
+                    if 10 <= count {
+                        break;
+                    }
+                    count += 1;
+                }
             }
-            count -= 1;
+        });
+
+        for i in 0..10 {
+            let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
+            let r = sender.send(&format!("hello world {}", i));
+            assert!(r.is_ok());
         }
+
+
     }
 }

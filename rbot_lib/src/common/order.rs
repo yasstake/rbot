@@ -332,13 +332,7 @@ impl Trade {
 
 impl Into<MarketMessage> for &Trade {
     fn into(self) -> MarketMessage {
-        MarketMessage {
-            trade: Some(self.clone()),
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        }
+        MarketMessage::Trade(self.clone())
     }
 }
 
@@ -659,13 +653,7 @@ impl Order {
 
 impl Into<MarketMessage> for &Order {
     fn into(self) -> MarketMessage {
-        MarketMessage {
-            trade: None,
-            order: Some(self.clone()),
-            account: None,
-            orderbook: None,
-            message: None,
-        }
+        MarketMessage::Order(self.clone())
     }
 }
 

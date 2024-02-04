@@ -1,14 +1,15 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use crossbeam_channel::Receiver;
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
-use rust_decimal::prelude::ToPrimitive;
 use rbot_lib::{
     common::{
         flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,
         Order, Trade, FLOOR_SEC, NOW, SEC,
-    }, net::UdpReceiver
+    },
+    net::UdpReceiver,
 };
-use crossbeam_channel::Receiver;
+use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
 
@@ -109,9 +110,8 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_market_info(&market)?;        
+        self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
-
 
         let stream = Self::open_backtest_stream(&market, start_time, end_time);
         let reciever = stream.reciver;
@@ -138,7 +138,7 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Dry;
 
-        self.update_market_info(&market)?;                
+        self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
 
         let receiver = if client {
@@ -162,7 +162,6 @@ impl Runner {
             reciever
         };
 
-
         self.run(market, &receiver, agent, log_memory, log_file)
     }
 
@@ -177,13 +176,12 @@ impl Runner {
         log_file: Option<String>,
         client: bool,
     ) -> Result<Py<Session>, PyErr> {
-        self.update_market_info(&market)?;                
+        self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
 
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
-
 
         let receiver = if client {
             UdpReceiver::open_channel(
@@ -456,7 +454,12 @@ impl Runner {
             }
 
             let session_name = self.agent_id.clone();
-            let mut session = Session::new(market, self.execute_mode.clone(), Some(&session_name), log_memory);
+            let mut session = Session::new(
+                market,
+                self.execute_mode.clone(),
+                Some(&session_name),
+                log_memory,
+            );
 
             if log_file.is_some() {
                 let log_file = log_file.unwrap();
@@ -499,12 +502,13 @@ impl Runner {
                 }
 
                 let message = message.unwrap();
-                if self.execute_mode == ExecuteMode::BackTest
-                    && message.trade.is_some()
-                    && message.trade.as_ref().unwrap().status == LogStatus::UnFix
-                {
-                    log::info!("UnFix trade is found. Stop running.");
-                    break;
+                if self.execute_mode == ExecuteMode::BackTest {
+                    if let MarketMessage::Trade(trade) = &message {
+                        if trade.status == LogStatus::UnFix {
+                            log::info!("UnFix trade is found. Stop running.");
+                            break;
+                        }
+                    }
                 }
 
                 if 0 < warm_up_loop {
@@ -513,7 +517,7 @@ impl Runner {
                     session.on_message(&message);
                     self.last_timestamp = session.get_timestamp();
 
-                    if message.trade.is_some() {
+                    if let MarketMessage::Trade(_trade) = &message {
                         warm_up_loop = warm_up_loop - 1;
                     }
 
@@ -661,49 +665,56 @@ impl Runner {
         // on clockはSession更新前に呼ぶ
         // こうすることでsession.curent_timestampより先の値でon_clockが呼ばれる.
         // これは、on_clockが呼ばれた時点で、ohlcの更新が終わっていることを保証するため.
-        if self.has_on_clock && message.trade.is_some() && interval_sec != 0 {
-            let trade = message.trade.as_ref().unwrap();
-            let new_clock = FLOOR_SEC(trade.time, interval_sec);
+        if self.has_on_clock && interval_sec != 0 {
+            if let MarketMessage::Trade(trade) = message {
+                let new_clock = FLOOR_SEC(trade.time, interval_sec);
 
-            if self.current_clock < new_clock {
-                self.current_clock = new_clock;
+                if self.current_clock < new_clock {
+                    self.current_clock = new_clock;
 
-                self.call_agent_on_clock(py, agent, py_session, new_clock)?;
+                    self.call_agent_on_clock(py, agent, py_session, new_clock)?;
+                }
             }
         }
 
         // on_clockの後にsessionを更新する。
         let mut session = py_session.borrow_mut(*py);
-        let orders = session.on_message(&message);
+        let new_orders = session.on_message(&message);
         self.last_timestamp = session.get_timestamp();
         drop(session);
 
-        if self.has_on_tick && message.trade.is_some() {
-            let trade = message.trade.as_ref().unwrap();
-            self.last_timestamp = trade.time;
-            self.call_agent_on_tick(py, agent, py_session, trade)?;
-        }
-
-        if self.has_on_update && message.order.is_some() {
-            let order = message.order.as_ref().unwrap();
-            self.call_agent_on_update(py, agent, py_session, order)?;
-        }
-
-        // IN Real run, account message is from user stream.
-        // AccountUpdateはFilledかPartiallyFilledのみ発生。
-        if self.has_account_update && message.account.is_some() {
-            let account = message.account.as_ref().unwrap();
-            self.call_agent_on_account_update(py, agent, py_session, account)?;
+        match message {
+            MarketMessage::Trade(trade) => {
+                if self.has_on_tick {
+                    self.last_timestamp = trade.time;
+                    self.call_agent_on_tick(py, agent, py_session, trade)?;
+                }
+            }
+            MarketMessage::Order(order) => {
+                if self.has_on_update {
+                    self.call_agent_on_update(py, agent, py_session, order)?;
+                }
+            }
+            MarketMessage::Account(account) => {
+                // IN Real run, account message is from user stream.
+                // AccountUpdateはFilledかPartiallyFilledのみ発生。
+                if self.has_account_update {
+                    self.call_agent_on_account_update(py, agent, py_session, account)?;
+                }
+            }
+            _ => {
+                log::warn!("Invalid message type: {:?}", message);
+            }
         }
 
         // otherwise, account message is created from session for simulation.
-        if orders.len() != 0
+        if new_orders.len() != 0
             && (self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry)
         {
             let mut account_change = false;
 
             if self.has_on_update {
-                for order in &orders {
+                for order in &new_orders {
                     if self.update_psudo_account_by_order(py, py_session, order) {
                         account_change = true;
                     }
@@ -909,7 +920,6 @@ impl Runner {
         result
     }
 }
-
 
 #[cfg(test)]
 mod runner_test {

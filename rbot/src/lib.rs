@@ -8,7 +8,7 @@ use rbot_lib::common::{
     Order, OrderSide,
     time_string,
     NOW, DAYS_BEFORE, DAYS, HHMM, MIN, SEC, FLOOR_SEC,
-    MarketConfig, OrderStatus, AccountStatus, MarketMessage,
+    MarketConfig, OrderStatus, AccountStatus,
     OrderType, Trade, BoardItem,
     
 };
@@ -59,8 +59,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<MarketConfig>()?;
     m.add_class::<OrderStatus>()?;
     m.add_class::<AccountStatus>()?;
-    m.add_class::<MarketMessage>()?;
-
+    
     m.add_class::<Logger>()?;
 
     m.add_class::<Order>()?;
