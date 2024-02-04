@@ -807,13 +807,7 @@ impl BybitUserMessage {
                 for order in data {
                     let o: Order = order.into();
 
-                    let market_message = MarketMessage {
-                        trade: None,
-                        order: Some(o),
-                        account: None,
-                        orderbook: None,
-                        message: None,
-                    };
+                    let market_message = MarketMessage::Order(o);
 
                     message.push(market_message);
                 }
@@ -830,13 +824,7 @@ impl BybitUserMessage {
                 for account in data {
                     let a: AccountStatus = account.into();
 
-                    let market_message = MarketMessage {
-                        trade: None,
-                        order: None,
-                        account: Some(a),
-                        orderbook: None,
-                        message: None,
-                    };
+                    let market_message = MarketMessage::Account(a);
 
                     message.push(market_message);
                 }
@@ -848,6 +836,7 @@ impl BybitUserMessage {
                 creationTime,
                 data,
             } => {
+                // TODO: implement
                 vec![] // ignore
             } /*
               BybitUserMessage::execution{id, creationTime, data} => {
@@ -950,13 +939,7 @@ impl BybitOrderUpdateMessage {
         for order in self.data.iter() {
             let o: Order = order.into();
 
-            let market_message = MarketMessage {
-                trade: None,
-                order: Some(o),
-                account: None,
-                orderbook: None,
-                message: None,
-            };
+            let market_message = MarketMessage::Order(o);
 
             message.push(market_message);
         }

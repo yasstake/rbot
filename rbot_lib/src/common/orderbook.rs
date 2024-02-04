@@ -118,7 +118,7 @@ impl BoardItem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Board {
     pub asc: bool,
     pub max_depth: u32,
@@ -209,7 +209,7 @@ impl Board {
 }
 
 #[pyclass]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderBookRaw {
     pub snapshot: bool, // only use for message.
     pub bids: Board,
