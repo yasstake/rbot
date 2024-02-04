@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 use polars_core::export::num::FromPrimitive;
 use rust_decimal::Decimal;
 use serde::{de, Deserialize, Deserializer, Serializer};
+use serde_json::Value;
 use sha2::Sha256;
 
 pub static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Runtime::new().unwrap());
@@ -26,14 +27,26 @@ pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-    if s == "" {
-        return Ok(0.0);
-    }
+    let s = Value::deserialize(deserializer)?;
 
-    match s.parse::<f64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
+    match s {
+        Value::String(s) => {
+            if s == "" {
+                return Ok(0.0);
+            }
+
+            match s.parse::<f64>() {
+                Ok(num) => Ok(num),
+                Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
+            }
+        }
+        Value::Number(n) => {
+            if let Some(num) = n.as_f64() {
+                return Ok(num);
+            }
+            return Err(de::Error::custom(format!("Failed to parse f64 {}", n)));
+        }
+        _ => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
     }
 }
 
@@ -57,15 +70,26 @@ pub fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
+    let s = Value::deserialize(deserializer)?;
 
-    if s == "" {
-        return Ok(0);
-    }
+    match s {
+        Value::String(s) => {
+            if s == "" {
+                return Ok(0);
+            }
 
-    match s.parse::<i64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
+            match s.parse::<i64>() {
+                Ok(num) => Ok(num),
+                Err(_) => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
+            }
+        }
+        Value::Number(n) => {
+            if let Some(num) = n.as_i64() {
+                return Ok(num);
+            }
+            return Err(de::Error::custom(format!("Failed to parse i64 {}", n)));
+        }
+        _ => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
     }
 }
 
