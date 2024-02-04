@@ -258,8 +258,8 @@ mod test_udp {
             }
         });
 
+        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
         for i in 0..10 {
-            let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
             let r = sender.send(&format!("hello world {}", i));
             assert!(r.is_ok());
         }

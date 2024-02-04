@@ -61,7 +61,10 @@ impl MarketMessage {
 }
 
 
+pub type MultiMarketMessage = Vec<MarketMessage>;
 
+
+/*
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
 pub struct MultiMarketMessage {
@@ -126,7 +129,7 @@ impl MultiMarketMessage {
     }
 }
 
-
+*/
 
 
 

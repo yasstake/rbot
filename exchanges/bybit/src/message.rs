@@ -557,6 +557,7 @@ pub struct BybitAccountInformation {}
 #[serde(untagged)]
 pub enum BybitPublicWsMessage {
     Status(BybitWsStatus),
+    Pong(BybitWsPongReply), 
     Trade(BybitWsTradeMessage),
     Orderbook(BybitWsOrderbookMessage),
 }
@@ -592,7 +593,7 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                         LogStatus::UnFix,
                         &trade.trade_id,
                     );
-                    message.add_trade(t);
+                    message.push(MarketMessage::Trade(t));
                 }
             }
             BybitPublicWsMessage::Orderbook(orderbook) => {
@@ -616,7 +617,10 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                 let mut board: OrderBookRaw = orderbook.data.into();
                 board.snapshot = snapshot;
 
-                message.orderbook = Some(board);
+                message.push(MarketMessage::Orderbook(board));
+            }
+            BybitPublicWsMessage::Pong(pong) => {
+                log::debug!("Pong: {:?}", pong);
             }
         }
 
@@ -639,22 +643,22 @@ pub struct BybitWsData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsStatus {
     pub success: bool,
-    pub ret_msg: Option<String>,
-    pub op: Option<String>,
-    pub conn_id: Option<String>,
+    pub ret_msg: String,
+    pub op: String,
+    pub conn_id: String,
     pub args: Option<Vec<String>>,
 }
 
+
 /*
+"{\"op\":\"pong\",\"args\":[\"1707031861056\"],\"conn_id\":\"cmsuqo1qo29shn0o3qb0-44fy\"}"
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsPongReply {
-    success: bool,
-    ret_msg: String,
     op: String,
-    req_id: Option<String>,
+    args: Vec<String>,
     conn_id: String,
 }
-*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsTradeMessage {
@@ -746,27 +750,8 @@ pub struct BybitWsOrderbookMessage {
 #[serde(untagged)]
 pub enum BybitUserWsMessage {
     status(BybitWsStatus),
+    pong(BybitWsPongReply),
     message(BybitUserMessage),
-}
-
-impl BybitUserWsMessage {
-    // TODO: implement
-    pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        match self {
-            BybitUserWsMessage::status(status) => {
-                if status.success == false {
-                    log::error!("status: {:?}", status);
-                } else {
-                    log::debug!("status: {:?}", status);
-                }
-
-                return vec![];
-            }
-            BybitUserWsMessage::message(data) => {
-                return data.convert_to_market_message(_config);
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -790,77 +775,6 @@ pub enum BybitUserMessage {
         creationTime: BybitTimestamp,
         data: Vec<BybitExecution>,
     },
-}
-
-
-#[allow(unused_variables)]
-impl BybitUserMessage {
-    pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        match self {
-            BybitUserMessage::order {
-                id,
-                creationTime,
-                data,
-            } => {
-                let mut message: Vec<MarketMessage> = vec![];
-
-                for order in data {
-                    let o: Order = order.into();
-
-                    let market_message = MarketMessage::Order(o);
-
-                    message.push(market_message);
-                }
-
-                message
-            }
-            BybitUserMessage::wallet {
-                id,
-                creationTime,
-                data,
-            } => {
-                let mut message: Vec<MarketMessage> = vec![];
-
-                for account in data {
-                    let a: AccountStatus = account.into();
-
-                    let market_message = MarketMessage::Account(a);
-
-                    message.push(market_message);
-                }
-
-                message
-            }
-            BybitUserMessage::execution {
-                id,
-                creationTime,
-                data,
-            } => {
-                // TODO: implement
-                vec![] // ignore
-            } /*
-              BybitUserMessage::execution{id, creationTime, data} => {
-                  let mut message: Vec<MarketMessage> = vec![];
-
-                  for execution in data.iter() {
-                      let e: Trade = execution.into();
-
-                      let market_message = MarketMessage {
-                          trade: Some(e),
-                          order: None,
-                          account: None,
-                          orderbook: None,
-                          message: None,
-                      };
-
-                      message.push(market_message);
-                  }
-
-                  message
-              },
-              */
-        }
-    }
 }
 
 /*
@@ -948,34 +862,36 @@ impl BybitOrderUpdateMessage {
     }
 }
 
-pub fn merge_order_execution(
-    order: &Vec<BybitOrderUpdateMessage>,
+pub fn merge_order_and_execution(
+    order: &Vec<BybitOrderStatus>,
     execution: &Vec<BybitExecution>,
-    config: &MarketConfig,
-) -> Vec<MarketMessage> {
+) -> Vec<Order> {
+    if order.len() != execution.len() {
+        log::warn!("merge order and execution in different size");
+    }
+
     let mut execution_map: HashMap<String, BybitExecution> = HashMap::new();
 
     for exec in execution.iter() {
         execution_map.insert(exec.orderId.clone(), exec.clone());
     }
 
-    let m: Vec<MarketMessage> = vec![];
+    let mut m: Vec<Order> = vec![];
 
-    // order.convert_to_market_message(config);
-    /*
-        let mut message: Vec<MarketMessage> = vec![];
+    for o in order.iter() {
+        let exec = execution_map.get(&o.orderId).unwrap();
 
-        for o in order.iter() {
+        let mut order: Order = o.into();
 
+        // TOTO: Implement merge methods
+        //order.cumExecQty = exec.execQty;
+        //order.cumExecValue = exec.execValue;
+        //order.cumExecFee = exec.execFee;
+        //   order.leavesQty -= exec.execQty;
 
+        m.push(order);
+    }
 
-            let mut order = order_map.get_mut(&e.orderId).unwrap();
-            order.cumExecQty += e.execQty;
-            order.cumExecValue += e.execValue;
-            order.cumExecFee += e.execFee;
-            order.leavesQty -= e.execQty;
-        }
-    */
     m
 }
 
@@ -1078,8 +994,8 @@ mod bybit_message_test {
 
     use crate::message::{
         BybitAccountStatus, BybitExecution, BybitMultiOrderStatus, BybitRestResponse,
-        BybitTradeResponse, BybitUserMessage, BybitUserWsMessage, BybitWsData,
-        BybitWsOrderbook, BybitWsStatus, BybitWsTrade,
+        BybitTradeResponse, BybitUserMessage, BybitUserWsMessage, BybitWsData, BybitWsOrderbook,
+        BybitWsStatus, BybitWsTrade,
     };
 
     use super::{BybitPublicWsMessage, BybitRestBoard};
