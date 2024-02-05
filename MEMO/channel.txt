@@ -1,4 +1,0 @@
-
-１ー１のチャネルはCrossbeamチャネルを使う。
-
-NーNのチャネルはは、tokio::broadcastを使う。

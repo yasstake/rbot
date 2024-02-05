@@ -1,0 +1,11 @@
+
+<Channel>
+    １ー１のチャネルはCrossbeamチャネルを使う。
+    NーNのチャネルはは、tokio::broadcastを使う。
+
+<Mutex>
+    stdのMutexを使う。
+
+<Asyncの使い所＞
+    IOとブロードキャストチャネル
+
