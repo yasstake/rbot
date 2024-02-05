@@ -3,14 +3,10 @@
 
 use anyhow::Result;
 
-use crossbeam_channel::bounded;
-use crossbeam_channel::unbounded;
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use serde_derive::Serialize; 
-use serde_derive::Deserialize; 
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 
 use super::order::Order;
 use super::order::Trade;
@@ -29,7 +25,7 @@ pub enum MarketMessage {
     Trade(Trade),
     Order(Order),
     Account(AccountStatus),
-    Orderbook(OrderBookRaw),    
+    Orderbook(OrderBookRaw),
     Message(String),
     Control(ControlMessage),
 }
@@ -60,78 +56,8 @@ impl MarketMessage {
     }
 }
 
-
 pub type MultiMarketMessage = Vec<MarketMessage>;
-
-
-/*
-#[pyclass]
-#[derive(Debug, Clone, PartialEq)]
-pub struct MultiMarketMessage {
-    pub trade: Vec<Trade>,
-    pub order: Vec<Order>,
-    pub account: Vec<AccountStatus>,
-    pub orderbook: Option<OrderBookRaw>,    
-    pub message: Vec<String>
-}
-
-impl MultiMarketMessage {
-    pub fn new() -> Self {
-        Self {
-            trade: Vec::new(),
-            order: Vec::new(),
-            account: Vec::new(),
-            orderbook: None,
-            message: Vec::new(),
-        }
-    }
-
-    pub fn add_trade(&mut self, trade: Trade) {
-        self.trade.push(trade);
-    }
-
-    pub fn add_order(&mut self, order: Order) {
-        self.order.push(order);
-    }
-
-    pub fn add_account(&mut self, account: AccountStatus) {
-        self.account.push(account);
-    }
-
-    pub fn add_message(&mut self, message: String) {
-        self.message.push(message);
-    }
-
-    pub fn extract(&self) -> Vec<MarketMessage> {
-        let mut result: Vec<MarketMessage> = Vec::new();
-
-        for trade in self.trade.iter() {
-            result.push(MarketMessage::from_trade(trade.clone()));
-        }
-
-        for order in self.order.iter() {
-            result.push(MarketMessage::from_order(order.clone()));
-        }
-
-        for account in self.account.iter() {
-            result.push(MarketMessage::from_account(account.clone()));
-        }
-
-        if let Some(orderbook) = &self.orderbook {
-            result.push(MarketMessage::from_orderbook(orderbook.clone()));
-        }
-
-        for message in self.message.iter() {
-            result.push(MarketMessage::from_message(message.clone()));
-        }
-
-        result
-    }
-}
-
-*/
-
-
+const CHANNEL_SIZE: usize = 4096;
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -139,12 +65,21 @@ pub struct MarketStream {
     pub reciver: Receiver<MarketMessage>,
 }
 
+use crossbeam_channel::Sender;
+use crossbeam_channel::Receiver;
+use crossbeam_channel::unbounded;
+use crossbeam_channel::bounded;
+
 impl MarketStream {
     pub fn open() -> (Sender<MarketMessage>, MarketStream) {
-        let (sender, receiver) = unbounded();
+        let (sender, receiver) = bounded(CHANNEL_SIZE);
         (sender, Self { reciver: receiver })
     }
 }
+
+/*
+
+
 
 #[derive(Debug)]
 struct Channel<T> {
@@ -153,14 +88,14 @@ struct Channel<T> {
 }
 
 #[derive(Debug)]
-pub struct MultiChannel<T>
+pub struct BroadcastChannel<T>
 where
     T: Clone,
 {
     channels: Vec<Channel<T>>,
 }
 
-impl <T>MultiChannel<T>
+impl<T> BroadcastChannel<T>
 where
     T: Clone,
 {
@@ -187,13 +122,11 @@ where
     }
 
     pub fn open_channel(&mut self, buffer_size: usize) -> Receiver<T> {
-        let (sender, receiver) = 
-            if buffer_size == 0 {
-                unbounded()
-            }
-            else {
-                bounded(buffer_size)
-            };
+        let (sender, receiver) = if buffer_size == 0 {
+            unbounded()
+        } else {
+            bounded(buffer_size)
+        };
         self.add_channel(sender);
 
         receiver
@@ -206,7 +139,7 @@ where
             let result = channel.sender.send(message.clone());
 
             if result.is_err() {
-                log::warn!("Send ERROR: {:?}. remove channel", result);                
+                log::warn!("Send ERROR: {:?}. remove channel", result);
                 channel.valid = false;
                 has_error = true;
             }
@@ -221,25 +154,23 @@ where
         Ok(())
     }
 }
-
-
-
-
+*/
+/*
 #[cfg(test)]
 mod channel_test {
     use rust_decimal_macros::dec;
 
-    use crate::common::{init_debug_log, init_log, LogStatus, OrderSide, OrderStatus};
     use super::*;
+    use crate::common::{init_debug_log, init_log, LogStatus, OrderSide, OrderStatus};
 
     #[test]
     /// チャネルを開いて、メッセージを送信する。
     /// 送信したメッセージと同じものが帰ってきているか確認する。
     /// かつ、複数チャネルへ同じメッセージが来ていることを確認する。
     fn test_channel() {
-        let mut channel = MultiChannel::new();
+        let mut channel = BroadcastChannel::new();
         let receiver1 = channel.open_channel(0);
-        let receiver2 = channel.open_channel(0);        
+        let receiver2 = channel.open_channel(0);
 
         let trade = Trade::new(
             1111,
@@ -247,7 +178,7 @@ mod channel_test {
             dec![1.0],
             dec![2.0],
             LogStatus::UnFix,
-            "ORDERID"
+            "ORDERID",
         );
 
         let message = MarketMessage::Trade(trade.clone());
@@ -266,7 +197,6 @@ mod channel_test {
             }
         }
 
-
         let result = receiver2.recv();
         match result.unwrap() {
             MarketMessage::Trade(t) => {
@@ -283,7 +213,7 @@ mod channel_test {
     fn test_channel_full() {
         // init_log();
 
-        let mut channel = MultiChannel::new();
+        let mut channel = BroadcastChannel::new();
         let _receiver = channel.open_channel(0);
 
         for i in 0..4096 {
@@ -291,7 +221,7 @@ mod channel_test {
             channel.send(message.clone()).unwrap();
         }
 
-        let message = MarketMessage::Message("LAST test message 4096".to_string()); 
+        let message = MarketMessage::Message("LAST test message 4096".to_string());
 
         let result = channel.send(message.clone());
         assert_eq!(result.is_ok(), true);
@@ -300,7 +230,7 @@ mod channel_test {
     #[test]
     fn test_channel_disconnect() {
         //init_log();
-        let mut channel = MultiChannel::new();
+        let mut channel = BroadcastChannel::new();
         let receiver = channel.open_channel(0);
 
         let message = MarketMessage::Message("test message1".to_string());
@@ -311,10 +241,40 @@ mod channel_test {
         let result = channel.send(message.clone());
         assert_eq!(result.is_ok(), true);
 
-        let receiver = channel.open_channel(0);        
+        let receiver = channel.open_channel(0);
         // send again, should be ok
         let result = channel.send(message.clone());
         let _m = receiver.recv().unwrap();
         assert_eq!(result.is_ok(), true);
     }
+*/
+
+
+
+#[tokio::test]
+async fn test_handling_lag() {
+    use tokio::sync::broadcast;
+
+    let (tx, mut rx) = broadcast::channel(2);
+
+    // send mote than buffer size
+    tx.send(10).unwrap();
+
+    let mut rx2 = tx.subscribe();
+
+    tx.send(20).unwrap();
+    tx.send(30).unwrap();
+
+    // The receiver lagged behind
+    assert!(rx.recv().await.is_err());
+
+    // At this point, we can abort or continue with lost messages
+
+    assert_eq!(20, rx.recv().await.unwrap());
+    assert_eq!(30, rx.recv().await.unwrap());
+
+    assert_eq!(20, rx2.recv().await.unwrap());
+    assert_eq!(30, rx2.recv().await.unwrap());
+    println!("rx2: {:?}", rx2.recv().await);
+    println!("rx2: {:?}", rx2.recv().await);
 }

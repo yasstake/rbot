@@ -1,10 +1,10 @@
-// Copyright(c) 2022-2023. yasstake. All rights reserved.
+#![allow(unused)]
+// Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use csv::StringRecord;
 use rbot_lib::common::time_string;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
-use rbot_lib::common::SEC;
 use rbot_lib::db::TradeTable;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
@@ -15,7 +15,7 @@ use serde_json::Value;
 use rust_decimal::Decimal;
 
 use rbot_lib::common::{
-    hmac_sign, msec_to_microsec, BoardItem, MarketConfig, MicroSec, Order, OrderSide, OrderStatus,
+    hmac_sign, msec_to_microsec, MarketConfig, MicroSec, Order, OrderSide, OrderStatus,
     OrderType, ServerConfig, Trade, NOW,
 };
 
@@ -24,11 +24,8 @@ use rbot_lib::net::{rest_get, rest_post, RestApi};
 use crate::message::microsec_to_bybit_timestamp;
 
 use super::config::BybitServerConfig;
-use super::message::BybitAccountInformation;
-use super::message::BybitKlines;
 use super::message::BybitKlinesResponse;
 use super::message::BybitMultiOrderStatus;
-use super::message::BybitOrderStatus;
 use super::message::BybitRestBoard;
 use super::message::BybitRestResponse;
 use super::message::BybitTradeResponse;
@@ -239,7 +236,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         };
 
         // in bybit only order id is valid when order is created.
-        let order = Order {
+        let mut order = Order {
             symbol: symbol,
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::New,
@@ -274,6 +271,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             log_id: 0,
         };
 
+        order.update_balance(config);
+
+
         return Ok(vec![order]);
     }
 
@@ -306,7 +306,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         }
         let r = response.unwrap();
 
-        let order = Order {
+        let mut order = Order {
             symbol: "".to_string(),
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::Canceled,
@@ -336,6 +336,8 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             lock_foreign_change: dec![0.0],
             log_id: 0,
         };
+
+        order.update_balance(config);
 
         return Ok(order);
     }
@@ -374,14 +376,23 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             return Err(response.to_string());
         }
 
-        let orders: Vec<Order> = response.unwrap().into();
+        let mut orders: Vec<Order> = response.unwrap().into();
+
+        for o in orders.iter_mut() {
+            if o.order_type == OrderType::Limit {
+                o.is_maker = true;
+            } else {
+                o.is_maker = false;
+            }
+            o.update_balance(config);
+        }
 
         Ok(orders)
     }
 
     async fn get_account(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
+        _server: &BybitServerConfig,
+        _config: &MarketConfig,
     ) -> Result<rbot_lib::common::AccountStatus, String> {
         todo!()
     }
@@ -588,140 +599,8 @@ impl BybitRestApi {
     }
 }
 
+
 /*
-fn bybit_rest_get(server: &str, path: &str, params: &str) -> Result<BybitRestResponse, String> {
-    let query = format!("{}?{}", path, params);
-
-    let result = rest_get(server, &query, vec![], None, None);
-
-    match result {
-        Ok(result) => {
-            let result = from_str::<BybitRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        }
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
-
-fn bybit_post_sign(
-    server: &BybitServerConfig,
-    path: &str,
-    body: &str,
-) -> Result<BybitRestResponse, String> {
-    let timestamp = format!("{}", NOW() / 1_000);
-    let api_key = server.get_api_key();
-    let recv_window = "5000";
-
-    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
-    let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
-
-    let api_key = server.get_api_key();
-
-    let mut headers: Vec<(&str, &str)> = vec![];
-    headers.push(("X-BAPI-SIGN", &sign));
-    headers.push(("X-BAPI-API-KEY", &api_key));
-    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-    headers.push(("Content-Type", "application/json"));
-
-    let result = rest_post(&server.rest_server, path, headers, &body);
-
-    match result {
-        Ok(result) => {
-            let result = from_str::<BybitRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        }
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
-
-pub fn bybit_get_sign(
-    server: &BybitServerConfig,
-    path: &str,
-    query_string: &str,
-) -> Result<BybitRestResponse, String> {
-    let timestamp = format!("{}", NOW() / 1_000);
-    let api_key = server.get_api_key().clone();
-    let recv_window = "5000";
-
-    let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
-    let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
-
-    let api_key = server.get_api_key();
-
-    let mut headers: Vec<(&str, &str)> = vec![];
-    headers.push(("X-BAPI-SIGN", &sign));
-    headers.push(("X-BAPI-API-KEY", &api_key));
-    headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-    headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-
-    let result = rest_get(&server.rest_server, path, headers, Some(query_string), None);
-
-    parse_rest_result(result)
-}
-
-fn parse_rest_result(result: Result<String, String>) -> Result<BybitRestResponse, String> {
-    match result {
-        Ok(result) => {
-            if result == "" {
-                let response = BybitRestResponse {
-                    return_code: 0,
-                    return_message: "Ok".to_string(),
-                    return_ext_info: Value::Null,
-                    time: NOW() / 1_000,
-                    body: Value::Null,
-                };
-                return Ok(response);
-            }
-
-            log::debug!("rest response: {}", result);
-
-            let result = from_str::<BybitRestResponse>(&result);
-
-            if result.is_ok() {
-                let result = result.unwrap();
-
-                if result.return_code != 0 {
-                    return Err(result.return_message);
-                }
-                return Ok(result);
-            } else {
-                let result = result.unwrap_err();
-                return Err(result.to_string());
-            }
-        }
-        Err(err) => {
-            return Err(err.to_string());
-        }
-    }
-}
-
 /// https://bybit-exchange.github.io/docs/v5/market/orderbook
 
 pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BybitRestBoard, String> {

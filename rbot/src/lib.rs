@@ -2,7 +2,7 @@
 // All rights reserved. Absolutely NO warranty.
 
 
-use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
+use pyo3::{pyfunction, pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
     init_debug_log, init_log,
     Order, OrderSide,
@@ -10,11 +10,12 @@ use rbot_lib::common::{
     NOW, DAYS_BEFORE, DAYS, HHMM, MIN, SEC, FLOOR_SEC,
     MarketConfig, OrderStatus, AccountStatus,
     OrderType, Trade, BoardItem,
-    
 };
 
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
+
+use bybit::{Bybit, BybitConfig};
 
 /*
 use exchange::BoardItem;
@@ -28,7 +29,6 @@ use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
 use common::*;
 use session::{Session, ExecuteMode, Logger};
 use session::Runner;
-use once_cell::sync::Lazy;
 */
 
 
@@ -79,11 +79,14 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Binance>()?;
     m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;
+    */
 
     // ByBit
     m.add_class::<Bybit>()?;
+    m.add_class::<BybitConfig>()?;    
+    /* 
     m.add_class::<BybitMarket>()?;
-    m.add_class::<BybitConfig>()?;
+
     m.add_class::<BybitServerConfig>()?;
     */
 

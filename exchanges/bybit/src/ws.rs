@@ -1,3 +1,4 @@
+#![allow(unused)]
 use async_stream::stream;
 use futures::Stream;
 use futures::StreamExt;
@@ -32,44 +33,6 @@ pub struct BybitWsOpMessage {
     pub id: i64,
 }
 
-/*
-pub fn make_ws_stream<'a>(
-    ws: &'a mut AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
-    parse_message: fn(String) -> Result<BybitUserWsMessage, String>,
-) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
-    let mut s = Box::pin(ws.open_stream().await);
-
-    stream! {
-        while let Some(message) = s.next().await {
-            match message {
-                Ok(m) => {
-                    let m = parse_message(m);
-                    match m {
-                        Err(e) => {
-                            println!("Parse Error: {:?}", e);
-                            continue;
-                        }
-                        Ok(m) => {
-                            match m {
-                                BybitUserWsMessage::status(s) => {
-                                    log::debug!("Status message : {:?}", s);
-                                }
-                                BybitUserWsMessage::message(m) => {
-                                    let m = Self::convert_ws_message(m);
-                                    yield m;
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("Data Receive Error: {:?}", e);
-                }
-            }
-        }
-    }
-}
-*/
 
 impl WsOpMessage for BybitWsOpMessage {
     fn new() -> Self {
@@ -108,6 +71,7 @@ impl WsOpMessage for BybitWsOpMessage {
     }
 }
 
+#[derive(Debug)]
 pub struct BybitPublicWsClient {
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
 }
@@ -195,7 +159,7 @@ impl BybitPublicWsClient {
     }
 }
 
-struct BybitPrivateWsClient {
+pub struct BybitPrivateWsClient {
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
 }
 
@@ -225,42 +189,7 @@ impl BybitPrivateWsClient {
         }
     }
 
-    /*
-    fn update_last_order(&mut self, mut orders: Vec<BybitOrderStatus>) -> Vec<Order> {
-        if self.last_orders.is_none() {
-            self.last_orders = Some(orders);
-        } else {
-            log::error!("Multiple order status message received: {:?}", orders);
-            self.last_orders.as_mut().unwrap().append(&mut orders);
-        }
-
-        if self.last_executions.is_none() {
-            return vec![];
-        }
-
-        self.merge_orders()
-    }
-
-    fn update_last_execution(&mut self, mut execution: Vec<BybitExecution>) -> Vec<Order> {
-        if self.last_executions.is_none() {
-            self.last_executions = Some(execution);
-            return vec![];
-        } else {
-            log::error!("Multiple execution message received: {:?}", execution);
-            self.last_executions
-                .as_mut()
-                .unwrap()
-                .append(&mut execution);
-        }
-
-        if self.last_orders.is_none() {
-            return vec![];
-        }
-
-        self.merge_orders()
-    }
-    */
-
+    
     fn make_auth_message(server: &BybitServerConfig) -> String {
         let api_key = server.get_api_key();
         let secret_key = server.get_api_secret();
@@ -401,60 +330,7 @@ impl BybitPrivateWsClient {
     ) -> Vec<Order> {
         merge_order_and_execution(orders, executions)
     }
-
-    /*
-    fn convert_to_multimarketmessage(
-        &mut self,
-        m: BybitUserMessage,
-    ) -> Result<MultiMarketMessage, String> {
-        match m {
-            BybitUserMessage::order {
-                id,
-                creationTime,
-                data,
-            } => {
-                let order = self.update_last_order(data);
-
-                if order.len() == 0 {
-                    return Err("No order message".to_string());
-                }
-                let mut market_message = MultiMarketMessage::new();
-                for o in order.iter() {
-                    market_message.push(MarketMessage::Order(o.clone()));
-                }
-                Ok(market_message)
-            }
-            BybitUserMessage::execution {
-                id,
-                creationTime,
-                data,
-            } => {
-                let order = self.update_last_execution(data);
-
-                if order.len() == 0 {
-                    return Err("No execution message".to_string());
-                }
-                let mut market_message = MultiMarketMessage::new();
-                for o in order.iter() {
-                    market_message.push(MarketMessage::Order(o.clone()));
-                }
-                Ok(market_message)
-            }
-            BybitUserMessage::wallet {
-                id,
-                creationTime,
-                data,
-            } => {
-                let mut market_message = MultiMarketMessage::new();
-                for account in data.iter() {
-                    let a: AccountStatus = account.into();
-                    market_message.push(MarketMessage::Account(a));
-                }
-                Ok(market_message)
-            }
-        }
-    }
-    */
+    
 }
 
 #[cfg(test)]
