@@ -2,9 +2,11 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use csv::StringRecord;
+use polars_core::export::num::FromPrimitive;
 use rbot_lib::common::time_string;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
+use rbot_lib::common::LogStatus;
 use rbot_lib::db::TradeTable;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
@@ -405,15 +407,62 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         mm: i64,
         dd: i64,
     ) -> String {
-        todo!()
+        format!("{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
+            history_web_base, symbol, symbol, yyyy, mm, dd
+        )
     }
 
+    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
+    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
+
     fn rec_to_trade(rec: &StringRecord) -> Trade {
-        todo!()
+        let timestamp = rec
+            .get(0)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default()
+            * 1_000_000.0;
+
+        let timestamp = timestamp as MicroSec;
+
+        let order_side = match rec.get(2).unwrap_or_default() {
+            "Buy" => OrderSide::Buy,
+            "Sell" => OrderSide::Sell,
+            _ => OrderSide::Unknown,
+        };
+
+        let id = rec.get(6).unwrap_or_default().to_string();
+
+        let price = rec
+            .get(4)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
+
+        let price: Decimal = Decimal::from_f64(price).unwrap();
+
+        let size = rec
+            .get(3)
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or_default();
+
+        let size = Decimal::from_f64(size).unwrap();
+
+        let trade = Trade::new(
+            timestamp,
+            order_side,
+            price,
+            size,
+            LogStatus::FixArchiveBlock,
+            &id,
+        );
+
+        return trade;
     }
 
     fn archive_has_header() -> bool {
-        todo!()
+        true
     }
 
 }
@@ -1240,22 +1289,3 @@ mod bybit_rest_test {
     }
 }
 
-
-
-/*
-    #[test]
-    fn get_trade_history_test() {
-        let server_config = BybitServerConfig::new(false);
-        //let config = BybitConfig::SPOT_BTCUSDT();
-        let config = BybitConfig::BTCUSDT();
-        let r = super::get_recent_trade(&server_config.rest_server, &config).unwrap();
-
-        println!("{:?}", time_string(r.trades[0].time * 1000));
-        let l = r.trades.len();
-        println!("{:?} / rec={}", time_string(r.trades[l - 1].time * 1000), l);
-
-        print!("{:?}", r);
-    }
-}
-
-*/

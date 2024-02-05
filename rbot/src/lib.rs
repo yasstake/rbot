@@ -2,7 +2,7 @@
 // All rights reserved. Absolutely NO warranty.
 
 
-use pyo3::{pyfunction, pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
+use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
     init_debug_log, init_log,
     Order, OrderSide,
