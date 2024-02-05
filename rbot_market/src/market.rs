@@ -2,6 +2,7 @@ use crossbeam_channel::Sender;
 use rbot_lib::common::BLOCK_ON;
 use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
+use std::f32::consts::E;
 use std::sync::Arc;
 
 use pyo3::{PyErr, PyResult};
@@ -319,6 +320,17 @@ where
 
             lock.validate_by_date(date)
         })
+    }
+
+    async fn find_latest_gap(&self) -> Result<(MicroSec, MicroSec), String> {
+        let start_time = NOW() - DAYS(2);
+
+        let db = self.get_db();
+
+        let fix_time = db.lock().await.latest_fix_time(start_time);
+        let unfix_time = db.lock().await.first_unfix_time(fix_time);
+
+        Ok((fix_time, unfix_time))
     }
 
     /*
