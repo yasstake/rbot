@@ -132,7 +132,7 @@ impl TradeTableDb {
             return 0;
         }
 
-        trades[0].time
+        TradeTable::ohlcv_end(trades[0].time) + 1
     }
 
     pub fn first_unfix_time(&mut self, start_time: MicroSec) -> MicroSec {
@@ -143,7 +143,7 @@ impl TradeTableDb {
             return 0;
         }
 
-        trades[0].time
+        TradeTable::ohlcv_end(trades[0].time) - 1
     }
 
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
@@ -1384,6 +1384,15 @@ impl TradeTable {
     pub fn insert_records(&mut self, trades: &Vec<Trade>) -> Result<i64, Error> {
         return self.connection.insert_records(trades);
     }
+
+    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        self.connection.latest_fix_time(start_time)
+    }    
+
+    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> MicroSec {
+        self.connection.first_unfix_time(start_time)
+    }
+
 }
 
 impl TradeTable {

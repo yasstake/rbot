@@ -434,8 +434,28 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.config.trade_symbol.clone()
     }
 
+    // TODO: implement
     fn download_latest(&mut self, verbose: bool) -> i64 {
-        todo!()
+        let gap = 
+        BLOCK_ON(
+        self.find_latest_gap()
+        );
+        if gap.is_err() {
+            log::error!("Error in find_latest_gap: {:?}", gap);
+            return 0;
+        }
+
+        let (unfix_start, unfix_end) = gap.unwrap();
+        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
+/*
+        let klines = 
+        BLOCK_ON(
+        BybitMarket::get_trade_klines(unfix_start, unfix_end);
+        );
+*/
+
+
+        return 0;
     }
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>> {
@@ -443,7 +463,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_history_web_base_url(&self) -> String {
-        todo!()
+        self.server_config.history_web_base.clone()
     }
 
     fn open_udp(&mut self) -> Arc<Mutex<UdpSender>>{
@@ -459,7 +479,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_market_config(&self) -> MarketConfig {
-        todo!()
+        self.config.clone()
     }
 
     fn start_market_stream(&mut self) {
@@ -475,7 +495,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_server_config(&self) -> BybitServerConfig {
-        todo!()
+        self.server_config.clone()
     }
 
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
@@ -510,142 +530,6 @@ impl _BybitMarket {
         self.open_udp();
     }
 
-    /*-------------------　共通実装（コピペ） ---------------------------------------*/
-    #[getter]
-    pub fn get_config(&self) -> MarketConfig {
-        return self.config.clone();
-    }
-
-    #[getter]
-    pub fn get_exchange_name(&self) -> String {
-        return self.server_config.exchange_name.clone();
-    }
-
-    #[getter]
-    pub fn get_trade_category(&self) -> String {
-        return self.config.trade_category.clone();
-    }
-
-    #[getter]
-    pub fn get_trade_symbol(&self) -> String {
-        return self.config.trade_symbol.clone();
-    }
-
-    pub fn drop_table(&mut self) -> PyResult<()> {
-        match self.db.drop_table() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in drop_table: {:?}",
-                e
-            ))),
-        }
-    }
-
-    #[getter]
-    pub fn get_cache_duration(&self) -> MicroSec {
-        return self.db.get_cache_duration();
-    }
-
-    pub fn reset_cache_duration(&mut self) {
-        self.db.reset_cache_duration();
-    }
-
-    pub fn stop_db_thread(&mut self) {
-        self.db.stop_thread();
-    }
-
-    /// common implementation
-    pub fn cache_all_data(&mut self) {
-        self.db.update_cache_all();
-    }
-
-    pub fn select_trades(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> PyResult<PyDataFrame> {
-        return self.db.py_select_trades_polars(start_time, end_time);
-    }
-
-    pub fn ohlcvv(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
-        return self.db.py_ohlcvv_polars(start_time, end_time, window_sec);
-    }
-
-    pub fn ohlcv(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
-        return self.db.py_ohlcv_polars(start_time, end_time, window_sec);
-    }
-
-    pub fn vap(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        price_unit: i64,
-    ) -> PyResult<PyDataFrame> {
-        return self.db.py_vap(start_time, end_time, price_unit);
-    }
-
-    pub fn info(&mut self) -> String {
-        return self.db.info();
-    }
-
-    pub fn get_board_json(&self, size: usize) -> PyResult<String> {
-        let board = self.board.read().unwrap();
-        return Ok(board.get_board_json(size).unwrap());
-    }
-
-    #[getter]
-    pub fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        self.board.write().unwrap().get_board()
-    }
-
-    #[getter]
-    pub fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
-        Ok(self.board.read().unwrap().get_board_vec().unwrap())
-    }
-
-    #[getter]
-    pub fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
-        self.board.read().unwrap().get_edge_price()
-    }
-
-    #[getter]
-    pub fn get_file_name(&self) -> String {
-        return self.db.get_file_name();
-    }
-
-    #[getter]
-    pub fn get_market_config(&self) -> MarketConfig {
-        return self.config.clone();
-    }
-
-    #[getter]
-    pub fn get_running(&self) -> bool {
-        return self.db.is_running();
-    }
-
-    pub fn vacuum(&self) {
-        let _ = self.db.vacuum();
-    }
-
-    pub fn _repr_html_(&self) -> String {
-        return format!(
-            "<b>DB ({})</b>{}",
-            self.config.trade_symbol,
-            self.db._repr_html_()
-        );
-    }
-
-    /*--------------　ここまでコピペ　--------------------------*/
 
     #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
     pub fn download(
@@ -1285,22 +1169,6 @@ impl _BybitMarket {
         )
     }
 
-    fn make_historical_data_url_timestamp(
-        history_web_base: &str,
-        symbol: &str,
-        t: MicroSec,
-    ) -> String {
-        let timestamp = to_naive_datetime(t);
-
-        let yyyy = timestamp.year() as i64;
-        let mm = timestamp.month() as i64;
-        let dd = timestamp.day() as i64;
-
-        return format!(
-            "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
-            history_web_base, symbol, symbol, yyyy, mm, dd
-        );
-    }
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
         let f = |date: MicroSec| -> String {
