@@ -13,8 +13,17 @@ use serde::{de, Deserialize, Deserializer, Serializer};
 use serde_json::Value;
 use sha2::Sha256;
 
-pub static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Runtime::new().unwrap());
+use super::env_rbot_db_root;
 
+pub static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Runtime::new().unwrap());
+pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
+    if let Ok(path) = env_rbot_db_root() {
+        return path;
+    }
+    else{
+        "".to_string()
+    }
+});
 
 #[allow(non_snake_case)]
 pub fn BLOCK_ON<F: Future>(f: F) -> F::Output {

@@ -1,7 +1,10 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 #![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused)]
 
 use chrono::Datelike;
+// use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 
@@ -13,7 +16,7 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiChannel, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
+    flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
 };
 
 use rbot_lib::common::BLOCK_ON;
@@ -27,17 +30,16 @@ use rbot_lib::db::{
 use rbot_lib::net::{
     UdpSender,
     RestApi, 
-    WebSocketClient,    
     latest_archive_date,     
 };
 
-use rbot_market::MarketInterface;
+use rbot_market::{MarketInterface, OrderInterfaceImpl, OrderInterface};
 use rbot_market::MarketImpl;
 
 use crate::message::BybitUserWsMessage;
 
 use crate::rest::BybitRestApi;
-use crate::ws::BybitWsOpMessage;
+use crate::ws::{BybitPublicWsClient, BybitWsOpMessage};
 
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
@@ -113,55 +115,6 @@ impl BybitOrderBook {
         self.board.update(&bids, &asks, board.snapshot);
     }
 
-    /*
-    pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
-        if self.last_update_id == 0 {
-            log::debug!(
-                "reflesh board {} / {}->{}",
-                self.last_update_id,
-                update_data.u,
-                update_data.U
-            );
-            sleep(Duration::from_millis(150)); // 100ms毎に更新されるので、150ms待つ。
-            self.reflesh_board();
-        }
-
-        // 4. Drop any event where u is <= lastUpdateId in the snapshot.
-        if update_data.u <= self.last_update_id {
-            log::debug!(
-                "Drop any event where u({}) is <= lastUpdateId({}) in the snapshot.",
-                update_data.u,
-                self.last_update_id
-            );
-
-            return;
-        }
-
-        // 5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
-        if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
-            log::debug!(
-                "lastupdate({}) / U({}) / u({})",
-                self.last_update_id,
-                update_data.U,
-                update_data.u
-            );
-            self.board
-                .update(&update_data.bids, &update_data.asks, false);
-        }
-
-        // 6. While listening to the stream, each new event's U should be equal to the previous event's u+1.
-        if update_data.U != self.last_update_id + 1 {
-            log::warn!(
-                "U is not equal to the previous event's u+1 {} {}",
-                update_data.U,
-                self.last_update_id + 1
-            );
-        }
-
-        self.last_update_id = update_data.u;
-    }
-    */
-
     fn reflesh_board(&mut self) {
         // TODO: implement
         println!("reflesh board :NOT IMPLEMENTED");
@@ -173,27 +126,90 @@ impl BybitOrderBook {
 #[pyclass]
 #[derive(Debug)]
 pub struct Bybit {
+    enable_order: bool,
     server_config: BybitServerConfig,
 }
 
 #[pymethods]
-impl Bybit {
+impl 
+//OrderInterface for 
+Bybit {
     #[new]
     #[pyo3(signature = (testnet=false))]
     pub fn new(testnet: bool) -> Self {
         let server_config = BybitServerConfig::new(testnet);
 
         return Bybit {
+            enable_order: false,
             server_config: server_config.clone(),
         };
     }
-/*
-    TODO: implement
+
     pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
-        //return BybitMarket::new(&self.server_config, config);
+        return BybitMarket::new(&self.server_config, config);
     }
-*/    
+
+    //--- OrderInterfaceImpl ---- 
+    #[setter]
+    pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
+        OrderInterfaceImpl::set_enable_order_feature(self, enable_order)
+    }
+    #[getter]
+    pub fn get_enable_order_with_my_own_risk(&self) -> bool {
+        OrderInterfaceImpl::get_enable_order_feature(self)
+    }
+
+    pub fn limit_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        price: Decimal,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>> {
+        OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
+    }
+
+    pub fn market_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>> {
+        OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id)
+    }
+
+    pub fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order> {
+        OrderInterfaceImpl::cancel_order(self, market_config, order_id)
+    }
+
+    pub fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>> {
+        OrderInterfaceImpl::get_open_orders(self, market_config)
+    }
+
+    // TODO: implement and test
+    pub fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus> {
+        OrderInterfaceImpl::get_account(self, market_config)
+    }
+
 }
+
+impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
+    fn set_enable_order_feature(&mut self, enable_order: bool) {
+        self.enable_order = enable_order;
+    }
+
+    fn get_enable_order_feature(&self) -> bool {
+        self.enable_order
+    }
+
+    fn get_server_config(&self) -> &BybitServerConfig {
+        &self.server_config
+    }
+}
+
+
 
 
 #[derive(Debug)]
@@ -203,45 +219,43 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: Arc<Mutex<TradeTable>>,
     pub board: Arc<RwLock<OrderBook>>,
-    pub public_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
+    pub public_ws: BybitPublicWsClient,
     pub public_handler: Option<tokio::task::JoinHandle<()>>,
-    pub user_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
-    pub user_handler: Option<tokio::task::JoinHandle<()>>,
-    pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
-    pub broadcast_message: bool,
-    pub udp_sender: Option<Arc<Mutex<UdpSender>>>,
+    // pub user_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
+    // pub user_handler: Option<tokio::task::JoinHandle<()>>,
+    // pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
+    // pub broadcast_message: bool,
+    // pub udp_sender: Option<Arc<Mutex<UdpSender>>>,
 }
 
 #[pymethods]
 impl /* MarketInterface for */
     BybitMarket {
+    
+    #[new]
+    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
+        log::debug!("open market BybitMarket::new");
+        BLOCK_ON(async{Self::async_new(server_config, config).await})
+    }
 
     fn get_config(&self) -> MarketConfig {
-        todo!()
+        MarketImpl::get_config(self)
     }
 
     fn get_exchange_name(&self) -> String {
-        todo!()
+        MarketImpl::get_exchange_name(self)
     }
 
     fn get_trade_category(&self) -> String {
-        todo!()
+        MarketImpl::get_trade_category(self)
     }
 
     fn get_trade_symbol(&self) -> String {
-        todo!()
-    }
-
-    fn set_broadcast_message(&mut self, broadcast_message: bool) {
-        todo!()
-    }
-
-    fn get_broadcast_message(&self) -> bool {
-        todo!()
+        MarketImpl::get_trade_symbol(self)
     }
 
     fn drop_table(&mut self) -> PyResult<()> {
-        todo!()
+        MarketImpl::drop_table(self)
     }
 
     fn get_cache_duration(&self) -> MicroSec {
@@ -249,19 +263,19 @@ impl /* MarketInterface for */
     }
 
     fn reset_cache_duration(&mut self) {
-        todo!()
+        MarketImpl::reset_cache_duration(self)
     }
 
     fn stop_db_thread(&mut self) {
-        todo!()
+        MarketImpl::stop_db_thread(self)
     }
 
     fn cache_all_data(&mut self) {
-        todo!()
+        MarketImpl::cache_all_data(self)
     }
 
     fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
-        todo!()
+        MarketImpl::select_trades(self, start_time, end_time)
     }
 
     fn ohlcvv(
@@ -270,7 +284,7 @@ impl /* MarketInterface for */
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        todo!()
+        MarketImpl::ohlcvv(self, start_time, end_time, window_sec)
     }
 
     fn ohlcv(
@@ -279,7 +293,7 @@ impl /* MarketInterface for */
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        todo!()
+        MarketImpl::ohlcv(self, start_time, end_time, window_sec)
     }
 
     fn vap(
@@ -288,47 +302,47 @@ impl /* MarketInterface for */
         end_time: MicroSec,
         price_unit: i64,
     ) -> PyResult<PyDataFrame> {
-        todo!()
+        MarketImpl::vap(self, start_time, end_time, price_unit)
     }
 
     fn info(&mut self) -> String {
-        todo!()
+        MarketImpl::info(self)
     }
 
     fn get_board_json(&self, size: usize) -> PyResult<String> {
-        todo!()
+        MarketImpl::get_board_json(self, size)
     }
 
-    fn get_board(&self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        todo!()
+    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+        MarketImpl::get_board(self)
     }
 
     fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
-        todo!()
+        MarketImpl::get_board_vec(self)
     }
 
     fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
-        todo!()
+        MarketImpl::get_edge_price(self)
     }
 
     fn get_file_name(&self) -> String {
-        todo!()
+        MarketImpl::get_file_name(self)
     }
 
     fn get_market_config(&self) -> MarketConfig {
-        todo!()
+        MarketImpl::get_market_config(self)
     }
 
     fn get_running(&self) -> bool {
-        todo!()
+        MarketImpl::get_running(self)
     }
 
     fn vacuum(&self) {
-        todo!()
+        MarketImpl::vacuum(self)
     }
 
     fn _repr_html_(&self) -> String {
-        todo!()
+        MarketImpl::_repr_html_(self)
     }
 
     fn download(
@@ -339,91 +353,43 @@ impl /* MarketInterface for */
         archive_only: bool,
         low_priority: bool,
     ) -> i64 {
-        todo!()
+        MarketImpl::download(self, ndays, force, verbose, archive_only, low_priority)
     }
 
     fn download_latest(&mut self, verbose: bool) -> i64 {
-        todo!()
+        MarketImpl::download_latest(self, verbose)
     }
 
     fn start_market_stream(&mut self) {
-        todo!()
+        MarketImpl::start_market_stream(self)
     }
 
     fn start_user_stream(&mut self) {
-        todo!()
+        MarketImpl::start_user_stream(self)
     }
 
     fn get_channel(&mut self) -> MarketStream {
-        todo!()
+        MarketImpl::get_channel(self)
     }
 
-    fn limit_order(
-        &self,
-        side: &str,
-        price: Decimal,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
-        todo!()
-    }
-
-    fn market_order(
-        &self,
-        side: &str,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
-        todo!()
-    }
-
-    fn dry_market_order(
-        &self,
-        create_time: MicroSec,
-        order_id: &str,
-        client_order_id: &str,
-        side: OrderSide,
-        size: Decimal,
-        transaction_id: &str,
-    ) -> Vec<Order> {
-        todo!()
-    }
-
-    fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        todo!()
-    }
-
-    fn cancel_all_orders(&self) -> PyResult<Vec<Order>> {
-        todo!()
-    }
-
-    fn get_order_status(&self) -> PyResult<Vec<OrderStatus>> {
-        todo!()
-    }
-
-    fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        todo!()
-    }
 
     fn get_trade_list(&self) -> PyResult<Vec<OrderStatus>> {
         todo!()
+        //MarketImpl::get_trade_list(self)
     }
 
     fn get_account(&self) -> PyResult<AccountStatus> {
         todo!()
+        //MarketImpl::get_account(self)
     }
 
     fn get_recent_trades(&self) -> Vec<Trade> {
         todo!()
+        //MarketImpl::get_recent_trades(self)
     }
 }
 
 impl BybitMarket {
-    /* TODO: IMPLE
-    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
-        BLOCK_ON(async{Self::async_new(server_config, config).await})
-    }
-
     pub async fn async_new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
         let db = TradeTable::open(&Self::make_db_path(
             &server_config.exchange_name,
@@ -431,71 +397,41 @@ impl BybitMarket {
             &config.trade_symbol,
             &server_config.db_base_dir,
         ));
+
         if db.is_err() {
             log::error!("Error in TradeTable::open: {:?}", db);
         }
 
-        let public_ws = WebSocketClient::new(
+        let public_ws = BybitPublicWsClient::new(
             &server_config,
-            &format!("{}/{}", &server_config.public_ws, config.trade_category),
-            config.public_subscribe_channel.clone(),
-            PING_INTERVAL_SEC,
-            SWITCH_INTERVAL_SEC,
-            SYNC_RECORDS,
-            None,
-        ).await;
-
-        let user_ws = WebSocketClient::new(
-            &server_config,
-            &server_config.private_ws,
-            vec![],
-            PING_INTERVAL_SEC,
-            SWITCH_INTERVAL_SEC,
-            SYNC_RECORDS,
-            Some(make_auth_message),
-        ).await;
-
+            &config).await;
 
         return BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
-            db: Arc::new(Mutex::new((db.unwrap()))),
+            db: Arc::new(Mutex::new(db.unwrap())),
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
             public_ws: public_ws,
             public_handler: None,
-            user_ws: user_ws,
-            user_handler: None,
-            agent_channel:Arc::new(RwLock::new(MultiChannel::new())),
-            broadcast_message: false,
-            udp_sender: None,
         };
     }
-    */
 }
 
 impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn get_config(&self) -> MarketConfig {
-        todo!()
+        self.config.clone()
     }
 
     fn get_exchange_name(&self) -> String {
-        todo!()
+        self.server_config.exchange_name.clone()
     }
 
     fn get_trade_category(&self) -> String {
-        todo!()
+        self.config.trade_category.clone()
     }
 
     fn get_trade_symbol(&self) -> String {
-        todo!()
-    }
-
-    fn set_broadcast_message(&mut self, broadcast_message: bool) {
-        todo!()
-    }
-
-    fn get_broadcast_message(&self) -> bool {
-        todo!()
+        self.config.trade_symbol.clone()
     }
 
     fn download_latest(&mut self, verbose: bool) -> i64 {
@@ -503,7 +439,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>> {
-        todo!()
+        self.db.clone()
     }
 
     fn get_history_web_base_url(&self) -> String {
@@ -515,7 +451,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
-        todo!()
+        self.board.clone()
     }
 
     fn reflesh_order_book(&mut self) {
@@ -541,15 +477,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn get_server_config(&self) -> BybitServerConfig {
         todo!()
     }
-
-    fn set_enable_order_feature(&self, enable_order: bool) {
-        todo!()
-    }
-
-    fn get_enable_order_feature(&self) -> bool {
-        todo!()
-    }
-
 
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
         todo!()
