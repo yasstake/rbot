@@ -1,7 +1,5 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use crossbeam_channel::unbounded;
-use crossbeam_channel::Sender;
 use numpy::IntoPyArray;
 use numpy::PyArray2;
 use polars::prelude::DataFrame;
@@ -19,11 +17,14 @@ use std::time::Duration;
 use tokio::task::spawn;
 use tokio::task::JoinHandle;
 
+//use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
+use crossbeam_channel::unbounded;
+
 use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::MarketMessage;
 use crate::common::MarketStream;
-use crate::common::MultiChannel;
 use crate::common::OrderSide;
 use crate::common::HHMM;
 use crate::common::SEC;
@@ -485,6 +486,7 @@ impl TradeTableDb {
         Ok(())
     }
 
+
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
     pub fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, mut f: F)
@@ -572,8 +574,7 @@ impl TradeTableDb {
     }
 
     pub fn select_stream(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
-        let mut channel: MultiChannel<MarketMessage> = MultiChannel::new();
-        let receiver = channel.open_channel(1000);
+        let (sender, stream) = MarketStream::open();
 
         let mut table_db = self.clone_connection();
 
@@ -581,16 +582,15 @@ impl TradeTableDb {
             // let mut channel = sender.lock().unwrap();
             table_db.select(time_from, time_to, |trade| {
                 let message: MarketMessage = trade.into();
-                let r = channel.send(message);
+                let r = sender.send(message);
 
                 if r.is_err() {
                     log::error!("Error in channel.send: {:?}", r);
                 }
             });
-            channel.close();
         });
 
-        MarketStream { reciver: receiver }
+        stream
     }
 }
 
@@ -654,7 +654,7 @@ impl TradeTable {
             return self.tx.clone().unwrap();
         }
 
-        let (tx, rx) = unbounded::<Vec<Trade>>();
+        let (tx, rx) = unbounded();
 
         let file_name = self.file_name.clone();
 
@@ -680,7 +680,7 @@ impl TradeTable {
                 }
             }
         });
-        
+
         self.handle = Some(handle);
 
         return self.tx.clone().unwrap();

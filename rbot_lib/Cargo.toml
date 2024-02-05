@@ -51,7 +51,9 @@ flate2 = {workspace=true}
 url = {workspace=true}
 
 tokio-tungstenite = {workspace=true}
+
 async-stream = {workspace = true}
+async-trait = {workspace = true}
 
 reqwest = {workspace=true, features=["gzip"]}
 csv = {workspace=true}

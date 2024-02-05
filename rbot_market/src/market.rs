@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use crossbeam_channel::Sender;
 use rbot_lib::common::BLOCK_ON;
 use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
+use std::sync::Arc;
 
 use pyo3::{PyErr, PyResult};
 use pyo3_polars::PyDataFrame;
@@ -14,13 +14,191 @@ use tokio::sync::{Mutex, RwLock};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountStatus, MarketConfig, MarketStream,
-        MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig, Trade, DAYS,
-        NOW,
+        flush_log, time_string, AccountStatus, MarketConfig, MarketStream, MicroSec, Order,
+        OrderSide, OrderType, ServerConfig, Trade, DAYS, NOW,
     },
     db::{df::KEY, sqlite::TradeTable},
     net::UdpSender,
 };
+
+macro_rules! check_if_enable_order {
+    ($s: expr) => {
+        if !$s.get_enable_order_feature() {
+            log::error!("Order feature is disabled.");
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True",
+            ));
+        }
+    };
+}
+
+macro_rules! block_on_result {
+    ($f: expr) => {{
+        match BLOCK_ON(async { $f.await }) {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Error in block_on_result: {:?}",
+                    e
+                )));
+            }
+        }
+    }};
+}
+
+pub trait OrderInterface {
+    fn set_enable_order_feature(&mut self, enable_order: bool);
+    fn get_enable_order_feature(&self) -> bool;
+
+    //------ REST API ----
+    fn limit_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        price: Decimal,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>>;
+
+    fn market_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>>;
+    fn dry_market_order(
+        &self,
+        market_config: &MarketConfig,
+        create_time: MicroSec,
+        order_id: &str,
+        client_order_id: &str,
+        side: OrderSide,
+        size: Decimal,
+        transaction_id: &str,
+    ) -> Vec<Order>;
+    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order>;
+    fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>>;
+    fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus>;
+}
+
+pub trait OrderInterfaceImpl<T, U>
+where
+    T: RestApi<U>,
+    U: ServerConfig,
+{
+    fn set_enable_order_feature(&mut self, enable_order: bool);
+    fn get_enable_order_feature(&self) -> bool;
+
+    fn get_server_config(&self) -> &U;
+
+    fn price_dp(&self, market_config: &MarketConfig, price: Decimal) -> Decimal {
+        let price_scale = market_config.price_scale;
+        let price_dp = price.round_dp(price_scale);
+        price_dp
+    }
+
+    fn size_dp(&self, market_config: &MarketConfig, size: Decimal) -> Decimal {
+        let size_scale = market_config.size_scale;
+        let size_dp = size.round_dp(size_scale);
+        size_dp
+    }
+
+    fn order_side(side: &str) -> OrderSide {
+        OrderSide::from(side)
+    }
+
+    fn make_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        price: Decimal,
+        size: Decimal,
+        order_type: OrderType,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>> {
+        let price = self.price_dp(&market_config, price);
+        let size = self.size_dp(&market_config, size);
+        let order_side = Self::order_side(side);
+
+        let result = BLOCK_ON(async {
+            T::new_order(
+                &self.get_server_config(),
+                &market_config,
+                order_side,
+                price,
+                size,
+                order_type,
+                client_order_id,
+            )
+            .await
+        });
+
+        if result.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in make_order: {:?}",
+                result
+            )));
+        }
+
+        Ok(result.unwrap())
+    }
+
+    //------ REST API ----
+    fn limit_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        price: Decimal,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>> {
+        check_if_enable_order!(self);
+        self.make_order(
+            &market_config,
+            side,
+            price,
+            size,
+            OrderType::Limit,
+            client_order_id,
+        )
+    }
+
+    fn market_order(
+        &self,
+        market_config: &MarketConfig,
+        side: &str,
+        size: Decimal,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Vec<Order>> {
+        check_if_enable_order!(self);
+        self.make_order(
+            market_config,
+            side,
+            dec![0.0],
+            size,
+            OrderType::Market,
+            client_order_id,
+        )
+    }
+
+    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order> {
+        check_if_enable_order!(self);
+        block_on_result!(T::cancel_order(
+            &self.get_server_config(),
+            market_config,
+            order_id
+        ))
+    }
+
+    fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>> {
+        block_on_result!(T::open_orders(&self.get_server_config(), market_config))
+    }
+
+    fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus> {
+        block_on_result!(T::get_account(&self.get_server_config(), market_config))
+    }
+}
 
 pub trait MarketInterface {
     // --- GET CONFIG INFO ----
@@ -83,63 +261,7 @@ pub trait MarketInterface {
     // TODO: change signature to open_realtime_channel
     fn get_channel(&mut self) -> MarketStream;
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream;
-
-    //------ REST API ----
-    fn limit_order(
-        &self,
-        side: &str,
-        price: Decimal,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>>;
-
-    fn market_order(
-        &self,
-        side: &str,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>>;
-    fn dry_market_order(
-        &self,
-        create_time: MicroSec,
-        order_id: &str,
-        client_order_id: &str,
-        side: OrderSide,
-        size: Decimal,
-        transaction_id: &str,
-    ) -> Vec<Order>;
-    fn cancel_order(&self, order_id: &str) -> PyResult<Order>;
-    fn cancel_all_orders(&self) -> PyResult<Vec<Order>>;
-    fn get_order_status(&self) -> PyResult<Vec<OrderStatus>>;
-    fn get_open_orders(&self) -> PyResult<Vec<Order>>;
-    fn get_trade_list(&self) -> PyResult<Vec<OrderStatus>>;
-    fn get_account(&self) -> PyResult<AccountStatus>;
     fn get_recent_trades(&self) -> Vec<Trade>;
-}
-
-macro_rules! block_on_result {
-    ($f: expr) => {{
-        match BLOCK_ON(async { $f.await }) {
-            Ok(r) => Ok(r),
-            Err(e) => {
-                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in block_on_result: {:?}",
-                    e
-                )));
-            }
-        }
-    }};
-}
-
-macro_rules! check_if_enable_order {
-    ($s: expr) => {
-        if !$s.get_enable_order_feature() {
-            log::error!("Order feature is disabled.");
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Order feature is disabled.",
-            ));
-        }
-    };
 }
 
 pub trait MarketImpl<T, U>
@@ -154,116 +276,7 @@ where
     fn get_trade_category(&self) -> String;
     fn get_trade_symbol(&self) -> String;
 
-    fn set_broadcast_message(&mut self, broadcast_message: bool);
-    fn get_broadcast_message(&self) -> bool;
-
     fn download_latest(&mut self, verbose: bool) -> i64;
-
-    fn set_enable_order_feature(&self, enable_order: bool);
-    fn get_enable_order_feature(&self) -> bool;
-
-    fn price_dp(&self, price: Decimal) -> Decimal {
-        let price_scale = self.get_config().price_scale;
-        let price_dp = price.round_dp(price_scale);
-        price_dp
-    }
-
-    fn size_dp(&self, size: Decimal) -> Decimal {
-        let size_scale = self.get_config().size_scale;
-        let size_dp = size.round_dp(size_scale);
-        size_dp
-    }
-
-    fn order_side(side: &str) -> OrderSide {
-        OrderSide::from(side)
-    }
-
-    fn make_order(
-        &self,
-        side: &str,
-        price: Decimal,
-        size: Decimal,
-        order_type: OrderType,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
-        let price = self.price_dp(price);
-        let size = self.size_dp(size);
-        let order_side = Self::order_side(side);
-
-        let result = BLOCK_ON(async {
-            T::new_order(
-                &self.get_server_config(),
-                &self.get_market_config(),
-                order_side,
-                price,
-                size,
-                order_type,
-                client_order_id,
-            )
-            .await
-        });
-
-        if result.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in make_order: {:?}",
-                result
-            )));
-        }
-
-        Ok(result.unwrap())
-    }
-
-    //------ REST API ----
-    fn limit_order(
-        &self,
-        side: &str,
-        price: Decimal,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
-        check_if_enable_order!(self);
-        self.make_order(side, price, size, OrderType::Limit, client_order_id)
-    }
-
-    fn market_order(
-        &self,
-        side: &str,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
-        check_if_enable_order!(self);
-        self.make_order(side, dec![0.0], size, OrderType::Market, client_order_id)
-    }
-
-    fn cancel_order(&self, order_id: &str) -> PyResult<Order> {
-        check_if_enable_order!(self);
-        block_on_result!(T::cancel_order(
-            &self.get_server_config(),
-            &self.get_config(),
-            order_id
-        ))
-    }
-
-    fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        block_on_result!(T::open_orders(
-            &self.get_server_config(),
-            &self.get_config()
-        ))
-    }
-
-    fn get_account(&self) -> PyResult<AccountStatus> {
-        block_on_result!(T::get_account(
-            &self.get_server_config(),
-            &self.get_config()
-        ))
-    }
-
-    fn get_recent_trades(&self) -> PyResult<Vec<Trade>> {
-        block_on_result!(T::get_recent_trades(
-            &self.get_server_config(),
-            &self.get_config()
-        ))
-    }
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>>;
 
@@ -289,8 +302,7 @@ where
     }
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
-        let result = 
-            T::latest_archive_date(&self.get_server_config(), &self.get_config());
+        let result = T::latest_archive_date(&self.get_server_config(), &self.get_config());
 
         if result.is_err() {
             return Err(result.unwrap_err());
@@ -762,6 +774,13 @@ where
         }
 
         Ok(result.unwrap())
+    }
+
+    fn get_recent_trades(&self, market_config: &MarketConfig) -> PyResult<Vec<Trade>> {
+        block_on_result!(T::get_recent_trades(
+            &self.get_server_config(),
+            market_config
+        ))
     }
 
     /// Download latest data from REST API

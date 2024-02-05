@@ -4,6 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use directories::ProjectDirs;
 
+use crate::common::DB_ROOT;
+
 
 pub fn project_dir() -> PathBuf {
     let proj_dir = ProjectDirs::from("net", "takibi", "rbot").unwrap();
@@ -13,11 +15,13 @@ pub fn project_dir() -> PathBuf {
 
 
 pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str) -> PathBuf {
+    let path = DB_ROOT.to_string();    
+    
     let project_dir = if base_dir != "" {
         PathBuf::from(base_dir)
     }
-    else if std::env::var("RBOT_DB_ROOT").is_ok() {
-        PathBuf::from(std::env::var("RBOT_DB_ROOT").unwrap())
+    else if path != "" {
+        PathBuf::from(path)
     }
     else {
         project_dir()

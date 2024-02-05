@@ -1,6 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
+#![allow(unused)]
 
 use std::collections::HashMap;
 
