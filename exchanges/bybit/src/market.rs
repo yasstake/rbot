@@ -10,8 +10,8 @@ use csv::StringRecord;
 
 use polars_core::export::num::FromPrimitive;
 
-use tokio::sync::{Mutex, RwLock};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
+
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
@@ -436,10 +436,8 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
     // TODO: implement
     fn download_latest(&mut self, verbose: bool) -> i64 {
-        let gap = 
-        BLOCK_ON(
-        self.find_latest_gap()
-        );
+        let gap = self.find_latest_gap();
+
         if gap.is_err() {
             log::error!("Error in find_latest_gap: {:?}", gap);
             return 0;
