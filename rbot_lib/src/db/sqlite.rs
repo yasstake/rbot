@@ -1385,6 +1385,15 @@ impl TradeTable {
         return self.connection.insert_records(trades);
     }
 
+    pub fn find_latest_gap(&mut self) -> Result<(MicroSec, MicroSec), String> {
+        let start_time = NOW() - DAYS(2);
+
+        let fix_time = self.latest_fix_time(start_time);
+        let unfix_time = self.first_unfix_time(fix_time);
+
+        Ok((fix_time, unfix_time))
+    }
+
     pub fn latest_fix_time(&mut self, start_time: MicroSec) -> MicroSec {
         self.connection.latest_fix_time(start_time)
     }    

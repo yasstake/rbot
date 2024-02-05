@@ -2,8 +2,7 @@ use crossbeam_channel::Sender;
 use rbot_lib::common::BLOCK_ON;
 use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
-use std::f32::consts::E;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3::{PyErr, PyResult};
 use pyo3_polars::PyDataFrame;
@@ -11,7 +10,6 @@ use rbot_lib::common::BoardItem;
 use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
-use tokio::sync::{Mutex, RwLock};
 
 use rbot_lib::{
     common::{
@@ -314,21 +312,20 @@ where
 
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
-        BLOCK_ON(async {
-            let db = self.get_db();
-            let mut lock = db.lock().await;
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
 
-            lock.validate_by_date(date)
-        })
+        lock.validate_by_date(date)
     }
 
-    async fn find_latest_gap(&self) -> Result<(MicroSec, MicroSec), String> {
+    fn find_latest_gap(&self) -> Result<(MicroSec, MicroSec), String> {
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
+        let mut lock = db.lock().unwrap();
 
-        let fix_time = db.lock().await.latest_fix_time(start_time);
-        let unfix_time = db.lock().await.first_unfix_time(fix_time);
+        let fix_time = lock.latest_fix_time(start_time);
+        let unfix_time = lock.first_unfix_time(fix_time);
 
         Ok((fix_time, unfix_time))
     }
@@ -458,9 +455,9 @@ where
     */
     // --- DB ----
     fn drop_table(&mut self) -> PyResult<()> {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
 
             if lock.drop_table().is_err() {
                 return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -469,47 +466,47 @@ where
             }
 
             Ok(())
-        })
+
     }
 
     fn get_cache_duration(&self) -> MicroSec {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             lock.get_cache_duration()
-        })
+
     }
 
     fn reset_cache_duration(&mut self) {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.reset_cache_duration();
-        })
+
     }
 
     fn stop_db_thread(&mut self) {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.stop_thread()
-        })
+
     }
 
     fn cache_all_data(&mut self) {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.update_cache_all();
-        })
+
     }
 
     fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.py_select_trades_polars(start_time, end_time)
-        })
+
     }
 
     fn ohlcvv(
@@ -518,11 +515,11 @@ where
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.py_ohlcvv_polars(start_time, end_time, window_sec)
-        })
+
     }
 
     fn ohlcv(
@@ -531,11 +528,11 @@ where
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.py_ohlcv_polars(start_time, end_time, window_sec)
-        })
+
     }
 
     fn vap(
@@ -544,53 +541,53 @@ where
         end_time: MicroSec,
         price_unit: i64,
     ) -> PyResult<PyDataFrame> {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
             lock.py_vap(start_time, end_time, price_unit)
-        })
+
     }
 
     fn info(&mut self) -> String {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             lock.info()
-        })
+
     }
 
     fn get_file_name(&self) -> String {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             lock.get_file_name()
-        })
+
     }
 
     fn get_running(&self) -> bool {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             lock.is_running()
-        })
+
     }
 
     fn vacuum(&self) {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             if lock.vacuum().is_err() {
                 log::error!("Error in vacuum");
             }
-        })
+
     }
 
     fn _repr_html_(&self) -> String {
-        BLOCK_ON(async {
+
             let db = self.get_db();
-            let lock = db.lock().await;
+            let lock = db.lock().unwrap();
             lock._repr_html_()
-        })
+
     }
 
     /// Order book
@@ -601,9 +598,9 @@ where
     fn reflesh_order_book(&mut self);
 
     fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        BLOCK_ON(async {
+
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().await;
+            let lock = orderbook.read().unwrap();
 
             let r = lock.get_board();
             drop(lock);
@@ -616,7 +613,7 @@ where
 
             let (mut bids, mut asks) = r.unwrap();
 
-            if bids.is_empty() || asks.is_empty() {
+            if bids.shape().0 == 0 || asks.shape().0 == 0{
                 return Ok((PyDataFrame(bids), PyDataFrame(asks)));
             }
 
@@ -629,7 +626,7 @@ where
                 self.reflesh_order_book();
 
                 let orderbook = self.get_order_book();
-                let lock = orderbook.read().await;
+                let lock = orderbook.read().unwrap();
 
                 let r = lock.get_board();
 
@@ -638,13 +635,13 @@ where
             }
 
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-        })
+
     }
 
     fn get_board_json(&self, size: usize) -> PyResult<String> {
-        BLOCK_ON(async {
+
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().await;
+            let lock = orderbook.read().unwrap();
 
             let result = lock.get_json(size);
             drop(lock);
@@ -656,26 +653,26 @@ where
                     e
                 ))),
             }
-        })
+
     }
 
     fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
-        BLOCK_ON(async {
+
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().await;
+            let lock = orderbook.read().unwrap();
             let (bids, asks) = lock.get_board_vec().unwrap();
 
             Ok((bids, asks))
-        })
+
     }
 
     fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
-        BLOCK_ON(async {
+
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().await;
+            let lock = orderbook.read().unwrap();
 
             Ok(lock.get_edge_price())
-        })
+
     }
 
     fn get_market_config(&self) -> MarketConfig;
@@ -683,7 +680,7 @@ where
     fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
         BLOCK_ON(async {
             let db = self.get_db();
-            let mut lock = db.lock().await;
+            let mut lock = db.lock().unwrap();
 
             lock.start_thread()
         })
