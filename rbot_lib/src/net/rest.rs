@@ -1,7 +1,12 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
 // Abloultely no warranty.
 
+use anyhow::Context;
 use chrono::Datelike;
+use anyhow::anyhow;
+use anyhow::ensure;
+
+
 // use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
@@ -32,18 +37,18 @@ where
     fn get_board_snapshot(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = Result<BoardTransfer, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<BoardTransfer>> + Send;
 
     fn get_recent_trades(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = Result<Vec<Trade>, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send;
     fn get_trade_klines(
         server: &T,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> impl std::future::Future<Output = Result<Vec<Kline>, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Kline>>> + Send;
     fn new_order(
         server: &T,
         config: &MarketConfig,
@@ -52,21 +57,21 @@ where
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
-    ) -> impl std::future::Future<Output = Result<Vec<Order>, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
     fn cancel_order(
         server: &T,
         config: &MarketConfig,
         order_id: &str,
-    ) -> impl std::future::Future<Output = Result<Order, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Order>> + Send;
     fn open_orders(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = Result<Vec<Order>, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
 
     fn get_account(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = Result<AccountStatus, String>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<AccountStatus>> + Send;
 
     fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
         let history_web_base = server.get_historical_web_base();
@@ -97,21 +102,14 @@ where
     fn rec_to_trade(rec: &StringRecord) -> Trade;
     fn archive_has_header() -> bool;
 
-    fn latest_archive_date(server: &T, config: &MarketConfig) -> Result<MicroSec, String> {
+    fn latest_archive_date(server: &T, config: &MarketConfig) -> anyhow::Result<MicroSec> {
         BLOCK_ON(async {
             let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
             let mut latest = TODAY();
             let mut i = 0;
 
             loop {
-                let has_archive = has_archive(latest, &f).await;
-
-                if has_archive.is_err() {
-                    log::error!("Error in has_archive: {:?}", has_archive);
-                    return Err(format!("Error in has_archive: {:?}", has_archive));
-                }
-
-                let has_archive = has_archive.unwrap();
+                let has_archive = has_archive(latest, &f).await?;
 
                 if has_archive {
                     return Ok(latest);
@@ -121,7 +119,7 @@ where
                 i += 1;
 
                 if 5 < i {
-                    return Err(format!("get_latest_archive max retry error"));
+                    return Err(anyhow!("Find archive retry over {}/{}/{}", i, latest, f(latest)));
                 }
             }
         })
@@ -134,7 +132,7 @@ where
         date: MicroSec,
         low_priority: bool,
         verbose: bool,
-    ) -> impl std::future::Future<Output = Result<i64, String>> {
+    ) -> impl std::future::Future<Output = anyhow::Result<i64>> {
         async move {
             let date = FLOOR_DAY(date);
             let url = Self::history_web_url(server, config, date);
@@ -153,22 +151,15 @@ where
     }
 }
 
-pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, String> {
+pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
 
-    let response = match client
+    let response = client
         .get(url)
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html")
         .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("URL get error {}", e.to_string());
-            return Err(format!("URL get error{}", e.to_string()));
-        }
-    };
+        .await.with_context(|| format!("URL get error {}", url))?;
 
     log::debug!(
         "Response code = {} / download size {}",
@@ -177,7 +168,7 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, Strin
     );
 
     if !response.status().is_success() {
-        return Err(format!("Err: response code {}", response.status().as_str()));
+        return Err(anyhow!("Err: response code {}", response.status().as_str()));
     }
 
     let fname = response
@@ -188,28 +179,15 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> Result<String, Strin
         .unwrap_or("tmp.bin");
 
     let fname = tmp_dir.join(fname);
+    let file_name = fname.to_str().unwrap();    
 
-    let mut target = match File::create(&fname) {
-        Ok(t) => t,
-        Err(e) => {
-            return Err(format!("file create error {}", e.to_string()));
-        }
-    };
+    let mut target = File::create(&fname).with_context(|| format!("file create error {}", fname.to_str().unwrap()))?;
 
-    let file_name = fname.to_str().unwrap();
-
-    let content = match response.bytes().await {
-        Ok(c) => c,
-        Err(e) => {
-            log::error!("{}", e.to_string());
-            return Err(format!("log_download_tmp err{}", e.to_string()));
-        }
-    };
+    let content = response.bytes().await.with_context(|| format!("response bytes error {}", url))?;
     let mut cursor = Cursor::new(content);
 
-    if copy(&mut cursor, &mut target).is_err() {
-        return Err(format!("write error"));
-    }
+    let size = copy(&mut cursor, &mut target).with_context(||format!("write error {}", file_name))?;
+    ensure!(size > 0, "file is empty {}", file_name);
 
     let _r = target.flush();
 
@@ -267,28 +245,16 @@ async fn download_archive_log<F>(
     low_priority: bool,
     verbose: bool,
     f: F,
-) -> Result<i64, String>
+) -> anyhow::Result<i64>
 where
     F: Fn(&StringRecord) -> Trade,
 {
     log::debug!("Downloading ...[{}]", url);
 
-    let tmp_dir = match tempdir() {
-        Ok(tmp) => tmp,
-        Err(e) => {
-            log::error!("create tmp dir error {}", e.to_string());
-            return Err(format!("create tmp dir error {}", e.to_string()));
-        }
-    };
+    let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
 
-    let result = log_download_tmp(url, tmp_dir.path()).await;
-    let file_path = match result {
-        Ok(path) => path,
-        Err(e) => {
-            log::error!("download error {}", e.to_string());
-            return Err(format!("download error{}", e));
-        }
-    };
+    let file_path = log_download_tmp(url, tmp_dir.path())
+            .await.with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
 
     let mut buffer: Vec<Trade> = vec![];
     let mut is_first_record = true;
@@ -323,20 +289,11 @@ where
     });
 
     let buffer_len = buffer.len();
-    if buffer_len == 0 {
-        log::error!("download rec = 0");
-        return Err("download rec = 0".to_string());
-    }
+    ensure!(buffer_len != 0, "download rec = 0");
 
     buffer[buffer_len - 1].status = LogStatus::FixBlockEnd;
 
-    let result = tx.send(buffer.to_vec());
-    match result {
-        Ok(_) => {}
-        Err(e) => {
-            log::error!("{:?}", e);
-        }
-    }
+    tx.send(buffer.to_vec()).with_context(|| format!("channel send error"))?;
 
     buffer.clear();
 
@@ -616,7 +573,7 @@ pub async fn do_rest_request(
     url: &str,
     headers: Vec<(&str, &str)>,
     body: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
 
     let mut request_builder = client.request(method.clone(), url);
@@ -634,13 +591,7 @@ pub async fn do_rest_request(
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html");
 
-    let response = match request_builder.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("URL get error {}", e.to_string());
-            return Err(format!("URL get error {}, ", e.to_string()));
-        }
-    };
+    let response = request_builder.send().await.with_context(|| format!("URL get error {url:}"))?;
 
     log::debug!(
         "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
@@ -652,7 +603,7 @@ pub async fn do_rest_request(
     );
 
     if response.status().as_str() != "200" {
-        return Err(format!(
+        return Err(anyhow!(
             "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
             response.status().as_str(),
             response.content_length(),
@@ -662,7 +613,7 @@ pub async fn do_rest_request(
         ));
     }
 
-    Ok(response.text().await.unwrap())
+    Ok(response.text().await?)
 }
 
 pub async fn rest_get(
@@ -671,7 +622,7 @@ pub async fn rest_get(
     headers: Vec<(&str, &str)>,
     param: Option<&str>,
     body: Option<&str>,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let mut url = format!("{}{}", server, path);
     if param.is_some() {
         url = format!("{}?{}", url, param.unwrap());
@@ -690,7 +641,7 @@ pub async fn rest_post(
     path: &str,
     headers: Vec<(&str, &str)>,
     body: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let url = format!("{}{}", server, path);
 
     do_rest_request(Method::POST, &url, headers, body).await
@@ -701,7 +652,7 @@ pub async fn rest_delete(
     path: &str,
     headers: Vec<(&str, &str)>,
     body: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let url = format!("{}{}", server, path);
 
     do_rest_request(Method::DELETE, &url, headers, body).await
@@ -712,59 +663,22 @@ pub async fn rest_put(
     path: &str,
     headers: Vec<(&str, &str)>,
     body: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let url = format!("{}{}", server, path);
 
     do_rest_request(Method::PUT, &url, headers, body).await
 }
 
-/*
-pub fn restapi<F>(server: &str, path: &str, f: F) -> Result<(), String>
-where
-    F: Fn(String) -> Result<(), String>,
-{
-    let url = format!("{}{}", server, path);
-    let client = reqwest::blocking::Client::new();
 
-    let response = match client
-        .get(url)
-        .header("User-Agent", "Mozilla/5.0")
-        .header("Accept", "text/html")
-        .send()
-    {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("URL get error {}", e.to_string());
-            return Err(format!("url get error{}", e.to_string()));
-        }
-    };
-
-    log::debug!(
-        "Response code = {} / download size {}",
-        response.status().as_str(),
-        response.content_length().unwrap()
-    );
-
-    f(response.text().unwrap())
-}
-*/
-
-pub async fn check_exist(url: &str) -> bool {
+pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
     let client = reqwest::Client::new();
 
-    let response = match client
+    let response = client
         .head(url)
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html")
         .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("URL get error {}", e.to_string());
-            return false;
-        }
-    };
+        .await.with_context(|| format!("URL get error {}", url))?;
 
     log::debug!(
         "Response code = {} / download size {}",
@@ -772,26 +686,18 @@ pub async fn check_exist(url: &str) -> bool {
         response.content_length().unwrap()
     );
 
-    if response.status().as_str() == "200" {
-        return true;
-    } else {
-        return false;
-    }
+
+    anyhow::ensure!(response.status().as_str() == "200", "URL get response error {}/code={}", url, response.status());
+
+    Ok(true)
 }
 
-async fn has_archive<F>(date: MicroSec, f: &F) -> Result<bool, String>
+async fn has_archive<F>(date: MicroSec, f: &F) -> anyhow::Result<bool>
 where
     F: Fn(MicroSec) -> String,
 {
     let url = f(date);
-
-    if check_exist(url.as_str()).await {
-        log::debug!("{} exists", url);
-        return Ok(true);
-    } else {
-        log::debug!("{} does not exist", url);
-    }
-    return Ok(false);
+    Ok(check_exist(url.as_str()).await?)
 }
 
 pub async fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String>
@@ -833,36 +739,38 @@ mod test_exchange {
     // use crossbeam_channel::bounded;    
 
     #[tokio::test]
-    async fn log_download_temp_test() {
+    async fn log_download_temp_test() -> anyhow::Result<()>{
         init_debug_log();
         let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
         let tmp_dir = tempdir().unwrap();
-        let r = log_download_tmp(url, tmp_dir.path()).await;
+        let r = log_download_tmp(url, tmp_dir.path()).await?;
 
-        assert!(r.is_ok());
-        println!("log_download_temp: {}", r.unwrap());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_log_download() {
+    async fn test_log_download() -> anyhow::Result<()> {
         init_debug_log();
 
         let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
         // let (tx, rx) = bounded::<StringRecord>(MAX_QUEUE_SIZE);
 
-        let tmp_dir = tempdir().unwrap();
-        let r = log_download_tmp(url, tmp_dir.path()).await;
-
-        let path = r.unwrap();
+        let tmp_dir = tempdir()?;
+        let path = log_download_tmp(url, tmp_dir.path()).await?;
         log::debug!("log_download_temp: {}", path);
 
+        let mut rec_no = 0;
         read_csv_archive(&path, true, |rec| {
-            println!("{:?}", rec);
+            rec_no += 1;
         });
+
+        log::debug!("rec_no = {}", rec_no);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_rest_get() {
+    async fn test_rest_get() -> anyhow::Result<()> {
         let r = rest_get(
             "https://api.binance.com",
             "/api/v3/trades?symbol=BTCBUSD&limit=5",
@@ -870,14 +778,30 @@ mod test_exchange {
             None,
             None,
         )
-        .await;
-
-        assert!(r.is_ok());
-
-        let r = r.unwrap();
+        .await?;
 
         println!("{}", r);
+
+        Ok(())
     }
+
+    #[tokio::test]
+    async fn test_rest_get_err() -> anyhow::Result<()> {
+        let r = rest_get(
+            "https://example.com",
+            "/api/v3/trades?symbol=BTCBUSD&limit=5",
+            vec![],
+            None,
+            None,
+        )
+        .await;
+
+        println!("{:?}", r);
+
+        Ok(())
+    }
+
+
 
     /*
     use crate::exchange::binance::BinanceMarket;
