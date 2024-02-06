@@ -17,6 +17,8 @@ use std::time::Duration;
 use tokio::task::spawn;
 use tokio::task::JoinHandle;
 
+use crate::common::MarketStream;
+
 //use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use crossbeam_channel::unbounded;
@@ -24,7 +26,6 @@ use crossbeam_channel::unbounded;
 use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::MarketMessage;
-use crate::common::MarketStream;
 use crate::common::OrderSide;
 use crate::common::HHMM;
 use crate::common::SEC;
