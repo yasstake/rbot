@@ -135,9 +135,9 @@ impl
 //OrderInterface for 
 Bybit {
     #[new]
-    #[pyo3(signature = (testnet=false))]
-    pub fn new(testnet: bool) -> Self {
-        let server_config = BybitServerConfig::new(testnet);
+    #[pyo3(signature = (production=false))]
+    pub fn new(production: bool) -> Self {
+        let server_config = BybitServerConfig::new(production);
 
         return Bybit {
             enable_order: false,
@@ -159,6 +159,7 @@ Bybit {
         OrderInterfaceImpl::get_enable_order_feature(self)
     }
 
+    #[pyo3(signature = (market_config, *, side, price, size, client_order_id=None))]
     pub fn limit_order(
         &self,
         market_config: &MarketConfig,
@@ -170,6 +171,7 @@ Bybit {
         OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
     }
 
+    #[pyo3(signature = (market_config, *, side, size, client_order_id=None))]
     pub fn market_order(
         &self,
         market_config: &MarketConfig,
@@ -180,19 +182,21 @@ Bybit {
         OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id)
     }
 
+    #[pyo3(signature = (market_config, *, order_id))]
     pub fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         OrderInterfaceImpl::cancel_order(self, market_config, order_id)
     }
 
+    #[pyo3(signature = (market_config))]
     pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         OrderInterfaceImpl::get_open_orders(self, market_config)
     }
 
+    #[pyo3(signature = (market_config))]
     // TODO: implement and test
     pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
         OrderInterfaceImpl::get_account(self, market_config)
     }
-
 }
 
 impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {

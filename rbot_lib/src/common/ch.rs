@@ -54,10 +54,15 @@ impl MarketMessage {
     pub fn from_control(message: ControlMessage) -> Self {
         MarketMessage::Control(message)
     }
+
+    pub fn make_message(m: &str) -> Self {
+        MarketMessage::Message(m.to_string())
+    }
 }
 
 pub type MultiMarketMessage = Vec<MarketMessage>;
 const CHANNEL_SIZE: usize = 4096;
+
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -76,6 +81,7 @@ impl MarketStream {
         (sender, Self { reciver: receiver })
     }
 }
+
 
 /*
 
@@ -277,4 +283,8 @@ async fn test_handling_lag() {
     assert_eq!(30, rx2.recv().await.unwrap());
     println!("rx2: {:?}", rx2.recv().await);
     println!("rx2: {:?}", rx2.recv().await);
+
+    for _ in 0..1000 {
+        tx.send(40).unwrap();
+    }
 }
