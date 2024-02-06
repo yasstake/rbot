@@ -494,7 +494,10 @@ pub struct BybitOrderStatus {
 }
 
 impl Into<Order> for &BybitOrderStatus {
+    
     fn into(self) -> Order {
+        let order_type = OrderType::from(&self.orderType);
+
         Order {
             symbol: self.symbol.clone(),
             create_time: self.createdTime,
@@ -502,7 +505,7 @@ impl Into<Order> for &BybitOrderStatus {
             order_id: self.orderId.clone(),
             client_order_id: self.orderLinkId.clone(),
             order_side: OrderSide::from(&self.side),
-            order_type: OrderType::from(&self.orderType),
+            order_type: order_type.clone(),
             order_price: self.price,
             order_size: self.qty,
             remain_size: self.leavesQty,
@@ -513,7 +516,7 @@ impl Into<Order> for &BybitOrderStatus {
             quote_vol: self.price * self.qty,
             commission: self.cumExecFee,
             commission_asset: "".to_string(),
-            is_maker: false,                        // DUMMY value
+            is_maker: order_type.is_maker(),
             message: "".to_string(),                // DUMMY value
             commission_home: dec![0.0],             // DUMMY value
             commission_foreign: dec![0.0],

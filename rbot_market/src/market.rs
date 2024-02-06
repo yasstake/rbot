@@ -11,6 +11,11 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
 
+use anyhow::anyhow;
+#[allow(unused_imports)]
+use anyhow::Context;
+use anyhow::Result;
+
 use rbot_lib::{
     common::{
         flush_log, time_string, AccountStatus, MarketConfig, MarketStream, MicroSec, Order,
@@ -24,25 +29,9 @@ macro_rules! check_if_enable_order {
     ($s: expr) => {
         if !$s.get_enable_order_feature() {
             log::error!("Order feature is disabled.");
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True",
-            ));
+            anyhow::bail!("Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True");
         }
     };
-}
-
-macro_rules! block_on_result {
-    ($f: expr) => {{
-        match BLOCK_ON(async { $f.await }) {
-            Ok(r) => Ok(r),
-            Err(e) => {
-                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in block_on_result: {:?}",
-                    e
-                )));
-            }
-        }
-    }};
 }
 
 pub trait OrderInterface {
@@ -57,7 +46,7 @@ pub trait OrderInterface {
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>>;
+    ) -> anyhow::Result<Vec<Order>>;
 
     fn market_order(
         &self,
@@ -65,7 +54,7 @@ pub trait OrderInterface {
         side: &str,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>>;
+    ) -> anyhow::Result<Vec<Order>>;
     fn dry_market_order(
         &self,
         market_config: &MarketConfig,
@@ -76,9 +65,9 @@ pub trait OrderInterface {
         size: Decimal,
         transaction_id: &str,
     ) -> Vec<Order>;
-    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order>;
-    fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>>;
-    fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus>;
+    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order>;
+    fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>>;
+    fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus>;
 }
 
 pub trait OrderInterfaceImpl<T, U>
@@ -115,12 +104,12 @@ where
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> anyhow::Result<Vec<Order>> {
         let price = self.price_dp(&market_config, price);
         let size = self.size_dp(&market_config, size);
         let order_side = Self::order_side(side);
 
-        let result = BLOCK_ON(async {
+        BLOCK_ON(async {
             T::new_order(
                 &self.get_server_config(),
                 &market_config,
@@ -131,16 +120,13 @@ where
                 client_order_id,
             )
             .await
-        });
-
-        if result.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in make_order: {:?}",
-                result
-            )));
-        }
-
-        Ok(result.unwrap())
+            .with_context(|| {
+                format!(
+                    "Error in make_order: {:?} {:?} {:?} {:?} {:?} {:?}",
+                    &market_config, &side, &price, &size, &order_type, &client_order_id
+                )
+            })
+        })
     }
 
     //------ REST API ----
@@ -151,7 +137,7 @@ where
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> anyhow::Result<Vec<Order>> {
         check_if_enable_order!(self);
         self.make_order(
             &market_config,
@@ -169,7 +155,7 @@ where
         side: &str,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> anyhow::Result<Vec<Order>> {
         check_if_enable_order!(self);
         self.make_order(
             market_config,
@@ -181,21 +167,34 @@ where
         )
     }
 
-    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order> {
+    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         check_if_enable_order!(self);
-        block_on_result!(T::cancel_order(
-            &self.get_server_config(),
-            market_config,
-            order_id
-        ))
+        BLOCK_ON(async {
+            T::cancel_order(&self.get_server_config(), &market_config, order_id)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Error in cancel_order: {:?} {:?}",
+                        &market_config, &order_id
+                    )
+                })
+        })
     }
 
-    fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>> {
-        block_on_result!(T::open_orders(&self.get_server_config(), market_config))
+    fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
+        BLOCK_ON(async {
+            T::open_orders(&self.get_server_config(), market_config)
+                .await
+                .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
+        })
     }
 
-    fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus> {
-        block_on_result!(T::get_account(&self.get_server_config(), market_config))
+    fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
+        BLOCK_ON(async {
+            T::get_account(&self.get_server_config(), market_config)
+                .await
+                .with_context(|| format!("Error in get_account: {:?}", &market_config))
+        })
     }
 }
 
@@ -206,46 +205,52 @@ pub trait MarketInterface {
     fn get_trade_category(&self) -> String;
     fn get_trade_symbol(&self) -> String;
 
+    fn get_market_config(&self) -> MarketConfig;
+
     fn set_broadcast_message(&mut self, broadcast_message: bool);
     fn get_broadcast_message(&self) -> bool;
 
     // --- DB ---->>
-    fn drop_table(&mut self) -> PyResult<()>;
+    fn drop_table(&mut self) -> anyhow::Result<()>;
     fn get_cache_duration(&self) -> MicroSec;
     fn reset_cache_duration(&mut self);
     fn stop_db_thread(&mut self);
     fn cache_all_data(&mut self);
-    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame>;
+    fn select_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame>;
     fn ohlcvv(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame>;
+    ) -> anyhow::Result<PyDataFrame>;
     fn ohlcv(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame>;
+    ) -> anyhow::Result<PyDataFrame>;
     fn vap(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
         price_unit: i64,
-    ) -> PyResult<PyDataFrame>;
+    ) -> anyhow::Result<PyDataFrame>;
     fn info(&mut self) -> String;
-    fn get_board_json(&self, size: usize) -> PyResult<String>;
-    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)>;
-    fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)>;
-    fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)>;
-    fn get_file_name(&self) -> String;
-    fn get_market_config(&self) -> MarketConfig;
+    fn get_board_json(&self, size: usize) -> anyhow::Result<String>;
+    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)>;
+    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)>;
+    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)>;
     fn get_running(&self) -> bool;
     fn vacuum(&self);
-    //<<----------------- DB
+    fn get_file_name(&self) -> String; // get db file path
+                                       //<<----------------- DB
 
     fn _repr_html_(&self) -> String;
+
     fn download(
         &mut self,
         ndays: i64,
@@ -255,12 +260,14 @@ pub trait MarketInterface {
         low_priority: bool,
     ) -> i64;
     fn download_latest(&mut self, verbose: bool) -> i64;
+    fn download_gap(&mut self, verbose: bool) -> i64;
+
     fn start_market_stream(&mut self);
     fn start_user_stream(&mut self);
     // TODO: change signature to open_realtime_channel
-    fn get_channel(&mut self) -> MarketStream;
+
+    fn open_realtime_channel(&mut self) -> MarketStream;
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream;
-    fn get_recent_trades(&self) -> Vec<Trade>;
 }
 
 pub trait MarketImpl<T, U>
@@ -275,7 +282,12 @@ where
     fn get_trade_category(&self) -> String;
     fn get_trade_symbol(&self) -> String;
 
+    /// Download historical log from REST API
     fn download_latest(&mut self, verbose: bool) -> i64;
+
+    /// Download historical log from REST API, between the latest data and the latest FIX data.
+    /// If the latest FIX data is not found, generate psudo data from klines.
+    fn download_gap(&mut self, verbose: bool) -> i64;
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>>;
 
@@ -300,14 +312,8 @@ where
         return db_path.to_str().unwrap().to_string();
     }
 
-    fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
-        let result = T::latest_archive_date(&self.get_server_config(), &self.get_config());
-
-        if result.is_err() {
-            return Err(result.unwrap_err());
-        }
-
-        Ok(result.unwrap())
+    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
+        T::latest_archive_date(&self.get_server_config(), &self.get_config())
     }
 
     /// Check if database is valid at the date
@@ -318,7 +324,7 @@ where
         lock.validate_by_date(date)
     }
 
-    fn find_latest_gap(&self) -> Result<(MicroSec, MicroSec), String> {
+    fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
@@ -326,6 +332,10 @@ where
 
         let fix_time = lock.latest_fix_time(start_time);
         let unfix_time = lock.first_unfix_time(fix_time);
+
+        if fix_time == 0 || unfix_time == 0 {
+            return Err(anyhow!("No data found"));
+        }
 
         Ok((fix_time, unfix_time))
     }
@@ -455,58 +465,46 @@ where
     */
     // --- DB ----
     fn drop_table(&mut self) -> PyResult<()> {
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
 
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
+        if lock.drop_table().is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                "Error in drop_table",
+            ));
+        }
 
-            if lock.drop_table().is_err() {
-                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                    "Error in drop_table",
-                ));
-            }
-
-            Ok(())
-
+        Ok(())
     }
 
     fn get_cache_duration(&self) -> MicroSec {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            lock.get_cache_duration()
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        lock.get_cache_duration()
     }
 
     fn reset_cache_duration(&mut self) {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.reset_cache_duration();
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.reset_cache_duration();
     }
 
     fn stop_db_thread(&mut self) {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.stop_thread()
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.stop_thread()
     }
 
     fn cache_all_data(&mut self) {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.update_cache_all();
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.update_cache_all();
     }
 
     fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.py_select_trades_polars(start_time, end_time)
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.py_select_trades_polars(start_time, end_time)
     }
 
     fn ohlcvv(
@@ -515,11 +513,9 @@ where
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.py_ohlcvv_polars(start_time, end_time, window_sec)
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.py_ohlcvv_polars(start_time, end_time, window_sec)
     }
 
     fn ohlcv(
@@ -528,11 +524,9 @@ where
         end_time: MicroSec,
         window_sec: i64,
     ) -> PyResult<PyDataFrame> {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.py_ohlcv_polars(start_time, end_time, window_sec)
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.py_ohlcv_polars(start_time, end_time, window_sec)
     }
 
     fn vap(
@@ -541,53 +535,41 @@ where
         end_time: MicroSec,
         price_unit: i64,
     ) -> PyResult<PyDataFrame> {
-
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-            lock.py_vap(start_time, end_time, price_unit)
-
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.py_vap(start_time, end_time, price_unit)
     }
 
     fn info(&mut self) -> String {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            lock.info()
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        lock.info()
     }
 
     fn get_file_name(&self) -> String {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            lock.get_file_name()
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        lock.get_file_name()
     }
 
     fn get_running(&self) -> bool {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            lock.is_running()
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        lock.is_running()
     }
 
     fn vacuum(&self) {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            if lock.vacuum().is_err() {
-                log::error!("Error in vacuum");
-            }
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        if lock.vacuum().is_err() {
+            log::error!("Error in vacuum");
+        }
     }
 
     fn _repr_html_(&self) -> String {
-
-            let db = self.get_db();
-            let lock = db.lock().unwrap();
-            lock._repr_html_()
-
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+        lock._repr_html_()
     }
 
     /// Order book
@@ -598,81 +580,73 @@ where
     fn reflesh_order_book(&mut self);
 
     fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+        let orderbook = self.get_order_book();
+        let lock = orderbook.read().unwrap();
+
+        let r = lock.get_board();
+        drop(lock);
+        if r.is_err() {
+            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in get_board: {:?}",
+                r
+            )));
+        }
+
+        let (mut bids, mut asks) = r.unwrap();
+
+        if bids.shape().0 == 0 || asks.shape().0 == 0 {
+            return Ok((PyDataFrame(bids), PyDataFrame(asks)));
+        }
+
+        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
+        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
+
+        if asks_edge < bids_edge {
+            log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
+
+            self.reflesh_order_book();
 
             let orderbook = self.get_order_book();
             let lock = orderbook.read().unwrap();
 
             let r = lock.get_board();
-            drop(lock);
-            if r.is_err() {
-                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in get_board: {:?}",
-                    r
-                )));
-            }
 
-            let (mut bids, mut asks) = r.unwrap();
+            (bids, asks) = r.unwrap();
+            drop(lock)
+        }
 
-            if bids.shape().0 == 0 || asks.shape().0 == 0{
-                return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-            }
-
-            let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
-            let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
-
-            if asks_edge < bids_edge {
-                log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
-
-                self.reflesh_order_book();
-
-                let orderbook = self.get_order_book();
-                let lock = orderbook.read().unwrap();
-
-                let r = lock.get_board();
-
-                (bids, asks) = r.unwrap();
-                drop(lock)
-            }
-
-            return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-
+        return Ok((PyDataFrame(bids), PyDataFrame(asks)));
     }
 
     fn get_board_json(&self, size: usize) -> PyResult<String> {
+        let orderbook = self.get_order_book();
+        let lock = orderbook.read().unwrap();
 
-            let orderbook = self.get_order_book();
-            let lock = orderbook.read().unwrap();
+        let result = lock.get_json(size);
+        drop(lock);
 
-            let result = lock.get_json(size);
-            drop(lock);
-
-            match result {
-                Ok(json) => Ok(json),
-                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Error in get_board_json: {:?}",
-                    e
-                ))),
-            }
-
+        match result {
+            Ok(json) => Ok(json),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Error in get_board_json: {:?}",
+                e
+            ))),
+        }
     }
 
     fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
+        let orderbook = self.get_order_book();
+        let lock = orderbook.read().unwrap();
+        let (bids, asks) = lock.get_board_vec().unwrap();
 
-            let orderbook = self.get_order_book();
-            let lock = orderbook.read().unwrap();
-            let (bids, asks) = lock.get_board_vec().unwrap();
-
-            Ok((bids, asks))
-
+        Ok((bids, asks))
     }
 
     fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+        let orderbook = self.get_order_book();
+        let lock = orderbook.read().unwrap();
 
-            let orderbook = self.get_order_book();
-            let lock = orderbook.read().unwrap();
-
-            Ok(lock.get_edge_price())
-
+        Ok(lock.get_edge_price())
     }
 
     fn get_market_config(&self) -> MarketConfig;
@@ -759,9 +733,9 @@ where
         date: MicroSec,
         low_priority: bool,
         verbose: bool,
-    ) -> Result<i64, String> {
-        let result = BLOCK_ON(async {
-            let rec = T::download_archive(
+    ) -> anyhow::Result<i64> {
+        BLOCK_ON(async {
+            T::download_archive(
                 &self.get_server_config(),
                 &self.get_config(),
                 tx,
@@ -769,33 +743,24 @@ where
                 low_priority,
                 verbose,
             )
-            .await;
+            .await
+            .with_context(|| format!("Error in download_archive: {:?}", date))
+        })
+    }
 
-            if rec.is_err() {
-                return Err(rec.unwrap_err());
-            }
-
-            Ok(rec.unwrap())
-        });
-
-        if result.is_err() {
-            return Err(result.unwrap_err());
+    fn get_recent_trades(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
+        BLOCK_ON(async {
+            T::get_recent_trades(
+                &self.get_server_config(),
+                market_config).await
+            })
         }
-
-        Ok(result.unwrap())
-    }
-
-    fn get_recent_trades(&self, market_config: &MarketConfig) -> PyResult<Vec<Trade>> {
-        block_on_result!(T::get_recent_trades(
-            &self.get_server_config(),
-            market_config
-        ))
-    }
 
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
     fn start_market_stream(&mut self);
     fn start_user_stream(&mut self);
-    fn get_channel(&mut self) -> MarketStream;
+
+    fn open_realtime_channel(&mut self) -> MarketStream;
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream;
 }

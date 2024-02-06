@@ -1,9 +1,12 @@
 #![allow(unused)]
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
+use std::fmt::format;
+
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
 use rbot_lib::common::time_string;
+use rbot_lib::common::AccountStatus;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
 use rbot_lib::common::LogStatus;
@@ -16,9 +19,15 @@ use serde_json::Value;
 
 use rust_decimal::Decimal;
 
+use anyhow::anyhow;
+use anyhow::ensure;
+#[allow(unused_imports)]
+use anyhow::Context;
+use anyhow::Result;
+
 use rbot_lib::common::{
-    hmac_sign, msec_to_microsec, MarketConfig, MicroSec, Order, OrderSide, OrderStatus,
-    OrderType, ServerConfig, Trade, NOW,
+    hmac_sign, msec_to_microsec, MarketConfig, MicroSec, Order, OrderSide, OrderStatus, OrderType,
+    ServerConfig, Trade, NOW,
 };
 
 use rbot_lib::net::{rest_get, rest_post, RestApi};
@@ -73,7 +82,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     async fn get_board_snapshot(
         server: &BybitServerConfig,
         config: &MarketConfig,
-    ) -> Result<BoardTransfer, String> {
+    ) -> anyhow::Result<BoardTransfer> {
         let path = "/v5/market/orderbook";
 
         let params = format!(
@@ -83,57 +92,49 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             config.board_depth
         );
 
-        let r = Self::rest_get(&server, path, &params).await;
+        let r = Self::rest_get(&server, path, &params)
+            .await
+            .with_context(|| {
+                format!(
+                    "get_board_snapshot: server={:?} / path={:?} / params={:?}",
+                    server, path, params
+                )
+            })?;
 
-        if r.is_err() {
-            let r = r.unwrap_err();
-            return Err(r);
-        }
+        let message = r.body;
 
-        let message = r.unwrap().body;
+        let result = serde_json::from_value::<BybitRestBoard>(message)
+            .with_context(|| format!("parse error in get_board_snapshot"))?;
 
-        let result = serde_json::from_value::<BybitRestBoard>(message);
-
-        if result.is_ok() {
-            let result = result.unwrap();
-            return Ok(result.into());
-        } else {
-            let result = result.unwrap_err();
-            return Err(result.to_string());
-        }
+        Ok(result.into())
     }
 
     async fn get_recent_trades(
         server: &BybitServerConfig,
         config: &MarketConfig,
-    ) -> Result<Vec<Trade>, String> {
+    ) -> anyhow::Result<Vec<Trade>> {
         let path = "/v5/market/recent-trade";
 
         let params = format!(
             "category={}&symbol={}&limit={}",
             config.trade_category.as_str(),
             config.trade_symbol.as_str(),
-            1000
+            1000 // max records.
         );
 
-        let r = Self::rest_get(server, path, &params).await;
+        let r = Self::rest_get(server, path, &params)
+            .await
+            .with_context(|| {
+                format!(
+                    "get_recent_trades: server={:?} / path={:?} / params={:?}",
+                    server, path, params
+                )
+            })?;
 
-        if r.is_err() {
-            let r = r.unwrap_err();
-            return Err(r);
-        }
+        let result = serde_json::from_value::<BybitTradeResponse>(r.body)
+            .with_context(|| format!("parse error in get_recent_trades"))?;
 
-        let message = r.unwrap().body;
-
-        let result = serde_json::from_value::<BybitTradeResponse>(message);
-
-        if result.is_ok() {
-            let result = result.unwrap();
-            return Ok(result.into());
-        } else {
-            let result = result.unwrap_err();
-            return Err(result.to_string());
-        }
+        Ok(result.into())
     }
 
     async fn get_trade_klines(
@@ -141,43 +142,47 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> Result<Vec<Kline>, String> {
-
-
-        let mut klines: Vec<Kline> = vec![];
+    ) -> anyhow::Result<Vec<Kline>> {
+        let mut klines_buf: Vec<Kline> = vec![];
 
         let start_time = TradeTable::ohlcv_start(start_time);
         let mut end_time = TradeTable::ohlcv_end(end_time) - 1;
 
         loop {
-            log::debug!("get_trade_kline_from: {:?}({:?}) -> {:?}({:?})", time_string(start_time), start_time, time_string(end_time), end_time);                        
-            let r = Self::try_get_trade_klines(server, config, start_time, end_time).await;
+            log::debug!(
+                "get_trade_kline_from: {:?}({:?}) -> {:?}({:?})",
+                time_string(start_time),
+                start_time,
+                time_string(end_time),
+                end_time
+            );
+            let mut klines = Self::try_get_trade_klines(server, config, start_time, end_time).await
+            .with_context(|| {
+                format!("get_trade_klines: server={:?} / config={:?} / start_time={:?} / end_time={:?}", server, config, start_time, end_time)
+            })?;
 
-            if r.is_err() {
-                let r = r.unwrap_err();
-                return Err(r);
-            }
-
-            let mut r = r.unwrap();
-
-            let klines_len = r.len();
-
+            let klines_len = klines.len();
             if klines_len == 0 {
                 log::debug! {"End of data"};
                 break;
             }
 
-            end_time = r[klines_len -1].timestamp -1;     // must be execute before append()
-            log::debug!("start_time={:?} / end_time={:?} /({:?})rec", time_string(r[0].timestamp), time_string(r[klines_len -1].timestamp), klines_len);
+            end_time = klines[klines_len - 1].timestamp - 1; // must be execute before append()
+            log::debug!(
+                "start_time={:?} / end_time={:?} /({:?})rec",
+                time_string(klines[0].timestamp),
+                time_string(klines[klines_len - 1].timestamp),
+                klines_len
+            );
 
-            klines.append(&mut r);
+            klines_buf.append(&mut klines);
 
             if end_time <= start_time {
                 break;
             }
         }
 
-        Ok(klines)
+        Ok(klines_buf)
     }
 
     async fn new_order(
@@ -188,7 +193,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
-    ) -> Result<Vec<Order>, String> {
+    ) -> anyhow::Result<Vec<Order>> {
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
@@ -200,7 +205,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         let order = BybitOrderRequest {
             category: category,
-            symbol: config.trade_symbol.clone(),
+            symbol: symbol.clone(),
             side: side.to_string(),
             order_type: order_type.to_string(),
             qty: size,
@@ -208,34 +213,24 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             price: price,
         };
 
-        log::debug!("order={:?}", order);
-
-        let order_json = serde_json::to_string(&order).unwrap();
+        let order_json = serde_json::to_string(&order)?;
         log::debug!("order_json={}", order_json);
 
         let path = "/v5/order/create";
 
-        let result = Self::post_sign(&server, path, &order_json).await;
+        let result = Self::post_sign(&server, path, &order_json)
+            .await
+            .with_context(|| {
+                format!(
+                    "new_order: server={:?} / path={:?} / order_json={:?}",
+                    server, path, order_json
+                )
+            })?;
 
-        if result.is_err() {
-            let result = result.unwrap_err();
-            return Err(result);
-        }
+        let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)
+        .with_context(||format!("parse error in new_order "))?;
 
-        let result = result.unwrap();
-
-        let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
-        if response.is_err() {
-            let response = response.unwrap_err();
-            return Err(response.to_string());
-        }
-        let r = response.unwrap();
-
-        let is_maker = if order_type == OrderType::Limit {
-            true
-        } else {
-            false
-        };
+        let is_maker = order_type.is_maker();
 
         // in bybit only order id is valid when order is created.
         let mut order = Order {
@@ -275,7 +270,6 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         order.update_balance(config);
 
-
         return Ok(vec![order]);
     }
 
@@ -283,30 +277,19 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         server: &BybitServerConfig,
         config: &MarketConfig,
         order_id: &str,
-    ) -> Result<Order, String> {
+    ) -> anyhow::Result<Order> {
         let message = CancelOrderMessage {
             category: config.trade_category.clone(),
             symbol: config.trade_symbol.clone(),
             order_id: order_id.to_string(),
         };
 
-        let message_json = serde_json::to_string(&message).unwrap();
+        let message_json = serde_json::to_string(&message)?;
         let path = "/v5/order/cancel";
-        let result = Self::post_sign(&server, path, &message_json).await;
+        let result = Self::post_sign(&server, path, &message_json).await
+        .with_context(||format!("cancel_order: server={:?} / path={:?} / message_json={:?}", server, path, message_json))?;
 
-        if result.is_err() {
-            let result = result.unwrap_err();
-            return Err(result);
-        }
-
-        let result = result.unwrap();
-
-        let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
-        if response.is_err() {
-            let response = response.unwrap_err();
-            return Err(response.to_string());
-        }
-        let r = response.unwrap();
+        let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
 
         let mut order = Order {
             symbol: "".to_string(),
@@ -348,7 +331,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     async fn open_orders(
         server: &BybitServerConfig,
         config: &MarketConfig,
-    ) -> Result<Vec<Order>, String> {
+    ) -> anyhow::Result<Vec<Order>> {
         let query_string = format!(
             "category={}&symbol={}&limit=50",
             config.trade_category, config.trade_symbol
@@ -356,36 +339,20 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         let path = "/v5/order/realtime";
 
-        let result = Self::get_sign(&server, path, &query_string).await;
+        let result = Self::get_sign(&server, path, &query_string).await
+        .with_context(||format!("open_orders: server={:?} / path={:?} / query_string={:?}", server, path, query_string))?;
 
-        if result.is_err() {
-            let result = result.unwrap_err();
-            return Err(result);
-        }
-
-        let result = result.unwrap();
-
+        log::debug!("result.body={:?}", result.body);
         if result.body.is_null() {
             return Ok(vec![]);
         }
 
-        println!("result.body={:?}", result.body);
+        let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body)
+        .with_context(|| format!("order status parse error"))?;
 
-        let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body);
-
-        if response.is_err() {
-            let response = response.unwrap_err();
-            return Err(response.to_string());
-        }
-
-        let mut orders: Vec<Order> = response.unwrap().into();
+        let mut orders: Vec<Order> = response.into();
 
         for o in orders.iter_mut() {
-            if o.order_type == OrderType::Limit {
-                o.is_maker = true;
-            } else {
-                o.is_maker = false;
-            }
             o.update_balance(config);
         }
 
@@ -395,7 +362,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     async fn get_account(
         _server: &BybitServerConfig,
         _config: &MarketConfig,
-    ) -> Result<rbot_lib::common::AccountStatus, String> {
+    ) -> anyhow::Result<AccountStatus> {
         todo!()
     }
 
@@ -407,7 +374,8 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         mm: i64,
         dd: i64,
     ) -> String {
-        format!("{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
+        format!(
+            "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
             history_web_base, symbol, symbol, yyyy, mm, dd
         )
     }
@@ -464,7 +432,6 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     fn archive_has_header() -> bool {
         true
     }
-
 }
 
 impl BybitRestApi {
@@ -472,38 +439,20 @@ impl BybitRestApi {
         server: &BybitServerConfig,
         path: &str,
         params: &str,
-    ) -> Result<BybitRestResponse, String> {
+    ) -> anyhow::Result<BybitRestResponse> {
         let query = format!("{}?{}", path, params);
 
-        let result = rest_get(&server.get_rest_server(), &query, vec![], None, None).await;
+        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None).await
+        .with_context(||format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
 
-        match result {
-            Ok(result) => {
-                let result = from_str::<BybitRestResponse>(&result);
-
-                if result.is_ok() {
-                    let result = result.unwrap();
-
-                    if result.return_code != 0 {
-                        return Err(result.return_message);
-                    }
-                    return Ok(result);
-                } else {
-                    let result = result.unwrap_err();
-                    return Err(result.to_string());
-                }
-            }
-            Err(err) => {
-                return Err(err.to_string());
-            }
-        }
+        Self::parse_rest_response(response)
     }
 
     pub async fn get_sign(
         server: &BybitServerConfig,
         path: &str,
         query_string: &str,
-    ) -> Result<BybitRestResponse, String> {
+    ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
         let api_key = server.get_api_key();
         let recv_window = "5000";
@@ -519,16 +468,17 @@ impl BybitRestApi {
         headers.push(("X-BAPI-TIMESTAMP", &timestamp));
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
 
-        let result = rest_get(&server.rest_server, path, headers, Some(query_string), None).await;
+        let result = rest_get(&server.rest_server, path, headers, Some(query_string), None).await
+        .with_context(||format!("get_sign error: {}/{}", &server.rest_server, path))?;
 
-        Self::parse_rest_result(result)
+        Self::parse_rest_response(result)
     }
 
     async fn post_sign(
         server: &BybitServerConfig,
         path: &str,
         body: &str,
-    ) -> Result<BybitRestResponse, String> {
+    ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
         let api_key = server.get_api_key();
         let recv_window = "5000";
@@ -545,64 +495,34 @@ impl BybitRestApi {
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
         headers.push(("Content-Type", "application/json"));
 
-        let result = rest_post(&server.get_rest_server(), path, headers, &body).await;
+        let response = rest_post(&server.get_rest_server(), path, headers, &body)
+            .await
+            .with_context(||{format!("post_sign error {}/{}", server.get_rest_server(), path)})?;
 
-        match result {
-            Ok(result) => {
-                let result = from_str::<BybitRestResponse>(&result);
-
-                if result.is_ok() {
-                    let result = result.unwrap();
-
-                    if result.return_code != 0 {
-                        return Err(result.return_message);
-                    }
-                    return Ok(result);
-                } else {
-                    let result = result.unwrap_err();
-                    return Err(result.to_string());
-                }
-            }
-            Err(err) => {
-                return Err(err.to_string());
-            }
-        }
+        Self::parse_rest_response(response)
     }
 
-    fn parse_rest_result(result: Result<String, String>) -> Result<BybitRestResponse, String> {
-        match result {
-            Ok(result) => {
-                if result == "" {
-                    let response = BybitRestResponse {
-                        return_code: 0,
-                        return_message: "Ok".to_string(),
-                        return_ext_info: Value::Null,
-                        time: NOW() / 1_000,
-                        body: Value::Null,
-                    };
-                    return Ok(response);
-                }
-
-                log::debug!("rest response: {}", result);
-
-                let result = from_str::<BybitRestResponse>(&result);
-
-                if result.is_ok() {
-                    let result = result.unwrap();
-
-                    if result.return_code != 0 {
-                        return Err(result.return_message);
-                    }
-                    return Ok(result);
-                } else {
-                    let result = result.unwrap_err();
-                    return Err(result.to_string());
-                }
-            }
-            Err(err) => {
-                return Err(err.to_string());
-            }
+    fn parse_rest_response(response: String) -> anyhow::Result<BybitRestResponse> {
+        if response == "" {
+            log::warn!("empty response");
+            let response = BybitRestResponse {
+                return_code: 0,
+                return_message: "Ok".to_string(),
+                return_ext_info: Value::Null,
+                time: NOW() / 1_000,
+                body: Value::Null,
+            };
+            return Ok(response);
         }
+
+        log::debug!("rest response: {}", response);
+
+        let result = from_str::<BybitRestResponse>(&response)
+            .with_context(||{format!("parse error in parse_rest_response: {:?}", response)})?;
+
+        ensure!(result.return_code == 0, format!("parse rest response error = {}", result.return_message));
+
+        return Ok(result);
     }
 
     async fn try_get_trade_klines(
@@ -610,9 +530,9 @@ impl BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> Result<Vec<Kline>, String> {
+    ) -> anyhow::Result<Vec<Kline>> {
         if end_time <= start_time {
-            return Err("end_time <= start_time".to_string());
+            return Err(anyhow!("end_time({}) <= start_time({})", end_time, start_time));
         }
 
         let path = "/v5/market/kline";
@@ -621,7 +541,7 @@ impl BybitRestApi {
             "category={}&symbol={}&interval={}&start={}&end={}&limit={}", // 1 min
             config.trade_category.as_str(),
             config.trade_symbol.as_str(),
-            1,      // interval 1 min.
+            1, // interval 1 min.
             microsec_to_bybit_timestamp(start_time),
             microsec_to_bybit_timestamp(end_time),
             1000 // max records.
@@ -636,167 +556,14 @@ impl BybitRestApi {
 
         let message = r.unwrap().body;
 
-        let result = serde_json::from_value::<BybitKlinesResponse>(message);
+        let result = serde_json::from_value::<BybitKlinesResponse>(message)
+        .with_context(||format!("parse error in try_get_trade_klines"))?;
 
-        if result.is_err() {
-            let result = result.unwrap_err();
-            return Err(result.to_string());
-        }
-
-        let result = result.unwrap();
         return Ok(result.into());
     }
 }
-
 
 /*
-/// https://bybit-exchange.github.io/docs/v5/market/orderbook
-
-pub fn get_board_snapshot(server: &str, config: &MarketConfig) -> Result<BybitRestBoard, String> {
-    let path = "/v5/market/orderbook";
-
-    let params = format!(
-        "category={}&symbol={}&limit={}",
-        config.trade_category.as_str(),
-        config.trade_symbol.as_str(),
-        200
-    );
-
-    let r = bybit_rest_get(server, path, &params);
-
-    if r.is_err() {
-        let r = r.unwrap_err();
-        return Err(r);
-    }
-
-    let message = r.unwrap().body;
-
-    let result = serde_json::from_value::<BybitRestBoard>(message);
-
-    if result.is_ok() {
-        let result = result.unwrap();
-        return Ok(result);
-    } else {
-        let result = result.unwrap_err();
-        return Err(result.to_string());
-    }
-}
-
-pub fn get_recent_trade(server: &str, config: &MarketConfig) -> Result<BybitTradeResponse, String> {
-    let path = "/v5/market/recent-trade";
-
-    let params = format!(
-        "category={}&symbol={}&limit={}",
-        config.trade_category.as_str(),
-        config.trade_symbol.as_str(),
-        1000
-    );
-
-    let r = bybit_rest_get(server, path, &params);
-
-    if r.is_err() {
-        let r = r.unwrap_err();
-        return Err(r);
-    }
-
-    let message = r.unwrap().body;
-
-    let result = serde_json::from_value::<BybitTradeResponse>(message);
-
-    if result.is_ok() {
-        let result = result.unwrap();
-        return Ok(result);
-    } else {
-        let result = result.unwrap_err();
-        return Err(result.to_string());
-    }
-}
-
-pub fn get_trade_kline(
-    server: &str,
-    config: &MarketConfig,
-    start_time: MicroSec,
-    end_time: MicroSec,
-) -> Result<BybitKlines, String> {
-    let mut klines = BybitKlines::new();
-
-    let mut start_time = TradeTable::ohlcv_start(start_time) / 1_000;
-    let end_time = TradeTable::ohlcv_end(end_time) / 1_000 - 1;
-
-    loop {
-        let r = get_trade_kline_raw(server, config, start_time, end_time);
-
-        log::debug!("get_trade_kline_from({:?}) -> {:?}", start_time, r);
-
-        if r.is_err() {
-            let r = r.unwrap_err();
-            return Err(r);
-        }
-
-        let mut r = r.unwrap();
-
-        let klines_len = r.klines.len();
-
-        if klines_len == 0 {
-            log::debug! {"End of data"};
-            break;
-        }
-
-        start_time = r.klines[0].timestamp + 60 * 1_000; // increase 60[sec] = 1 min
-
-        r.append(&klines);
-        klines = r;
-
-        if end_time <= start_time {
-            break;
-        }
-    }
-
-    Ok(klines)
-}
-
-/// https://bybit-exchange.github.io/docs/v5/market/kline
-///
-fn get_trade_kline_raw(
-    server: &str,
-    config: &MarketConfig,
-    start_time: MicroSec,
-    end_time: MicroSec,
-) -> Result<BybitKlines, String> {
-    if end_time <= start_time {
-        return Err("end_time <= start_time".to_string());
-    }
-
-    let path = "/v5/market/kline";
-
-    let params = format!(
-        "category={}&symbol={}&interval=1&start={}&end={}&limit={}", // 1 min
-        config.trade_category.as_str(),
-        config.trade_symbol.as_str(),
-        start_time,
-        end_time,
-        1000
-    );
-
-    let r = bybit_rest_get(server, path, &params);
-
-    if r.is_err() {
-        let r = r.unwrap_err();
-        return Err(r);
-    }
-
-    let message = r.unwrap().body;
-
-    let result = serde_json::from_value::<BybitKlinesResponse>(message);
-
-    if result.is_ok() {
-        let result = result.unwrap();
-        return Ok(result.into());
-    } else {
-        let result = result.unwrap_err();
-        return Err(result.to_string());
-    }
-}
 
 
 pub fn new_limit_order(
@@ -1145,22 +912,20 @@ pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderS
 #[allow(unused_variables)]
 mod bybit_rest_test {
     use super::*;
-    use std::{thread::sleep, time::Duration};
+    use std::{any, thread::sleep, time::Duration};
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;
     use rbot_lib::common::{init_debug_log, time_string, HHMM};
     use rust_decimal_macros::dec;
-
+    
     #[tokio::test]
-    async fn test_rest_get() {
+    async fn test_rest_get() -> anyhow::Result<()> {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        let r = BybitRestApi::rest_get(&server_config, "/v2/public/time", "").await;
-
-        assert!(r.is_ok());
-        println!("rest_get (time): {:?}", r.unwrap());
+        BybitRestApi::rest_get(&server_config, "/v2/public/time", "").await?;
+        Ok(())
     }
 
     #[tokio::test]
@@ -1205,9 +970,14 @@ mod bybit_rest_test {
         let r = BybitRestApi::get_trade_klines(&server_config, &config, start_time, now).await;
         assert!(r.is_ok());
 
-        let r= r.unwrap();
+        let r = r.unwrap();
         let l = r.len();
-        println!("{:?}-{:?}  {:?} [rec]", time_string(r[0].timestamp), time_string(r[l-1].timestamp), l);
+        println!(
+            "{:?}-{:?}  {:?} [rec]",
+            time_string(r[0].timestamp),
+            time_string(r[l - 1].timestamp),
+            l
+        );
     }
 
     #[tokio::test]
@@ -1288,4 +1058,3 @@ mod bybit_rest_test {
         println!("{:?}", r);
     }
 }
-

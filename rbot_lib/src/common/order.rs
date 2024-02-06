@@ -176,6 +176,15 @@ impl OrderType {
     }
 }
 
+impl OrderType {
+    pub fn is_maker(&self) -> bool {
+        match self {
+            OrderType::Limit => true,
+            _ => false,
+        }
+    }
+}
+
 pub fn ordertype_deserialize<'de, D>(deserializer: D) -> Result<OrderType, D::Error>
 where
     D: de::Deserializer<'de>,

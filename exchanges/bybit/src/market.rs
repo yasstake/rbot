@@ -166,7 +166,7 @@ Bybit {
         price: Decimal,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> anyhow::Result<Vec<Order>> {
         OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
     }
 
@@ -176,20 +176,20 @@ Bybit {
         side: &str,
         size: Decimal,
         client_order_id: Option<&str>,
-    ) -> PyResult<Vec<Order>> {
+    ) -> anyhow::Result<Vec<Order>> {
         OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id)
     }
 
-    pub fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> PyResult<Order> {
+    pub fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         OrderInterfaceImpl::cancel_order(self, market_config, order_id)
     }
 
-    pub fn get_open_orders(&self, market_config: &MarketConfig) -> PyResult<Vec<Order>> {
+    pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         OrderInterfaceImpl::get_open_orders(self, market_config)
     }
 
     // TODO: implement and test
-    pub fn get_account(&self, market_config: &MarketConfig) -> PyResult<AccountStatus> {
+    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
         OrderInterfaceImpl::get_account(self, market_config)
     }
 
@@ -368,11 +368,6 @@ impl /* MarketInterface for */
         MarketImpl::start_user_stream(self)
     }
 
-    fn get_channel(&mut self) -> MarketStream {
-        MarketImpl::get_channel(self)
-    }
-
-
     fn get_trade_list(&self) -> PyResult<Vec<OrderStatus>> {
         todo!()
         //MarketImpl::get_trade_list(self)
@@ -386,6 +381,14 @@ impl /* MarketInterface for */
     fn get_recent_trades(&self) -> Vec<Trade> {
         todo!()
         //MarketImpl::get_recent_trades(self)
+    }
+
+    fn open_realtime_channel(&mut self) -> MarketStream {
+        MarketImpl::open_realtime_channel(self)
+    }
+
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+        MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 }
 
@@ -436,6 +439,10 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
     // TODO: implement
     fn download_latest(&mut self, verbose: bool) -> i64 {
+        todo!()
+    }
+
+    fn download_gap(&mut self, verbose: bool) -> i64 {
         let gap = self.find_latest_gap();
 
         if gap.is_err() {
@@ -445,13 +452,13 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
         let (unfix_start, unfix_end) = gap.unwrap();
         log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
-/*
+
+        /*
         let klines = 
         BLOCK_ON(
         BybitMarket::get_trade_klines(unfix_start, unfix_end);
         );
-*/
-
+        */
 
         return 0;
     }
@@ -488,12 +495,13 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         todo!()
     }
 
-    fn get_channel(&mut self) -> MarketStream {
-        todo!()
-    }
 
     fn get_server_config(&self) -> BybitServerConfig {
         self.server_config.clone()
+    }
+
+    fn open_realtime_channel(&mut self) -> MarketStream {
+        todo!()
     }
 
     fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
