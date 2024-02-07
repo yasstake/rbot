@@ -83,7 +83,7 @@ impl BoardTransfer {
         df
     }
 
-    pub fn to_dataframe(&mut self) -> Result<(DataFrame, DataFrame), ()> {
+    pub fn to_dataframe(&mut self) -> anyhow::Result<(DataFrame, DataFrame)> {
         Ok((
             Self::to_data_frame(&self.bids),
             Self::to_data_frame(&self.asks)
@@ -183,7 +183,7 @@ impl Board {
         self.board.clear();
     }
 
-    pub fn to_dataframe(&mut self) -> Result<DataFrame, ()> {
+    pub fn to_dataframe(&mut self) -> anyhow::Result<DataFrame> {
         let board = self.get();
 
         let mut prices: Vec<f64> = vec![];
@@ -202,7 +202,7 @@ impl Board {
         let sizes = Series::new("size", sizes);
         let sum = Series::new("sum", cusum_col);
 
-        let df = DataFrame::new(vec![prices, sizes, sum]).unwrap();
+        let df = DataFrame::new(vec![prices, sizes, sum])?;
 
         Ok(df)
     }
@@ -230,11 +230,11 @@ impl OrderBookRaw {
         self.asks.clear();
     }
 
-    pub fn get_asks_dataframe(&mut self) -> Result<DataFrame, ()> {
+    pub fn get_asks_dataframe(&mut self) -> anyhow::Result<DataFrame> {
         self.asks.to_dataframe()
     }
 
-    pub fn get_bids_dataframe(&mut self) -> Result<DataFrame, ()> {
+    pub fn get_bids_dataframe(&mut self) -> anyhow::Result<DataFrame> {
         self.bids.to_dataframe()
     }
 
@@ -295,21 +295,21 @@ impl OrderBook {
         self.board.lock().unwrap().clear();
     }
 
-    pub fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
+    pub fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let board = self.board.lock().unwrap();
         let bids = board.bids.get();
         let asks = board.asks.get();
         Ok((bids, asks))
     }
 
-    pub fn get_board(&self) -> Result<(DataFrame, DataFrame), ()> {
+    pub fn get_board(&self) -> anyhow::Result<(DataFrame, DataFrame)> {
         let mut board = self.board.lock().unwrap();
         let bids = board.get_bids_dataframe()?;
         let asks = board.get_asks_dataframe()?;
         Ok((bids, asks))
     }
 
-    pub fn get_json(&self, size: usize) -> Result<String, String> {
+    pub fn get_json(&self, size: usize) -> anyhow::Result<String> {
         let board = self.board.lock().unwrap();
         let bids = board.bids.get();
         let bids = bids[0..size.min(bids.len())].to_vec();

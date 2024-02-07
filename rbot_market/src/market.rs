@@ -4,7 +4,6 @@ use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
-use pyo3::{PyErr, PyResult};
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::OrderBook;
@@ -14,7 +13,7 @@ use rust_decimal::Decimal;
 use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
-use anyhow::Result;
+// use anyhow::Result;
 
 use rbot_lib::{
     common::{
@@ -196,6 +195,8 @@ where
                 .with_context(|| format!("Error in get_account: {:?}", &market_config))
         })
     }
+
+    fn start_user_stream(&mut self);
 }
 
 pub trait MarketInterface {
@@ -259,15 +260,14 @@ pub trait MarketInterface {
         archive_only: bool,
         low_priority: bool,
     ) -> i64;
-    fn download_latest(&mut self, verbose: bool) -> i64;
-    fn download_gap(&mut self, verbose: bool) -> i64;
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
+    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64>;
 
     fn start_market_stream(&mut self);
-    fn start_user_stream(&mut self);
-    // TODO: change signature to open_realtime_channel
 
-    fn open_realtime_channel(&mut self) -> MarketStream;
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream;
+
+    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream>;
 }
 
 pub trait MarketImpl<T, U>
@@ -283,11 +283,11 @@ where
     fn get_trade_symbol(&self) -> String;
 
     /// Download historical log from REST API
-    fn download_latest(&mut self, verbose: bool) -> i64;
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
 
     /// Download historical log from REST API, between the latest data and the latest FIX data.
     /// If the latest FIX data is not found, generate psudo data from klines.
-    fn download_gap(&mut self, verbose: bool) -> i64;
+    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64>;
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>>;
 
@@ -317,7 +317,7 @@ where
     }
 
     /// Check if database is valid at the date
-    fn validate_db_by_date(&mut self, date: MicroSec) -> bool {
+    fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
@@ -330,8 +330,8 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        let fix_time = lock.latest_fix_time(start_time);
-        let unfix_time = lock.first_unfix_time(fix_time);
+        let fix_time = lock.latest_fix_time(start_time)?;
+        let unfix_time = lock.first_unfix_time(fix_time)?;
 
         if fix_time == 0 || unfix_time == 0 {
             return Err(anyhow!("No data found"));
@@ -464,15 +464,11 @@ where
         }
     */
     // --- DB ----
-    fn drop_table(&mut self) -> PyResult<()> {
+    fn drop_table(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let lock = db.lock().unwrap();
-
-        if lock.drop_table().is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Error in drop_table",
-            ));
-        }
+        
+        lock.drop_table()?;
 
         Ok(())
     }
@@ -501,7 +497,7 @@ where
         lock.update_cache_all();
     }
 
-    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
+    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_select_trades_polars(start_time, end_time)
@@ -512,7 +508,7 @@ where
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_ohlcvv_polars(start_time, end_time, window_sec)
@@ -523,7 +519,7 @@ where
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_ohlcv_polars(start_time, end_time, window_sec)
@@ -534,7 +530,7 @@ where
         start_time: MicroSec,
         end_time: MicroSec,
         price_unit: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_vap(start_time, end_time, price_unit)
@@ -579,20 +575,11 @@ where
 
     fn reflesh_order_book(&mut self);
 
-    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
         let lock = orderbook.read().unwrap();
 
-        let r = lock.get_board();
-        drop(lock);
-        if r.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in get_board: {:?}",
-                r
-            )));
-        }
-
-        let (mut bids, mut asks) = r.unwrap();
+        let (mut bids, mut asks) = lock.get_board()?;
 
         if bids.shape().0 == 0 || asks.shape().0 == 0 {
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -618,31 +605,25 @@ where
         return Ok((PyDataFrame(bids), PyDataFrame(asks)));
     }
 
-    fn get_board_json(&self, size: usize) -> PyResult<String> {
+    fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         let orderbook = self.get_order_book();
         let lock = orderbook.read().unwrap();
 
-        let result = lock.get_json(size);
+        let json = lock.get_json(size)?;
         drop(lock);
 
-        match result {
-            Ok(json) => Ok(json),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in get_board_json: {:?}",
-                e
-            ))),
-        }
+        Ok(json)
     }
 
-    fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
+    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let orderbook = self.get_order_book();
         let lock = orderbook.read().unwrap();
-        let (bids, asks) = lock.get_board_vec().unwrap();
+        let (bids, asks) = lock.get_board_vec()?;
 
         Ok((bids, asks))
     }
 
-    fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         let orderbook = self.get_order_book();
         let lock = orderbook.read().unwrap();
 
@@ -668,7 +649,7 @@ where
         verbose: bool,
         archive_only: bool,
         low_priority: bool,
-    ) -> i64 {
+    ) -> anyhow::Result<i64> {
         log::info!("log download: {} days", ndays);
         if verbose {
             println!("log download: {} days", ndays);
@@ -693,7 +674,7 @@ where
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
 
-            if !force && self.validate_db_by_date(date) {
+            if !force && self.validate_db_by_date(date)? {
                 log::info!("{} is valid", time_string(date));
 
                 if verbose {
@@ -718,13 +699,13 @@ where
         }
 
         if !archive_only {
-            let rec = self.download_latest(verbose);
+            let rec = self.download_latest(verbose)?;
             download_rec += rec;
         }
         // let expire_message = self.db.connection.make_expire_control_message(now);
         // tx.send(expire_message).unwrap();
 
-        download_rec
+        Ok(download_rec)
     }
 
     fn download_archive(
@@ -758,9 +739,9 @@ where
 
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
-    fn start_market_stream(&mut self);
-    fn start_user_stream(&mut self);
+    fn start_market_stream(&mut self) -> anyhow::Result<()>;
+    // fn start_user_stream(&mut self); -> move to OrderInterface
 
-    fn open_realtime_channel(&mut self) -> MarketStream;
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream;
+    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream>;
 }

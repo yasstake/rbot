@@ -760,7 +760,8 @@ mod test_exchange {
         log::debug!("log_download_temp: {}", path);
 
         let mut rec_no = 0;
-        read_csv_archive(&path, true, |rec| {
+
+        read_csv_archive(&path, true, |_rec| {
             rec_no += 1;
         });
 
