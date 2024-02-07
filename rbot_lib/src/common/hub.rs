@@ -82,7 +82,7 @@ mod test_market_hub {
             }
         }
         
-        for i in 10..20 {
+        for _i in 10..20 {
             let r = rx.recv().await;
             if r.is_err() {
                 println!("error: {:?}", r);
@@ -92,7 +92,7 @@ mod test_market_hub {
             }
         }
 
-        for i in 10..20 {
+        for _i in 10..20 {
             let r = rx2.recv().await;
             if r.is_err() {
                 println!("error: {:?}", r);

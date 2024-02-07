@@ -587,8 +587,6 @@ use rust_decimal::prelude::ToPrimitive;
 
 #[cfg(test)]
 mod test_df {
-    use std::any;
-
     use super::*;
     use crate::common::DAYS;
 
