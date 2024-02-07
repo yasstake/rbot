@@ -60,7 +60,19 @@ impl MarketMessage {
     }
 }
 
-pub type MultiMarketMessage = Vec<MarketMessage>;
+//pub type MultiMarketMessage = Vec<MarketMessage>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MultiMarketMessage {
+    Trade(Vec<Trade>),
+    Order(Vec<Order>),
+    Account(Vec<AccountStatus>),
+    Orderbook(OrderBookRaw),
+    Message(String),
+    Control(ControlMessage),
+}
+
+
 const CHANNEL_SIZE: usize = 4096;
 
 

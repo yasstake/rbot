@@ -8,6 +8,7 @@ use chrono::Datelike;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 
+use futures::StreamExt;
 use polars_core::export::num::FromPrimitive;
 
 use std::sync::{Arc, Mutex, RwLock};
@@ -16,25 +17,17 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
 };
 
 use rbot_lib::common::BLOCK_ON;
 
-use rbot_lib::db::{
-    KEY,
-    TradeTable, TradeTableDb,
-    db_full_path    
-};
+use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
 
-use rbot_lib::net::{
-    UdpSender,
-    RestApi, 
-    latest_archive_date,     
-};
+use rbot_lib::net::{latest_archive_date, RestApi, UdpSender};
 
-use rbot_market::{MarketInterface, OrderInterfaceImpl, OrderInterface};
 use rbot_market::MarketImpl;
+use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
 
 use crate::message::BybitUserWsMessage;
 
@@ -115,7 +108,6 @@ impl BybitOrderBook {
     }
 }
 
-
 #[pyclass]
 #[derive(Debug)]
 pub struct Bybit {
@@ -124,9 +116,7 @@ pub struct Bybit {
 }
 
 #[pymethods]
-impl 
-//OrderInterface for 
-Bybit {
+impl Bybit {
     #[new]
     #[pyo3(signature = (production=false))]
     pub fn new(production: bool) -> Self {
@@ -142,7 +132,7 @@ Bybit {
         return BybitMarket::new(&self.server_config, config);
     }
 
-    //--- OrderInterfaceImpl ---- 
+    //--- OrderInterfaceImpl ----
     #[setter]
     pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
         OrderInterfaceImpl::set_enable_order_feature(self, enable_order)
@@ -176,7 +166,11 @@ Bybit {
     }
 
     #[pyo3(signature = (market_config, *, order_id))]
-    pub fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
+    pub fn cancel_order(
+        &self,
+        market_config: &MarketConfig,
+        order_id: &str,
+    ) -> anyhow::Result<Order> {
         OrderInterfaceImpl::cancel_order(self, market_config, order_id)
     }
 
@@ -210,9 +204,6 @@ impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
     }
 }
 
-
-
-
 #[derive(Debug)]
 #[pyclass]
 pub struct BybitMarket {
@@ -220,7 +211,6 @@ pub struct BybitMarket {
     pub config: MarketConfig,
     pub db: Arc<Mutex<TradeTable>>,
     pub board: Arc<RwLock<OrderBook>>,
-    pub public_ws: BybitPublicWsClient,
     pub public_handler: Option<tokio::task::JoinHandle<()>>,
     // pub user_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
     // pub user_handler: Option<tokio::task::JoinHandle<()>>,
@@ -230,13 +220,11 @@ pub struct BybitMarket {
 }
 
 #[pymethods]
-impl /* MarketInterface for */
-    BybitMarket {
-    
+impl BybitMarket {
     #[new]
     pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BybitMarket::new");
-        BLOCK_ON(async{Self::async_new(server_config, config).await})
+        BLOCK_ON(async { Self::async_new(server_config, config).await })
     }
 
     fn get_config(&self) -> MarketConfig {
@@ -271,11 +259,15 @@ impl /* MarketInterface for */
         MarketImpl::stop_db_thread(self)
     }
 
-    fn cache_all_data(&mut self) -> anyhow::Result<()>{
+    fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
     }
 
-    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<PyDataFrame> {
+    fn select_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
         MarketImpl::select_trades(self, start_time, end_time)
     }
 
@@ -346,15 +338,14 @@ impl /* MarketInterface for */
         MarketImpl::_repr_html_(self)
     }
 
-    fn download(
+    fn download_archive(
         &mut self,
         ndays: i64,
         force: bool,
         verbose: bool,
-        archive_only: bool,
         low_priority: bool,
     ) -> anyhow::Result<i64> {
-        MarketImpl::download(self, ndays, force, verbose, archive_only, low_priority)
+        MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
     }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
@@ -373,7 +364,7 @@ impl /* MarketInterface for */
         MarketImpl::download_gap(self, verbose)
     }
 
-    fn start_market_stream(&mut self) -> anyhow::Result<()>{
+    fn start_market_stream(&mut self) -> anyhow::Result<()> {
         MarketImpl::start_market_stream(self)
     }
 
@@ -396,7 +387,11 @@ impl /* MarketInterface for */
         MarketImpl::open_realtime_channel(self)
     }
 
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream> {
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<MarketStream> {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 }
@@ -414,16 +409,13 @@ impl BybitMarket {
             log::error!("Error in TradeTable::open: {:?}", db);
         }
 
-        let public_ws = BybitPublicWsClient::new(
-            &server_config,
-            &config).await;
+        let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
         return BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db.unwrap())),
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
-            public_ws: public_ws,
             public_handler: None,
         };
     }
@@ -446,14 +438,10 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.config.trade_symbol.clone()
     }
 
-    // TODO: implement
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async {
-            self.async_download_lastest().await
-        })
+        BLOCK_ON(async { self.async_download_lastest().await })
     }
 
-    // TODO: implement
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");
         let (unfix_start, unfix_end) = self.find_latest_gap()?;
@@ -464,10 +452,12 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
             return Ok(0);
         }
 
-        let klines = 
-        BLOCK_ON(
-            BybitRestApi::get_trade_klines(&self.server_config, &self.get_config(), unfix_start, unfix_end)
-        )?;
+        let klines = BLOCK_ON(BybitRestApi::get_trade_klines(
+            &self.server_config,
+            &self.get_config(),
+            unfix_start,
+            unfix_end,
+        ))?;
 
         let trades: Vec<Trade> = convert_klines_to_trades(klines);
         let rec = trades.len() as i64;
@@ -478,7 +468,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         let tx = lock.start_thread();
         drop(lock);
 
-        tx.send(expire_message)?;        
+        tx.send(expire_message)?;
         tx.send(trades)?;
 
         Ok(rec)
@@ -492,7 +482,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.server_config.history_web_base.clone()
     }
 
-    fn open_udp(&mut self) -> Arc<Mutex<UdpSender>>{
+    fn open_udp(&mut self) -> Arc<Mutex<UdpSender>> {
         todo!()
     }
 
@@ -508,22 +498,25 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.config.clone()
     }
 
-    fn start_market_stream(&mut self) -> anyhow::Result<()> {
-        todo!()
-    }
-
     fn get_server_config(&self) -> BybitServerConfig {
-        self.server_config.clone()
+        todo!()
     }
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
         todo!()
     }
 
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream> {
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<MarketStream> {
         todo!()
     }
 
+    fn start_market_stream(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_start_market_stream().await })
+    }
 }
 
 impl BybitMarket {
@@ -537,6 +530,75 @@ impl BybitMarket {
         Ok(rec)
     }
 
+    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
+        if self.public_handler.is_some() {
+            log::info!("market stream is already running.");
+            return Ok(());
+        }
+
+        let mut lock = self.db.lock().unwrap();
+        let db_channel = lock.start_thread();
+        drop(lock);
+
+        let mut orderbook = self.board.clone();
+
+        let server_config = self.server_config.clone();
+        let config = self.config.clone();
+
+        self.public_handler = Some(tokio::task::spawn(async move {
+            let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
+
+            public_ws.connect().await;
+            let mut ws_stream = public_ws.open_stream().await;    
+            let mut ws_stream = Box::pin(ws_stream);
+
+            loop {
+                let message = ws_stream.next().await;
+                if message.is_none() {
+                    log::error!("Error in ws_stream.recv: {:?}", message);
+                    continue;
+                }
+
+                let message = message.unwrap();
+
+                if message.is_err() {
+                    log::error!("Error in ws_stream.recv: {:?}", message);
+                    continue;
+                }
+
+                let messages = message.unwrap();
+
+                match messages {
+                    MultiMarketMessage::Trade(trade) => {
+                        log::debug!("Trade: {:?}", trade);
+                        let r = db_channel.send(trade);
+
+                        if r.is_err() {
+                            log::error!("Error in db_channel.send: {:?}", r);
+                        }
+                    }
+                    MultiMarketMessage::Orderbook(ob) => {
+                        let board = BoardTransfer::from_orderbook(&ob);
+                        let snapshot = ob.snapshot;
+
+                        let mut b = orderbook.write().unwrap();
+                        b.update(&board.bids, &board.asks, snapshot);
+                        drop(b);
+                    }
+                    _ => {
+                        log::warn!("Not implemented/unexpected message: {:?}", messages);
+                    } /*
+                      MultiMarketMessage::Order(_) => todo!(),
+                      MultiMarketMessage::Account(_) => todo!(),
+                      MultiMarketMessage::Message(_) => todo!(),
+                      MultiMarketMessage::Control(_) => todo!(),
+                      */
+                }
+            }
+        }));
+
+        Ok(())
+    }
 }
 
 /*
@@ -565,144 +627,6 @@ impl _BybitMarket {
     }
 
 
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
-    pub fn download(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-        archive_only: bool,
-        low_priority: bool,
-    ) -> i64 {
-        log::info!("log download: {} days", ndays);
-        if verbose {
-            println!("log download: {} days", ndays);
-            flush_log();
-        }
-
-        let latest_date;
-
-        match self.get_latest_archive_date() {
-            Ok(timestamp) => latest_date = timestamp,
-            Err(_) => {
-                latest_date = NOW() - DAYS(2);
-            }
-        }
-
-        log::info!("archive latest_date: {}", time_string(latest_date));
-        if verbose {
-            println!("archive latest_date: {}", time_string(latest_date));
-            flush_log();
-        }
-
-        let mut download_rec: i64 = 0;
-
-        let tx = &self.db.start_thread();
-
-        for i in 0..ndays {
-            let date = latest_date - i * DAYS(1);
-
-            if !force && self.validate_db_by_date(date) {
-                log::info!("{} is valid", time_string(date));
-
-                if verbose {
-                    println!("{} skip download", time_string(date));
-                    flush_log();
-                }
-                continue;
-            }
-
-            match self.download_log(tx, date, low_priority, verbose) {
-                Ok(rec) => {
-                    log::info!("downloaded: {}", download_rec);
-                    download_rec += rec;
-                }
-                Err(e) => {
-                    log::error!("Error in download_log: {:?}", e);
-                    if verbose {
-                        println!("Error in download_log: {:?}", e);
-                    }
-                }
-            }
-        }
-
-        if !archive_only {
-            let rec = self.download_latest(verbose);
-            download_rec += rec;
-        }
-        // let expire_message = self.db.connection.make_expire_control_message(now);
-        // tx.send(expire_message).unwrap();
-
-        download_rec
-    }
-
-    /// Download klines and store ohlcv cache.
-    /// STEP1: 不確定データを削除する（start_market_streamで実行）
-    /// STEP2: WSでデータを取得開始する。(start_market_streamで実行)
-    /// STEP3: RESTでrecent tradeデータを取得する。start_market_streamで実行
-    /// STEP4: RESTでklineデータを取得しキャッシュする。download_latestで実行
-    #[pyo3(signature = (verbose = true))]
-    pub fn download_latest(&mut self, verbose: bool) -> i64 {
-        if verbose {
-            println!("download_latest");
-            flush_log();
-        }
-        let start_time = NOW() - DAYS(2);
-
-        let fix_time = self.db.connection.latest_fix_time(start_time);
-        let fix_time = TradeTable::ohlcv_end(fix_time);
-
-        let unfix_time = self.db.connection.first_unfix_time(fix_time);
-        let unfix_time = TradeTable::ohlcv_end(unfix_time) - 1;
-
-        if (unfix_time - fix_time) <= HHMM(0, 1) {
-            if verbose {
-                println!("no need to download");
-                flush_log();
-            }
-            return 0;
-        }
-
-        if verbose {
-            print!("fill out with kline data ");
-            print!("FROM: fix_time: {:?}/{:?}", time_string(fix_time), fix_time);
-            println!(
-                " TO:unfix_time: {:?}/{:?}",
-                time_string(unfix_time),
-                unfix_time
-            );
-            flush_log();
-        }
-
-        let klines = get_trade_kline(
-            &self.server_config.rest_server,
-            &self.config,
-            fix_time,
-            unfix_time,
-        );
-
-        if klines.is_err() {
-            log::error!("Error in get_trade_kline: {:?}", klines);
-            return 0;
-        }
-        let klines = klines.unwrap();
-        let rec = klines.klines.len();
-
-        let control_message = TradeTableDb::expire_control_message(fix_time, unfix_time);
-
-        let trades: Vec<Trade> = klines.into();
-
-        let tx = self.db.start_thread();
-        tx.send(control_message).unwrap();
-        tx.send(trades).unwrap();
-
-        if verbose {
-            println!("downloaded klines: {} rec", rec);
-            flush_log();
-        }
-
-        return rec as i64;
-    }
 
     pub fn start_market_stream(&mut self) {
         RUNTIME.block_on(async move { self._start_market_stream().await })
@@ -1236,7 +1160,7 @@ impl _BybitMarket {
     }
 
     /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
-    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
+    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99
     fn rec_to_trade(rec: &StringRecord) -> Trade {
         let timestamp = rec
             .get(0)

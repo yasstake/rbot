@@ -14,10 +14,10 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rbot_lib::common::{
-    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board,
-    BoardTransfer, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage,
-    Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade,
+    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board, BoardTransfer, ControlMessage, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade
 };
+
+use crate::Bybit;
 
 pub type BybitTimestamp = i64;
 
@@ -576,19 +576,10 @@ impl From<String> for BybitPublicWsMessage {
 
 impl Into<MultiMarketMessage> for BybitPublicWsMessage {
     fn into(self) -> MultiMarketMessage {
-        let mut message = MultiMarketMessage::new();
-
         match self {
-            BybitPublicWsMessage::Status(status) => {
-                if status.success == false {
-                    log::warn!("status: {:?}", status);
-                } else {
-                    log::debug!("status: {:?}", status);
-                }
-                //    MarketMessage::Status(status)
-                // return Null message
-            }
             BybitPublicWsMessage::Trade(trade) => {
+                let mut trades: Vec<Trade> = vec![];
+
                 for trade in trade.data.iter() {
                     let t = Trade::new(
                         msec_to_microsec(trade.timestamp),
@@ -598,8 +589,9 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                         LogStatus::UnFix,
                         &trade.trade_id,
                     );
-                    message.push(MarketMessage::Trade(t));
+                    trades.push(t);
                 }
+                return MultiMarketMessage::Trade(trades);
             }
             BybitPublicWsMessage::Orderbook(orderbook) => {
                 let mut snapshot = false;
@@ -622,14 +614,23 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                 let mut board: OrderBookRaw = orderbook.data.into();
                 board.snapshot = snapshot;
 
-                message.push(MarketMessage::Orderbook(board));
+                return MultiMarketMessage::Orderbook(board);
+            }
+            BybitPublicWsMessage::Status(status) => {
+                return MultiMarketMessage::Control(ControlMessage {
+                    status: status.success,
+                    operation: status.op,
+                    message: status.ret_msg,
+                })
             }
             BybitPublicWsMessage::Pong(pong) => {
-                log::debug!("Pong: {:?}", pong);
+                return MultiMarketMessage::Control(ControlMessage{
+                    status: true,
+                    operation: pong.op,
+                    message: pong.conn_id,
+                })
             }
         }
-
-        message
     }
 }
 
@@ -676,6 +677,8 @@ pub struct BybitWsTradeMessage {
     #[serde(rename = "ts")]
     pub timestamp: BybitTimestamp,
 }
+
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsTrade {
