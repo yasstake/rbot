@@ -826,6 +826,7 @@ mod test_exchange_ws {
     use std::env;
     use std::sync::Arc;
     use tokio::sync::RwLock;
+    use crate::common::SecretString;
 
     use super::WsOpMessage;
 
@@ -896,12 +897,12 @@ mod test_exchange_ws {
             self.rest_server.clone()
         }
 
-        fn get_api_key(&self) -> String {
-            self.api_key.clone()
+        fn get_api_key(&self) -> SecretString {
+            SecretString::new(&self.api_key)
         }
 
-        fn get_api_secret(&self) -> String {
-            self.api_secret.clone()
+        fn get_api_secret(&self) -> SecretString {
+            SecretString::new(&self.api_secret)
         }
 
         fn get_historical_web_base(&self) -> String {
