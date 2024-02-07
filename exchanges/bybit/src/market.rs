@@ -51,6 +51,7 @@ use super::config::BybitServerConfig;
 use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitPublicWsMessage};
 
+use anyhow::Context;
 
 #[derive(Debug)]
 pub struct BybitOrderBook {
@@ -64,28 +65,20 @@ impl BybitOrderBook {
         };
     }
 
-    fn get_board_vec(&self) -> Result<(Vec<BoardItem>, Vec<BoardItem>), ()> {
+    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let (bids, asks) = self.board.get_board_vec().unwrap();
 
         Ok((bids, asks))
     }
 
-    fn get_board_json(&self, size: usize) -> Result<String, ()> {
+    fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         let json = self.board.get_json(size).unwrap();
 
         Ok(json)
     }
 
-    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
-        let r = self.board.get_board();
-        if r.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Error in get_board: {:?}",
-                r
-            )));
-        }
-
-        let (mut bids, mut asks) = r.unwrap();
+    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+        let (mut bids, mut asks) = self.board.get_board()?;
 
         if bids.is_empty() || asks.is_empty() {
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -105,7 +98,7 @@ impl BybitOrderBook {
         return Ok((PyDataFrame(bids), PyDataFrame(asks)));
     }
 
-    fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         Ok(self.board.get_edge_price())
     }
 
@@ -211,6 +204,10 @@ impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
     fn get_server_config(&self) -> &BybitServerConfig {
         &self.server_config
     }
+
+    fn start_user_stream(&mut self) {
+        todo!()
+    }
 }
 
 
@@ -258,7 +255,7 @@ impl /* MarketInterface for */
         MarketImpl::get_trade_symbol(self)
     }
 
-    fn drop_table(&mut self) -> PyResult<()> {
+    fn drop_table(&mut self) -> anyhow::Result<()> {
         MarketImpl::drop_table(self)
     }
 
@@ -278,7 +275,7 @@ impl /* MarketInterface for */
         MarketImpl::cache_all_data(self)
     }
 
-    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> PyResult<PyDataFrame> {
+    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<PyDataFrame> {
         MarketImpl::select_trades(self, start_time, end_time)
     }
 
@@ -287,7 +284,7 @@ impl /* MarketInterface for */
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         MarketImpl::ohlcvv(self, start_time, end_time, window_sec)
     }
 
@@ -296,7 +293,7 @@ impl /* MarketInterface for */
         start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         MarketImpl::ohlcv(self, start_time, end_time, window_sec)
     }
 
@@ -305,7 +302,7 @@ impl /* MarketInterface for */
         start_time: MicroSec,
         end_time: MicroSec,
         price_unit: i64,
-    ) -> PyResult<PyDataFrame> {
+    ) -> anyhow::Result<PyDataFrame> {
         MarketImpl::vap(self, start_time, end_time, price_unit)
     }
 
@@ -313,19 +310,19 @@ impl /* MarketInterface for */
         MarketImpl::info(self)
     }
 
-    fn get_board_json(&self, size: usize) -> PyResult<String> {
+    fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         MarketImpl::get_board_json(self, size)
     }
 
-    fn get_board(&mut self) -> PyResult<(PyDataFrame, PyDataFrame)> {
+    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         MarketImpl::get_board(self)
     }
 
-    fn get_board_vec(&self) -> PyResult<(Vec<BoardItem>, Vec<BoardItem>)> {
+    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         MarketImpl::get_board_vec(self)
     }
 
-    fn get_edge_price(&self) -> PyResult<(Decimal, Decimal)> {
+    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         MarketImpl::get_edge_price(self)
     }
 
@@ -356,42 +353,38 @@ impl /* MarketInterface for */
         verbose: bool,
         archive_only: bool,
         low_priority: bool,
-    ) -> i64 {
+    ) -> anyhow::Result<i64> {
         MarketImpl::download(self, ndays, force, verbose, archive_only, low_priority)
     }
 
-    fn download_latest(&mut self, verbose: bool) -> i64 {
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_latest(self, verbose)
     }
 
-    fn start_market_stream(&mut self) {
+    fn start_market_stream(&mut self) -> anyhow::Result<()>{
         MarketImpl::start_market_stream(self)
     }
 
-    fn start_user_stream(&mut self) {
-        MarketImpl::start_user_stream(self)
-    }
-
-    fn get_trade_list(&self) -> PyResult<Vec<OrderStatus>> {
+    fn get_trade_list(&self) -> anyhow::Result<Vec<OrderStatus>> {
         todo!()
         //MarketImpl::get_trade_list(self)
     }
 
-    fn get_account(&self) -> PyResult<AccountStatus> {
+    fn get_account(&self) -> anyhow::Result<AccountStatus> {
         todo!()
         //MarketImpl::get_account(self)
     }
 
-    fn get_recent_trades(&self) -> Vec<Trade> {
+    fn get_recent_trades(&self) -> anyhow::Result<Vec<Trade>> {
         todo!()
         //MarketImpl::get_recent_trades(self)
     }
 
-    fn open_realtime_channel(&mut self) -> MarketStream {
+    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
         MarketImpl::open_realtime_channel(self)
     }
 
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream> {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 }
@@ -442,16 +435,28 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     // TODO: implement
-    fn download_latest(&mut self, verbose: bool) -> i64 {
-        todo!()
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        /*
+        let  r = BLOCK_ON(async {
+            BybitRestApi::get_recent_trades(&self.server_config, &self.get_config()).await
+                    .with_context(|| "Error in get_recent_trades");
+        }
+        );
+        */
+        // TODO: implment
+        todo!();
+
+
+        Ok(0 as i64)
     }
 
-    fn download_gap(&mut self, verbose: bool) -> i64 {
+    // TODO: implement
+    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         let gap = self.find_latest_gap();
 
         if gap.is_err() {
             log::error!("Error in find_latest_gap: {:?}", gap);
-            return 0;
+            return Ok(0);
         }
 
         let (unfix_start, unfix_end) = gap.unwrap();
@@ -464,7 +469,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         );
         */
 
-        return 0;
+        Ok(0)
     }
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>> {
@@ -491,24 +496,19 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.config.clone()
     }
 
-    fn start_market_stream(&mut self) {
+    fn start_market_stream(&mut self) -> anyhow::Result<()> {
         todo!()
     }
-
-    fn start_user_stream(&mut self) {
-        todo!()
-    }
-
 
     fn get_server_config(&self) -> BybitServerConfig {
         self.server_config.clone()
     }
 
-    fn open_realtime_channel(&mut self) -> MarketStream {
+    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
         todo!()
     }
 
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
+    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream> {
         todo!()
     }
 
