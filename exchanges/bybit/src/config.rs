@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, ServerConfig, to_mask_string};
+use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,10 +17,10 @@ pub struct BybitServerConfig {
     pub private_ws: String,
     pub db_base_dir: String,
     pub history_web_base: String,
-    #[serde(serialize_with = "to_mask_string")]
-    api_key: String,
-    #[serde(serialize_with = "to_mask_string")]
-    api_secret: String,
+    //#[serde(serialize_with = "to_mask_string")]
+    api_key: SecretString,
+    //#[serde(serialize_with = "to_mask_string")]
+    api_secret: SecretString,
 }
 
 #[pymethods]
@@ -59,8 +59,8 @@ impl BybitServerConfig {
             private_ws: private_ws_server,
             db_base_dir: "".to_string(),
             history_web_base: "https://public.bybit.com".to_string(),
-            api_key,
-            api_secret
+            api_key: SecretString::new(&api_key),
+            api_secret: SecretString::new(&api_secret)
         };
     }
 
@@ -84,11 +84,11 @@ impl ServerConfig for BybitServerConfig {
         self.rest_server.clone()
     }
 
-    fn get_api_key(&self) -> String {
+    fn get_api_key(&self) -> SecretString {
         self.api_key.clone()
     }
 
-    fn get_api_secret(&self) -> String {
+    fn get_api_secret(&self) -> SecretString {
         self.api_secret.clone()
     }
 
