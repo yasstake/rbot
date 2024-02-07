@@ -1,6 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use anyhow::anyhow;
+use anyhow::ensure;
 use anyhow::Context;
 //use anyhow::Result;
 
@@ -144,17 +145,14 @@ impl TradeTableDb {
     }
 
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
-    /// データがない場合は空の配列を返す。
+    /// ２日以内にデータがない場合はエラーを返す。
     pub fn make_expire_control_message(&mut self, now: MicroSec) -> anyhow::Result<Vec<Trade>> {
         log::debug!("make_expire_control_message from {}", time_string(now));
 
         let start_time = now - DAYS(2);
 
         let fix_time = self.latest_fix_time(start_time)?;
-
-        if fix_time == 0 {
-            return Ok(vec![]);
-        }
+        ensure!(fix_time != 0, "no fix data in 2 days");
 
         log::debug!(
             "make_expire_control_message from {} to {}",
@@ -575,6 +573,12 @@ impl TradeTable {
         }
 
         return true;
+    }
+
+    /// create new expire control message(from latest fix time to now)
+    /// if there is not fix record in 2 days, return error.
+    pub fn make_expire_control_message(&mut self, now: MicroSec) -> anyhow::Result<Vec<Trade>> {
+        self.connection.make_expire_control_message(now)
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
