@@ -499,7 +499,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn get_server_config(&self) -> BybitServerConfig {
-        todo!()
+        self.server_config.clone()
     }
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
