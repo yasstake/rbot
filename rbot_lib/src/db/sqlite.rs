@@ -2,21 +2,21 @@
 
 use anyhow::anyhow;
 use anyhow::Context;
-use anyhow::Result;
+//use anyhow::Result;
+
 use numpy::IntoPyArray;
 use numpy::PyArray2;
 use polars::prelude::DataFrame;
 use polars::prelude::Float64Type;
 use polars_core::prelude::IndexOrder;
-use pyo3::{Py, PyResult, Python};
+use pyo3::{Py, Python};
 use pyo3_polars::PyDataFrame;
 use rusqlite::params_from_iter;
-use rusqlite::{params, Connection, Error, Transaction};
+use rusqlite::{params, Connection, Transaction};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::fmt::format;
 use std::time::Duration;
 use tokio::task::spawn;
 use tokio::task::JoinHandle;
@@ -532,7 +532,7 @@ impl TradeTableDb {
 
         tokio::task::spawn(async move {
             // let mut channel = sender.lock().unwrap();
-            table_db.select(time_from, time_to, |trade| {
+            let r = table_db.select(time_from, time_to, |trade| {
                 let message: MarketMessage = trade.into();
                 let r = sender.send(message);
 
@@ -540,6 +540,10 @@ impl TradeTableDb {
                     log::error!("Error in channel.send: {:?}", r);
                 }
             });
+
+            if r.is_err() {
+                log::error!("select_stream error {:?}", r);
+            }
         });
 
         stream
@@ -669,22 +673,24 @@ impl TradeTable {
         self.cache_duration = 0;
     }
 
-    pub fn select_df_from_db(&mut self, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
+    pub fn select_df_from_db(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
         let mut buffer = TradeBuffer::new();
 
         self.select(start_time, end_time, |trade| {
             buffer.push_trade(trade);
-        });
+        })?;
 
-        return buffer.to_dataframe();
+        return Ok(buffer.to_dataframe());
     }
 
-    pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) {
-        self.cache_df = self.select_df_from_db(start_time, end_time);
+    pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<()> {
+        self.cache_df = self.select_df_from_db(start_time, end_time)?;
+
+        Ok(())
     }
 
-    pub fn update_cache_all(&mut self) {
-        self.update_cache_df(0, 0);
+    pub fn update_cache_all(&mut self) -> anyhow::Result<()>{
+        self.update_cache_df(0, 0)
     }
 
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
@@ -694,7 +700,7 @@ impl TradeTable {
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
 
-    pub fn update_cache_df(&mut self, start_time: MicroSec, mut end_time: MicroSec) {
+    pub fn update_cache_df(&mut self, start_time: MicroSec, mut end_time: MicroSec) -> anyhow::Result<()> {
         log::debug!("update_cache_df {} -> {}", start_time, end_time);
 
         let df_start_time: i64;
@@ -720,7 +726,7 @@ impl TradeTable {
                     time_string(end_time)
                 );
                 // no cache / update all
-                self.load_df(start_time, end_time);
+                self.load_df(start_time, end_time)?;
 
                 let df_start_time = start_time_df(&self.cache_df).unwrap();
                 let df_end_time = end_time_df(&self.cache_df).unwrap();
@@ -731,8 +737,8 @@ impl TradeTable {
                     TradeTable::ohlcv_start(df_start_time),
                     df_end_time,
                     TradeTable::OHLCV_WINDOW_SEC,
-                );
-                return;
+                )?;
+                return Ok(());  // update cache all.
             }
         }
 
@@ -741,7 +747,7 @@ impl TradeTable {
         // load data and merge cache
         if start_time < df_start_time {
             // TODO: ロードされた範囲内でのUpdateに変更する。
-            let df1 = &self.select_df_from_db(start_time, df_start_time);
+            let df1 = &self.select_df_from_db(start_time, df_start_time)?;
 
             let len = df1.shape().0;
             // データがあった場合のみ更新
@@ -765,7 +771,7 @@ impl TradeTable {
                     ohlcv1_start,
                     ohlcv1_end,
                     TradeTable::OHLCV_WINDOW_SEC,
-                );
+                )?;
 
                 if ohlcv1.shape().0 != 0 {
                     let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
@@ -781,7 +787,7 @@ impl TradeTable {
 
         if df_end_time < end_time {
             // 2日先までキャッシュを先読み
-            let df2 = &self.select_df_from_db(df_end_time, end_time + DAYS(2));
+            let df2 = &self.select_df_from_db(df_end_time, end_time + DAYS(2))?;
 
             log::debug!(
                 "load data after cache(2days) df1={:?} df2={:?}",
@@ -813,11 +819,13 @@ impl TradeTable {
                     ohlcv2_start,
                     ohlcv2_end,
                     TradeTable::OHLCV_WINDOW_SEC,
-                );
+                )?;
 
                 self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
             }
         }
+
+        Ok(())
     }
 
     pub fn ohlcvv_df(
@@ -825,8 +833,9 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
-    ) -> DataFrame {
-        self.update_cache_df(start_time, end_time);
+    ) -> anyhow::Result<DataFrame> 
+    {
+        self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
             ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
@@ -840,10 +849,10 @@ impl TradeTable {
         mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
-    ) -> ndarray::Array2<f64> {
+    ) -> anyhow::Result<ndarray::Array2<f64>> {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcvv_df(start_time, end_time, time_window_sec);
+        let df = self.ohlcvv_df(start_time, end_time, time_window_sec)?;
 
         let array: ndarray::Array2<f64> = df
             .select(&[
@@ -862,7 +871,7 @@ impl TradeTable {
             .to_ndarray::<Float64Type>(IndexOrder::C)
             .unwrap();
 
-        array
+        Ok(array)
     }
 
     pub fn py_ohlcvv(
@@ -871,7 +880,7 @@ impl TradeTable {
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<Py<PyArray2<f64>>> {
-        let array = self.ohlcvv_array(start_time, end_time, window_sec);
+        let array = self.ohlcvv_array(start_time, end_time, window_sec)?;
 
         let r = Python::with_gil(|py| {
             let py_array2: &PyArray2<f64> = array.into_pyarray(py);
@@ -890,7 +899,7 @@ impl TradeTable {
     ) -> anyhow::Result<PyDataFrame> {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcvv_df(start_time, end_time, window_sec);
+        let mut df = self.ohlcvv_df(start_time, end_time, window_sec)?;
 
         let df = convert_timems_to_datetime(&mut df).clone();
 
@@ -902,8 +911,8 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
-    ) -> DataFrame {
-        self.update_cache_df(start_time, end_time);
+    ) -> anyhow::Result<DataFrame> {
+        self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
             ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
@@ -917,10 +926,10 @@ impl TradeTable {
         mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
-    ) -> ndarray::Array2<f64> {
+    ) -> anyhow::Result<ndarray::Array2<f64>> {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let df = self.ohlcv_df(start_time, end_time, time_window_sec);
+        let df = self.ohlcv_df(start_time, end_time, time_window_sec)?;
 
         let array: ndarray::Array2<f64> = df
             .select(&[
@@ -936,7 +945,7 @@ impl TradeTable {
             .to_ndarray::<Float64Type>(IndexOrder::C)
             .unwrap();
 
-        array
+        Ok(array)
     }
 
     pub fn py_ohlcv(
@@ -945,7 +954,7 @@ impl TradeTable {
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<Py<PyArray2<f64>>> {
-        let array = self.ohlcv_array(start_time, end_time, window_sec);
+        let array = self.ohlcv_array(start_time, end_time, window_sec)?;
 
         let r = Python::with_gil(|py| {
             let py_array2: &PyArray2<f64> = array.into_pyarray(py);
@@ -964,7 +973,7 @@ impl TradeTable {
     ) -> anyhow::Result<PyDataFrame> {
         start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcv_df(start_time, end_time, window_sec);
+        let mut df = self.ohlcv_df(start_time, end_time, window_sec)?;
         let df = convert_timems_to_datetime(&mut df).clone();
         let df = PyDataFrame(df);
 
@@ -977,18 +986,18 @@ impl TradeTable {
         end_time: MicroSec,
         price_unit: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        let df = self.vap(start_time, end_time, price_unit);
+        let df = self.vap(start_time, end_time, price_unit)?;
 
         let py_df = PyDataFrame(df);
 
         Ok(py_df)
     }
 
-    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> DataFrame {
-        self.update_cache_df(start_time, end_time);
+    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> anyhow::Result<DataFrame> {
+        self.update_cache_df(start_time, end_time)?;
         let df = vap_df(&self.cache_df, start_time, end_time, price_unit);
 
-        df
+        Ok(df)
     }
 
     pub fn py_select_trades_polars(
@@ -996,7 +1005,7 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<PyDataFrame> {
-        let mut df = self.select_df_from_db(start_time, end_time);
+        let mut df = self.select_df_from_db(start_time, end_time)?;
         let df = convert_timems_to_datetime(&mut df).clone();
         let df = PyDataFrame(df);
 
@@ -1026,7 +1035,7 @@ impl TradeTable {
     ) -> anyhow::Result<ndarray::Array2<f64>> {
         self.update_cache_df(start_time, end_time);
 
-        let trades = self.select_df_from_db(start_time, end_time);
+        let trades = self.select_df_from_db(start_time, end_time)?;
 
         let array: ndarray::Array2<f64> = trades
             .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
@@ -1424,6 +1433,8 @@ impl TradeTable {
 
 #[cfg(test)]
 mod test_transaction_table {
+    use std::any;
+
     use rust_decimal_macros::dec;
 
     use crate::common::init_debug_log;
@@ -1629,7 +1640,7 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_select_ohlcv_df() {
+    fn test_select_ohlcv_df() -> anyhow::Result<()> {
         init_log();
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
 
@@ -1637,34 +1648,36 @@ mod test_transaction_table {
 
         let start_timer = NOW();
         let now = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), now, 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), now, 1)?;
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1)?;
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1)?;
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1);
+        let ohlcv = db.ohlcvv_df(NOW() - DAYS(5), NOW(), 1)?;
         println!("{:?}", ohlcv);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(5), NOW(), 120);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(5), NOW(), 120)?;
         println!("{:?}", ohlcv2);
         println!("{} [us]", NOW() - start_timer);
 
         let start_timer = NOW();
-        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(1), NOW(), 60);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, NOW() - DAYS(1), NOW(), 60)?;
         println!("{:?}", ohlcv2);
         println!("{} [us]", NOW() - start_timer);
+
+        Ok(())
     }
 
     #[test]

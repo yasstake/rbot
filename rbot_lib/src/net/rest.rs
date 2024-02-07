@@ -743,7 +743,7 @@ mod test_exchange {
         init_debug_log();
         let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
         let tmp_dir = tempdir().unwrap();
-        let r = log_download_tmp(url, tmp_dir.path()).await?;
+        let _r = log_download_tmp(url, tmp_dir.path()).await?;
 
         Ok(())
     }
