@@ -16,7 +16,7 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
 };
 
 use rbot_lib::common::BLOCK_ON;
@@ -357,8 +357,20 @@ impl /* MarketInterface for */
         MarketImpl::download(self, ndays, force, verbose, archive_only, low_priority)
     }
 
+    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
+        MarketImpl::expire_unfix_data(self)
+    }
+
+    fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
+        MarketImpl::find_latest_gap(self)
+    }
+
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_latest(self, verbose)
+    }
+
+    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        MarketImpl::download_gap(self, verbose)
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()>{
@@ -436,40 +448,40 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
     // TODO: implement
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        /*
-        let  r = BLOCK_ON(async {
-            BybitRestApi::get_recent_trades(&self.server_config, &self.get_config()).await
-                    .with_context(|| "Error in get_recent_trades");
-        }
-        );
-        */
-        // TODO: implment
-        todo!();
-
-
-        Ok(0 as i64)
+        BLOCK_ON(async {
+            self.async_download_lastest().await
+        })
     }
 
     // TODO: implement
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        let gap = self.find_latest_gap();
+        log::debug!("[start] download_gap ");
+        let (unfix_start, unfix_end) = self.find_latest_gap()?;
+        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
 
-        if gap.is_err() {
-            log::error!("Error in find_latest_gap: {:?}", gap);
+        if unfix_end - unfix_start <= HHMM(0, 1) {
+            log::info!("no need to download");
             return Ok(0);
         }
 
-        let (unfix_start, unfix_end) = gap.unwrap();
-        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
-
-        /*
         let klines = 
         BLOCK_ON(
-        BybitMarket::get_trade_klines(unfix_start, unfix_end);
-        );
-        */
+            BybitRestApi::get_trade_klines(&self.server_config, &self.get_config(), unfix_start, unfix_end)
+        )?;
 
-        Ok(0)
+        let trades: Vec<Trade> = convert_klines_to_trades(klines);
+        let rec = trades.len() as i64;
+
+        let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end);
+
+        let mut lock = self.db.lock().unwrap();
+        let tx = lock.start_thread();
+        drop(lock);
+
+        tx.send(expire_message)?;        
+        tx.send(trades)?;
+
+        Ok(rec)
     }
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>> {
@@ -514,6 +526,18 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
 }
 
+impl BybitMarket {
+    async fn async_download_lastest(&mut self) -> anyhow::Result<i64> {
+        let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
+        let rec = trades.len() as i64;
+
+        let tx = self.db.lock().unwrap().start_thread();
+        tx.send(trades)?;
+
+        Ok(rec)
+    }
+
+}
 
 /*
 //----------- FOR BACKUP --------------------------------------------
