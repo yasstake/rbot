@@ -271,7 +271,7 @@ impl /* MarketInterface for */
         MarketImpl::stop_db_thread(self)
     }
 
-    fn cache_all_data(&mut self) {
+    fn cache_all_data(&mut self) -> anyhow::Result<()>{
         MarketImpl::cache_all_data(self)
     }
 
