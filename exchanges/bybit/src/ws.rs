@@ -253,14 +253,12 @@ impl BybitPrivateWsClient {
                                                     let order = merge_order_and_execution(&last_orders, &last_executions);
                                                     last_orders.clear();
                                                     last_executions.clear();
-
-                                                    let mut market_message = MultiMarketMessage::new();
+                                                    
                                                     for o in order.iter() {
                                                         let mut o = o.clone();
                                                         o.update_balance(&market_config);
-                                                        market_message.push(MarketMessage::Order(o));
                                                     }
-                                                    yield Ok(market_message);
+                                                    yield Ok(MultiMarketMessage::Order(order));
                                                 }
                                             }
                                             BybitUserMessage::execution {
@@ -277,13 +275,11 @@ impl BybitPrivateWsClient {
                                                     last_orders.clear();
                                                     last_executions.clear();
 
-                                                    let mut market_message = MultiMarketMessage::new();
                                                     for o in order.iter() {
                                                         let mut o = o.clone();
                                                         o.update_balance(&market_config);
-                                                        market_message.push(MarketMessage::Order(o));
                                                     }
-                                                    yield Ok(market_message);
+                                                    yield Ok(MultiMarketMessage::Order(order));
                                                 }
                                             }
                                             BybitUserMessage::wallet {
@@ -291,12 +287,12 @@ impl BybitPrivateWsClient {
                                                 creationTime,
                                                 data,
                                             } => {
-                                                let mut market_message = MultiMarketMessage::new();
+                                                let mut account_status: Vec<AccountStatus> = vec![];
+                                                
                                                 for account in data.iter() {
                                                     let a: AccountStatus = account.into();
-                                                    market_message.push(MarketMessage::Account(a));
                                                 }
-                                                yield Ok(market_message);
+                                                yield Ok(MultiMarketMessage::Account(account_status));
                                             }
                                         }
                                     }

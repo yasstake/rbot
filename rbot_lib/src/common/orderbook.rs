@@ -269,13 +269,6 @@ impl OrderBookRaw {
             self.asks.set(item.price, item.size);
         }
     }
-
-    /*
-    pub fn clip_depth(&mut self) {
-        self.bids.clip_depth();
-        self.asks.clip_depth();
-    }
-    */
 }
 
 #[pyclass]
@@ -336,13 +329,6 @@ impl OrderBook {
             .update(bids_diff, asks_diff, force);
     }
 
-    /*
-    pub fn clip_depth(&mut self) {
-        let mut board = self.board.lock().unwrap();
-        board.clip_depth();
-        drop(board);
-    }
-    */
 }
 
 #[cfg(test)]

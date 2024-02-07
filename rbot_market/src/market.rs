@@ -653,12 +653,11 @@ where
     }
 
     /// Download historical data archive and store to database.
-    fn download(
+    fn download_archives(
         &mut self,
         ndays: i64,
         force: bool,
         verbose: bool,
-        archive_only: bool,
         low_priority: bool,
     ) -> anyhow::Result<i64> {
         log::info!("log download: {} days", ndays);
@@ -708,13 +707,6 @@ where
                 }
             }
         }
-
-        if !archive_only {
-            let rec = self.download_latest(verbose)?;
-            download_rec += rec;
-        }
-        // let expire_message = self.db.connection.make_expire_control_message(now);
-        // tx.send(expire_message).unwrap();
 
         Ok(download_rec)
     }
