@@ -993,6 +993,8 @@ impl Order {
     }
 }
 
+const KLINE_TIME_UNIT_SEC: i64 = 60 / 4;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Kline {
     pub timestamp: MicroSec,
@@ -1077,6 +1079,17 @@ impl Kline {
         trades
     }
 }
+
+
+pub fn convert_klines_to_trades(klines: Vec<Kline>, ) -> Vec<Trade> {
+    let mut trades = Vec::new();
+    for kline in klines {
+        let mut kline_trades = kline.extract_to_trades(KLINE_TIME_UNIT_SEC);
+        trades.append(&mut kline_trades);
+    }
+    trades
+}
+
 
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]

@@ -146,7 +146,12 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         let mut klines_buf: Vec<Kline> = vec![];
 
         let start_time = TradeTable::ohlcv_start(start_time);
-        let mut end_time = TradeTable::ohlcv_end(end_time) - 1;
+
+        let mut end_time = if end_time == 0 {
+            TradeTable::ohlcv_end(NOW()) - 1
+        } else {
+            TradeTable::ohlcv_end(end_time) - 1
+        };
 
         loop {
             log::debug!(
@@ -158,7 +163,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             );
             let mut klines = Self::try_get_trade_klines(server, config, start_time, end_time).await
             .with_context(|| {
-                format!("get_trade_klines: server={:?} / config={:?} / start_time={:?} / end_time={:?}", server, config, start_time, end_time)
+                format!("get_trade_klines: start_time={:?} / end_time={:?}", start_time, end_time)
             })?;
 
             let klines_len = klines.len();
@@ -177,7 +182,8 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
             klines_buf.append(&mut klines);
 
-            if end_time <= start_time {
+            if (end_time != 0) && (end_time <= start_time) {
+                log::debug!("end fetching data: end_time {}({}) <= start_time {}({})", time_string(end_time), end_time, time_string(start_time), start_time);
                 break;
             }
         }
@@ -228,7 +234,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             })?;
 
         let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)
-        .with_context(||format!("parse error in new_order "))?;
+            .with_context(|| format!("parse error in new_order "))?;
 
         let is_maker = order_type.is_maker();
 
@@ -286,8 +292,14 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         let message_json = serde_json::to_string(&message)?;
         let path = "/v5/order/cancel";
-        let result = Self::post_sign(&server, path, &message_json).await
-        .with_context(||format!("cancel_order: server={:?} / path={:?} / message_json={:?}", server, path, message_json))?;
+        let result = Self::post_sign(&server, path, &message_json)
+            .await
+            .with_context(|| {
+                format!(
+                    "cancel_order: server={:?} / path={:?} / message_json={:?}",
+                    server, path, message_json
+                )
+            })?;
 
         let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
 
@@ -339,8 +351,14 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         let path = "/v5/order/realtime";
 
-        let result = Self::get_sign(&server, path, &query_string).await
-        .with_context(||format!("open_orders: server={:?} / path={:?} / query_string={:?}", server, path, query_string))?;
+        let result = Self::get_sign(&server, path, &query_string)
+            .await
+            .with_context(|| {
+                format!(
+                    "open_orders: server={:?} / path={:?} / query_string={:?}",
+                    server, path, query_string
+                )
+            })?;
 
         log::debug!("result.body={:?}", result.body);
         if result.body.is_null() {
@@ -348,7 +366,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         }
 
         let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body)
-        .with_context(|| format!("order status parse error"))?;
+            .with_context(|| format!("order status parse error"))?;
 
         let mut orders: Vec<Order> = response.into();
 
@@ -442,8 +460,9 @@ impl BybitRestApi {
     ) -> anyhow::Result<BybitRestResponse> {
         let query = format!("{}?{}", path, params);
 
-        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None).await
-        .with_context(||format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
+        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
+            .await
+            .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
 
         Self::parse_rest_response(response)
     }
@@ -468,8 +487,9 @@ impl BybitRestApi {
         headers.push(("X-BAPI-TIMESTAMP", &timestamp));
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
 
-        let result = rest_get(&server.rest_server, path, headers, Some(query_string), None).await
-        .with_context(||format!("get_sign error: {}/{}", &server.rest_server, path))?;
+        let result = rest_get(&server.rest_server, path, headers, Some(query_string), None)
+            .await
+            .with_context(|| format!("get_sign error: {}/{}", &server.rest_server, path))?;
 
         Self::parse_rest_response(result)
     }
@@ -497,7 +517,7 @@ impl BybitRestApi {
 
         let response = rest_post(&server.get_rest_server(), path, headers, &body)
             .await
-            .with_context(||{format!("post_sign error {}/{}", server.get_rest_server(), path)})?;
+            .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
 
         Self::parse_rest_response(response)
     }
@@ -518,9 +538,12 @@ impl BybitRestApi {
         log::debug!("rest response: {}", response);
 
         let result = from_str::<BybitRestResponse>(&response)
-            .with_context(||{format!("parse error in parse_rest_response: {:?}", response)})?;
+            .with_context(|| format!("parse error in parse_rest_response: {:?}", response))?;
 
-        ensure!(result.return_code == 0, format!("parse rest response error = {}", result.return_message));
+        ensure!(
+            result.return_code == 0,
+            format!("parse rest response error = {}", result.return_message)
+        );
 
         return Ok(result);
     }
@@ -531,8 +554,12 @@ impl BybitRestApi {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<Vec<Kline>> {
-        if end_time <= start_time {
-            return Err(anyhow!("end_time({}) <= start_time({})", end_time, start_time));
+        if start_time == 0 || (end_time == 0) {
+            return Err(anyhow!(
+                "end_time({}) or start_time({}) is zero",
+                end_time,
+                start_time
+            ));
         }
 
         let path = "/v5/market/kline";
@@ -557,7 +584,7 @@ impl BybitRestApi {
         let message = r.unwrap().body;
 
         let result = serde_json::from_value::<BybitKlinesResponse>(message)
-        .with_context(||format!("parse error in try_get_trade_klines"))?;
+            .with_context(|| format!("parse error in try_get_trade_klines"))?;
 
         return Ok(result.into());
     }
@@ -913,12 +940,13 @@ pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderS
 mod bybit_rest_test {
     use super::*;
     use std::{any, thread::sleep, time::Duration};
+    use rbot_lib::common::init_log;
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;
     use rbot_lib::common::{init_debug_log, time_string, HHMM};
     use rust_decimal_macros::dec;
-    
+
     #[tokio::test]
     async fn test_rest_get() -> anyhow::Result<()> {
         let server_config = BybitServerConfig::new(false);

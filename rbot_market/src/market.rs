@@ -262,12 +262,16 @@ pub trait MarketInterface {
     ) -> i64;
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64>;
+    fn expire_unfix_data(&mut self) -> anyhow::Result<()>;
 
     fn start_market_stream(&mut self);
 
-
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream>;
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<MarketStream>;
 }
 
 pub trait MarketImpl<T, U>
@@ -325,6 +329,7 @@ where
     }
 
     fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
+        log::debug!("[start] find_latest_gap");
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
@@ -332,10 +337,15 @@ where
 
         let fix_time = lock.latest_fix_time(start_time)?;
         let unfix_time = lock.first_unfix_time(fix_time)?;
+        drop(lock);
 
-        if fix_time == 0 || unfix_time == 0 {
+        if fix_time == 0 {
             return Err(anyhow!("No data found"));
         }
+        log::debug!(
+            "latest FIX time: {} / first unfix time: {}",
+            time_string(fix_time),
+            time_string(unfix_time));
 
         Ok((fix_time, unfix_time))
     }
@@ -467,7 +477,7 @@ where
     fn drop_table(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let lock = db.lock().unwrap();
-        
+
         lock.drop_table()?;
 
         Ok(())
@@ -491,13 +501,17 @@ where
         lock.stop_thread()
     }
 
-    fn cache_all_data(&mut self) -> anyhow::Result<()>  {
+    fn cache_all_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.update_cache_all()
     }
 
-    fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<PyDataFrame> {
+    fn select_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_select_trades_polars(start_time, end_time)
@@ -633,12 +647,9 @@ where
     fn get_market_config(&self) -> MarketConfig;
 
     fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
-        BLOCK_ON(async {
-            let db = self.get_db();
-            let mut lock = db.lock().unwrap();
-
-            lock.start_thread()
-        })
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        BLOCK_ON(async { lock.start_thread() })
     }
 
     /// Download historical data archive and store to database.
@@ -729,13 +740,26 @@ where
         })
     }
 
-    fn get_recent_trades(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
-        BLOCK_ON(async {
-            T::get_recent_trades(
-                &self.get_server_config(),
-                market_config).await
-            })
+    fn download_recent_trades(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
+        BLOCK_ON(async { T::get_recent_trades(&self.get_server_config(), market_config).await })
+    }
+
+    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
+        let db = self.get_db();
+        let now = NOW();
+
+        let mut lock = db.lock().unwrap();
+        let expire_message = lock.make_expire_control_message(now)?;
+        drop(lock);
+
+        let tx = self.start_db_thread();
+        let r = tx.send(expire_message);
+        if r.is_err() {
+            log::error!("Error in tx.send: {:?}", r.err().unwrap());
         }
+
+        Ok(())
+    }
 
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
@@ -743,5 +767,9 @@ where
     // fn start_user_stream(&mut self); -> move to OrderInterface
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
-    fn open_backtest_channel(&mut self, time_from: MicroSec, time_to: MicroSec) -> anyhow::Result<MarketStream>;
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<MarketStream>;
 }
