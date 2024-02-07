@@ -154,7 +154,7 @@ pub fn ohlcv_df(
     start_time: MicroSec,
     end_time: MicroSec,
     time_window: i64,
-) -> DataFrame {
+) -> anyhow::Result<DataFrame> {
     log::debug!(
         "ohlcv_df, from={} / to={}",
         time_string(start_time),
@@ -163,7 +163,7 @@ pub fn ohlcv_df(
 
     if df.shape().0 == 0 {
         log::debug!("empty ohlc");
-        return make_empty_ohlcv();
+        return Ok(make_empty_ohlcv());
     }
 
     let option = DynamicGroupOptions {
@@ -203,11 +203,11 @@ pub fn ohlcv_df(
         .collect();
 
     match result {
-        Ok(dataframe) => return dataframe,
+        Ok(dataframe) => return Ok(dataframe),
         Err(e) => {
             log::error!("Polars error {}", e.to_string());
             println!("Polars error {}", e.to_string());
-            return make_empty_ohlcv();
+            return Ok(make_empty_ohlcv());
         }
     }
 }
@@ -217,7 +217,7 @@ pub fn ohlcvv_df(
     start_time: MicroSec,
     end_time: MicroSec,
     time_window: i64,
-) -> DataFrame {
+) -> anyhow::Result<DataFrame> {
     log::debug!(
         "ohlcv_df, from={} / to={}",
         time_string(start_time),
@@ -226,7 +226,7 @@ pub fn ohlcvv_df(
 
     if df.shape().0 == 0 {
         log::debug!("empty ohlcv");
-        return make_empty_ohlcvv();
+        return Ok(make_empty_ohlcvv());
     }
 
     let option = DynamicGroupOptions {
@@ -266,11 +266,11 @@ pub fn ohlcvv_df(
         .collect();
 
     match result {
-        Ok(dataframe) => return dataframe,
+        Ok(dataframe) => return Ok(dataframe),
         Err(e) => {
             log::error!("Polars error {}", e.to_string());
             println!("Polars error {}", e.to_string());
-            return make_empty_ohlcvv();
+            return Ok(make_empty_ohlcvv());
         }
     }
 }
@@ -280,7 +280,7 @@ pub fn ohlcv_from_ohlcvv_df(
     start_time: MicroSec,
     end_time: MicroSec,
     time_window: i64,
-) -> DataFrame {
+) -> anyhow::Result<DataFrame> {
     log::debug!(
         "ohlc {:?} -> {:?}",
         time_string(start_time),
@@ -289,7 +289,7 @@ pub fn ohlcv_from_ohlcvv_df(
 
     if df.shape().0 == 0 {
         log::debug!("empty ohlc");
-        return make_empty_ohlcv();
+        return Ok(make_empty_ohlcv());
     }
 
     let option = DynamicGroupOptions {
@@ -333,11 +333,11 @@ pub fn ohlcv_from_ohlcvv_df(
         .collect();
 
     match result {
-        Ok(dataframe) => return dataframe,
+        Ok(dataframe) => return Ok(dataframe),
         Err(e) => {
             log::error!("Polars error {}", e.to_string());
             println!("Polars error {}", e.to_string());
-            return make_empty_ohlcv();
+            return Ok(make_empty_ohlcv());
         }
     }
 }
@@ -347,7 +347,7 @@ pub fn ohlcvv_from_ohlcvv_df(
     start_time: MicroSec,
     end_time: MicroSec,
     time_window: i64,
-) -> DataFrame {
+) -> anyhow::Result<DataFrame> {
     log::debug!(
         "ohlc {:?} -> {:?}",
         time_string(start_time),
@@ -391,11 +391,11 @@ pub fn ohlcvv_from_ohlcvv_df(
         .collect();
 
     match result {
-        Ok(dataframe) => return dataframe,
+        Ok(dataframe) => return Ok(dataframe),
         Err(e) => {
             log::error!("Polars error {}", e.to_string());
             println!("Polars error {}", e.to_string());
-            return make_empty_ohlcvv();
+            return Ok(make_empty_ohlcvv());
         }
     }
 }
@@ -587,6 +587,8 @@ use rust_decimal::prelude::ToPrimitive;
 
 #[cfg(test)]
 mod test_df {
+    use std::any;
+
     use super::*;
     use crate::common::DAYS;
 
@@ -703,29 +705,35 @@ mod test_df {
     }
 
     #[test]
-    fn test_make_ohlcv_from_empty_ohlcv() {
+    fn test_make_ohlcv_from_empty_ohlcv() -> anyhow::Result<()> {
         let r = make_empty_ohlcvv();
-        let r2 = ohlcvv_df(&r, 0, 0, 10);
+        let r2 = ohlcvv_df(&r, 0, 0, 10)?;
         println!("{:?}", r2);
         assert_eq!(r2.shape(), (0, 10));
+
+        Ok(())
     }
 
     #[test]
-    fn test_make_ohlc_from_empty_ohlcv() {
+    fn test_make_ohlc_from_empty_ohlcv() -> anyhow::Result<()>{
         let r = make_empty_ohlcvv();
-        let r2 = ohlcv_df(&r, 0, 0, 10);
+        let r2 = ohlcv_df(&r, 0, 0, 10)?;
         println!("{:?}", r2);
         assert_eq!(r2.shape(), (0, 7));
+
+        Ok(())
     }
 
     #[test]
-    fn test_make_ohlcv_from_ohlcv_empty_ohlcv() {
+    fn test_make_ohlcv_from_ohlcv_empty_ohlcv() -> anyhow::Result<()> {
         let r = make_empty_ohlcvv();
         println!("{:?}", r);
-        let r2 = ohlcvv_df(&r, 0, 0, 10);
+        let r2 = ohlcvv_df(&r, 0, 0, 10)?;
         println!("{:?}", r2);
         let r3 = ohlcv_from_ohlcvv_df(&r2, 0, 0, 10);
         println!("{:?}", r3);
+
+        Ok(())
     }
 
     #[test]
