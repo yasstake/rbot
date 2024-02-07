@@ -3,13 +3,13 @@
 
 #![allow(dead_code)]
 
-use std::io::Write;
+use std::{fmt, io::Write, ops::Deref};
 use futures::Future;
 use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
 use polars_core::export::num::FromPrimitive;
 use rust_decimal::Decimal;
-use serde::{de, Deserialize, Deserializer, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use sha2::Sha256;
 
@@ -24,6 +24,57 @@ pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
         "".to_string()
     }
 });
+
+#[derive(Clone, Deserialize)]
+pub struct SecretString{
+    str: String
+}
+
+impl SecretString{
+    pub fn new(s: &str) -> SecretString{
+        SecretString{
+            str: s.to_string()
+        }
+    }
+
+    fn as_str(&self) -> &str{
+        &self.str
+    } 
+
+    fn to_string(&self) -> String{
+        self.str.clone()
+    }   
+}
+
+impl Deref for SecretString{
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target{
+        &self.str
+    }
+}
+
+impl fmt::Display for SecretString{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        write!(f, "********")
+    }
+}
+
+impl fmt::Debug for SecretString{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        write!(f, "********")
+    }
+}
+
+impl Serialize for SecretString{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("********")
+    }
+}
+
 
 #[allow(non_snake_case)]
 pub fn BLOCK_ON<F: Future>(f: F) -> F::Output {

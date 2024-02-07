@@ -198,7 +198,7 @@ impl BybitPrivateWsClient {
 
         let message = BybitWsOpMessage {
             op: "auth".to_string(),
-            args: vec![api_key, time_stamp.to_string(), sign],
+            args: vec![api_key.to_string(), time_stamp.to_string(), sign],
             id: NOW() % 1_000,
         };
 
