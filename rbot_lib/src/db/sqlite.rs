@@ -1033,7 +1033,7 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<ndarray::Array2<f64>> {
-        self.update_cache_df(start_time, end_time);
+        self.update_cache_df(start_time, end_time)?;
 
         let trades = self.select_df_from_db(start_time, end_time)?;
 
@@ -1433,8 +1433,6 @@ impl TradeTable {
 
 #[cfg(test)]
 mod test_transaction_table {
-    use std::any;
-
     use rust_decimal_macros::dec;
 
     use crate::common::init_debug_log;
@@ -1704,12 +1702,14 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_update_cache() {
+    fn test_update_cache() -> anyhow::Result<()>{
         init_log();
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
-        db.update_cache_df(NOW() - DAYS(2), NOW());
+        db.update_cache_df(NOW() - DAYS(2), NOW())?;
+
+        Ok(())
     }
 
     #[test]

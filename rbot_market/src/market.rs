@@ -491,10 +491,10 @@ where
         lock.stop_thread()
     }
 
-    fn cache_all_data(&mut self) {
+    fn cache_all_data(&mut self) -> anyhow::Result<()>  {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        lock.update_cache_all();
+        lock.update_cache_all()
     }
 
     fn select_trades(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<PyDataFrame> {
