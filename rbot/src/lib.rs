@@ -8,13 +8,14 @@ use rbot_lib::common::{
     Order, OrderSide,
     time_string,
     NOW, DAYS_BEFORE, DAYS, HHMM, MIN, SEC, FLOOR_SEC,
-    MarketConfig, OrderStatus, AccountStatus, MarketMessage,
+    MarketConfig, OrderStatus, AccountStatus,
     OrderType, Trade, BoardItem,
-    
 };
 
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
+
+use bybit::{Bybit, BybitConfig};
 
 /*
 use exchange::BoardItem;
@@ -28,7 +29,6 @@ use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
 use common::*;
 use session::{Session, ExecuteMode, Logger};
 use session::Runner;
-use once_cell::sync::Lazy;
 */
 
 
@@ -59,8 +59,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<MarketConfig>()?;
     m.add_class::<OrderStatus>()?;
     m.add_class::<AccountStatus>()?;
-    m.add_class::<MarketMessage>()?;
-
+    
     m.add_class::<Logger>()?;
 
     m.add_class::<Order>()?;
@@ -80,11 +79,14 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Binance>()?;
     m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;
+    */
 
     // ByBit
     m.add_class::<Bybit>()?;
+    m.add_class::<BybitConfig>()?;    
+    /* 
     m.add_class::<BybitMarket>()?;
-    m.add_class::<BybitConfig>()?;
+
     m.add_class::<BybitServerConfig>()?;
     */
 

@@ -4,6 +4,7 @@
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
+use super::FeeType;
 use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
@@ -175,6 +176,15 @@ impl OrderType {
     }
 }
 
+impl OrderType {
+    pub fn is_maker(&self) -> bool {
+        match self {
+            OrderType::Limit => true,
+            _ => false,
+        }
+    }
+}
+
 pub fn ordertype_deserialize<'de, D>(deserializer: D) -> Result<OrderType, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -332,13 +342,7 @@ impl Trade {
 
 impl Into<MarketMessage> for &Trade {
     fn into(self) -> MarketMessage {
-        MarketMessage {
-            trade: Some(self.clone()),
-            order: None,
-            account: None,
-            orderbook: None,
-            message: None,
-        }
+        MarketMessage::Trade(self.clone())
     }
 }
 
@@ -659,13 +663,7 @@ impl Order {
 
 impl Into<MarketMessage> for &Order {
     fn into(self) -> MarketMessage {
-        MarketMessage {
-            trade: None,
-            order: Some(self.clone()),
-            account: None,
-            orderbook: None,
-            message: None,
-        }
+        MarketMessage::Order(self.clone())
     }
 }
 
@@ -850,7 +848,38 @@ impl Order {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
 
-        if commission_asset == config.home_currency {
+        if self.commission_asset == "" {
+            match config.fee_type {
+                FeeType::Home => {
+                    self.commission_home = commission;
+                    self.commission_foreign = dec![0.0];
+                    self.commission_asset = config.home_currency.clone();
+                }
+                FeeType::Foreign => {
+                    self.commission_home = dec![0.0];
+                    self.commission_foreign = commission;
+                    self.commission_asset = config.foreign_currency.clone();
+                }
+                FeeType::Both => {
+                    match self.order_side {
+                        OrderSide::Buy => {
+                            self.commission_home = commission;
+                            self.commission_foreign = dec![0.0];
+                            self.commission_asset = config.home_currency.clone();
+                        }
+                        OrderSide::Sell => {
+                            self.commission_home = dec![0.0];
+                            self.commission_foreign = commission;
+                            self.commission_asset = config.foreign_currency.clone();
+                        }
+                        _ => {
+                            log::error!("Unknown order side: {:?}", self.order_side);
+                        }
+                    }
+                }
+            }
+        }
+        else if commission_asset == config.home_currency {
             self.commission_home = commission;
             self.commission_foreign = dec![0.0];
         } else {
@@ -964,6 +993,8 @@ impl Order {
     }
 }
 
+const KLINE_TIME_UNIT_SEC: i64 = 60 / 4;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Kline {
     pub timestamp: MicroSec,
@@ -1048,6 +1079,17 @@ impl Kline {
         trades
     }
 }
+
+
+pub fn convert_klines_to_trades(klines: Vec<Kline>, ) -> Vec<Trade> {
+    let mut trades = Vec::new();
+    for kline in klines {
+        let mut kline_trades = kline.extract_to_trades(KLINE_TIME_UNIT_SEC);
+        trades.append(&mut kline_trades);
+    }
+    trades
+}
+
 
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]

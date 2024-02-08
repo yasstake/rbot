@@ -3,16 +3,77 @@
 
 #![allow(dead_code)]
 
-use std::io::Write;
+use std::{fmt, io::Write, ops::Deref};
 use futures::Future;
 use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
 use polars_core::export::num::FromPrimitive;
 use rust_decimal::Decimal;
-use serde::{de, Deserialize, Deserializer, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use sha2::Sha256;
 
+use super::env_rbot_db_root;
+
 pub static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| tokio::runtime::Runtime::new().unwrap());
+pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
+    if let Ok(path) = env_rbot_db_root() {
+        return path;
+    }
+    else{
+        "".to_string()
+    }
+});
+
+#[derive(Clone, Deserialize)]
+pub struct SecretString{
+    str: String
+}
+
+impl SecretString{
+    pub fn new(s: &str) -> SecretString{
+        SecretString{
+            str: s.to_string()
+        }
+    }
+
+    fn as_str(&self) -> &str{
+        &self.str
+    } 
+
+    fn to_string(&self) -> String{
+        self.str.clone()
+    }   
+}
+
+impl Deref for SecretString{
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target{
+        &self.str
+    }
+}
+
+impl fmt::Display for SecretString{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        write!(f, "********")
+    }
+}
+
+impl fmt::Debug for SecretString{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        write!(f, "********")
+    }
+}
+
+impl Serialize for SecretString{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("********")
+    }
+}
 
 
 #[allow(non_snake_case)]
@@ -26,14 +87,26 @@ pub fn string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-    if s == "" {
-        return Ok(0.0);
-    }
+    let s = Value::deserialize(deserializer)?;
 
-    match s.parse::<f64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
+    match s {
+        Value::String(s) => {
+            if s == "" {
+                return Ok(0.0);
+            }
+
+            match s.parse::<f64>() {
+                Ok(num) => Ok(num),
+                Err(_) => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
+            }
+        }
+        Value::Number(n) => {
+            if let Some(num) = n.as_f64() {
+                return Ok(num);
+            }
+            return Err(de::Error::custom(format!("Failed to parse f64 {}", n)));
+        }
+        _ => Err(de::Error::custom(format!("Failed to parse f64 {}", s))),
     }
 }
 
@@ -57,15 +130,26 @@ pub fn string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
+    let s = Value::deserialize(deserializer)?;
 
-    if s == "" {
-        return Ok(0);
-    }
+    match s {
+        Value::String(s) => {
+            if s == "" {
+                return Ok(0);
+            }
 
-    match s.parse::<i64>() {
-        Ok(num) => Ok(num),
-        Err(_) => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
+            match s.parse::<i64>() {
+                Ok(num) => Ok(num),
+                Err(_) => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
+            }
+        }
+        Value::Number(n) => {
+            if let Some(num) = n.as_i64() {
+                return Ok(num);
+            }
+            return Err(de::Error::custom(format!("Failed to parse i64 {}", n)));
+        }
+        _ => Err(de::Error::custom(format!("Failed to parse i64 {}", s))),
     }
 }
 

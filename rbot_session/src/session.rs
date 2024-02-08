@@ -617,40 +617,6 @@ impl Session {
         return Ok(vec![order]);
     }
 
-    pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
-        let mut result = vec![];
-
-        if let Some(trade) = &message.trade {
-            log::debug!("on_message: trade={:?}", trade);
-            result = self.on_tick(trade);
-
-            // ダミーモードの場合は約定キューからの処理が発生する。
-            if 0 < result.len() {
-                for order in result.iter_mut() {
-                    order.update_balance(&self.market_config);
-                    self.on_order_update(order);
-                }
-            }
-        }
-
-        if let Some(order) = &message.order {
-            if ! order.is_my_order(&self.session_name) {
-                log::debug!("on_message: skip my order: {:?}", order);
-                return result;
-            }
-
-            let mut order = order.clone();
-            log::debug!("on_message: order={:?}", order);
-            self.on_order_update(&mut order);
-        }
-
-        if let Some(account) = &message.account {
-            log::debug!("on_message: account={:?}", account);
-            self.on_account_update(account);
-        }
-
-        return result;
-    }
 
     pub fn update_psudo_account_by_order(&mut self, order: &Order) -> bool {
         self.psudo_account.apply_order(order);
@@ -713,6 +679,51 @@ impl Session {
 }
 
 impl Session {
+    pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
+        let mut new_orders = vec![];
+
+        match message {
+            MarketMessage::Trade(trade) => {
+                log::debug!("on_message: trade={:?}", trade);
+                new_orders = self.on_tick(trade);
+    
+                // ダミーモードの場合は約定キューからの処理が発生する。
+                if 0 < new_orders.len() {
+                    for order in new_orders.iter_mut() {
+                        order.update_balance(&self.market_config);
+                        self.on_order_update(order);
+                    }
+                }
+            }
+            MarketMessage::Order(order) => {
+                if ! order.is_my_order(&self.session_name) {
+                    log::debug!("on_message: skip my order: {:?}", order);
+                    return new_orders;
+                }
+    
+                let mut order = order.clone();
+                log::debug!("on_message: order={:?}", order);
+                self.on_order_update(&mut order);
+            }
+            MarketMessage::Account(account) => {
+                log::debug!("on_message: account={:?}", account);
+                self.on_account_update(account);
+            }
+            MarketMessage::Orderbook(orderbook) => {
+                log::warn!("IGNORED MESSAGE: on_message: orderbook={:?}", orderbook);
+            }
+            MarketMessage::Message(message) => {
+                log::warn!("IGNORED MESSAGE: on_message: message={:?}", message);
+            }
+            MarketMessage::Control(control) => {
+                log::warn!("IGNORED MESSAGE: on_message: control={:?}", control);
+            }
+        }
+
+        return new_orders;
+    }
+
+
     pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
