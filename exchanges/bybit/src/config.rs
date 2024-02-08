@@ -5,46 +5,46 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, ServerConfig, to_mask_string};
+use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitServerConfig {
     pub exchange_name: String,
-    pub testnet: bool,
+    pub production: bool,
     pub rest_server: String,
     pub public_ws: String,
     pub private_ws: String,
     pub db_base_dir: String,
     pub history_web_base: String,
-    #[serde(serialize_with = "to_mask_string")]
-    api_key: String,
-    #[serde(serialize_with = "to_mask_string")]
-    api_secret: String,
+    //#[serde(serialize_with = "to_mask_string")]
+    api_key: SecretString,
+    //#[serde(serialize_with = "to_mask_string")]
+    api_secret: SecretString,
 }
 
 #[pymethods]
 impl BybitServerConfig {
     #[new]
-    pub fn new(testnet: bool) -> Self {
-        let rest_server = if testnet {
+    pub fn new(production: bool) -> Self {
+        let rest_server = if production {
+            "https://api.bybit.com"            
+        } else {
             "https://api-testnet.bybit.com"
-        } else {
-            "https://api.bybit.com"
         }
         .to_string();
 
-        let public_ws_server = if testnet {
+        let public_ws_server = if production {
+            "wss://stream.bybit.com/v5/public"            
+        } else {
             "wss://stream-testnet.bybit.com/v5/public"
-        } else {
-            "wss://stream.bybit.com/v5/public"
         }
         .to_string();
 
-        let private_ws_server = if testnet {
-            "wss://stream-testnet.bybit.com/v5/private"
+        let private_ws_server = if production {
+            "wss://stream.bybit.com/v5/private"            
         } else {
-            "wss://stream.bybit.com/v5/private"
+            "wss://stream-testnet.bybit.com/v5/private"
         }
         .to_string();
 
@@ -53,14 +53,14 @@ impl BybitServerConfig {
 
         return BybitServerConfig {
             exchange_name: "BYBIT".to_string(),
-            testnet,
+            production,
             rest_server,
             public_ws: public_ws_server,
             private_ws: private_ws_server,
             db_base_dir: "".to_string(),
             history_web_base: "https://public.bybit.com".to_string(),
-            api_key,
-            api_secret
+            api_key: SecretString::new(&api_key),
+            api_secret: SecretString::new(&api_secret)
         };
     }
 
@@ -84,11 +84,11 @@ impl ServerConfig for BybitServerConfig {
         self.rest_server.clone()
     }
 
-    fn get_api_key(&self) -> String {
+    fn get_api_key(&self) -> SecretString {
         self.api_key.clone()
     }
 
-    fn get_api_secret(&self) -> String {
+    fn get_api_secret(&self) -> SecretString {
         self.api_secret.clone()
     }
 

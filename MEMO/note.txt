@@ -1,0 +1,22 @@
+
+<Channel>
+    １ー１のチャネルはCrossbeamチャネルを使う。
+    NーNのチャネルはは、tokio::broadcastを使う。
+
+<Mutex>
+    stdのMutexを使う。
+
+<Asyncの使い所＞
+    IOとブロードキャストチャネル
+
+＜エラー処理＞
+    基本はAnyHowを使う。
+    https://rs.nkmk.me/rust-anyhow-basic/
+
+    use anyhow::Context as _;
+
+    with_context()でエラー処理　（lazy評価）
+
+
+    Pyo3オブジェクト直前インターフェースはpyo3::基本はAnyHowを使う。    
+

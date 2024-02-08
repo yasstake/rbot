@@ -6,6 +6,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
 
+use super::SecretString;
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +138,6 @@ pub trait ServerConfig {
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;
     fn get_rest_server(&self) -> String;
-    fn get_api_key(&self) -> String;
-    fn get_api_secret(&self) -> String;
+    fn get_api_key(&self) -> SecretString;
+    fn get_api_secret(&self) -> SecretString;
 }
