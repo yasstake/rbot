@@ -1,6 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
+#![allow(unused)]
 
 use std::collections::HashMap;
 
@@ -13,10 +14,10 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rbot_lib::common::{
-    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board,
-    BoardTransfer, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage,
-    Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade,
+    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board, BoardTransfer, ControlMessage, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade
 };
+
+use crate::Bybit;
 
 pub type BybitTimestamp = i64;
 
@@ -475,7 +476,8 @@ pub struct BybitOrderStatus {
     pub slTriggerBy: String,
     pub triggerDirection: i64,
     pub triggerBy: String,
-    pub lastPriceOnCreated: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub lastPriceOnCreated: Decimal,
     pub reduceOnly: bool,
     pub closeOnTrigger: bool,
     pub smpType: String,
@@ -492,7 +494,10 @@ pub struct BybitOrderStatus {
 }
 
 impl Into<Order> for &BybitOrderStatus {
+    
     fn into(self) -> Order {
+        let order_type = OrderType::from(&self.orderType);
+
         Order {
             symbol: self.symbol.clone(),
             create_time: self.createdTime,
@@ -500,7 +505,7 @@ impl Into<Order> for &BybitOrderStatus {
             order_id: self.orderId.clone(),
             client_order_id: self.orderLinkId.clone(),
             order_side: OrderSide::from(&self.side),
-            order_type: OrderType::from(&self.orderType),
+            order_type: order_type.clone(),
             order_price: self.price,
             order_size: self.qty,
             remain_size: self.leavesQty,
@@ -511,9 +516,9 @@ impl Into<Order> for &BybitOrderStatus {
             quote_vol: self.price * self.qty,
             commission: self.cumExecFee,
             commission_asset: "".to_string(),
-            is_maker: true,
-            message: "".to_string(),
-            commission_home: dec![0.0],
+            is_maker: order_type.is_maker(),
+            message: "".to_string(),                // DUMMY value
+            commission_home: dec![0.0],             // DUMMY value
             commission_foreign: dec![0.0],
             home_change: dec![0.0],
             foreign_change: dec![0.0],
@@ -557,6 +562,7 @@ pub struct BybitAccountInformation {}
 #[serde(untagged)]
 pub enum BybitPublicWsMessage {
     Status(BybitWsStatus),
+    Pong(BybitWsPongReply), 
     Trade(BybitWsTradeMessage),
     Orderbook(BybitWsOrderbookMessage),
 }
@@ -570,19 +576,10 @@ impl From<String> for BybitPublicWsMessage {
 
 impl Into<MultiMarketMessage> for BybitPublicWsMessage {
     fn into(self) -> MultiMarketMessage {
-        let mut message = MultiMarketMessage::new();
-
         match self {
-            BybitPublicWsMessage::Status(status) => {
-                if status.success == false {
-                    log::warn!("status: {:?}", status);
-                } else {
-                    log::debug!("status: {:?}", status);
-                }
-                //    MarketMessage::Status(status)
-                // return Null message
-            }
             BybitPublicWsMessage::Trade(trade) => {
+                let mut trades: Vec<Trade> = vec![];
+
                 for trade in trade.data.iter() {
                     let t = Trade::new(
                         msec_to_microsec(trade.timestamp),
@@ -592,8 +589,9 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                         LogStatus::UnFix,
                         &trade.trade_id,
                     );
-                    message.add_trade(t);
+                    trades.push(t);
                 }
+                return MultiMarketMessage::Trade(trades);
             }
             BybitPublicWsMessage::Orderbook(orderbook) => {
                 let mut snapshot = false;
@@ -616,11 +614,23 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                 let mut board: OrderBookRaw = orderbook.data.into();
                 board.snapshot = snapshot;
 
-                message.orderbook = Some(board);
+                return MultiMarketMessage::Orderbook(board);
+            }
+            BybitPublicWsMessage::Status(status) => {
+                return MultiMarketMessage::Control(ControlMessage {
+                    status: status.success,
+                    operation: status.op,
+                    message: status.ret_msg,
+                })
+            }
+            BybitPublicWsMessage::Pong(pong) => {
+                return MultiMarketMessage::Control(ControlMessage{
+                    status: true,
+                    operation: pong.op,
+                    message: pong.conn_id,
+                })
             }
         }
-
-        message
     }
 }
 
@@ -639,22 +649,22 @@ pub struct BybitWsData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsStatus {
     pub success: bool,
-    pub ret_msg: Option<String>,
-    pub op: Option<String>,
-    pub conn_id: Option<String>,
+    pub ret_msg: String,
+    pub op: String,
+    pub conn_id: String,
     pub args: Option<Vec<String>>,
 }
 
+
 /*
+"{\"op\":\"pong\",\"args\":[\"1707031861056\"],\"conn_id\":\"cmsuqo1qo29shn0o3qb0-44fy\"}"
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsPongReply {
-    success: bool,
-    ret_msg: String,
     op: String,
-    req_id: Option<String>,
+    args: Vec<String>,
     conn_id: String,
 }
-*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsTradeMessage {
@@ -667,6 +677,8 @@ pub struct BybitWsTradeMessage {
     #[serde(rename = "ts")]
     pub timestamp: BybitTimestamp,
 }
+
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsTrade {
@@ -746,27 +758,8 @@ pub struct BybitWsOrderbookMessage {
 #[serde(untagged)]
 pub enum BybitUserWsMessage {
     status(BybitWsStatus),
+    pong(BybitWsPongReply),
     message(BybitUserMessage),
-}
-
-impl BybitUserWsMessage {
-    // TODO: implement
-    pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        match self {
-            BybitUserWsMessage::status(status) => {
-                if status.success == false {
-                    log::error!("status: {:?}", status);
-                } else {
-                    log::debug!("status: {:?}", status);
-                }
-
-                return vec![];
-            }
-            BybitUserWsMessage::message(data) => {
-                return data.convert_to_market_message(_config);
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -790,88 +783,6 @@ pub enum BybitUserMessage {
         creationTime: BybitTimestamp,
         data: Vec<BybitExecution>,
     },
-}
-
-
-#[allow(unused_variables)]
-impl BybitUserMessage {
-    pub fn convert_to_market_message(&self, _config: &MarketConfig) -> Vec<MarketMessage> {
-        match self {
-            BybitUserMessage::order {
-                id,
-                creationTime,
-                data,
-            } => {
-                let mut message: Vec<MarketMessage> = vec![];
-
-                for order in data {
-                    let o: Order = order.into();
-
-                    let market_message = MarketMessage {
-                        trade: None,
-                        order: Some(o),
-                        account: None,
-                        orderbook: None,
-                        message: None,
-                    };
-
-                    message.push(market_message);
-                }
-
-                message
-            }
-            BybitUserMessage::wallet {
-                id,
-                creationTime,
-                data,
-            } => {
-                let mut message: Vec<MarketMessage> = vec![];
-
-                for account in data {
-                    let a: AccountStatus = account.into();
-
-                    let market_message = MarketMessage {
-                        trade: None,
-                        order: None,
-                        account: Some(a),
-                        orderbook: None,
-                        message: None,
-                    };
-
-                    message.push(market_message);
-                }
-
-                message
-            }
-            BybitUserMessage::execution {
-                id,
-                creationTime,
-                data,
-            } => {
-                vec![] // ignore
-            } /*
-              BybitUserMessage::execution{id, creationTime, data} => {
-                  let mut message: Vec<MarketMessage> = vec![];
-
-                  for execution in data.iter() {
-                      let e: Trade = execution.into();
-
-                      let market_message = MarketMessage {
-                          trade: Some(e),
-                          order: None,
-                          account: None,
-                          orderbook: None,
-                          message: None,
-                      };
-
-                      message.push(market_message);
-                  }
-
-                  message
-              },
-              */
-        }
-    }
 }
 
 /*
@@ -950,13 +861,7 @@ impl BybitOrderUpdateMessage {
         for order in self.data.iter() {
             let o: Order = order.into();
 
-            let market_message = MarketMessage {
-                trade: None,
-                order: Some(o),
-                account: None,
-                orderbook: None,
-                message: None,
-            };
+            let market_message = MarketMessage::Order(o);
 
             message.push(market_message);
         }
@@ -965,34 +870,31 @@ impl BybitOrderUpdateMessage {
     }
 }
 
-pub fn merge_order_execution(
-    order: &Vec<BybitOrderUpdateMessage>,
+pub fn merge_order_and_execution(
+    order: &Vec<BybitOrderStatus>,
     execution: &Vec<BybitExecution>,
-    config: &MarketConfig,
-) -> Vec<MarketMessage> {
+) -> Vec<Order> {
+    if order.len() != execution.len() {
+        log::warn!("merge order and execution in different size");
+    }
+
     let mut execution_map: HashMap<String, BybitExecution> = HashMap::new();
 
     for exec in execution.iter() {
         execution_map.insert(exec.orderId.clone(), exec.clone());
     }
 
-    let m: Vec<MarketMessage> = vec![];
+    let mut m: Vec<Order> = vec![];
 
-    // order.convert_to_market_message(config);
-    /*
-        let mut message: Vec<MarketMessage> = vec![];
+    for o in order.iter() {
+        let exec = execution_map.get(&o.orderId).unwrap();
 
-        for o in order.iter() {
+        let mut order: Order = o.into();
 
+        order.is_maker = exec.isMaker;
+        m.push(order);
+    }
 
-
-            let mut order = order_map.get_mut(&e.orderId).unwrap();
-            order.cumExecQty += e.execQty;
-            order.cumExecValue += e.execValue;
-            order.cumExecFee += e.execFee;
-            order.leavesQty -= e.execQty;
-        }
-    */
     m
 }
 
@@ -1095,8 +997,8 @@ mod bybit_message_test {
 
     use crate::message::{
         BybitAccountStatus, BybitExecution, BybitMultiOrderStatus, BybitRestResponse,
-        BybitTradeResponse, BybitUserMessage, BybitUserWsMessage, BybitWsData,
-        BybitWsOrderbook, BybitWsStatus, BybitWsTrade,
+        BybitTradeResponse, BybitUserMessage, BybitUserWsMessage, BybitWsData, BybitWsOrderbook,
+        BybitWsStatus, BybitWsTrade,
     };
 
     use super::{BybitPublicWsMessage, BybitRestBoard};
@@ -1351,6 +1253,46 @@ mod bybit_message_test {
         let result = serde_json::from_str::<BybitExecution>(message);
         println!("{:?}", result);
     }
+
+    #[test]
+    fn test_bybit_order() {
+        let message = r#"{"topic":"order","id":"100467532_BTCUSDT_8883348664","creationTime":1705740966799,"data":[{"category":"linear","symbol":"BTCUSDT","orderId":"6e77763c-5589-41de-b52b-36358a577c6d","orderLinkId":"","blockTradeId":"","side":"Sell","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","timeInForce":"IOC","isLeverage":"","price":"39484.4","qty":"0.001","avgPrice":"41562","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"41.562","cumExecFee":"0.0228591","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"","takeProfit":"","stopLoss":"","triggerBy":"","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"placeType":"","lastPriceOnCreated":"41562.5","closeOnTrigger":true,"reduceOnly":true,"smpGroup":0,"smpType":"None","smpOrderId":"","slLimitPrice":"0","tpLimitPrice":"0","tpslMode":"UNKNOWN","createType":"CreateByClosing","marketUnit":"","createdTime":"1705740966794","updatedTime":"1705740966797","feeCurrency":""}]}"#;
+        let order = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", order);
+
+
+        let message = r#"{"topic":"execution","id":"100467532_BTCUSDT_8883610598","creationTime":1705761437507,"data":[{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}"#;
+        let execution = serde_json::from_str::<BybitUserMessage>(message);
+        println!("{:?}", execution);
+
+    }
+
+
+
+    #[test]
+    fn test_bybit_order_and_execution() {
+        let message = r#"
+        [{"orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","blockTradeId":"","symbol":"BTCUSDT","price":"40643.7","qty":"0.001","side":"Sell","isLeverage":"","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","avgPrice":"42782","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"42.782","cumExecFee":"0.0235301","timeInForce":"IOC","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"0","takeProfit":"0","stopLoss":"0","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"triggerBy":"","lastPriceOnCreated":"42782.8","reduceOnly":true,"closeOnTrigger":true,"smpType":"None","smpGroup":0,"smpOrderId":"","tpslMode":"UNKNOWN","tpLimitPrice":"0","slLimitPrice":"0","placeType":"","createdTime":1707036474698,"updatedTime":1707036474702}]
+        "#;
+        let order = serde_json::from_str::<Vec<BybitOrderStatus>>(message);        
+        println!("{:?}", order);
+        
+        let message = r#"        
+        [{"category":"linear","symbol":"BTCUSDT","orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","side":"Sell","orderPrice":"40643.7","orderQty":"0.001","leavesQty":"0","orderType":"Market","execFee":"0.0235301","execId":"be10c344-e1d3-5949-8f56-d45dd192acca","execPrice":"42782","execQty":"0.001","execValue":"42.782","execTime":1707036474699,"isMaker":false,"feeRate":"0.00055","seq":8909836703}]
+        "#;
+
+
+        let execution = serde_json::from_str::<Vec<BybitExecution>>(message);        
+        println!("{:?}", execution);
+
+    }
+
+    
+
+
+
+
+
 }
 
 /*

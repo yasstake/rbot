@@ -34,25 +34,22 @@ log = { version = "0.4" }
 env_logger = { version = "0.11.0" }
 directories = "5.0.1"
 
-crossbeam-channel = { version = "0.5.9" }
+crossbeam-channel = { version = "0.5.11" }
 
 thiserror = { version = "1.0.50" }
 
 strum_macros = { version = "0.26.0" }
 strum = { version = "0.26.0", features = ["derive"] }
 
+async-stream = { version = "0.3.5" }
+async-trait = { version = "0.1.77" }
+
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1.14" }
 
-async-stream = { version = "0.3.5" }
 
 rusqlite = { version = "0.30.0", features = ["bundled"] }
 
-#polars = {version="0.33.2"}
-#polars-core = {version = "0.33.2", features=["ndarray", "temporal", "dtype-time", "object"]}
-#polars-lazy = {version="0.33.2", features=["dynamic_group_by"]}
-#polars-time = {version="0.33.2"}
-#pyo3-polars = {version="0.7.0"}
 
 polars = { version = "0.35", features = ["lazy"] }
 polars-core = { version = "0.35", features = [
@@ -95,7 +92,7 @@ hmac = { version = "0.12.1" }
 sha2 = { version = "0.10.7" }
 hex = { version = "0.4.3" }
 
-tungstenite = { version = "0.21", features = ["native-tls"] }
+#tungstenite = { version = "0.21", features = ["native-tls"] }
 tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
 
 async-std = { version = "1.12", features = ["attributes"] }

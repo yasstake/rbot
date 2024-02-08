@@ -9,6 +9,8 @@ edition = "2021"
 rbot_lib = {workspace = true}
 rbot_market = {workspace = true}
 
+anyhow = {workspace = true}
+
 chrono = {workspace = true}
 log = {workspace = true}
 
