@@ -1,8 +1,9 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use std::{collections::HashMap, iter::FromIterator, sync::Mutex};
+use std::{collections::HashMap, iter::FromIterator, sync::{Arc, Mutex}};
 
+use once_cell::sync::Lazy;
 use polars_core::{
     prelude::{DataFrame, NamedFrom},
     series::Series,
@@ -18,6 +19,34 @@ use crate::common::MarketConfig;
 use rmp_serde::to_vec;
 
 use super::string_to_decimal;
+
+pub static ALL_BOARD: Lazy<OrderBookList> = Lazy::new(||OrderBookList::new());
+
+struct OrderBookList<'a> {
+    books: HashMap<&'a str, Arc<Mutex<OrderBook>>>,
+}
+
+impl<'a> OrderBookList<'a> {
+    pub fn new() -> Self {
+        OrderBookList {
+            books: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, path: &str) -> Option<&Arc<Mutex<OrderBook>>> {
+        self.books.get(path)
+    }
+
+    pub fn register(&mut self, path: &'a str, book: Arc<Mutex<OrderBook>>) {
+        self.books.insert(path, book);
+    }
+
+    pub fn unregister(&mut self, key: &str) {
+        self.books.remove(key);
+    }
+}
+
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]

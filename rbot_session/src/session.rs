@@ -718,6 +718,9 @@ impl Session {
             MarketMessage::Control(control) => {
                 log::warn!("IGNORED MESSAGE: on_message: control={:?}", control);
             }
+            MarketMessage::ErrorMessage(message) => {
+                log::error!("on_message: error message={:?}", message);
+            }
         }
 
         return new_orders;

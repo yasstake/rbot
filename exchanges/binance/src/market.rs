@@ -199,7 +199,6 @@ pub struct BinanceMarket {
 }
 
 
-
 #[pymethods]
 impl BinanceMarket {
     #[staticmethod]
@@ -211,14 +210,6 @@ impl BinanceMarket {
 
         let db = TradeTable::open(db_name.as_str()).expect("cannot open db");
         log::debug!("db is opend. db_path= {}", db_name);
-
-        /*
-        let r = db.create_table_if_not_exists();
-        log::debug!("create_table_if_not_exists: {:?}", r);
-        if r.is_err() {
-            log::error!("Error in create_table_if_not_exists: {:?}", r);
-        }
-        */
 
         log::info!("db is opend success. db_path= {}", db_name);
 
@@ -613,7 +604,6 @@ impl BinanceMarket {
             AutoConnectClient::new(
                 &self.config,
                 endpoint,
-//                Arc::new(RwLock::new(subscribe_message)),
                 PING_INTERVAL,
                 SWITCH_INTERVAL,
                 SYNC_RECORDS_FOR_PUBLIC,
@@ -623,7 +613,7 @@ impl BinanceMarket {
         websocket.subscribe(&self.config.public_subscribe_channel);
 
         websocket.connect();
-
+        
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
@@ -758,6 +748,8 @@ impl BinanceMarket {
 
     #[getter]
     pub fn get_channel(&mut self) -> MarketStream {
+
+        // TODO: confirm buffer size
         let ch = self.channel.lock().unwrap().open_channel(0);
 
         return MarketStream { reciver: ch };
