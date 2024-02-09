@@ -72,6 +72,10 @@ impl BybitServerConfig {
 }
 
 impl ServerConfig for BybitServerConfig {
+    fn get_exchange_name(&self) -> String {
+        self.exchange_name.clone()
+    }
+
     fn get_public_ws_server(&self) -> String {
         self.public_ws.clone()
     }
@@ -95,6 +99,7 @@ impl ServerConfig for BybitServerConfig {
     fn get_historical_web_base(&self) -> String {
         self.history_web_base.clone()
     }
+
 }
 
 #[derive(Debug, Clone, Serialize)]
