@@ -26,8 +26,9 @@ pub enum MarketMessage {
     Order(Order),
     Account(AccountStatus),
     Orderbook(OrderBookRaw),
-    Message(String),
     Control(ControlMessage),
+    Message(String),
+    ErrorMessage(String)
 }
 
 impl MarketMessage {
@@ -58,6 +59,10 @@ impl MarketMessage {
     pub fn make_message(m: &str) -> Self {
         MarketMessage::Message(m.to_string())
     }
+
+    pub fn make_error_message(m: &str) -> Self {
+        MarketMessage::ErrorMessage(m.to_string())
+    }   
 }
 
 //pub type MultiMarketMessage = Vec<MarketMessage>;
