@@ -885,6 +885,9 @@ mod test_exchange_ws {
     }
 
     impl ServerConfig for TestServerConfig {
+        fn get_exchange_name(&self) -> String {
+            self.exchange_name.clone()
+        }
         fn get_public_ws_server(&self) -> String {
             self.public_ws.clone()
         }

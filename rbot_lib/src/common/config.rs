@@ -134,6 +134,7 @@ impl MarketConfig {
 
 
 pub trait ServerConfig {
+    fn get_exchange_name(&self) -> String;
     fn get_historical_web_base(&self) -> String;
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;
