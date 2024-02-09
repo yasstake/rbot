@@ -8,7 +8,7 @@ use polars_core::{
     prelude::{DataFrame, NamedFrom},
     series::Series,
 };
-use pyo3::pyclass;
+use pyo3::{pyclass, pyfunction};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -18,34 +18,63 @@ use crate::common::MarketConfig;
 
 use rmp_serde::to_vec;
 
-use super::string_to_decimal;
+use super::{order, string_to_decimal, Order, ServerConfig};
 
-pub static ALL_BOARD: Lazy<OrderBookList> = Lazy::new(||OrderBookList::new());
+static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
 
-struct OrderBookList<'a> {
-    books: HashMap<&'a str, Arc<Mutex<OrderBook>>>,
+struct OrderBookList {
+    books: HashMap<String, Arc<Mutex<OrderBookRaw>>>,
 }
 
-impl<'a> OrderBookList<'a> {
+impl OrderBookList {
+    pub fn make_path(server: &dyn ServerConfig, config: &MarketConfig) -> String {
+        format!("{}/{}/{}", server.get_exchange_name(), config.trade_category, config.trade_symbol)        
+    }
+
     pub fn new() -> Self {
         OrderBookList {
             books: HashMap::new(),
         }
     }
 
-    pub fn get(&self, path: &str) -> Option<&Arc<Mutex<OrderBook>>> {
-        self.books.get(path)
+    pub fn get(&self, key: &String) -> Option<OrderBook> {
+        let board = self.books.get(key);
+
+        if board.is_none() {
+            return None;
+        }
+        
+        Some(OrderBook {
+            path: key.to_string(),
+            board: board.unwrap().clone()
+        })
     }
 
-    pub fn register(&mut self, path: &'a str, book: Arc<Mutex<OrderBook>>) {
-        self.books.insert(path, book);
+    pub fn register(&mut self, path: &String, book: Arc<Mutex<OrderBookRaw>>) {
+        self.books.insert(path.clone(), book);
     }
 
-    pub fn unregister(&mut self, key: &str) {
+    pub fn unregister(&mut self, key: &String) {
         self.books.remove(key);
+    }
+
+    pub fn list(&self) -> Vec<String> {
+        self.books.keys().map(|s| s.to_string()).collect()
     }
 }
 
+#[pyfunction]
+pub fn get_orderbook_list() -> Vec<String> {
+    ALL_BOARD.lock().unwrap().list()
+}
+
+#[pyfunction]
+pub fn get_orderbook(path: &str) -> anyhow::Result<String> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("not found"))?;
+
+    board.get_json(0)
+}
 
 
 #[pyclass]
@@ -303,13 +332,20 @@ impl OrderBookRaw {
 #[pyclass]
 #[derive(Debug)]
 pub struct OrderBook {
-    board: Mutex<OrderBookRaw>,
+    path: String,
+    board: Arc<Mutex<OrderBookRaw>>,
 }
 
 impl OrderBook {
-    pub fn new(config: &MarketConfig) -> Self {
+    pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
+        let path = OrderBookList::make_path(server, config);
+        let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
+        
+        ALL_BOARD.lock().unwrap().register(&path,board.clone());
+        
         OrderBook {
-            board: Mutex::new(OrderBookRaw::new(config.board_depth)),
+            path: path,
+            board: board,
         }
     }
 
@@ -333,11 +369,13 @@ impl OrderBook {
 
     pub fn get_json(&self, size: usize) -> anyhow::Result<String> {
         let board = self.board.lock().unwrap();
-        let bids = board.bids.get();
-        let bids = bids[0..size.min(bids.len())].to_vec();
+        let mut bids = board.bids.get();
+        let mut asks = board.asks.get();
 
-        let asks = board.asks.get();
-        let asks = asks[0..size.min(asks.len())].to_vec();
+        if size != 0 {  // if there is a size limit, cut off the data.
+            bids = bids[0..size.min(bids.len())].to_vec();
+            asks = asks[0..size.min(asks.len())].to_vec();
+        }
 
         let json = serde_json::json!({
             "bids": bids,
@@ -358,6 +396,17 @@ impl OrderBook {
             .update(bids_diff, asks_diff, force);
     }
 
+}
+
+impl Drop for OrderBook {
+    fn drop(&mut self) {
+        let count = Arc::strong_count(&self.board);
+        println!("drop orderbook: {}", count);
+
+        if count == 1 {
+            ALL_BOARD.lock().unwrap().unregister(&self.path);
+        }
+    }
 }
 
 #[cfg(test)]

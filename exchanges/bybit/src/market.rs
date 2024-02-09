@@ -46,6 +46,7 @@ use super::message::{BybitAccountInformation, BybitPublicWsMessage};
 
 use anyhow::Context;
 
+/*
 #[derive(Debug)]
 pub struct BybitOrderBook {
     board: OrderBook,
@@ -107,6 +108,7 @@ impl BybitOrderBook {
         // TODO: reflesh board from rest api
     }
 }
+*/
 
 #[pyclass]
 #[derive(Debug)]
@@ -415,7 +417,7 @@ impl BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db.unwrap())),
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(server_config, &config))),
             public_handler: None,
         };
     }
