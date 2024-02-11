@@ -750,7 +750,7 @@ impl BinanceMarket {
     pub fn get_channel(&mut self) -> MarketStream {
 
         // TODO: confirm buffer size
-        let ch = self.channel.lock().unwrap().open_channel(0);
+        let ch = self.channel.lock().unwrap().open_channel(1000);
 
         return MarketStream { reciver: ch };
     }

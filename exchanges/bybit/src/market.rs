@@ -17,13 +17,14 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, 
+    AccountStatus, BoardItem, BoardTransfer, LogStatus, MarketConfig, 
+    MarketMessage, MarketStream, MicroSec, MultiMarketMessage, 
+    Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, 
+    DAYS, FLOOR_DAY, HHMM, NOW, SEC
 };
 
-use rbot_lib::common::BLOCK_ON;
-
 use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
-
 use rbot_lib::net::{latest_archive_date, RestApi, UdpSender};
 
 use rbot_market::MarketImpl;
@@ -45,6 +46,8 @@ use super::message::BybitOrderStatus;
 use super::message::{BybitAccountInformation, BybitPublicWsMessage};
 
 use anyhow::Context;
+
+use rbot_blockon::BLOCK_ON;
 
 /*
 #[derive(Debug)]
@@ -153,7 +156,9 @@ impl Bybit {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id).await
+        })
     }
 
     #[pyo3(signature = (market_config, *, side, size, client_order_id=None))]
@@ -164,7 +169,9 @@ impl Bybit {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id).await
+        })
     }
 
     #[pyo3(signature = (market_config, *, order_id))]
@@ -173,18 +180,24 @@ impl Bybit {
         market_config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
-        OrderInterfaceImpl::cancel_order(self, market_config, order_id)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::cancel_order(self, market_config, order_id).await
+        })
     }
 
     #[pyo3(signature = (market_config))]
     pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::get_open_orders(self, market_config)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::get_open_orders(self, market_config).await            
+        })
     }
 
     #[pyo3(signature = (market_config))]
     // TODO: implement and test
     pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
-        OrderInterfaceImpl::get_account(self, market_config)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::get_account(self, market_config).await
+        })
     }
 }
 
@@ -347,7 +360,9 @@ impl BybitMarket {
         verbose: bool,
         low_priority: bool,
     ) -> anyhow::Result<i64> {
-        MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
+        BLOCK_ON(async {
+            MarketImpl::download_archives(self, ndays, force, verbose, low_priority).await
+        })
     }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
@@ -441,7 +456,9 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { self.async_download_lastest().await })
+        BLOCK_ON(async{
+            self.async_download_lastest(verbose).await            
+        })
     }
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
@@ -522,9 +539,19 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 }
 
 impl BybitMarket {
-    async fn async_download_lastest(&mut self) -> anyhow::Result<i64> {
+    async fn async_download_lastest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        if verbose {
+            print!("async_download_lastest");
+            flush_log();
+        }
+
         let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
         let rec = trades.len() as i64;
+
+        if verbose {
+            println!("rec: {}", rec);
+            flush_log();
+        }
 
         let tx = self.db.lock().unwrap().start_thread();
         tx.send(trades)?;
@@ -587,19 +614,65 @@ impl BybitMarket {
                         b.update(&board.bids, &board.asks, snapshot);
                         drop(b);
                     }
+                    MultiMarketMessage::Control(control) => {
+                        // TODO: alert or recovery.
+                        if control.status == false {
+                            log::error!("Control message: {:?}", control);
+                        }
+                    }
                     _ => {
                         log::warn!("Not implemented/unexpected message: {:?}", messages);
                     } /*
                       MultiMarketMessage::Order(_) => todo!(),
                       MultiMarketMessage::Account(_) => todo!(),
                       MultiMarketMessage::Message(_) => todo!(),
-                      MultiMarketMessage::Control(_) => todo!(),
                       */
                 }
             }
         }));
 
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod market_test {
+    use crate::BybitConfig;
+
+    #[test]
+    fn test_create() {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let market = BybitMarket::new(&server_config, &market_config);
+    }
+
+    #[ignore]    
+    #[tokio::test]
+    async fn test_download_archive()  {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let rec = market.download_archives(1, true, true, false).await;
+        assert!(rec.is_ok());
+    }
+
+    #[ignore]
+    #[test]
+    fn test_download_latest() {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let rec = market.download_latest(true);
+        assert!(rec.is_ok());
     }
 }
 
