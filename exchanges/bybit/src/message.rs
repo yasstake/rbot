@@ -655,6 +655,16 @@ pub struct BybitWsStatus {
     pub args: Option<Vec<String>>,
 }
 
+impl Into<ControlMessage> for BybitWsStatus {
+    fn into(self) -> ControlMessage {
+        ControlMessage {
+            status: self.success,
+            operation: self.op.clone(),
+            message: format!("{:?} args:[{:?}]", self.ret_msg, self.args)
+        }
+    }
+}
+
 
 /*
 "{\"op\":\"pong\",\"args\":[\"1707031861056\"],\"conn_id\":\"cmsuqo1qo29shn0o3qb0-44fy\"}"
@@ -761,6 +771,7 @@ pub enum BybitUserWsMessage {
     pong(BybitWsPongReply),
     message(BybitUserMessage),
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "topic")]

@@ -71,7 +71,7 @@ pub fn get_orderbook_list() -> Vec<String> {
 #[pyfunction]
 pub fn get_orderbook(path: &str) -> anyhow::Result<String> {
     let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
-        .ok_or_else(|| anyhow::anyhow!("not found"))?;
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
     board.get_json(0)
 }
@@ -403,7 +403,7 @@ impl Drop for OrderBook {
         let count = Arc::strong_count(&self.board);
         println!("drop orderbook: {}", count);
 
-        if count == 1 {
+        if count == 0 {
             ALL_BOARD.lock().unwrap().unregister(&self.path);
         }
     }

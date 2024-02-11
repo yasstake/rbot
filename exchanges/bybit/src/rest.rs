@@ -473,14 +473,14 @@ impl BybitRestApi {
         query_string: &str,
     ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key();
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
         let recv_window = "5000";
 
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
-        let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
+        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, query_string);
+        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
-        let api_key = server.get_api_key();
 
         headers.push(("X-BAPI-SIGN", &sign));
         headers.push(("X-BAPI-API-KEY", &api_key));
@@ -500,14 +500,14 @@ impl BybitRestApi {
         body: &str,
     ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key();
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
         let recv_window = "5000";
 
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
-        let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
+        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, body);
+        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
-        let api_key = server.get_api_key();
 
         headers.push(("X-BAPI-SIGN", &sign));
         headers.push(("X-BAPI-API-KEY", &api_key));
@@ -940,7 +940,7 @@ pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderS
 mod bybit_rest_test {
     use super::*;
     use std::{any, thread::sleep, time::Duration};
-    use rbot_lib::common::init_log;
+    use rbot_lib::common::{init_log};
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;

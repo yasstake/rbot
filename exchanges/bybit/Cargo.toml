@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 rbot_lib = {workspace = true}
+rbot_blockon = {workspace = true}
 rbot_market = {workspace = true}
 
 anyhow = {workspace = true}
