@@ -20,3 +20,12 @@
 
     Pyo3オブジェクト直前インターフェースはpyo3::基本はAnyHowを使う。    
 
+＜時刻はi64型を使う＞
+    専用クラスへ変更しようとしたがすでに遅し。
+    最初からきちんと設計しないと途中からの変更は難しい。
+
+<Asyncとblocking境界＞
+    PythonInterfaceはBlocking
+
+    その直前までasync。
+    
