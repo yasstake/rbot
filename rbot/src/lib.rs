@@ -15,6 +15,8 @@ use rbot_session::{Logger, Session, Runner, ExecuteMode};
 
 use bybit::{Bybit, BybitConfig};
 
+use console_subscriber;
+
 /*
 use exchange::BoardItem;
 use exchange::bybit::{BybitMarket, Bybit};
@@ -37,6 +39,8 @@ use session::Runner;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
+    console_subscriber::init();
+
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(init_log, m)?)?;

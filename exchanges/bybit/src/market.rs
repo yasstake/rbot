@@ -17,11 +17,10 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, 
-    AccountStatus, BoardItem, BoardTransfer, LogStatus, MarketConfig, 
-    MarketMessage, MarketStream, MicroSec, MultiMarketMessage, 
-    Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, 
-    DAYS, FLOOR_DAY, HHMM, NOW, SEC
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem,
+    BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec,
+    MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade,
+    DAYS, FLOOR_DAY, HHMM, NOW, SEC,
 };
 
 use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
@@ -157,7 +156,8 @@ impl Bybit {
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         BLOCK_ON(async {
-            OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id).await
+            OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
+                .await
         })
     }
 
@@ -180,24 +180,18 @@ impl Bybit {
         market_config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
-        BLOCK_ON(async {
-            OrderInterfaceImpl::cancel_order(self, market_config, order_id).await
-        })
+        BLOCK_ON(async { OrderInterfaceImpl::cancel_order(self, market_config, order_id).await })
     }
 
     #[pyo3(signature = (market_config))]
     pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        BLOCK_ON(async {
-            OrderInterfaceImpl::get_open_orders(self, market_config).await            
-        })
+        BLOCK_ON(async { OrderInterfaceImpl::get_open_orders(self, market_config).await })
     }
 
     #[pyo3(signature = (market_config))]
     // TODO: implement and test
     pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
-        BLOCK_ON(async {
-            OrderInterfaceImpl::get_account(self, market_config).await
-        })
+        BLOCK_ON(async { OrderInterfaceImpl::get_account(self, market_config).await })
     }
 }
 
@@ -361,9 +355,16 @@ impl BybitMarket {
         low_priority: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            MarketImpl::download_archives(self, ndays, force, verbose, low_priority).await
+            MarketImpl::async_download_archives(self, ndays, force, verbose, low_priority).await
         })
     }
+
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        BLOCK_ON(
+            async { self.async_download_lastest(verbose).await }
+        )
+    }
+
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::expire_unfix_data(self)
@@ -373,9 +374,6 @@ impl BybitMarket {
         MarketImpl::find_latest_gap(self)
     }
 
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        MarketImpl::download_latest(self, verbose)
-    }
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_gap(self, verbose)
@@ -456,9 +454,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async{
-            self.async_download_lastest(verbose).await            
-        })
+        BLOCK_ON(async { self.async_download_lastest(verbose).await })
     }
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
@@ -483,9 +479,10 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
         let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end);
 
-        let mut lock = self.db.lock().unwrap();
-        let tx = lock.start_thread();
-        drop(lock);
+        let tx = {
+            let mut lock = self.db.lock().unwrap();
+            lock.start_thread()
+        };
 
         tx.send(expire_message)?;
         tx.send(trades)?;
@@ -536,6 +533,30 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
+
+    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
+        todo!()
+    }
+
+    fn download_archives(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        low_priority: bool,
+    ) -> anyhow::Result<i64> {
+        todo!()
+    }
+
+    fn download_archive(
+        &self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        low_priority: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        todo!()
+    }
 }
 
 impl BybitMarket {
@@ -545,6 +566,7 @@ impl BybitMarket {
             flush_log();
         }
 
+
         let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
         let rec = trades.len() as i64;
 
@@ -553,8 +575,22 @@ impl BybitMarket {
             flush_log();
         }
 
-        let tx = self.db.lock().unwrap().start_thread();
-        tx.send(trades)?;
+        {
+            log::debug!("get db");
+            flush_log();
+            let tx = self.db.lock();
+
+            if tx.is_err() {
+                log::error!("Error in self.db.lock: {:?}", tx);
+                return Err(anyhow::anyhow!("Error in self.db.lock: {:?}", tx));
+            }
+            let mut lock = tx.unwrap();
+            let tx = lock.start_thread();
+
+            log::debug!("start thread done");
+            tx.send(trades)?;
+        }
+
 
         Ok(rec)
     }
@@ -565,9 +601,10 @@ impl BybitMarket {
             return Ok(());
         }
 
-        let mut lock = self.db.lock().unwrap();
-        let db_channel = lock.start_thread();
-        drop(lock);
+        let db_channel = {
+            let mut lock = self.db.lock().unwrap();
+            lock.start_thread()
+        };
 
         let mut orderbook = self.board.clone();
 
@@ -578,7 +615,7 @@ impl BybitMarket {
             let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
             public_ws.connect().await;
-            let mut ws_stream = public_ws.open_stream().await;    
+            let mut ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
             loop {
@@ -610,9 +647,10 @@ impl BybitMarket {
                         let board = BoardTransfer::from_orderbook(&ob);
                         let snapshot = ob.snapshot;
 
-                        let mut b = orderbook.write().unwrap();
-                        b.update(&board.bids, &board.asks, snapshot);
-                        drop(b);
+                        {
+                            let mut b = orderbook.write().unwrap();
+                            b.update(&board.bids, &board.asks, snapshot);
+                        }
                     }
                     MultiMarketMessage::Control(control) => {
                         // TODO: alert or recovery.
@@ -635,7 +673,6 @@ impl BybitMarket {
     }
 }
 
-
 #[cfg(test)]
 mod market_test {
     use crate::BybitConfig;
@@ -649,16 +686,16 @@ mod market_test {
         let market = BybitMarket::new(&server_config, &market_config);
     }
 
-    #[ignore]    
+    #[ignore]
     #[tokio::test]
-    async fn test_download_archive()  {
+    async fn test_download_archive() {
         use super::*;
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
         let mut market = BybitMarket::new(&server_config, &market_config);
 
-        let rec = market.download_archives(1, true, true, false).await;
+        let rec = market.async_download_archives(1, true, true, false).await;
         assert!(rec.is_ok());
     }
 
