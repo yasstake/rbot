@@ -384,6 +384,62 @@ mod bybit_ws_test {
 
 
 /*
+pub async fn listen_userdata_stream<F>(
+    config: &BybitServerConfig,
+    mut f: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: FnMut(BybitUserStreamMessage) + Send + 'static,
+{
+    let url = config.private_ws.clone();
+
+    let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> =
+        AutoConnectClient::new(
+
+            config,
+            &url,
+            // Arc::new(RwLock::new(message)),
+            PING_INTERVAL_SEC,
+            SWITCH_INTERVAL_SEC,
+            SYNC_RECORDS,
+            Some(make_auth_message),
+        );
+
+    websocket
+        .subscribe(&vec![
+            "execution".to_string(),
+            "order".to_string(),
+            "wallet".to_string(),
+        ])
+        .await;
+
+    websocket.connect().await;
+
+    let handle = tokio::task::spawn(async move {
+        loop {
+            let msg = websocket.receive_text().await;
+            if msg.is_err() {
+                log::warn!("Error in websocket.receive_message: {:?}", msg);
+                continue;
+            }
+            let msg = msg.unwrap();
+            log::debug!("raw msg: {}", msg);
+            let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
+            if msg.is_err() {
+                log::warn!("Error in serde_json::from_str: {:?}", msg);
+                continue;
+            }
+            let msg = msg.unwrap();
+            f(msg);
+        }
+    });
+
+    handle
+}
+
+*/
+
+/*
 #[cfg(test)]
 mod test_ws {
     use crate::common::init_debug_log;

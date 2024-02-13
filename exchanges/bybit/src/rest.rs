@@ -122,6 +122,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             1000 // max records.
         );
 
+
         let r = Self::rest_get(server, path, &params)
             .await
             .with_context(|| {
@@ -135,6 +136,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
         Ok(result.into())
+
+
+//        Err(anyhow!("not implemented"))
     }
 
     async fn get_trade_klines(
