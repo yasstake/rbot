@@ -314,13 +314,7 @@ where
         return db_path.to_str().unwrap().to_string();
     }
 
-    async fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
-        let server_config = self.get_server_config();
-        let config = self.get_config().clone();
-
-        let r = T::latest_archive_date(&server_config, &config).await;
-        r
-    }
+    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec>;
 
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
@@ -335,20 +329,18 @@ where
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
-        let mut lock = db.lock().unwrap();
 
-        let fix_time = lock.latest_fix_time(start_time)?;
-        let unfix_time = lock.first_unfix_time(fix_time)?;
-        drop(lock);
+        let (fix_time, unfix_time) = {
+            let mut lock = db.lock().unwrap();
+            let fix_time = lock.latest_fix_time(start_time)?;
+            if fix_time == 0 {
+                return Err(anyhow!("No data found"));
+            }
 
-        if fix_time == 0 {
-            return Err(anyhow!("No data found"));
-        }
-        log::debug!(
-            "latest FIX time: {} / first unfix time: {}",
-            time_string(fix_time),
-            time_string(unfix_time)
-        );
+            let unfix_time = lock.first_unfix_time(fix_time)?;
+
+            (fix_time, unfix_time)
+        };
 
         Ok((fix_time, unfix_time))
     }
@@ -594,9 +586,11 @@ where
 
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        let (mut bids, mut asks) = lock.get_board()?;
+        let (mut bids, mut asks) = {
+            let lock = orderbook.read().unwrap();
+            lock.get_board()?
+        };
 
         if bids.shape().0 == 0 || asks.shape().0 == 0 {
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -611,12 +605,13 @@ where
             self.reflesh_order_book();
 
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().unwrap();
 
-            let r = lock.get_board();
+            (bids, asks) = {
+                let lock = orderbook.read().unwrap();
 
-            (bids, asks) = r.unwrap();
-            drop(lock)
+                lock.get_board()
+            }
+            .with_context(|| "Error in get_board")?;
         }
 
         return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -624,27 +619,35 @@ where
 
     fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        let json = lock.get_json(size)?;
-        drop(lock);
+        let json = {
+            let lock = orderbook.read().unwrap();
+            lock.get_json(size)?
+        };
 
         Ok(json)
     }
 
     fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
-        let (bids, asks) = lock.get_board_vec()?;
+
+        let (bids, asks) = {
+            let lock = orderbook.read().unwrap();
+            lock.get_board_vec()?
+        };
 
         Ok((bids, asks))
     }
 
     fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        Ok(lock.get_edge_price())
+        let edge_price = {
+            let lock = orderbook.read().unwrap();
+            lock.get_edge_price()
+        };
+
+        Ok(edge_price)
     }
 
     fn get_market_config(&self) -> MarketConfig;
@@ -652,12 +655,96 @@ where
     fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        
+
         lock.start_thread()
     }
 
+    fn download_archives(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        low_priority: bool,
+    ) -> anyhow::Result<i64>;
+
+    fn download_archive(
+        &self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        low_priority: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64>;
+
+    fn download_recent_trades(
+        &self,
+        market_config: &MarketConfig,
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send
+    where
+        Self: Sync,
+    {
+        async { T::get_recent_trades(&self.get_server_config(), market_config).await }
+    }
+
+    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
+        let db = self.get_db();
+        let now = NOW();
+
+        let expire_message = {
+            let mut lock = db.lock().unwrap();
+            lock.make_expire_control_message(now)?
+        };
+
+        let tx = self.start_db_thread();
+        let r = tx.send(expire_message);
+        if r.is_err() {
+            log::error!("Error in tx.send: {:?}", r.err().unwrap());
+        }
+
+        Ok(())
+    }
+
+    /// Download latest data from REST API
+    // fn download_latest(&mut self, verbose: bool) -> i64;
+    fn start_market_stream(&mut self) -> anyhow::Result<()>;
+    // fn start_user_stream(&mut self); -> move to OrderInterface
+
+    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<MarketStream>;
+
+    /*------------   async ----------------*/
+    async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
+        let server_config = self.get_server_config();
+        let config = self.get_config().clone();
+
+        let r = T::latest_archive_date(&server_config, &config).await;
+        r
+    }
+
+    async fn async_download_archive(
+        &self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        low_priority: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        T::download_archive(
+            &self.get_server_config(),
+            &self.get_config(),
+            tx,
+            date,
+            low_priority,
+            verbose,
+        )
+        .await
+        .with_context(|| format!("Error in download_archive: {:?}", date))
+    }
+
     /// Download historical data archive and store to database.
-    async fn download_archives(
+    async fn async_download_archives(
         &mut self,
         ndays: i64,
         force: bool,
@@ -670,7 +757,7 @@ where
             flush_log();
         }
 
-        let latest_date = match self.get_latest_archive_date().await {
+        let latest_date = match self.async_get_latest_archive_date().await {
             Ok(timestamp) => timestamp,
             Err(_) => NOW() - DAYS(2),
         };
@@ -698,7 +785,10 @@ where
                 continue;
             }
 
-            match self.download_archive(&tx, date, low_priority, verbose).await {
+            match self
+                .async_download_archive(&tx, date, low_priority, verbose)
+                .await
+            {
                 Ok(rec) => {
                     log::info!("downloaded: {}", download_rec);
                     download_rec += rec;
@@ -714,56 +804,4 @@ where
 
         Ok(download_rec)
     }
-
-    async fn download_archive(
-        &self,
-        tx: &Sender<Vec<Trade>>,
-        date: MicroSec,
-        low_priority: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-            T::download_archive(
-                &self.get_server_config(),
-                &self.get_config(),
-                tx,
-                date,
-                low_priority,
-                verbose,
-            )
-            .await
-            .with_context(|| format!("Error in download_archive: {:?}", date))
-    }
-
-    async fn download_recent_trades(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
-            T::get_recent_trades(&self.get_server_config(), market_config).await
-    }
-
-    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
-        let db = self.get_db();
-        let now = NOW();
-
-        let mut lock = db.lock().unwrap();
-        let expire_message = lock.make_expire_control_message(now)?;
-        drop(lock);
-
-        let tx = self.start_db_thread();
-        let r = tx.send(expire_message);
-        if r.is_err() {
-            log::error!("Error in tx.send: {:?}", r.err().unwrap());
-        }
-
-        Ok(())
-    }
-
-    /// Download latest data from REST API
-    // fn download_latest(&mut self, verbose: bool) -> i64;
-    fn start_market_stream(&mut self) -> anyhow::Result<()>;
-    // fn start_user_stream(&mut self); -> move to OrderInterface
-
-    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
-    fn open_backtest_channel(
-        &mut self,
-        time_from: MicroSec,
-        time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream>;
 }

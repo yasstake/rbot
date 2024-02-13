@@ -608,7 +608,8 @@ impl TradeTable {
     pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
         // check if the thread is already started
         // check self.tx is valid and return clone of self.tx
-        if self.tx.is_some() && self.is_running() {
+        log::debug!("start_thread");
+        if self.is_running() {
             log::info!("DB Thread is already started, reuse tx");
             return self.tx.clone().unwrap();
         }
