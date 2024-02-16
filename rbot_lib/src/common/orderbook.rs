@@ -22,13 +22,13 @@ use super::{order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, O
 
 static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
 
-struct OrderBookList {
+pub struct OrderBookList {
     books: HashMap<String, Arc<Mutex<OrderBookRaw>>>,
 }
 
 impl OrderBookList {
-    pub fn make_path(server: &dyn ServerConfig, config: &MarketConfig) -> String {
-        format!("{}/{}/{}", server.get_exchange_name(), config.trade_category, config.trade_symbol)        
+    pub fn make_path(exchange_name: &str, config: &MarketConfig) -> String {
+        format!("{}/{}/{}", exchange_name, config.trade_category, config.trade_symbol)        
     }
 
     pub fn new() -> Self {
@@ -69,11 +69,18 @@ pub fn get_orderbook_list() -> Vec<String> {
 }
 
 #[pyfunction]
-pub fn get_orderbook(path: &str) -> anyhow::Result<String> {
+pub fn get_orderbook_vec(path: &str) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
     let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
-    board.get_json(0)
+    board.get_board_vec()
+}
+
+pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_board()
 }
 
 
@@ -338,7 +345,7 @@ pub struct OrderBook {
 
 impl OrderBook {
     pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
-        let path = OrderBookList::make_path(server, config);
+        let path = OrderBookList::make_path(&server.get_exchange_name(), config);
         let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
         
         ALL_BOARD.lock().unwrap().register(&path,board.clone());
@@ -406,7 +413,7 @@ impl OrderBook {
         size: Decimal,
         transaction_id: &str,
     ) -> anyhow::Result<Vec<Order>> {
-        let mut board = self.board.lock().unwrap();
+        let board = self.board.lock().unwrap();
 
         let board = if side == OrderSide::Buy {
             board.asks.get()
