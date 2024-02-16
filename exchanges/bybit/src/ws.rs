@@ -2,7 +2,9 @@
 use async_stream::stream;
 use futures::Stream;
 use futures::StreamExt;
-use rbot_lib::common::AccountStatus;
+use rbot_lib::common::AccountCoins;
+use rbot_lib::common::AccountPair;
+use rbot_lib::common::ControlMessage;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::Order;
 use serde_derive::Deserialize;
@@ -12,7 +14,7 @@ use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ServerConfig
 
 use rbot_lib::net::{AutoConnectClient, WsOpMessage};
 
-
+use crate::message::convert_coin_to_account_status;
 use crate::message::merge_order_and_execution;
 use crate::message::BybitExecution;
 use crate::message::BybitOrderStatus;
@@ -32,7 +34,6 @@ pub struct BybitWsOpMessage {
     pub args: Vec<String>,
     pub id: i64,
 }
-
 
 impl WsOpMessage for BybitWsOpMessage {
     fn new() -> Self {
@@ -115,21 +116,22 @@ impl BybitPublicWsClient {
             while let Some(message) = s.next().await {
                 match message {
                     Ok(m) => {
-                        let m = Self::parse_message(m);
-
-                        match m {
+                        match Self::parse_message(m) {
                             Err(e) => {
                                 println!("Parse Error: {:?}", e);
                                 continue;
                             }
                             Ok(m) => {
-                                match m {
-                                    BybitPublicWsMessage::Status(s) => {
-                                        log::debug!("status message: {:?}", s);
+                                let market_message = Self::convert_ws_message(m);
+
+                                match market_message
+                                {
+                                    Err(e) => {
+                                        println!("Convert Error: {:?}", e);
+                                        continue;
                                     }
-                                    _ => {
-                                        let m = Self::convert_ws_message(m);
-                                        yield m;
+                                    Ok(m) => {
+                                        yield Ok(m);
                                     }
                                 }
                             }
@@ -160,6 +162,7 @@ impl BybitPublicWsClient {
 }
 
 pub struct BybitPrivateWsClient {
+    pub config: MarketConfig,
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
 }
 
@@ -185,14 +188,14 @@ impl BybitPrivateWsClient {
             .await;
 
         Self {
+            config: config.clone(),
             ws: private_ws,
         }
     }
 
-    
     fn make_auth_message(server: &BybitServerConfig) -> String {
-        let api_key = server.get_api_key();
-        let secret_key = server.get_api_secret();
+        let api_key = server.get_api_key().extract();
+        let secret_key = server.get_api_secret().extract();
         let time_stamp = (NOW() / 1_000) + 1_000 * 10; // 10 seconds in the future
         let sign = hmac_sign(&secret_key, &format!("GET/realtime{}", time_stamp));
 
@@ -233,7 +236,9 @@ impl BybitPrivateWsClient {
                             Ok(m) => {
                                 match m {
                                     BybitUserWsMessage::status(s) => {
-                                        log::debug!("status message: {:?}", s);
+                                        let control: ControlMessage = s.into();
+                                        log::debug!("status message: {:?}", control);
+                                        yield Ok(MultiMarketMessage::Control(control));
                                     }
                                     BybitUserWsMessage::pong(p) => {
                                         log::debug!("pong message: {:?}", p);
@@ -253,7 +258,7 @@ impl BybitPrivateWsClient {
                                                     let order = merge_order_and_execution(&last_orders, &last_executions);
                                                     last_orders.clear();
                                                     last_executions.clear();
-                                                    
+
                                                     for o in order.iter() {
                                                         let mut o = o.clone();
                                                         o.update_balance(&market_config);
@@ -287,12 +292,12 @@ impl BybitPrivateWsClient {
                                                 creationTime,
                                                 data,
                                             } => {
-                                                let mut account_status: Vec<AccountStatus> = vec![];
-                                                
-                                                for account in data.iter() {
-                                                    let a: AccountStatus = account.into();
+                                                let mut coins = AccountCoins::new();
+                                                for account in data {
+                                                    let mut account_coins: AccountCoins = account.into();                                                    
+                                                    coins.append(account_coins);
                                                 }
-                                                yield Ok(MultiMarketMessage::Account(account_status));
+                                                yield Ok(MultiMarketMessage::Account(coins));
                                             }
                                         }
                                     }
@@ -326,7 +331,6 @@ impl BybitPrivateWsClient {
     ) -> Vec<Order> {
         merge_order_and_execution(orders, executions)
     }
-    
 }
 
 #[cfg(test)]
@@ -383,33 +387,6 @@ mod bybit_ws_test {
         }
     }
 }
-
-/*
-    pub fn connect(&mut self) {
-        BLOCK_ON(async {
-        BLOCK_ON(async {
-            self.ws.connect(|message|{
-                let m = serde_json::from_str::<BybitWsMessage>(&message);
-
-                if m.is_err() {
-                    log::warn!("Error in serde_json::from_str: {:?}", message);
-                    println!("ERR: {:?}", message);
-                }
-
-                let m = m.unwrap();
-
-                return m.into();
-            }).await
-        })
-    }
-
-    pub fn open_channel(&mut self) -> Receiver<MultiMarketMessage> {
-        BLOCK_ON(async {
-            self.ws.open_channel().await
-        })
-    }
-}
-*/
 
 /*
 pub async fn listen_userdata_stream<F>(

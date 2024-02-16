@@ -10,7 +10,8 @@ use serde_derive::Serialize;
 
 use super::order::Order;
 use super::order::Trade;
-use super::AccountStatus;
+use super::AccountCoins;
+use super::AccountPair;
 use super::OrderBookRaw;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,7 +25,7 @@ pub struct ControlMessage {
 pub enum MarketMessage {
     Trade(Trade),
     Order(Order),
-    Account(AccountStatus),
+    Account(AccountPair),
     Orderbook(OrderBookRaw),
     Control(ControlMessage),
     Message(String),
@@ -40,7 +41,7 @@ impl MarketMessage {
         MarketMessage::Order(order)
     }
 
-    pub fn from_account(account: AccountStatus) -> Self {
+    pub fn from_account(account: AccountPair) -> Self {
         MarketMessage::Account(account)
     }
 
@@ -71,7 +72,7 @@ impl MarketMessage {
 pub enum MultiMarketMessage {
     Trade(Vec<Trade>),
     Order(Vec<Order>),
-    Account(Vec<AccountStatus>),
+    Account(AccountCoins),
     Orderbook(OrderBookRaw),
     Message(String),
     Control(ControlMessage),

@@ -4,18 +4,18 @@
 
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
-    init_debug_log, init_log,
-    Order, OrderSide,
-    time_string,
-    NOW, DAYS_BEFORE, DAYS, HHMM, MIN, SEC, FLOOR_SEC,
-    MarketConfig, OrderStatus, AccountStatus,
-    OrderType, Trade, BoardItem,
+    get_orderbook_list,
+    get_orderbook, 
+    init_debug_log, init_log, time_string, 
+    AccountPair, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
 };
 
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 
 use bybit::{Bybit, BybitConfig};
+
+use console_subscriber;
 
 /*
 use exchange::BoardItem;
@@ -39,10 +39,15 @@ use session::Runner;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
+    console_subscriber::init();
+
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(init_log, m)?)?;
     m.add_function(wrap_pyfunction!(init_debug_log, m)?)?;
+
+    m.add_function(wrap_pyfunction!(get_orderbook_list, m)?)?;
+    m.add_function(wrap_pyfunction!(get_orderbook, m)?)?;
 
     // time util
     m.add_function(wrap_pyfunction!(time_string, m)?)?;
@@ -58,7 +63,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // classes
     m.add_class::<MarketConfig>()?;
     m.add_class::<OrderStatus>()?;
-    m.add_class::<AccountStatus>()?;
+    m.add_class::<AccountPair>()?;
     
     m.add_class::<Logger>()?;
 
