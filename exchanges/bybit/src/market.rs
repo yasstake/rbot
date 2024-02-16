@@ -67,6 +67,11 @@ impl Bybit {
         };
     }
 
+    #[getter]
+    pub fn get_exchange_name(&self) -> String {
+        self.server_config.exchange_name.clone()
+    }
+
     pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
         return BybitMarket::new(&self.server_config, config);
     }

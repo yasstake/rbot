@@ -3,15 +3,15 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use pyo3::{ffi::getter, pyclass, pymethods, PyAny, PyObject, Python};
+use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
+use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use rbot_lib::common::{
-    date_string, hour_string, min_string, time_string, AccountPair, MarketConfig, MicroSec,
-    OrderSide, OrderStatus, NOW,Trade, MarketMessage, SEC,Order,OrderType
+    date_string, get_orderbook_df, hour_string, min_string, time_string, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
 };
 use pyo3::prelude::*;
 
@@ -85,6 +85,7 @@ pub struct Session {
     asks_edge: Decimal,
     bids_edge: Decimal,
 
+    exchange_name: String,
     market_config: MarketConfig,
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
@@ -124,6 +125,13 @@ impl Session {
             config
         });
 
+        let exchange_name = Python::with_gil(|py| {
+            let exchange_name = exchange.getattr(py, "exchange_name").unwrap();
+            let exchange_name: String = exchange_name.extract(py).unwrap();
+
+            exchange_name
+        });
+
         let mut session = Self {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
@@ -158,6 +166,7 @@ impl Session {
             asks_edge: dec![0.0],
             bids_edge: dec![0.0],
 
+            exchange_name,
             market_config: config,
 
             dummy_q: Mutex::new(VecDeque::new()),
@@ -206,13 +215,11 @@ impl Session {
 
     #[getter]
     // TODO: リモート動作時にRESTでコールする。
-    pub fn get_board(&self) -> Result<Py<PyAny>, PyErr> {
-        if self.execute_mode == ExecuteMode::BackTest {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "get_board is not supported in backtest mode",
-            ));
-        }
-        Python::with_gil(|py| self.market.getattr(py, "board"))
+    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+        let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
+        let (bids, asks) = get_orderbook_df(&path)?;
+
+        Ok((PyDataFrame(bids), PyDataFrame(asks)))
     }
 
     #[getter]
