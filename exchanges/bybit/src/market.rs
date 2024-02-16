@@ -17,10 +17,7 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem,
-    BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec,
-    MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade,
-    DAYS, FLOOR_DAY, HHMM, NOW, SEC,
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountCoins, AccountPair, BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, SEC
 };
 
 use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
@@ -189,8 +186,7 @@ impl Bybit {
     }
 
     #[pyo3(signature = (market_config))]
-    // TODO: implement and test
-    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
+    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountCoins> {
         BLOCK_ON(async { OrderInterfaceImpl::get_account(self, market_config).await })
     }
 }
@@ -360,11 +356,8 @@ impl BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(
-            async { self.async_download_lastest(verbose).await }
-        )
+        BLOCK_ON(async { self.async_download_lastest(verbose).await })
     }
-
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::expire_unfix_data(self)
@@ -374,28 +367,12 @@ impl BybitMarket {
         MarketImpl::find_latest_gap(self)
     }
 
-
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_gap(self, verbose)
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         MarketImpl::start_market_stream(self)
-    }
-
-    fn get_trade_list(&self) -> anyhow::Result<Vec<OrderStatus>> {
-        todo!()
-        //MarketImpl::get_trade_list(self)
-    }
-
-    fn get_account(&self) -> anyhow::Result<AccountStatus> {
-        todo!()
-        //MarketImpl::get_account(self)
-    }
-
-    fn get_recent_trades(&self) -> anyhow::Result<Vec<Trade>> {
-        todo!()
-        //MarketImpl::get_recent_trades(self)
     }
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
@@ -538,25 +515,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         todo!()
     }
 
-    fn download_archives(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-        low_priority: bool,
-    ) -> anyhow::Result<i64> {
-        todo!()
-    }
-
-    fn download_archive(
-        &self,
-        tx: &Sender<Vec<Trade>>,
-        date: MicroSec,
-        low_priority: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        todo!()
-    }
 }
 
 impl BybitMarket {
@@ -565,7 +523,6 @@ impl BybitMarket {
             print!("async_download_lastest");
             flush_log();
         }
-
 
         let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
         let rec = trades.len() as i64;
@@ -590,7 +547,6 @@ impl BybitMarket {
             log::debug!("start thread done");
             tx.send(trades)?;
         }
-
 
         Ok(rec)
     }

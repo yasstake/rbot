@@ -24,8 +24,9 @@ use tempfile::tempdir;
 //use tokio::spawn;
 use zip::ZipArchive;
 
+use crate::common::AccountCoins;
 use crate::common::{
-    flush_log, to_naive_datetime, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig,
+    flush_log, to_naive_datetime, AccountPair, BoardTransfer, Kline, LogStatus, MarketConfig,
     MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
 //use crate::db::KEY::low;
@@ -70,8 +71,7 @@ where
 
     fn get_account(
         server: &T,
-        config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<AccountStatus>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<AccountCoins>> + Send;
 
     fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
         let history_web_base = server.get_historical_web_base();
