@@ -189,10 +189,10 @@ where
             .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
     }
 
-    async fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountCoins> {
+    async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         T::get_account(&self.get_server_config())
             .await
-            .with_context(|| format!("Error in get_account: {:?}", &market_config))
+            .with_context(|| format!("Error in get_account"))
     }
 
     fn start_user_stream(&mut self);

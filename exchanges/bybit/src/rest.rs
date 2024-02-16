@@ -352,7 +352,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     // TODO: implement paging.
     async fn open_orders(
         server: &BybitServerConfig,
-        config: &MarketConfig,
+config: &MarketConfig,
     ) -> anyhow::Result<Vec<Order>> {
         let query_string = format!(
             "category={}&symbol={}&limit=50",
