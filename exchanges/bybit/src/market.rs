@@ -45,69 +45,6 @@ use anyhow::Context;
 
 use rbot_blockon::BLOCK_ON;
 
-/*
-#[derive(Debug)]
-pub struct BybitOrderBook {
-    board: OrderBook,
-}
-
-impl BybitOrderBook {
-    pub fn new(config: &MarketConfig) -> Self {
-        return BybitOrderBook {
-            board: OrderBook::new(&config),
-        };
-    }
-
-    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
-        let (bids, asks) = self.board.get_board_vec().unwrap();
-
-        Ok((bids, asks))
-    }
-
-    fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
-        let json = self.board.get_json(size).unwrap();
-
-        Ok(json)
-    }
-
-    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        let (mut bids, mut asks) = self.board.get_board()?;
-
-        if bids.is_empty() || asks.is_empty() {
-            return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-        }
-
-        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
-        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
-
-        if asks_edge < bids_edge {
-            log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
-
-            self.reflesh_board();
-
-            (bids, asks) = self.board.get_board().unwrap();
-        }
-
-        return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-    }
-
-    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
-        Ok(self.board.get_edge_price())
-    }
-
-    pub fn update(&mut self, board: &OrderBookRaw) {
-        let bids = board.get_bids();
-        let asks = board.get_asks();
-        self.board.update(&bids, &asks, board.snapshot);
-    }
-
-    fn reflesh_board(&mut self) {
-        // TODO: implement
-        println!("reflesh board :NOT IMPLEMENTED");
-        // TODO: reflesh board from rest api
-    }
-}
-*/
 
 #[pyclass]
 #[derive(Debug)]
@@ -628,6 +565,97 @@ impl BybitMarket {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod bybit_test {
+    use rust_decimal_macros::dec;
+
+    use crate::{Bybit, BybitConfig};
+
+    #[test]
+    fn test_create() {
+        let bybit = Bybit::new(false);
+
+        assert!(bybit.enable_order == false);
+    }
+
+    #[test]
+    fn test_open_market() {
+        let market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
+        assert!(market.get_config().trade_symbol == "BTCUSDT");
+    }
+
+    #[test]
+    fn test_limit_order() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_err());  // first enable flag.
+
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());  // first enable flag.
+    }
+
+    #[test]
+    fn test_market_order() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.market_order(&config, "Buy", dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_err());  // first enable flag.
+
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.market_order(&config, "Buy", dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());  // first enable flag.
+    }
+
+    #[test]
+    fn test_cancel_order() -> anyhow::Result<()>{
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+        
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None)?;
+
+        let order_id = rec[0].order_id.clone();
+
+        let rec = bybit.cancel_order(&config, &order_id)?;
+        println!("{:?}", rec);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_open_orders() -> anyhow::Result<()> {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.get_open_orders(&config)?;
+        println!("{:?}", rec);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_account() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.get_account(&config);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());
+    
+    }
+}
+
+
 
 #[cfg(test)]
 mod market_test {

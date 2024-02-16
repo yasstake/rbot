@@ -99,9 +99,10 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    #[pyo3(signature = (*, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
+    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         start_time: MicroSec,
@@ -120,12 +121,13 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        self.run(market, &reciever, agent, true, log_file)
+        self.run(exchange, market, &reciever, agent, true, log_file)
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn dry_run(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         log_memory: bool,
@@ -162,12 +164,13 @@ impl Runner {
             reciever
         };
 
-        self.run(market, &receiver, agent, log_memory, log_file)
+        self.run(exchange, market, &receiver, agent, log_memory, log_file)
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         log_memory: bool,
@@ -204,7 +207,7 @@ impl Runner {
             reciever
         };
 
-        self.run(market, &receiver, agent, log_memory, log_file)
+        self.run(exchange, market, &receiver, agent, log_memory, log_file)
     }
 
     /*
@@ -431,6 +434,7 @@ impl Runner {
 
     pub fn run(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
@@ -455,6 +459,7 @@ impl Runner {
 
             let session_name = self.agent_id.clone();
             let mut session = Session::new(
+                exchange,
                 market,
                 self.execute_mode.clone(),
                 Some(&session_name),
