@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use rbot_lib::common::{
-    date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
+    date_string, hour_string, min_string, time_string, AccountPair, MarketConfig, MicroSec,
     OrderSide, OrderStatus, NOW,Trade, MarketMessage, SEC,Order,OrderType
 };
 use pyo3::prelude::*;
@@ -53,8 +53,8 @@ pub struct Session {
     execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
-    real_account: AccountStatus,
-    psudo_account: AccountStatus,
+    real_account: AccountPair,
+    psudo_account: AccountPair,
     market: PyObject,
     current_timestamp: MicroSec,
     current_clock_time: MicroSec,
@@ -124,8 +124,8 @@ impl Session {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
-            real_account: AccountStatus::default(),
-            psudo_account: AccountStatus::default(),
+            real_account: AccountPair::default(),
+            psudo_account: AccountPair::default(),
             market,
             current_timestamp: 0,
             current_clock_time: 0,
@@ -289,17 +289,17 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_psudo_account(&self) -> AccountStatus {
+    pub fn get_psudo_account(&self) -> AccountPair {
         self.psudo_account.clone()
     }
 
     #[getter]
-    pub fn get_real_account(&self) -> AccountStatus {
+    pub fn get_real_account(&self) -> AccountPair {
         self.real_account.clone()
     }
 
     #[getter]
-    pub fn get_account(&self) -> AccountStatus {
+    pub fn get_account(&self) -> AccountPair {
         match self.execute_mode {
             ExecuteMode::Real => self.real_account.clone(),
             ExecuteMode::BackTest => self.psudo_account.clone(),
@@ -761,7 +761,7 @@ impl Session {
         )
     }
 
-    pub fn log_account(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
+    pub fn log_account(&mut self, account: &AccountPair) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
         self.log.log_account(time, account)
@@ -800,7 +800,7 @@ impl Session {
         }
     }
 
-    pub fn on_account_update(&mut self, account: &AccountStatus) {
+    pub fn on_account_update(&mut self, account: &AccountPair) {
         self.real_account = account.clone();
 
         if self.log_account(account).is_err() {
@@ -1059,7 +1059,7 @@ impl Session {
         }
     }
 
-    pub fn set_real_account(&mut self, account: &AccountStatus) {
+    pub fn set_real_account(&mut self, account: &AccountPair) {
         self.real_account = account.clone();
     }
 }

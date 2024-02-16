@@ -132,6 +132,7 @@ impl MarketConfig {
 
 }
 
+/*
 pub struct ServerConfigStruct {
     exchange_name: String, 
     trade_category: String,
@@ -171,6 +172,7 @@ impl ServerConfig for ServerConfigStruct {
         todo!()
     }
 }
+*/
 
 
 
