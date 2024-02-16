@@ -66,7 +66,7 @@ where
     ) -> impl std::future::Future<Output = anyhow::Result<Order>> + Send;
     fn open_orders(
         server: &T,
-        config: &MarketConfig,
+config: &MarketConfig,
     ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
 
     fn get_account(
