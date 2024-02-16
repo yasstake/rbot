@@ -1,5 +1,5 @@
 use crossbeam_channel::Sender;
-use rbot_lib::common::BLOCK_ON;
+use rbot_lib::common::AccountCoins;
 use rbot_lib::db::db_full_path;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
@@ -17,7 +17,7 @@ use anyhow::Context;
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountStatus, MarketConfig, MarketStream, MicroSec, Order,
+        flush_log, time_string, AccountPair, MarketConfig, MarketStream, MicroSec, Order,
         OrderSide, OrderType, ServerConfig, Trade, DAYS, NOW,
     },
     db::{df::KEY, sqlite::TradeTable},
@@ -66,7 +66,7 @@ pub trait OrderInterface {
     ) -> Vec<Order>;
     fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order>;
     fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>>;
-    fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus>;
+    fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountPair>;
 }
 
 pub trait OrderInterfaceImpl<T, U>
@@ -95,7 +95,7 @@ where
         OrderSide::from(side)
     }
 
-    fn make_order(
+    async fn make_order(
         &self,
         market_config: &MarketConfig,
         side: &str,
@@ -108,28 +108,26 @@ where
         let size = self.size_dp(&market_config, size);
         let order_side = Self::order_side(side);
 
-        BLOCK_ON(async {
-            T::new_order(
-                &self.get_server_config(),
-                &market_config,
-                order_side,
-                price,
-                size,
-                order_type,
-                client_order_id,
+        T::new_order(
+            &self.get_server_config(),
+            &market_config,
+            order_side,
+            price,
+            size,
+            order_type,
+            client_order_id,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Error in make_order: {:?} {:?} {:?} {:?} {:?} {:?}",
+                &market_config, &side, &price, &size, &order_type, &client_order_id
             )
-            .await
-            .with_context(|| {
-                format!(
-                    "Error in make_order: {:?} {:?} {:?} {:?} {:?} {:?}",
-                    &market_config, &side, &price, &size, &order_type, &client_order_id
-                )
-            })
         })
     }
 
     //------ REST API ----
-    fn limit_order(
+    async fn limit_order(
         &self,
         market_config: &MarketConfig,
         side: &str,
@@ -146,9 +144,10 @@ where
             OrderType::Limit,
             client_order_id,
         )
+        .await
     }
 
-    fn market_order(
+    async fn market_order(
         &self,
         market_config: &MarketConfig,
         side: &str,
@@ -164,36 +163,36 @@ where
             OrderType::Market,
             client_order_id,
         )
+        .await
     }
 
-    fn cancel_order(&self, market_config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
+    async fn cancel_order(
+        &self,
+        market_config: &MarketConfig,
+        order_id: &str,
+    ) -> anyhow::Result<Order> {
         check_if_enable_order!(self);
-        BLOCK_ON(async {
-            T::cancel_order(&self.get_server_config(), &market_config, order_id)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Error in cancel_order: {:?} {:?}",
-                        &market_config, &order_id
-                    )
-                })
-        })
+
+        T::cancel_order(&self.get_server_config(), &market_config, order_id)
+            .await
+            .with_context(|| {
+                format!(
+                    "Error in cancel_order: {:?} {:?}",
+                    &market_config, &order_id
+                )
+            })
     }
 
-    fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        BLOCK_ON(async {
-            T::open_orders(&self.get_server_config(), market_config)
-                .await
-                .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
-        })
+    async fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
+        T::open_orders(&self.get_server_config(), market_config)
+            .await
+            .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
     }
 
-    fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
-        BLOCK_ON(async {
-            T::get_account(&self.get_server_config(), market_config)
-                .await
-                .with_context(|| format!("Error in get_account: {:?}", &market_config))
-        })
+    async fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountCoins> {
+        T::get_account(&self.get_server_config())
+            .await
+            .with_context(|| format!("Error in get_account: {:?}", &market_config))
     }
 
     fn start_user_stream(&mut self);
@@ -315,10 +314,9 @@ where
 
         return db_path.to_str().unwrap().to_string();
     }
+    
+    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec>;
 
-    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
-        T::latest_archive_date(&self.get_server_config(), &self.get_config())
-    }
 
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
@@ -333,19 +331,18 @@ where
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
-        let mut lock = db.lock().unwrap();
 
-        let fix_time = lock.latest_fix_time(start_time)?;
-        let unfix_time = lock.first_unfix_time(fix_time)?;
-        drop(lock);
+        let (fix_time, unfix_time) = {
+            let mut lock = db.lock().unwrap();
+            let fix_time = lock.latest_fix_time(start_time)?;
+            if fix_time == 0 {
+                return Err(anyhow!("No data found"));
+            }
 
-        if fix_time == 0 {
-            return Err(anyhow!("No data found"));
-        }
-        log::debug!(
-            "latest FIX time: {} / first unfix time: {}",
-            time_string(fix_time),
-            time_string(unfix_time));
+            let unfix_time = lock.first_unfix_time(fix_time)?;
+
+            (fix_time, unfix_time)
+        };
 
         Ok((fix_time, unfix_time))
     }
@@ -591,9 +588,11 @@ where
 
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        let (mut bids, mut asks) = lock.get_board()?;
+        let (mut bids, mut asks) = {
+            let lock = orderbook.read().unwrap();
+            lock.get_board()?
+        };
 
         if bids.shape().0 == 0 || asks.shape().0 == 0 {
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -608,12 +607,13 @@ where
             self.reflesh_order_book();
 
             let orderbook = self.get_order_book();
-            let lock = orderbook.read().unwrap();
 
-            let r = lock.get_board();
+            (bids, asks) = {
+                let lock = orderbook.read().unwrap();
 
-            (bids, asks) = r.unwrap();
-            drop(lock)
+                lock.get_board()
+            }
+            .with_context(|| "Error in get_board")?;
         }
 
         return Ok((PyDataFrame(bids), PyDataFrame(asks)));
@@ -621,27 +621,35 @@ where
 
     fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        let json = lock.get_json(size)?;
-        drop(lock);
+        let json = {
+            let lock = orderbook.read().unwrap();
+            lock.get_json(size)?            
+        };
 
         Ok(json)
     }
 
     fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
-        let (bids, asks) = lock.get_board_vec()?;
+        
+        let (bids, asks) = {
+            let lock = orderbook.read().unwrap();            
+            lock.get_board_vec()?
+        };
 
         Ok((bids, asks))
     }
 
     fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         let orderbook = self.get_order_book();
-        let lock = orderbook.read().unwrap();
 
-        Ok(lock.get_edge_price())
+        let edge_price = {
+            let lock = orderbook.read().unwrap();
+            lock.get_edge_price()
+        };
+
+        Ok(edge_price)
     }
 
     fn get_market_config(&self) -> MarketConfig;
@@ -649,100 +657,28 @@ where
     fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        BLOCK_ON(async { lock.start_thread() })
+
+        lock.start_thread()
     }
 
-    /// Download historical data archive and store to database.
-    fn download_archives(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-        low_priority: bool,
-    ) -> anyhow::Result<i64> {
-        log::info!("log download: {} days", ndays);
-        if verbose {
-            println!("log download: {} days", ndays);
-            flush_log();
-        }
-
-        let latest_date = match self.get_latest_archive_date() {
-            Ok(timestamp) => timestamp,
-            Err(_) => NOW() - DAYS(2),
-        };
-
-        log::info!("archive latest_date: {}", time_string(latest_date));
-        if verbose {
-            println!("archive latest_date: {}", time_string(latest_date));
-            flush_log();
-        }
-
-        let mut download_rec: i64 = 0;
-
-        let tx = self.start_db_thread();
-
-        for i in 0..ndays {
-            let date = latest_date - i * DAYS(1);
-
-            if !force && self.validate_db_by_date(date)? {
-                log::info!("{} is valid", time_string(date));
-
-                if verbose {
-                    println!("{} skip download", time_string(date));
-                    flush_log();
-                }
-                continue;
-            }
-
-            match self.download_archive(&tx, date, low_priority, verbose) {
-                Ok(rec) => {
-                    log::info!("downloaded: {}", download_rec);
-                    download_rec += rec;
-                }
-                Err(e) => {
-                    log::error!("Error in download_log: {:?}", e);
-                    if verbose {
-                        println!("Error in download_log: {:?}", e);
-                    }
-                }
-            }
-        }
-
-        Ok(download_rec)
-    }
-
-    fn download_archive(
+    fn download_recent_trades(
         &self,
-        tx: &Sender<Vec<Trade>>,
-        date: MicroSec,
-        low_priority: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        BLOCK_ON(async {
-            T::download_archive(
-                &self.get_server_config(),
-                &self.get_config(),
-                tx,
-                date,
-                low_priority,
-                verbose,
-            )
-            .await
-            .with_context(|| format!("Error in download_archive: {:?}", date))
-        })
-    }
+        market_config: &MarketConfig,
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send where Self: Sync {async {
+        T::get_recent_trades(&self.get_server_config(), market_config).await
+    } }
 
-    fn download_recent_trades(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
-        BLOCK_ON(async { T::get_recent_trades(&self.get_server_config(), market_config).await })
-    }
+
+
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let now = NOW();
 
-        let mut lock = db.lock().unwrap();
-        let expire_message = lock.make_expire_control_message(now)?;
-        drop(lock);
+        let expire_message = {
+            let mut lock = db.lock().unwrap();
+            lock.make_expire_control_message(now)?
+        };
 
         let tx = self.start_db_thread();
         let r = tx.send(expire_message);
@@ -764,4 +700,96 @@ where
         time_from: MicroSec,
         time_to: MicroSec,
     ) -> anyhow::Result<MarketStream>;
+
+
+    /*------------   async ----------------*/
+    async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
+        let server_config = self.get_server_config();
+        let config = self.get_config().clone();
+
+        let r = T::latest_archive_date(&server_config, &config).await;
+        r
+    }
+
+    async fn async_download_archive(
+        &self,
+        tx: &Sender<Vec<Trade>>,
+        date: MicroSec,
+        low_priority: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        T::download_archive(
+            &self.get_server_config(),
+            &self.get_config(),
+            tx,
+            date,
+            low_priority,
+            verbose,
+        )
+        .await
+        .with_context(|| format!("Error in download_archive: {:?}", date))
+    }
+
+        /// Download historical data archive and store to database.
+        async fn async_download_archives(
+            &mut self,
+            ndays: i64,
+            force: bool,
+            verbose: bool,
+            low_priority: bool,
+        ) -> anyhow::Result<i64> {
+            log::info!("log download: {} days", ndays);
+            if verbose {
+                println!("log download: {} days", ndays);
+                flush_log();
+            }
+    
+            let latest_date = match self.async_get_latest_archive_date().await {
+                Ok(timestamp) => timestamp,
+                Err(_) => NOW() - DAYS(2),
+            };
+    
+            log::info!("archive latest_date: {}", time_string(latest_date));
+            if verbose {
+                println!("archive latest_date: {}", time_string(latest_date));
+                flush_log();
+            }
+    
+            let mut download_rec: i64 = 0;
+    
+            let tx = self.start_db_thread();
+    
+            for i in 0..ndays {
+                let date = latest_date - i * DAYS(1);
+    
+                if !force && self.validate_db_by_date(date)? {
+                    log::info!("{} is valid", time_string(date));
+    
+                    if verbose {
+                        println!("{} skip download", time_string(date));
+                        flush_log();
+                    }
+                    continue;
+                }
+    
+                match self
+                    .async_download_archive(&tx, date, low_priority, verbose)
+                    .await
+                {
+                    Ok(rec) => {
+                        log::info!("downloaded: {}", download_rec);
+                        download_rec += rec;
+                    }
+                    Err(e) => {
+                        log::error!("Error in download_log: {:?}", e);
+                        if verbose {
+                            println!("Error in download_log: {:?}", e);
+                        }
+                    }
+                }
+            }
+    
+            Ok(download_rec)
+        }
+    
 }

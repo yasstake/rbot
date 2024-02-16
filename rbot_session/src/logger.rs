@@ -11,7 +11,7 @@ use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-use rbot_lib::common::{ordervec_to_dataframe, AccountStatus, MicroSec, Order};
+use rbot_lib::common::{ordervec_to_dataframe, AccountPair, MicroSec, Order};
 
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -78,7 +78,7 @@ pub enum LogMessage {
     #[serde(rename = "O")]
     Order(Order),
     #[serde(rename = "A")]
-    Account(AccountStatus),
+    Account(AccountPair),
     #[serde(rename = "i")]
     UserIndicator(Indicator),
     #[serde(rename = "I")]
@@ -167,12 +167,12 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
         match rec.data {
             LogMessage::Account(account) => {
                 timestamp.push(rec.timestamp);                            
-                home.push(account.home.to_f64().unwrap());
-                home_free.push(account.home_free.to_f64().unwrap());
-                home_locked.push(account.home_locked.to_f64().unwrap());
-                foreign.push(account.foreign.to_f64().unwrap());
-                foreign_free.push(account.foreign_free.to_f64().unwrap());
-                foreign_locked.push(account.foreign_locked.to_f64().unwrap());
+                home.push(account.home.volume.to_f64().unwrap());
+                home_free.push(account.home.free.to_f64().unwrap());
+                home_locked.push(account.home.locked.to_f64().unwrap());
+                foreign.push(account.foreign.volume.to_f64().unwrap());
+                foreign_free.push(account.foreign.free.to_f64().unwrap());
+                foreign_locked.push(account.foreign.locked.to_f64().unwrap());
             }
             _ => {
                 panic!("not supported message type");
@@ -358,7 +358,7 @@ impl Logger {
     pub fn log_account(
         &mut self,
         timestamp: MicroSec,
-        status: &AccountStatus,
+        status: &AccountPair,
     ) -> Result<(), std::io::Error> {
         self.log_message(timestamp, &LogMessage::Account(status.clone()))
     }
