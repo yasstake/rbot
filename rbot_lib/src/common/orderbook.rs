@@ -18,7 +18,7 @@ use crate::common::MarketConfig;
 
 use rmp_serde::to_vec;
 
-use super::{order, string_to_decimal, Order, ServerConfig};
+use super::{order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig};
 
 static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
 
@@ -396,6 +396,78 @@ impl OrderBook {
             .update(bids_diff, asks_diff, force);
     }
 
+    pub fn dry_market_order(
+        &mut self, 
+        create_time: MicroSec,
+        order_id: &str,
+        client_order_id: &str,
+        symbol: &str,
+        side: OrderSide,
+        size: Decimal,
+        transaction_id: &str,
+    ) -> anyhow::Result<Vec<Order>> {
+        let mut board = self.board.lock().unwrap();
+
+        let board = if side == OrderSide::Buy {
+            board.asks.get()
+        } else {
+            board.bids.get()
+        };
+
+        let mut orders: Vec<Order> = vec![];
+        let mut split_index = 0;
+
+        let mut remain_size = size;
+
+        // TODO: consume boards
+        for item in board {
+            if remain_size <= dec![0.0] {
+                break;
+            }
+
+            let execute_size;
+            let order_status;
+            split_index += 1;
+
+            if remain_size <= item.size {
+                order_status = OrderStatus::Filled;
+                execute_size = remain_size;
+                remain_size = dec![0.0];
+            } else {
+                order_status = OrderStatus::PartiallyFilled;
+                execute_size = item.size;
+                remain_size -= item.size;
+            }
+
+            let mut order = Order::new(
+                symbol,
+                create_time,
+                &order_id,
+                &client_order_id.to_string(),
+                side,
+                OrderType::Market,
+                order_status,
+                dec![0.0],
+                size,
+            );
+
+            order.transaction_id = format!("{}-{}", transaction_id, split_index);
+            order.update_time = create_time;
+            order.is_maker = false;
+            order.execute_price = item.price;
+            order.execute_size = execute_size;
+            order.remain_size = remain_size;
+            order.quote_vol = order.execute_price * order.execute_size;
+
+            orders.push(order);
+        }
+
+        if remain_size > dec![0.0] {
+            log::error!("remain_size > 0.0: {:?}", remain_size);
+        }
+
+        Ok(orders)
+    }
 }
 
 impl Drop for OrderBook {
