@@ -10,6 +10,7 @@ use csv::StringRecord;
 
 use futures::StreamExt;
 use polars_core::export::num::FromPrimitive;
+use pyo3::ffi::getter;
 
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -80,7 +81,7 @@ impl Bybit {
         OrderInterfaceImpl::get_enable_order_feature(self)
     }
 
-    #[pyo3(signature = (market_config, *, side, price, size, client_order_id=None))]
+
     pub fn limit_order(
         &self,
         market_config: &MarketConfig,
@@ -95,7 +96,6 @@ impl Bybit {
         })
     }
 
-    #[pyo3(signature = (market_config, *, side, size, client_order_id=None))]
     pub fn market_order(
         &self,
         market_config: &MarketConfig,
@@ -108,7 +108,6 @@ impl Bybit {
         })
     }
 
-    #[pyo3(signature = (market_config, *, order_id))]
     pub fn cancel_order(
         &self,
         market_config: &MarketConfig,
@@ -117,14 +116,13 @@ impl Bybit {
         BLOCK_ON(async { OrderInterfaceImpl::cancel_order(self, market_config, order_id).await })
     }
 
-    #[pyo3(signature = (market_config))]
     pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         BLOCK_ON(async { OrderInterfaceImpl::get_open_orders(self, market_config).await })
     }
 
-    #[pyo3(signature = (market_config))]
-    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountCoins> {
-        BLOCK_ON(async { OrderInterfaceImpl::get_account(self, market_config).await })
+    #[getter]    
+    pub fn get_account(&self) -> anyhow::Result<AccountCoins> {
+        BLOCK_ON(async { OrderInterfaceImpl::get_account(self).await })
     }
 }
 
@@ -168,19 +166,20 @@ impl BybitMarket {
         log::debug!("open market BybitMarket::new");
         BLOCK_ON(async { Self::async_new(server_config, config).await })
     }
-
+    #[getter]
     fn get_config(&self) -> MarketConfig {
         MarketImpl::get_config(self)
     }
-
+    #[getter]
     fn get_exchange_name(&self) -> String {
         MarketImpl::get_exchange_name(self)
     }
-
+    #[getter]
     fn get_trade_category(&self) -> String {
         MarketImpl::get_trade_category(self)
     }
 
+    #[getter]
     fn get_trade_symbol(&self) -> String {
         MarketImpl::get_trade_symbol(self)
     }
@@ -188,7 +187,8 @@ impl BybitMarket {
     fn drop_table(&mut self) -> anyhow::Result<()> {
         MarketImpl::drop_table(self)
     }
-
+    
+    #[getter]
     fn get_cache_duration(&self) -> MicroSec {
         MarketImpl::get_cache_duration(self)
     }
@@ -247,27 +247,33 @@ impl BybitMarket {
     fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         MarketImpl::get_board_json(self, size)
     }
-
+    
+    #[getter]
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         MarketImpl::get_board(self)
     }
 
+    #[getter]
     fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         MarketImpl::get_board_vec(self)
     }
 
+    #[getter]
     fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         MarketImpl::get_edge_price(self)
     }
 
+    #[getter]
     fn get_file_name(&self) -> String {
         MarketImpl::get_file_name(self)
     }
 
+    #[getter]
     fn get_market_config(&self) -> MarketConfig {
         MarketImpl::get_market_config(self)
     }
 
+    #[getter]
     fn get_running(&self) -> bool {
         MarketImpl::get_running(self)
     }
@@ -451,7 +457,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
         todo!()
     }
-
 }
 
 impl BybitMarket {
@@ -648,7 +653,7 @@ mod bybit_test {
         let mut bybit = Bybit::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        let rec = bybit.get_account(&config);
+        let rec = bybit.get_account();
         println!("{:?}", rec);
         assert!(rec.is_ok());
     
