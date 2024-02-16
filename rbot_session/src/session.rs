@@ -15,6 +15,8 @@ use rbot_lib::common::{
 };
 use pyo3::prelude::*;
 
+use anyhow;
+
 #[derive(Debug, Clone, PartialEq)]
 #[pyclass]
 pub enum ExecuteMode {
@@ -852,8 +854,10 @@ impl Session {
             return Ok(());
         }
 
+        let config = self.market_config.clone();
+
         let r = Python::with_gil(|py| {
-            let result = self.market.getattr(py, "open_orders");
+            let result = self.exchange.call_method1(py, "get_open_orders", (config.clone(),));
 
             match result {
                 // if success update order list
@@ -862,6 +866,10 @@ impl Session {
                     log::debug!("OpenOrders {:?}", orderlist);
 
                     for order in orders {
+                        if order.symbol != config.trade_symbol {
+                            continue;
+                        }
+
                         log::debug!("OpenOrder {:?}", order);
                         if order.order_side == OrderSide::Buy {
                             self.buy_orders.update_or_insert(&order);
