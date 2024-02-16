@@ -480,9 +480,9 @@ impl OrderBook {
 impl Drop for OrderBook {
     fn drop(&mut self) {
         let count = Arc::strong_count(&self.board);
-        println!("drop orderbook: {}", count);
+        log::debug!("drop orderbook: {}", count);
 
-        if count == 0 {
+        if count <= 1 {
             ALL_BOARD.lock().unwrap().unregister(&self.path);
         }
     }

@@ -26,7 +26,7 @@ use zip::ZipArchive;
 
 use crate::common::AccountCoins;
 use crate::common::{
-    flush_log, to_naive_datetime, AccountPair, BoardTransfer, Kline, LogStatus, MarketConfig,
+    flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig,
     MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
 //use crate::db::KEY::low;
