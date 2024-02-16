@@ -17,13 +17,10 @@ use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use rbot_lib::common::{
-    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountStatus, BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, RUNTIME, SEC
+    convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountCoins, AccountPair, BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec, MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade, DAYS, FLOOR_DAY, HHMM, NOW, SEC
 };
 
-use rbot_lib::common::BLOCK_ON;
-
 use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
-
 use rbot_lib::net::{latest_archive_date, RestApi, UdpSender};
 
 use rbot_market::MarketImpl;
@@ -46,67 +43,8 @@ use super::message::{BybitAccountInformation, BybitPublicWsMessage};
 
 use anyhow::Context;
 
-#[derive(Debug)]
-pub struct BybitOrderBook {
-    board: OrderBook,
-}
+use rbot_blockon::BLOCK_ON;
 
-impl BybitOrderBook {
-    pub fn new(config: &MarketConfig) -> Self {
-        return BybitOrderBook {
-            board: OrderBook::new(&config),
-        };
-    }
-
-    fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
-        let (bids, asks) = self.board.get_board_vec().unwrap();
-
-        Ok((bids, asks))
-    }
-
-    fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
-        let json = self.board.get_json(size).unwrap();
-
-        Ok(json)
-    }
-
-    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        let (mut bids, mut asks) = self.board.get_board()?;
-
-        if bids.is_empty() || asks.is_empty() {
-            return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-        }
-
-        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
-        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
-
-        if asks_edge < bids_edge {
-            log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
-
-            self.reflesh_board();
-
-            (bids, asks) = self.board.get_board().unwrap();
-        }
-
-        return Ok((PyDataFrame(bids), PyDataFrame(asks)));
-    }
-
-    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
-        Ok(self.board.get_edge_price())
-    }
-
-    pub fn update(&mut self, board: &OrderBookRaw) {
-        let bids = board.get_bids();
-        let asks = board.get_asks();
-        self.board.update(&bids, &asks, board.snapshot);
-    }
-
-    fn reflesh_board(&mut self) {
-        // TODO: implement
-        println!("reflesh board :NOT IMPLEMENTED");
-        // TODO: reflesh board from rest api
-    }
-}
 
 #[pyclass]
 #[derive(Debug)]
@@ -151,7 +89,10 @@ impl Bybit {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::limit_order(self, market_config, side, price, size, client_order_id)
+                .await
+        })
     }
 
     #[pyo3(signature = (market_config, *, side, size, client_order_id=None))]
@@ -162,7 +103,9 @@ impl Bybit {
         size: Decimal,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id)
+        BLOCK_ON(async {
+            OrderInterfaceImpl::market_order(self, market_config, side, size, client_order_id).await
+        })
     }
 
     #[pyo3(signature = (market_config, *, order_id))]
@@ -171,18 +114,17 @@ impl Bybit {
         market_config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
-        OrderInterfaceImpl::cancel_order(self, market_config, order_id)
+        BLOCK_ON(async { OrderInterfaceImpl::cancel_order(self, market_config, order_id).await })
     }
 
     #[pyo3(signature = (market_config))]
     pub fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        OrderInterfaceImpl::get_open_orders(self, market_config)
+        BLOCK_ON(async { OrderInterfaceImpl::get_open_orders(self, market_config).await })
     }
 
     #[pyo3(signature = (market_config))]
-    // TODO: implement and test
-    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountStatus> {
-        OrderInterfaceImpl::get_account(self, market_config)
+    pub fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountCoins> {
+        BLOCK_ON(async { OrderInterfaceImpl::get_account(self, market_config).await })
     }
 }
 
@@ -345,7 +287,13 @@ impl BybitMarket {
         verbose: bool,
         low_priority: bool,
     ) -> anyhow::Result<i64> {
-        MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
+        BLOCK_ON(async {
+            MarketImpl::async_download_archives(self, ndays, force, verbose, low_priority).await
+        })
+    }
+
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        BLOCK_ON(async { self.async_download_lastest(verbose).await })
     }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
@@ -356,31 +304,12 @@ impl BybitMarket {
         MarketImpl::find_latest_gap(self)
     }
 
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        MarketImpl::download_latest(self, verbose)
-    }
-
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_gap(self, verbose)
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         MarketImpl::start_market_stream(self)
-    }
-
-    fn get_trade_list(&self) -> anyhow::Result<Vec<OrderStatus>> {
-        todo!()
-        //MarketImpl::get_trade_list(self)
-    }
-
-    fn get_account(&self) -> anyhow::Result<AccountStatus> {
-        todo!()
-        //MarketImpl::get_account(self)
-    }
-
-    fn get_recent_trades(&self) -> anyhow::Result<Vec<Trade>> {
-        todo!()
-        //MarketImpl::get_recent_trades(self)
     }
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
@@ -415,7 +344,7 @@ impl BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db.unwrap())),
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(server_config, &config))),
             public_handler: None,
         };
     }
@@ -439,7 +368,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { self.async_download_lastest().await })
+        BLOCK_ON(async { self.async_download_lastest(verbose).await })
     }
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
@@ -464,9 +393,10 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
         let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end);
 
-        let mut lock = self.db.lock().unwrap();
-        let tx = lock.start_thread();
-        drop(lock);
+        let tx = {
+            let mut lock = self.db.lock().unwrap();
+            lock.start_thread()
+        };
 
         tx.send(expire_message)?;
         tx.send(trades)?;
@@ -517,15 +447,43 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
+
+    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
+        todo!()
+    }
+
 }
 
 impl BybitMarket {
-    async fn async_download_lastest(&mut self) -> anyhow::Result<i64> {
+    async fn async_download_lastest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        if verbose {
+            print!("async_download_lastest");
+            flush_log();
+        }
+
         let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
         let rec = trades.len() as i64;
 
-        let tx = self.db.lock().unwrap().start_thread();
-        tx.send(trades)?;
+        if verbose {
+            println!("rec: {}", rec);
+            flush_log();
+        }
+
+        {
+            log::debug!("get db");
+            flush_log();
+            let tx = self.db.lock();
+
+            if tx.is_err() {
+                log::error!("Error in self.db.lock: {:?}", tx);
+                return Err(anyhow::anyhow!("Error in self.db.lock: {:?}", tx));
+            }
+            let mut lock = tx.unwrap();
+            let tx = lock.start_thread();
+
+            log::debug!("start thread done");
+            tx.send(trades)?;
+        }
 
         Ok(rec)
     }
@@ -536,9 +494,10 @@ impl BybitMarket {
             return Ok(());
         }
 
-        let mut lock = self.db.lock().unwrap();
-        let db_channel = lock.start_thread();
-        drop(lock);
+        let db_channel = {
+            let mut lock = self.db.lock().unwrap();
+            lock.start_thread()
+        };
 
         let mut orderbook = self.board.clone();
 
@@ -549,7 +508,7 @@ impl BybitMarket {
             let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
             public_ws.connect().await;
-            let mut ws_stream = public_ws.open_stream().await;    
+            let mut ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
             loop {
@@ -581,9 +540,16 @@ impl BybitMarket {
                         let board = BoardTransfer::from_orderbook(&ob);
                         let snapshot = ob.snapshot;
 
-                        let mut b = orderbook.write().unwrap();
-                        b.update(&board.bids, &board.asks, snapshot);
-                        drop(b);
+                        {
+                            let mut b = orderbook.write().unwrap();
+                            b.update(&board.bids, &board.asks, snapshot);
+                        }
+                    }
+                    MultiMarketMessage::Control(control) => {
+                        // TODO: alert or recovery.
+                        if control.status == false {
+                            log::error!("Control message: {:?}", control);
+                        }
                     }
                     _ => {
                         log::warn!("Not implemented/unexpected message: {:?}", messages);
@@ -591,13 +557,143 @@ impl BybitMarket {
                       MultiMarketMessage::Order(_) => todo!(),
                       MultiMarketMessage::Account(_) => todo!(),
                       MultiMarketMessage::Message(_) => todo!(),
-                      MultiMarketMessage::Control(_) => todo!(),
                       */
                 }
             }
         }));
 
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod bybit_test {
+    use rust_decimal_macros::dec;
+
+    use crate::{Bybit, BybitConfig};
+
+    #[test]
+    fn test_create() {
+        let bybit = Bybit::new(false);
+
+        assert!(bybit.enable_order == false);
+    }
+
+    #[test]
+    fn test_open_market() {
+        let market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
+        assert!(market.get_config().trade_symbol == "BTCUSDT");
+    }
+
+    #[test]
+    fn test_limit_order() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_err());  // first enable flag.
+
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());  // first enable flag.
+    }
+
+    #[test]
+    fn test_market_order() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.market_order(&config, "Buy", dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_err());  // first enable flag.
+
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.market_order(&config, "Buy", dec![0.001], None);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());  // first enable flag.
+    }
+
+    #[test]
+    fn test_cancel_order() -> anyhow::Result<()>{
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+        
+        bybit.set_enable_order_with_my_own_risk(true);
+        let rec = bybit.limit_order(&config, "Buy", dec![45000.0], dec![0.001], None)?;
+
+        let order_id = rec[0].order_id.clone();
+
+        let rec = bybit.cancel_order(&config, &order_id)?;
+        println!("{:?}", rec);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_open_orders() -> anyhow::Result<()> {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.get_open_orders(&config)?;
+        println!("{:?}", rec);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_account() {
+        let mut bybit = Bybit::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let rec = bybit.get_account(&config);
+        println!("{:?}", rec);
+        assert!(rec.is_ok());
+    
+    }
+}
+
+
+
+#[cfg(test)]
+mod market_test {
+    use crate::BybitConfig;
+
+    #[test]
+    fn test_create() {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let market = BybitMarket::new(&server_config, &market_config);
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn test_download_archive() {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let rec = market.async_download_archives(1, true, true, false).await;
+        assert!(rec.is_ok());
+    }
+
+    #[ignore]
+    #[test]
+    fn test_download_latest() {
+        use super::*;
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let rec = market.download_latest(true);
+        assert!(rec.is_ok());
     }
 }
 

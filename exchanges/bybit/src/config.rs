@@ -72,6 +72,10 @@ impl BybitServerConfig {
 }
 
 impl ServerConfig for BybitServerConfig {
+    fn get_exchange_name(&self) -> String {
+        self.exchange_name.clone()
+    }
+
     fn get_public_ws_server(&self) -> String {
         self.public_ws.clone()
     }
@@ -95,6 +99,7 @@ impl ServerConfig for BybitServerConfig {
     fn get_historical_web_base(&self) -> String {
         self.history_web_base.clone()
     }
+
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,57 +169,22 @@ impl BybitConfig {
     }
 }
 
-/*
-#[derive(Debug, Clone)]
-#[pyclass]
-pub struct BybitConfig {
-    pub server_config: BybitServerConfig,
-    pub market_config: MarketConfig,
-    pub db_base_dir: String,
-}
 
-#[pymethods]
-impl BybitConfig {
-    pub fn get_db_path(&self) -> String {
-        let mut exchange_name = self.exchange_name.clone();
+#[cfg(test)]
+mod test_bybit_config {
+    use super::*;
 
-        if self.testnet {
-            exchange_name = format!("{}-TESTNET", exchange_name);
-        }
-
-        let db_path = db_full_path(&exchange_name, &self.trade_category, &self.trade_symbol, &self.db_base_dir);
-
-        return db_path.to_str().unwrap().to_string();
+    #[test]
+    fn test_bybit_server_config() {
+        let config = BybitServerConfig::new(true);
+        println!("{:?}", config);
     }
 
-    #[classattr]
-    pub fn SPOT_BTCUSDT() -> Self {
-        return BybitConfig {
-            exchange_name: "BYBIT".to_string(),
-            testnet: false,
-            rest_endpoint: "https://api.bybit.com".to_string(),
-            history_web_base: "https://public.bybit.com".to_string(),
-            db_base_dir: "".to_string(),
-            public_stream_endpoint: "wss://stream.bybit.com/v5/public/spot".to_string(),
-            private_stream_endpoint: "wss://stream.bybit.com/v5/private".to_string(),
-            market_config: MarketConfig {
-                price_unit:dec![0.05],
-                price_scale:3,
-                size_unit:dec![0.001],
-                size_scale:4,
-                maker_fee:dec![0.00_01],
-                taker_fee:dec![0.00_01],
-                price_type:PriceType::Home,
-                fee_type:FeeType::Home,
-                home_currency:"USDT".to_string(),
-                foreign_currency:"BTC".to_string(),
-                market_order_price_slip:dec![0.01],
-                board_depth:250,
-                trade_category: "spot".to_string(),
-                trade_symbol: "BTCUSDT".to_string(),
-            }
-            }
-        };
+
+    #[test]
+    fn test_bybit_config() {
+        let config = BybitConfig::new();
+        println!("{:?}", config);
     }
 }
-*/
+

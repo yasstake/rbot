@@ -132,8 +132,52 @@ impl MarketConfig {
 
 }
 
+/*
+pub struct ServerConfigStruct {
+    exchange_name: String, 
+    trade_category: String,
+    home_currency: String,
+    foreign_currency: String,
+    price_scale: u32,
+    size_scale: u32,
+    board_depth: u32,
+}
 
-pub trait ServerConfig {
+impl ServerConfig for ServerConfigStruct {
+    fn get_exchange_name(&self) -> String {
+        self.exchange_name.clone()
+    }
+
+    fn get_historical_web_base(&self) -> String {
+        todo!()
+    }
+
+    fn get_public_ws_server(&self) -> String {
+        todo!()
+    }
+
+    fn get_user_ws_server(&self) -> String {
+        todo!()
+    }
+
+    fn get_rest_server(&self) -> String {
+        todo!()
+    }
+
+    fn get_api_key(&self) -> SecretString {
+        todo!()
+    }
+
+    fn get_api_secret(&self) -> SecretString {
+        todo!()
+    }
+}
+*/
+
+
+
+pub trait ServerConfig : Send + Sync {
+    fn get_exchange_name(&self) -> String;
     fn get_historical_web_base(&self) -> String;
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;
@@ -141,3 +185,4 @@ pub trait ServerConfig {
     fn get_api_key(&self) -> SecretString;
     fn get_api_secret(&self) -> SecretString;
 }
+
