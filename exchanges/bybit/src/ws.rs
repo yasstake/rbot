@@ -2,7 +2,8 @@
 use async_stream::stream;
 use futures::Stream;
 use futures::StreamExt;
-use rbot_lib::common::AccountStatus;
+use rbot_lib::common::AccountCoins;
+use rbot_lib::common::AccountPair;
 use rbot_lib::common::ControlMessage;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::Order;
@@ -13,6 +14,7 @@ use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ServerConfig
 
 use rbot_lib::net::{AutoConnectClient, WsOpMessage};
 
+use crate::message::convert_coin_to_account_status;
 use crate::message::merge_order_and_execution;
 use crate::message::BybitExecution;
 use crate::message::BybitOrderStatus;
@@ -160,6 +162,7 @@ impl BybitPublicWsClient {
 }
 
 pub struct BybitPrivateWsClient {
+    pub config: MarketConfig,
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
 }
 
@@ -184,7 +187,10 @@ impl BybitPrivateWsClient {
             ])
             .await;
 
-        Self { ws: private_ws }
+        Self {
+            config: config.clone(),
+            ws: private_ws,
+        }
     }
 
     fn make_auth_message(server: &BybitServerConfig) -> String {
@@ -286,12 +292,12 @@ impl BybitPrivateWsClient {
                                                 creationTime,
                                                 data,
                                             } => {
-                                                let mut account_status: Vec<AccountStatus> = vec![];
-
-                                                for account in data.iter() {
-                                                    let a: AccountStatus = account.into();
+                                                let mut coins = AccountCoins::new();
+                                                for account in data {
+                                                    let mut account_coins: AccountCoins = account.into();                                                    
+                                                    coins.append(account_coins);
                                                 }
-                                                yield Ok(MultiMarketMessage::Account(account_status));
+                                                yield Ok(MultiMarketMessage::Account(coins));
                                             }
                                         }
                                     }
@@ -381,7 +387,6 @@ mod bybit_ws_test {
         }
     }
 }
-
 
 /*
 pub async fn listen_userdata_stream<F>(

@@ -4,7 +4,7 @@ use crossbeam_channel::Receiver;
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,
+        flush_log, time_string, AccountPair, LogStatus, MarketMessage, MarketStream, MicroSec,
         Order, Trade, FLOOR_SEC, NOW, SEC,
     },
     net::UdpReceiver,
@@ -820,7 +820,7 @@ impl Runner {
         py: &Python,
         agent: &PyAny,
         py_session: &Py<Session>,
-        account: &AccountStatus,
+        account: &AccountPair,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         session.set_real_account(account);
