@@ -86,6 +86,7 @@ pub struct Session {
     bids_edge: Decimal,
 
     exchange_name: String,
+    trade_category: String,
     market_config: MarketConfig,
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
@@ -132,6 +133,8 @@ impl Session {
             exchange_name
         });
 
+        let category = config.trade_category.clone();
+
         let mut session = Self {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
@@ -167,6 +170,7 @@ impl Session {
             bids_edge: dec![0.0],
 
             exchange_name,
+            trade_category: category,
             market_config: config,
 
             dummy_q: Mutex::new(VecDeque::new()),
@@ -486,6 +490,7 @@ impl Session {
         let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
 
         let mut order = Order::new(
+            &self.trade_category,
             &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
             &local_id,
@@ -612,6 +617,7 @@ impl Session {
         );
 
         let mut order = Order::new(
+            &self.trade_category,
             &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
             &local_id,
@@ -693,6 +699,7 @@ impl Session {
 
 impl Session {
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
+        let config = self.market_config.clone();
         let mut new_orders = vec![];
 
         match message {
@@ -718,9 +725,11 @@ impl Session {
                 log::debug!("on_message: order={:?}", order);
                 self.on_order_update(&mut order);
             }
-            MarketMessage::Account(account) => {
-                log::debug!("on_message: account={:?}", account);
-                self.on_account_update(account);
+            MarketMessage::Account(coins) => {
+                log::debug!("on_message: account={:?}", coins);
+
+                let mut account: AccountPair = coins.extract_pair(&config);
+                self.on_account_update(&account);
             }
             MarketMessage::Orderbook(orderbook) => {
                 log::warn!("IGNORED MESSAGE: on_message: orderbook={:?}", orderbook);

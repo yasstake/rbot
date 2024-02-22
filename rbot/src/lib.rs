@@ -38,7 +38,7 @@ use session::Runner;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
-    console_subscriber::init();
+    // console_subscriber::init();
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 

@@ -521,6 +521,7 @@ impl Into<Order> for &BybitOrderStatus {
         let order_type = OrderType::from(&self.orderType);
 
         Order {
+            category: "linear".to_string(),     // for default
             symbol: self.symbol.clone(),
             create_time: self.createdTime,
             status: bybit_order_status(&self.orderStatus),
@@ -563,10 +564,12 @@ pub struct BybitMultiOrderStatus {
 
 impl Into<Vec<Order>> for BybitMultiOrderStatus {
     fn into(self) -> Vec<Order> {
+        let category = self.category.clone();
         let mut orders: Vec<Order> = vec![];
 
         for order in self.list.iter() {
-            let o: Order = order.into();
+            let mut o: Order = order.into();
+            o.category = category.clone();
             orders.push(o);
         }
 

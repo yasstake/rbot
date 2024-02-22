@@ -127,8 +127,28 @@ impl MarketConfig {
             public_subscribe_channel: vec![],
         }
     }
+}
 
-
+impl Default for MarketConfig {
+    fn default() -> Self {
+        Self {
+            trade_category: "DUMMY".to_string(),
+            trade_symbol: "DUMMY".to_string(),
+            price_unit: dec![0.01],
+            price_scale: 2,
+            size_unit: dec![1000.0],
+            size_scale: 0,
+            maker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
+            taker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
+            price_type: PriceType::Foreign,
+            fee_type: FeeType::Home,
+            home_currency: "DUMMY".to_string(),
+            foreign_currency: "DUMMY".to_string(),
+            market_order_price_slip: dec![0.0],
+            board_depth: 1000,
+            public_subscribe_channel: vec![],
+        }
+    }
 
 }
 

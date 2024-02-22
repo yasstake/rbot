@@ -59,7 +59,7 @@ from rbot import init_debug_log
 
 
 
-bybit  = Bybit(testnet=True)
+bybit  = Bybit(production=False)
 
 market = bybit.open_market(BybitConfig.BTCUSDT)
 
@@ -73,6 +73,7 @@ from rbot import init_debug_log
 init_debug_log()
 
 session = runner.real_run(
+                exchange=bybit,
                 market=market,
                 agent=agent, 
 #                execute_time = 10,
