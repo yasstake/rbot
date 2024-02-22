@@ -25,7 +25,7 @@ pub struct ControlMessage {
 pub enum MarketMessage {
     Trade(Trade),
     Order(Order),
-    Account(AccountPair),
+    Account(AccountCoins),
     Orderbook(OrderBookRaw),
     Control(ControlMessage),
     Message(String),
@@ -41,7 +41,7 @@ impl MarketMessage {
         MarketMessage::Order(order)
     }
 
-    pub fn from_account(account: AccountPair) -> Self {
+    pub fn from_account(account: AccountCoins) -> Self {
         MarketMessage::Account(account)
     }
 
