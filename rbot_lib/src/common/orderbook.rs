@@ -28,7 +28,16 @@ pub struct OrderBookList {
 
 impl OrderBookList {
     pub fn make_path(exchange_name: &str, config: &MarketConfig) -> String {
-        format!("{}/{}/{}", exchange_name, config.trade_category, config.trade_symbol)        
+        Self::make_path_from_str(exchange_name, &config.trade_category, &config.trade_symbol)
+    }
+
+    pub fn make_path_from_str(exchange_name: &str, trade_category: &str, trade_symbol: &str) -> String {
+        format!("{}/{}/{}", exchange_name, trade_category, trade_symbol)        
+    }
+
+    pub fn parse_path(path: &str) -> (String, String, String) {
+        let v: Vec<&str> = path.split('/').collect();
+        (v[0].to_string(), v[1].to_string(), v[2].to_string())
     }
 
     pub fn new() -> Self {
@@ -43,9 +52,13 @@ impl OrderBookList {
         if board.is_none() {
             return None;
         }
+
+        let (exchange, category, symbol) = Self::parse_path(key);
         
         Some(OrderBook {
-            path: key.to_string(),
+            exchage: exchange,
+            category: category,
+            symbol: symbol,
             board: board.unwrap().clone()
         })
     }
@@ -66,6 +79,14 @@ impl OrderBookList {
 #[pyfunction]
 pub fn get_orderbook_list() -> Vec<String> {
     ALL_BOARD.lock().unwrap().list()
+}
+
+#[pyfunction]
+pub fn get_order_book_json(path: &str, size: usize) -> anyhow::Result<String> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_json(size)
 }
 
 #[pyfunction]
@@ -339,19 +360,27 @@ impl OrderBookRaw {
 #[pyclass]
 #[derive(Debug)]
 pub struct OrderBook {
-    path: String,
+    exchage: String,
+    category: String,
+    symbol: String,
     board: Arc<Mutex<OrderBookRaw>>,
 }
 
 impl OrderBook {
     pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
-        let path = OrderBookList::make_path(&server.get_exchange_name(), config);
+        let exchange_name = server.get_exchange_name();
+        let category = config.trade_category.clone();
+        let symbol = config.trade_symbol.clone();
+
+        let path = OrderBookList::make_path(&exchange_name, config);
         let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
         
         ALL_BOARD.lock().unwrap().register(&path,board.clone());
         
         OrderBook {
-            path: path,
+            exchage: exchange_name,
+            category: category,
+            symbol: symbol,
             board: board,
         }
     }
@@ -447,6 +476,7 @@ impl OrderBook {
             }
 
             let mut order = Order::new(
+                &self.category,
                 symbol,
                 create_time,
                 &order_id,
@@ -483,7 +513,9 @@ impl Drop for OrderBook {
         log::debug!("drop orderbook: {}", count);
 
         if count <= 1 {
-            ALL_BOARD.lock().unwrap().unregister(&self.path);
+            ALL_BOARD.lock().unwrap().unregister(
+                &OrderBookList::make_path_from_str(
+                    &self.exchage, &self.category, &self.symbol));
         }
     }
 }
