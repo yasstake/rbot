@@ -521,6 +521,7 @@ impl Into<Order> for &BybitOrderStatus {
         let order_type = OrderType::from(&self.orderType);
 
         Order {
+            category: "linear".to_string(),     // for default
             symbol: self.symbol.clone(),
             create_time: self.createdTime,
             status: bybit_order_status(&self.orderStatus),
@@ -563,10 +564,12 @@ pub struct BybitMultiOrderStatus {
 
 impl Into<Vec<Order>> for BybitMultiOrderStatus {
     fn into(self) -> Vec<Order> {
+        let category = self.category.clone();
         let mut orders: Vec<Order> = vec![];
 
         for order in self.list.iter() {
-            let o: Order = order.into();
+            let mut o: Order = order.into();
+            o.category = category.clone();
             orders.push(o);
         }
 
@@ -1368,7 +1371,7 @@ mod bybit_message_test {
     fn test_account_status_message() -> anyhow::Result<()> {
         init_debug_log();
 
-        const message: &str = r#"
+        let message: &str = r#"
         {"retCode":0,"retMsg":"OK","result":{"list":[{"totalEquity":"11671.04063119","accountIMRate":"0.0784","totalMarginBalance":"11671.04063119","totalInitialMargin":"915.40917399","accountType":"UNIFIED","totalAvailableBalance":"10755.6314572","accountMMRate":"0.0042","totalPerpUPL":"1471.35122086","totalWalletBalance":"10199.68941033","accountLTV":"0","totalMaintenanceMargin":"50.11637468","coin":[{"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10196.98720872","totalOrderIM":"12.1254","equity":"11667.94862481","totalPositionMM":"49.37769736","usdValue":"11671.04063119","unrealisedPnl":"1470.96141609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10196.98720872","cumRealisedPnl":"196.98720872","locked":"0","marginCollateral":true,"coin":"USDT"},{"availableToBorrow":"","bonus":"","accruedInterest":"","availableToWithdraw":"","totalOrderIM":"","equity":"","totalPositionMM":"","usdValue":"","unrealisedPnl":"","collateralSwitch":false,"spotHedgingQty":"0","borrowAmount":"","totalPositionIM":"","walletBalance":"","cumRealisedPnl":"","locked":"","marginCollateral":true,"coin":"BTC"}]}]},"retExtInfo":{},"time":1707918827165}
         "#;
 
@@ -1391,7 +1394,7 @@ mod bybit_message_test {
 
     #[test]
     fn test_parse_account_coin() {
-        const MESSAGE: &str = r#"
+        let MESSAGE: &str = r#"
         {
             "list":
             [
@@ -1422,7 +1425,7 @@ mod bybit_message_test {
     }
 
     fn test_parse() {
-        const message: &str = r#"
+        let message: &str = r#"
         {"retCode":0,"retMsg":"OK","result":{"list":[{"totalEquity":"11745.04972951","accountIMRate":"0.0779","totalMarginBalance":"11745.04972951","totalInitialMargin":"916.00037165","accountType":"UNIFIED","totalAvailableBalance":"10829.04935785","accountMMRate":"0.0042","totalPerpUPL":"1543.8483218","totalWalletBalance":"10201.2014077","accountLTV":"0","totalMaintenanceMargin":"50.14874128","coin":[{"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10191.91657171","totalOrderIM":"12.1254","equity":"11734.3597278","totalPositionMM":"49.37769736","usdValue":"11745.04972951","unrealisedPnl":"1542.44315609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10191.91657171","cumRealisedPnl":"191.91657171","locked":"0","marginCollateral":true,"coin":"USDT"},{"availableToBorrow":"","bonus":"","accruedInterest":"","availableToWithdraw":"","totalOrderIM":"","equity":"","totalPositionMM":"","usdValue":"","unrealisedPnl":"","collateralSwitch":false,"spotHedgingQty":"0","borrowAmount":"","totalPositionIM":"","walletBalance":"","cumRealisedPnl":"","locked":"","marginCollateral":true,"coin":"BTC"}]}]},"retExtInfo":{},"time":1708051591009}        
         "#;
     }
