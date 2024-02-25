@@ -589,13 +589,9 @@ impl BinanceMarket {
         );
     }
 
-    // TODO: implment retry logic
+
     pub fn start_market_stream(&mut self) {
         let endpoint = &self.config.public_ws_endpoint;
-        /*
-        let mut subscribe_message = BinanceWsOpMessage::new();
-        subscribe_message.add_params(&self.config.public_subscribe_channel);
-        */
 
         let mut agent_channel = self.channel.clone();
 
@@ -617,7 +613,6 @@ impl BinanceMarket {
         let db_channel = self.db.start_thread();
         let board = self.board.clone();
 
-        // TODO: change to tokio
         let handler = tokio::task::spawn(async move {
                 loop {
                     let message = websocket.receive_text().await;
@@ -687,17 +682,6 @@ impl BinanceMarket {
         log::info!("start_market_stream");
     }
 
-    /*
-    // TODO: 単に待っているだけなので、終了処理を実装する。
-    pub fn stop_market_stream(&mut self) {
-        match self.public_handler.take() {
-            Some(h) => {
-                h.join().unwrap();
-            }
-            None => {}
-        }
-    }
-    */
 
     pub fn start_user_stream(&mut self) {
         let mut agent_channel = self.channel.clone();
@@ -750,7 +734,7 @@ impl BinanceMarket {
     pub fn get_channel(&mut self) -> MarketStream {
 
         // TODO: confirm buffer size
-        let ch = self.channel.lock().unwrap().open_channel(0);
+        let ch = self.channel.lock().unwrap().open_channel(1000);
 
         return MarketStream { reciver: ch };
     }

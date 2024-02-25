@@ -4,14 +4,17 @@ use crossbeam_channel::Receiver;
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountStatus, LogStatus, MarketMessage, MarketStream, MicroSec,
-        Order, Trade, FLOOR_SEC, NOW, SEC,
+        flush_log, time_string, AccountPair, LogStatus, MarketConfig, MarketMessage, MarketStream,
+        MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
     },
     net::UdpReceiver,
 };
 use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
+use async_stream::stream;
+use futures::{Stream, StreamExt};
+use rbot_blockon::BLOCK_ON;
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -44,6 +47,7 @@ pub struct Runner {
     execute_mode: ExecuteMode,
     agent_id: String,
 
+    config: MarketConfig,
     exchange_name: String,
     category: String,
     symbol: String,
@@ -76,7 +80,7 @@ impl Runner {
             last_print_real_time: 0,
 
             agent_id: "".to_string(),
-
+            config: MarketConfig::default(),
             exchange_name: "".to_string(),
             category: "".to_string(),
             symbol: "".to_string(),
@@ -99,9 +103,10 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    #[pyo3(signature = (*, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
+    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         start_time: MicroSec,
@@ -109,23 +114,26 @@ impl Runner {
         execute_time: i64,
         verbose: bool,
         log_file: Option<String>,
-    ) -> Result<Py<Session>, PyErr> {
+    ) -> anyhow::Result<Py<Session>> {
         self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
 
-        let stream = Self::open_backtest_stream(&market, start_time, end_time);
-        let reciever = stream.reciver;
         self.execute_time = execute_time;
         self.print_interval = SEC(60 * 60);
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        self.run(market, &reciever, agent, true, log_file)
+        BLOCK_ON(async {
+            let receiver = Self::open_backtest_stream(&market, start_time, end_time).await;
+            self.async_run(exchange, market, receiver, agent, true, log_file)
+                .await
+        })
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn dry_run(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         log_memory: bool,
@@ -133,7 +141,7 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
         client: bool,
-    ) -> Result<Py<Session>, PyErr> {
+    ) -> anyhow::Result<Py<Session>> {
         self.execute_time = execute_time;
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Dry;
@@ -141,33 +149,39 @@ impl Runner {
         self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
 
-        let receiver = if client {
-            UdpReceiver::open_channel(
-                &self.exchange_name,
-                &self.category,
-                &self.symbol.as_str(),
-                &self.agent_id.as_str(),
-            )
-            .unwrap()
+        let exchange_name = self.exchange_name.clone();
+        let category = self.category.clone();
+        let symbol = self.symbol.clone();
+        let agent_id = self.agent_id.clone();
+
+        if client {
+            BLOCK_ON(async {
+                let mut udp = UdpReceiver::open();
+                let receiver = udp
+                    .receive_stream(&exchange_name, &category, &symbol, &agent_id)
+                    .await;
+
+                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
+                    .await
+            })
         } else {
-            let stream = Self::get_market_stream(&market);
-            let reciever = stream.reciver;
+            self.prepare_data(&exchange, &market)?;
 
-            let r = self.prepare_data(&market);
+            BLOCK_ON(async {
+                let receiver = MARKET_HUB
+                    .subscribe_stream(&exchange_name, &category, &symbol, &agent_id)
+                    .await;
 
-            if r.is_err() {
-                return Err(r.unwrap_err());
-            }
-
-            reciever
-        };
-
-        self.run(market, &receiver, agent, log_memory, log_file)
+                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
+                    .await
+            })
+        }
     }
 
-    #[pyo3(signature = (*, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
-    pub fn real_run(
+    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    pub fn real_run_bak(
         &mut self,
+        exchange: PyObject,
         market: PyObject,
         agent: &PyAny,
         log_memory: bool,
@@ -175,7 +189,7 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
         client: bool,
-    ) -> Result<Py<Session>, PyErr> {
+    ) -> anyhow::Result<Py<Session>> {
         self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
 
@@ -183,29 +197,87 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::Real;
 
-        let receiver = if client {
-            UdpReceiver::open_channel(
-                &self.exchange_name,
-                &self.category,
-                &self.symbol.as_str(),
-                &self.agent_id.as_str(),
-            )
-            .unwrap()
+        let exchange_name = self.exchange_name.clone();
+        let category = self.category.clone();
+        let symbol = self.symbol.clone();
+        let agent_id = self.agent_id.clone();
+
+        if client {
+            //            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            rt.block_on(async {
+                let mut udp = UdpReceiver::open();
+
+                let receiver = udp
+                    .receive_stream(&exchange_name, &category, &symbol, &agent_id)
+                    .await;
+
+                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
+                    .await
+            })
         } else {
-            let stream = Self::get_market_stream(&market);
-            let reciever = stream.reciver;
+            self.prepare_data(&exchange, &market)?;
 
-            let r = self.prepare_data(&market);
+            //            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
 
-            if r.is_err() {
-                return Err(r.unwrap_err());
-            }
+            rt.block_on(async {
+                let receiver = MARKET_HUB
+                    .subscribe_stream(&exchange_name, &category, &symbol, &agent_id)
+                    .await;
 
-            reciever
-        };
-
-        self.run(market, &receiver, agent, log_memory, log_file)
+                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
+                    .await
+            })
+        }
     }
+
+
+    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    pub fn real_run(
+        &mut self,
+        exchange: PyObject,
+        market: PyObject,
+        agent: &PyAny,
+        log_memory: bool,
+        execute_time: i64,
+        verbose: bool,
+        log_file: Option<String>,
+        client: bool,
+    ) -> anyhow::Result<Py<Session>> {
+        self.update_market_info(&market)?;
+        self.update_agent_info(agent)?;
+
+        self.execute_time = execute_time;
+        self.verbose = verbose;
+        self.execute_mode = ExecuteMode::Real;
+
+        let exchange_name = self.exchange_name.clone();
+        let category = self.category.clone();
+        let symbol = self.symbol.clone();
+        let agent_id = self.agent_id.clone();
+
+        if client {
+                let receiver = UdpReceiver::
+                    open_channel(&exchange_name, &category, &symbol, &agent_id)?;
+
+                self.run(exchange, market, &receiver, agent, log_memory, log_file)
+        } else {
+            self.prepare_data(&exchange, &market)?;
+                let receiver = MARKET_HUB
+                    .subscribe(&exchange_name, &category, &symbol, &agent_id)?;
+
+                self.run(exchange, market, &receiver, agent, log_memory, log_file)
+        }
+    }
+
 
     /*
     pub fn start_proxy(&mut self, market: PyObject, port: i64) -> Result<(), PyErr> {
@@ -302,16 +374,13 @@ impl Runner {
         "".to_string()
     }
 
-    pub fn prepare_data(&self, market: &PyObject) -> Result<(), PyErr> {
+    pub fn prepare_data(&self, exchange: &PyObject, market: &PyObject) -> anyhow::Result<()> {
         // prepare market data
         // 1. start market & user stream
         // 2. download market data
-        let r = Python::with_gil(|py| {
+        Python::with_gil(|py| {
             if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
-                let r = market.call_method0(py, "start_market_stream");
-                if r.is_err() {
-                    return Err(r.unwrap_err());
-                }
+                market.call_method0(py, "start_market_stream")?;
 
                 if self.verbose {
                     println!("--- start market stream ---");
@@ -320,10 +389,7 @@ impl Runner {
             }
 
             if self.execute_mode == ExecuteMode::Real {
-                let r = market.call_method0(py, "start_user_stream");
-                if r.is_err() {
-                    return Err(r.unwrap_err());
-                }
+                exchange.call_method0(py, "start_user_stream")?;
 
                 if self.verbose {
                     println!("--- start user stream ---");
@@ -337,29 +403,34 @@ impl Runner {
                     flush_log();
                 }
 
+                let kwargs = if self.verbose {vec![("verbose", true)]} else {vec![("verbose", false)]};
+                let kwargs = kwargs.into_py_dict(py);
+
+                market.call_method(py, "download_latest", (), Some(kwargs))?;
+                log::debug!("download_latest is done");
+                market.call_method(py, "download_gap", (), Some(kwargs))?;
+                log::debug!("download_gap is done");
+
                 let kwargs = vec![("ndays", 1)];
-
-                // let r = market.call()
-
-                //let r = market.call_method1(py, "download", kwargs);
-                let r = market.call_method(py, "download", (), Some(kwargs.into_py_dict(py)));
-                if r.is_err() {
-                    return Err(r.unwrap_err());
-                }
+                market.call_method(py, "download_archive", (), Some(kwargs.into_py_dict(py)))?;
+                log::debug!("download_archive is done");
             }
 
-            Ok(())
-        });
+            Ok::<(), anyhow::Error>(()) // Add type annotation for Result
+        })?;
 
-        r
+        Ok(())
     }
 
     pub fn update_market_info(&mut self, market: &PyObject) -> Result<(), PyErr> {
         let r = Python::with_gil(|py| {
+            let config = market.getattr(py, "market_config").unwrap();
+
             let exchange_name = market.getattr(py, "exchange_name").unwrap();
             let category = market.getattr(py, "trade_category").unwrap();
             let symbol = market.getattr(py, "trade_symbol").unwrap();
 
+            self.config = config.extract::<MarketConfig>(py).unwrap();
             self.exchange_name = exchange_name.extract::<String>(py).unwrap();
             self.category = category.extract::<String>(py).unwrap();
             self.symbol = symbol.extract::<String>(py).unwrap();
@@ -429,36 +500,22 @@ impl Runner {
         Ok(())
     }
 
-    pub fn run(
-        &mut self,
+    fn create_session(
+        &self,
+        exchange: PyObject,
         market: PyObject,
-        receiver: &Receiver<MarketMessage>,
-        agent: &PyAny,
         log_memory: bool,
         log_file: Option<String>,
-    ) -> Result<Py<Session>, PyErr> {
-        if self.verbose {
-            print!("--- run {:?} mode --- ", self.execute_mode);
-            print!("market: {}, ", self.exchange_name);
-            print!("agent_id: {}, ", self.agent_id);
-            print!("log_memory: {}, ", log_memory);
-            println!("duration: {}[sec], ", self.execute_time);
-
-            flush_log();
-        }
-
-        let result = Python::with_gil(|py| {
-            if self.verbose {
-                println!("--- run loop ---");
-                flush_log();
-            }
-
+    ) -> Py<Session> {
+        Python::with_gil(|py| {
             let session_name = self.agent_id.clone();
+
             let mut session = Session::new(
+                exchange,
                 market,
                 self.execute_mode.clone(),
                 Some(&session_name),
-                log_memory,
+                false,
             );
 
             if log_file.is_some() {
@@ -475,124 +532,458 @@ impl Runner {
                 println!("WARNING: log_memory and log_file are both false. Please set one of them to true.");
             }
 
-            let py_session = Py::new(py, session).unwrap();
-            let mut warm_up_loop: i64 = WARMUP_STEPS;
+            Py::new(py, session).unwrap()
+        })
+    }
 
-            if self.has_on_init {
-                self.call_agent_on_init(&py, agent, &py_session)?;
+    pub fn execute_message_update_session(
+        &mut self,
+        py_session: &Py<Session>,
+        message: &MarketMessage,
+    ) -> anyhow::Result<()> {
+        Python::with_gil(|py| {
+            let mut session = py_session.borrow_mut(py);
+            session.on_message(&message);
+            self.last_timestamp = session.get_timestamp();
+
+            Ok(())
+        })
+    }
+
+    pub fn execute_message(
+        &mut self,
+        py_session: &Py<Session>,
+        agent: &PyAny,
+        message: &MarketMessage,
+        interval_sec: i64,
+    ) -> anyhow::Result<()> {
+        Python::with_gil(|py| {
+            let result = self.on_message(&py, agent, &py_session, &message, interval_sec);
+            if result.is_err() {
+                return Err(result.unwrap_err());
             }
+            self.loop_count += 1;
 
-            let interval_sec = self.get_clock_interval(&py, &py_session)?;
+            Ok(())
+        })?;
 
-            if self.has_on_clock && interval_sec == 0 {
-                print!("*** WARNING: on_clock is set but clock_interval is 0. (on_clock will not be called ***");
-            }
+        Ok(())
+    }
 
-            self.reset_count();
-            let loop_start_time = NOW();
+    pub async fn async_run(
+        &mut self,
+        exchange: PyObject,
+        market: PyObject,
+        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
+        // receiver: &Receiver<MarketMessage>,
+        agent: &PyAny,
+        log_memory: bool,
+        log_file: Option<String>,
+    ) -> anyhow::Result<Py<Session>> {
+        if self.verbose {
+            print!("--- run {:?} mode --- ", self.execute_mode);
+            print!("market: {}, ", self.exchange_name);
+            print!("agent_id: {}, ", self.agent_id);
+            print!("log_memory: {}, ", log_memory);
+            println!("duration: {}[sec], ", self.execute_time);
 
-            let mut remain_time: i64 = 0;
+            flush_log();
+        }
 
-            loop {
-                let message = receiver.recv();
+        let py_session = self.create_session(exchange, market, log_memory, log_file);
 
-                if message.is_err() {
-                    log::info!("Data stream is closed {:?}", message);
+        self.call_agent_on_init(&agent, &py_session);
+        let interval_sec = self.get_clock_interval(&py_session)?;
+
+        let mut rec = Box::pin(receiver);
+
+        // warm up loop
+        let mut warm_up_loop: i64 = WARMUP_STEPS;
+        while let Some(message) = rec.next().await {
+            let message = message?;
+            self.execute_message_update_session(&py_session, &message)?;
+
+            if let MarketMessage::Trade(_trade) = &message {
+                warm_up_loop = warm_up_loop - 1;
+                if warm_up_loop <= 0 {
                     break;
                 }
+            }
+        }
 
-                let message = message.unwrap();
-                if self.execute_mode == ExecuteMode::BackTest {
-                    if let MarketMessage::Trade(trade) = &message {
-                        if trade.status == LogStatus::UnFix {
-                            log::info!("UnFix trade is found. Stop running.");
+        let mut remain_time: i64 = 0;
+
+        let loop_start_time = NOW();
+        while let Some(message) = rec.next().await {
+            let message = message?;
+            self.execute_message(&py_session, agent, &message, interval_sec)?;
+            self.loop_count += 1;
+
+            // break if the running time exceeceds the loop_duration
+            if self.start_timestamp == 0 {
+                self.start_timestamp = self.last_timestamp;
+                if self.verbose {
+                    println!("start_timestamp: {}", time_string(self.start_timestamp));
+                }
+            } else if 0 < self.execute_time {
+                remain_time = self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
+
+                if remain_time < 0 {
+                    log::debug!("remain_time out break");
+                    break;
+                }
+            }
+
+            // print progress if verbose flag is set.
+            if self.verbose {
+                self.print_progress(remain_time);
+            }
+        }
+        self.print_run_result(loop_start_time);
+
+        Ok(py_session)
+    }
+
+
+    pub fn run(
+        &mut self,
+        exchange: PyObject,
+        market: PyObject,
+//        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
+        receiver: &Receiver<MarketMessage>,
+        agent: &PyAny,
+        log_memory: bool,
+        log_file: Option<String>,
+    ) -> anyhow::Result<Py<Session>> {
+        if self.verbose {
+            print!("--- run {:?} mode --- ", self.execute_mode);
+            print!("market: {}, ", self.exchange_name);
+            print!("agent_id: {}, ", self.agent_id);
+            print!("log_memory: {}, ", log_memory);
+            println!("duration: {}[sec], ", self.execute_time);
+
+            flush_log();
+        }
+
+        let py_session = self.create_session(exchange, market, log_memory, log_file);
+
+        self.call_agent_on_init(&agent, &py_session);
+        let interval_sec = self.get_clock_interval(&py_session)?;
+
+        // warm up loop
+        let mut warm_up_loop: i64 = WARMUP_STEPS;
+        while let Ok(message) = receiver.recv() {
+            self.execute_message_update_session(&py_session, &message)?;
+
+            if let MarketMessage::Trade(_trade) = &message {
+                warm_up_loop = warm_up_loop - 1;
+                if warm_up_loop <= 0 {
+                    break;
+                }
+            }
+        }
+
+        let mut remain_time: i64 = 0;
+
+        let loop_start_time = NOW();
+        while let Ok(message) = receiver.recv() {
+            self.execute_message(&py_session, agent, &message, interval_sec)?;
+            self.loop_count += 1;
+
+            // break if the running time exceeceds the loop_duration
+            if self.start_timestamp == 0 {
+                self.start_timestamp = self.last_timestamp;
+                if self.verbose {
+                    println!("start_timestamp: {}", time_string(self.start_timestamp));
+                }
+            } else if 0 < self.execute_time {
+                remain_time = self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
+
+                if remain_time < 0 {
+                    log::debug!("remain_time out break");
+                    break;
+                }
+            }
+
+            // print progress if verbose flag is set.
+            if self.verbose {
+                self.print_progress(remain_time);
+            }
+        }
+        self.print_run_result(loop_start_time);
+
+        Ok(py_session)
+    }
+
+
+    fn print_run_result(&self, loop_start_time: i64) {
+        if self.verbose {
+            println!(
+                "\n--- end run --- {} ({}[rec])",
+                time_string(self.last_timestamp),
+                self.loop_count
+            );
+
+            println!("Done running agent");
+
+            let process_duration = self.last_timestamp - self.start_timestamp;
+            println!(
+                "Process duration: {} [Days] ({} sec)",
+                process_duration / SEC(60 * 60 * 24),
+                process_duration / 1_000_000
+            );
+
+            let elapsed = (NOW() - loop_start_time) / 1_000_000;
+            println!("Elapsed time: {} sec", elapsed);
+            println!("Loop count: {}", self.loop_count);
+            if 0 < elapsed {
+                println!("Loop per sec: {}", self.loop_count / elapsed);
+            }
+            println!("on_tick count: {}", self.on_tick_count);
+            println!("on_clock count: {}", self.on_clock_count);
+            println!("on_update count: {}", self.on_update_count);
+            println!("on_account_update count: {}", self.on_account_update_count);
+        }
+    }
+    /*
+        pub fn run(
+            &mut self,
+            exchange: PyObject,
+            market: PyObject,
+            receiver: &impl Stream<Item = anyhow::Result<MarketMessage>>,
+            // receiver: &Receiver<MarketMessage>,
+            agent: &PyAny,
+            log_memory: bool,
+            log_file: Option<String>,
+        ) -> Result<Py<Session>, PyErr> {
+            if self.verbose {
+                print!("--- run {:?} mode --- ", self.execute_mode);
+                print!("market: {}, ", self.exchange_name);
+                print!("agent_id: {}, ", self.agent_id);
+                print!("log_memory: {}, ", log_memory);
+                println!("duration: {}[sec], ", self.execute_time);
+
+                flush_log();
+            }
+
+            let result = Python::with_gil(|py| {
+                if self.verbose {
+                    println!("--- run loop ---");
+                    flush_log();
+                }
+
+                let session_name = self.agent_id.clone();
+                let mut session = Session::new(
+                    exchange,
+                    market,
+                    self.execute_mode.clone(),
+                    Some(&session_name),
+                    log_memory,
+                );
+
+                if log_file.is_some() {
+                    let log_file = log_file.unwrap();
+
+                    if session.open_log(&log_file).is_err() {
+                        log::error!("Failed to open log file: {}", &log_file);
+                        println!("Failed to open log file: {}", &log_file);
+                    };
+                } else if !log_memory {
+                    log::error!(
+                        "log_memory and log_file are both false. Please set one of them to true."
+                    );
+                    println!("WARNING: log_memory and log_file are both false. Please set one of them to true.");
+                }
+
+                let py_session = Py::new(py, session).unwrap();
+                let mut warm_up_loop: i64 = WARMUP_STEPS;
+
+                if self.has_on_init {
+                    self.call_agent_on_init_py(&py, agent, &py_session)?;
+                }
+
+                let interval_sec = self.get_clock_interval(&py, &py_session)?;
+
+                if self.has_on_clock && interval_sec == 0 {
+                    print!("*** WARNING: on_clock is set but clock_interval is 0. (on_clock will not be called ***");
+                }
+
+                self.reset_count();
+                let loop_start_time = NOW();
+
+                let mut remain_time: i64 = 0;
+
+                loop {
+                    let message = receiver.recv();
+
+                    if message.is_err() {
+                        log::info!("Data stream is closed {:?}", message);
+                        break;
+                    }
+
+                    let message = message.unwrap();
+                    if self.execute_mode == ExecuteMode::BackTest {
+                        if let MarketMessage::Trade(trade) = &message {
+                            if trade.status == LogStatus::UnFix {
+                                log::info!("UnFix trade is found. Stop running.");
+                                break;
+                            }
+                        }
+                    }
+
+                    if 0 < warm_up_loop {
+                        // in warm up loop, we don't call agent, just update session
+                        let mut session = py_session.borrow_mut(py);
+                        session.on_message(&message);
+                        self.last_timestamp = session.get_timestamp();
+
+                        if let MarketMessage::Trade(_trade) = &message {
+                            warm_up_loop = warm_up_loop - 1;
+                        }
+
+                        if self.verbose {
+                            print!("\rwarm up loop: {}", warm_up_loop)
+                        }
+
+                        drop(session);
+
+                        continue;
+                    }
+
+                    // after warm up loop, we call agent(in the method session is updated)
+                    self.loop_count += 1;
+
+                    let r = self.on_message(&py, agent, &py_session, &message, interval_sec);
+                    if r.is_err() {
+                        return Err(r.unwrap_err());
+                    }
+
+                    // break if the running time exceeceds the loop_duration
+                    if self.start_timestamp == 0 {
+                        self.start_timestamp = self.last_timestamp;
+                        if self.verbose {
+                            println!("start_timestamp: {}", time_string(self.start_timestamp));
+                        }
+                    } else if 0 < self.execute_time {
+                        remain_time =
+                            self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
+
+                        if remain_time < 0 {
+                            log::debug!("remain_time out break");
                             break;
                         }
                     }
-                }
 
-                if 0 < warm_up_loop {
-                    // in warm up loop, we don't call agent, just update session
-                    let mut session = py_session.borrow_mut(py);
-                    session.on_message(&message);
-                    self.last_timestamp = session.get_timestamp();
-
-                    if let MarketMessage::Trade(_trade) = &message {
-                        warm_up_loop = warm_up_loop - 1;
-                    }
-
+                    // print progress if verbose flag is set.
                     if self.verbose {
-                        print!("\rwarm up loop: {}", warm_up_loop)
-                    }
-
-                    drop(session);
-
-                    continue;
-                }
-
-                // after warm up loop, we call agent(in the method session is updated)
-                self.loop_count += 1;
-
-                let r = self.on_message(&py, agent, &py_session, &message, interval_sec);
-                if r.is_err() {
-                    return Err(r.unwrap_err());
-                }
-
-                // break if the running time exceeceds the loop_duration
-                if self.start_timestamp == 0 {
-                    self.start_timestamp = self.last_timestamp;
-                    if self.verbose {
-                        println!("start_timestamp: {}", time_string(self.start_timestamp));
-                    }
-                } else if 0 < self.execute_time {
-                    remain_time =
-                        self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
-
-                    if remain_time < 0 {
-                        log::debug!("remain_time out break");
-                        break;
+                        self.print_progress(remain_time);
                     }
                 }
 
-                // print progress if verbose flag is set.
                 if self.verbose {
-                    self.print_progress(remain_time);
+                    println!(
+                        "\n--- end run --- {} ({}[rec])",
+                        time_string(self.last_timestamp),
+                        self.loop_count
+                    );
+
+                    println!("Done running agent");
+
+                    let process_duration = self.last_timestamp - self.start_timestamp;
+                    println!(
+                        "Process duration: {} [Days] ({} sec)",
+                        process_duration / SEC(60 * 60 * 24),
+                        process_duration / 1_000_000
+                    );
+
+                    let elapsed = (NOW() - loop_start_time) / 1_000_000;
+                    println!("Elapsed time: {} sec", elapsed);
+                    println!("Loop count: {}", self.loop_count);
+                    if 0 < elapsed {
+                        println!("Loop per sec: {}", self.loop_count / elapsed);
+                    }
+                    println!("on_tick count: {}", self.on_tick_count);
+                    println!("on_clock count: {}", self.on_clock_count);
+                    println!("on_update count: {}", self.on_update_count);
+                    println!("on_account_update count: {}", self.on_account_update_count);
                 }
+
+                Ok(py_session)
+            });
+
+            result
+        }
+    */
+    /*
+    pub fn execute_message(
+        &mut self,
+        py  : &Python,
+        agent: &PyAny,
+        py_session: &Py<Session>,
+        interval_sec: i64,
+        message: MarketMessage,
+        warm_up: bool,
+    ) -> anyhow::Result<()> {
+        if self.execute_mode == ExecuteMode::BackTest {
+            if let MarketMessage::Trade(trade) = &message {
+                if trade.status == LogStatus::UnFix {
+                    log::info!("UnFix trade is found. Stop running.");
+                    return Err(anyhow::anyhow!("UnFix trade is found. Stop running."));
+                }
+            }
+        }
+
+        if warm_up {
+            // in warm up loop, we don't call agent, just update session
+            let mut session = py_session.borrow_mut(py);
+            session.on_message(&message);
+            self.last_timestamp = session.get_timestamp();
+
+            if let MarketMessage::Trade(_trade) = &message {
+                warm_up_loop = warm_up_loop - 1;
             }
 
             if self.verbose {
-                println!(
-                    "\n--- end run --- {} ({}[rec])",
-                    time_string(self.last_timestamp),
-                    self.loop_count
-                );
-
-                println!("Done running agent");
-
-                let process_duration = self.last_timestamp - self.start_timestamp;
-                println!(
-                    "Process duration: {} [Days] ({} sec)",
-                    process_duration / SEC(60 * 60 * 24),
-                    process_duration / 1_000_000
-                );
-
-                let elapsed = (NOW() - loop_start_time) / 1_000_000;
-                println!("Elapsed time: {} sec", elapsed);
-                println!("Loop count: {}", self.loop_count);
-                if 0 < elapsed {
-                    println!("Loop per sec: {}", self.loop_count / elapsed);
-                }
-                println!("on_tick count: {}", self.on_tick_count);
-                println!("on_clock count: {}", self.on_clock_count);
-                println!("on_update count: {}", self.on_update_count);
-                println!("on_account_update count: {}", self.on_account_update_count);
+                print!("\rwarm up loop: {}", warm_up_loop)
             }
 
-            Ok(py_session)
-        });
+            drop(session);
 
-        result
+            continue;
+        }
+
+        // after warm up loop, we call agent(in the method session is updated)
+        self.loop_count += 1;
+
+        let r = self.on_message(&py, agent, &py_session, &message, interval_sec);
+        if r.is_err() {
+            return Err(r.unwrap_err());
+        }
+
+        // break if the running time exceeceds the loop_duration
+        if self.start_timestamp == 0 {
+            self.start_timestamp = self.last_timestamp;
+            if self.verbose {
+                println!("start_timestamp: {}", time_string(self.start_timestamp));
+            }
+        } else if 0 < self.execute_time {
+            remain_time =
+                self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
+
+            if remain_time < 0 {
+                log::debug!("remain_time out break");
+                break;
+            }
+        }
+
+        // print progress if verbose flag is set.
+        if self.verbose {
+            self.print_progress(remain_time);
+        }
+
+
     }
+    */
 
     pub fn print_progress(&mut self, remain_time: i64) -> bool {
         if self.last_timestamp - self.last_print_tick_time < self.print_interval
@@ -661,7 +1052,9 @@ impl Runner {
         py_session: &Py<Session>,
         message: &MarketMessage,
         interval_sec: i64,
-    ) -> Result<(), PyErr> {
+    ) -> anyhow::Result<()> {
+        let config = self.config.clone();
+
         // on clockはSession更新前に呼ぶ
         // こうすることでsession.curent_timestampより先の値でon_clockが呼ばれる.
         // これは、on_clockが呼ばれた時点で、ohlcの更新が終わっていることを保証するため.
@@ -699,7 +1092,9 @@ impl Runner {
                 // IN Real run, account message is from user stream.
                 // AccountUpdateはFilledかPartiallyFilledのみ発生。
                 if self.has_account_update {
-                    self.call_agent_on_account_update(py, agent, py_session, account)?;
+                    let account_pair = account.extract_pair(&config);
+
+                    self.call_agent_on_account_update(py, agent, py_session, &account_pair)?;
                 }
             }
             _ => {
@@ -742,7 +1137,7 @@ impl Runner {
         session.update_psudo_account_by_order(order)
     }
 
-    fn get_clock_interval(
+    fn get_clock_interval_py(
         self: &mut Self,
         py: &Python,
         py_session: &Py<Session>,
@@ -753,7 +1148,16 @@ impl Runner {
         Ok(interval_sec)
     }
 
-    fn call_agent_on_init(
+    fn get_clock_interval(self: &mut Self, py_session: &Py<Session>) -> Result<i64, PyErr> {
+        Python::with_gil(|py| {
+            let session = py_session.borrow_mut(py);
+            let interval_sec = session.get_clock_interval_sec();
+
+            Ok(interval_sec)
+        })
+    }
+
+    fn call_agent_on_init_py(
         self: &mut Self,
         py: &Python,
         agent: &PyAny,
@@ -762,6 +1166,23 @@ impl Runner {
         let session = py_session.borrow_mut(*py);
 
         agent.call_method1("on_init", (session,))?;
+
+        Ok(())
+    }
+
+    fn call_agent_on_init(
+        self: &mut Self,
+        agent: &PyAny,
+        py_session: &Py<Session>,
+    ) -> anyhow::Result<()> {
+        if !self.has_on_init {
+            return Ok(());
+        }
+
+        Python::with_gil(|py| {
+            let session = py_session.borrow_mut(py);
+            agent.call_method1("on_init", (session,))
+        })?;
 
         Ok(())
     }
@@ -820,7 +1241,7 @@ impl Runner {
         py: &Python,
         agent: &PyAny,
         py_session: &Py<Session>,
-        account: &AccountStatus,
+        account: &AccountPair,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         session.set_real_account(account);
@@ -871,13 +1292,12 @@ impl Runner {
         })
     }
 
-    /// TODO: return error
-    pub fn open_backtest_stream(
+    pub async fn open_backtest_stream(
         market: &PyObject,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> MarketStream {
-        Python::with_gil(|py| {
+    ) -> impl Stream<Item = anyhow::Result<MarketMessage>> {
+        let market_stream = Python::with_gil(|py| {
             let stream = market.call_method1(py, "open_backtest_channel", (time_from, time_to));
 
             if stream.is_ok() {
@@ -889,7 +1309,17 @@ impl Runner {
                 log::error!("Error in open_backtest_channel: {:?}", err);
                 panic!("Error in open_backtest_channel: {:?}", err);
             }
-        })
+        });
+
+        let market_stream = market_stream.reciver;
+
+        stream! {
+            loop {
+                let message = market_stream.recv()?;
+
+                yield Ok(message);
+            }
+        }
     }
 
     // base 64 generated by co pilot!!
