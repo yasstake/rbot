@@ -107,4 +107,7 @@ socket2 = { version = "0.5.5" }
 rmp-serde = { version = "1.1.2" }
 once_cell = { version = "1.19.0" }
 
+actix-web={version="4.5"}
+actix-rt={version="2.9"}
+
 #pyo3 = {version="0.20.2"}

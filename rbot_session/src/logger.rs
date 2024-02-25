@@ -841,6 +841,7 @@ mod tests {
     #[test]
     fn test_log_record_order() {
         let order = Order::new(
+            "linear",
             "BTCUSD",
             1,
             "order-1",

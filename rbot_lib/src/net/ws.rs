@@ -382,6 +382,10 @@ where
         }
     }
 
+    pub fn get_server(&self) -> T {
+        self.server.clone()
+    }
+
     pub fn get_config(&self) -> MarketConfig {
         self.config.clone()
     }

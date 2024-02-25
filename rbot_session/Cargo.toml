@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 rbot_lib = {workspace = true}
 rbot_market = {workspace = true}
+rbot_blockon = {workspace = true}
 
 anyhow = {workspace = true}
 
@@ -26,10 +27,16 @@ serde_derive = {workspace = true}
 serde_with = {workspace = true}
 serde_json = {workspace = true}
 
+futures = {workspace = true}
+
 log = {workspace = true}
 env_logger = {workspace = true}
 
 crossbeam-channel = {workspace = true}
+
+async-stream = {workspace = true}
+
+tokio={workspace = true}
 
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]

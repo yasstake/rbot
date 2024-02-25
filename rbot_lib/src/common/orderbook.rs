@@ -22,13 +22,22 @@ use super::{order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, O
 
 static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
 
-struct OrderBookList {
+pub struct OrderBookList {
     books: HashMap<String, Arc<Mutex<OrderBookRaw>>>,
 }
 
 impl OrderBookList {
-    pub fn make_path(server: &dyn ServerConfig, config: &MarketConfig) -> String {
-        format!("{}/{}/{}", server.get_exchange_name(), config.trade_category, config.trade_symbol)        
+    pub fn make_path(exchange_name: &str, config: &MarketConfig) -> String {
+        Self::make_path_from_str(exchange_name, &config.trade_category, &config.trade_symbol)
+    }
+
+    pub fn make_path_from_str(exchange_name: &str, trade_category: &str, trade_symbol: &str) -> String {
+        format!("{}/{}/{}", exchange_name, trade_category, trade_symbol)        
+    }
+
+    pub fn parse_path(path: &str) -> (String, String, String) {
+        let v: Vec<&str> = path.split('/').collect();
+        (v[0].to_string(), v[1].to_string(), v[2].to_string())
     }
 
     pub fn new() -> Self {
@@ -43,9 +52,13 @@ impl OrderBookList {
         if board.is_none() {
             return None;
         }
+
+        let (exchange, category, symbol) = Self::parse_path(key);
         
         Some(OrderBook {
-            path: key.to_string(),
+            exchage: exchange,
+            category: category,
+            symbol: symbol,
             board: board.unwrap().clone()
         })
     }
@@ -69,11 +82,26 @@ pub fn get_orderbook_list() -> Vec<String> {
 }
 
 #[pyfunction]
-pub fn get_orderbook(path: &str) -> anyhow::Result<String> {
+pub fn get_order_book_json(path: &str, size: usize) -> anyhow::Result<String> {
     let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
-    board.get_json(0)
+    board.get_json(size)
+}
+
+#[pyfunction]
+pub fn get_orderbook_vec(path: &str) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_board_vec()
+}
+
+pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_board()
 }
 
 
@@ -332,19 +360,27 @@ impl OrderBookRaw {
 #[pyclass]
 #[derive(Debug)]
 pub struct OrderBook {
-    path: String,
+    exchage: String,
+    category: String,
+    symbol: String,
     board: Arc<Mutex<OrderBookRaw>>,
 }
 
 impl OrderBook {
     pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
-        let path = OrderBookList::make_path(server, config);
+        let exchange_name = server.get_exchange_name();
+        let category = config.trade_category.clone();
+        let symbol = config.trade_symbol.clone();
+
+        let path = OrderBookList::make_path(&exchange_name, config);
         let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
         
         ALL_BOARD.lock().unwrap().register(&path,board.clone());
         
         OrderBook {
-            path: path,
+            exchage: exchange_name,
+            category: category,
+            symbol: symbol,
             board: board,
         }
     }
@@ -406,7 +442,7 @@ impl OrderBook {
         size: Decimal,
         transaction_id: &str,
     ) -> anyhow::Result<Vec<Order>> {
-        let mut board = self.board.lock().unwrap();
+        let board = self.board.lock().unwrap();
 
         let board = if side == OrderSide::Buy {
             board.asks.get()
@@ -440,6 +476,7 @@ impl OrderBook {
             }
 
             let mut order = Order::new(
+                &self.category,
                 symbol,
                 create_time,
                 &order_id,
@@ -473,10 +510,12 @@ impl OrderBook {
 impl Drop for OrderBook {
     fn drop(&mut self) {
         let count = Arc::strong_count(&self.board);
-        println!("drop orderbook: {}", count);
+        log::debug!("drop orderbook: {}", count);
 
-        if count == 0 {
-            ALL_BOARD.lock().unwrap().unregister(&self.path);
+        if count <= 1 {
+            ALL_BOARD.lock().unwrap().unregister(
+                &OrderBookList::make_path_from_str(
+                    &self.exchage, &self.category, &self.symbol));
         }
     }
 }

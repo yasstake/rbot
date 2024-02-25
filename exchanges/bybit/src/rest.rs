@@ -220,7 +220,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         };
 
         let order = BybitOrderRequest {
-            category: category,
+            category: category.clone(),
             symbol: symbol.clone(),
             side: side.to_string(),
             order_type: order_type.to_string(),
@@ -250,6 +250,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         // in bybit only order id is valid when order is created.
         let mut order = Order {
+            category: category,
             symbol: symbol,
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::New,
@@ -294,8 +295,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
+        let category = config.trade_category.clone();
         let message = CancelOrderMessage {
-            category: config.trade_category.clone(),
+            category: category.clone(),
             symbol: config.trade_symbol.clone(),
             order_id: order_id.to_string(),
         };
@@ -314,6 +316,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
 
         let mut order = Order {
+            category,
             symbol: "".to_string(),
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::Canceled,
