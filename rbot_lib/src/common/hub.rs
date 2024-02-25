@@ -1,4 +1,5 @@
 use futures::Stream;
+use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::Sender;
@@ -55,9 +56,63 @@ impl MarketHub {
         Self { tx, _rx }
     }
 
-    pub fn subscribe(&self) -> Receiver<BroadcastMessage> {
-        return self.tx.subscribe();
+    pub fn subscribe(&self,
+        exchange: &str,
+        category: &str,
+        symbol: &str,
+        agent_id: &str,
+    ) -> anyhow::Result<crossbeam_channel::Receiver<MarketMessage>> {
+        let exchange = exchange.to_string();
+        let category = category.to_string();
+        let symbol = symbol.to_string();
+        let agent_id = agent_id.to_string();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut ch = self.tx.subscribe();
+
+        std::thread::spawn(move ||{
+            let runtime = Runtime::new().unwrap();
+
+            runtime.block_on(async move {
+                loop {
+                    let msg = ch.recv().await;
+    
+                    if msg.is_err() {
+                        break;
+                    }
+    
+                    let msg = msg.unwrap();
+    
+                    if msg.filter(&exchange, &category, &symbol) {
+                        let market_message = msg.msg.clone();
+    
+                        match market_message {
+                            MarketMessage::Order(ref order) => {
+                                if order.is_my_order(&agent_id) {
+                                    let r = tx.send(market_message.clone());
+                                    if r.is_err() {
+                                        log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {
+                                let r = tx.send(market_message.clone());
+                                if r.is_err() {
+                                    log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        Ok(rx)
     }
+
+
 
     pub async fn subscribe_stream<'a>(
         &self,
@@ -140,10 +195,12 @@ mod test_market_hub {
         }
     }
 
-    #[tokio::test]
-    async fn test_market_hub() {
+    #[test]
+    fn test_market_hub() {
         init_debug_log();
         let tx = MARKET_HUB.open_channel();
+        let mut rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let mut rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
 
         for i in 0..CHANNEL_SIZE * 2 {
             let msg = BroadcastMessage {
@@ -158,8 +215,6 @@ mod test_market_hub {
             }
         }
 
-        let mut rx = MARKET_HUB.subscribe();
-        let mut rx2 = MARKET_HUB.subscribe();
 
         for i in 10..20 {
             let msg = BroadcastMessage {
@@ -178,7 +233,7 @@ mod test_market_hub {
         log::debug!("-------rx1--------");
 
         for _i in 10..20 {
-            let r = rx.recv().await;
+            let r = rx.recv();
             if r.is_err() {
                 println!("error: {:?}", r);
             } else {
@@ -190,7 +245,7 @@ mod test_market_hub {
         log::debug!("-------rx2--------");
 
         for _i in 10..20 {
-            let r = rx2.recv().await;
+            let r = rx2.recv();
             if r.is_err() {
                 println!("error: {:?}", r);
             } else {

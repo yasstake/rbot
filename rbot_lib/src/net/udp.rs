@@ -6,6 +6,7 @@ use futures::{stream, Stream};
 use polars_core::utils::arrow::legacy::kernels::concatenate;
 use pyo3::ffi::symtable;
 use reqwest::header::AGE;
+use tokio::runtime::Runtime;
 use tokio::task::spawn;
 
 use crossbeam_channel::Receiver;
@@ -191,7 +192,7 @@ impl UdpReceiver {
         exchange: &'a str,
         category: &'a str,
         symbol: &'a str,
-        agent_id: &'a str
+        agent_id: &'a str,
     ) -> impl Stream<Item = anyhow::Result<MarketMessage>> + 'a {
         stream! {
             loop {
@@ -235,22 +236,32 @@ impl UdpReceiver {
         let (tx, rx) = crossbeam_channel::unbounded::<MarketMessage>();
 
         // TOD: change to async
-        spawn(async move {
-            loop {
-                let msg = udp.async_receive_message().await;
+        std::thread::spawn(move || {
+            let runtime = Runtime::new().unwrap();
+            runtime.block_on(async move {
+                loop {
+                    let msg = udp.async_receive_message().await;
 
-                if msg.is_err() {
-                    break;
-                }
+                    if msg.is_err() {
+                        break;
+                    }
 
-                let msg = msg.unwrap();
+                    let msg = msg.unwrap();
 
-                if msg.filter(&exchange, &category, &symbol) {
-                    let market_message = msg.msg.clone();
+                    if msg.filter(&exchange, &category, &symbol) {
+                        let market_message = msg.msg.clone();
 
-                    match market_message {
-                        MarketMessage::Order(ref order) => {
-                            if order.is_my_order(&agent_id) {
+                        match market_message {
+                            MarketMessage::Order(ref order) => {
+                                if order.is_my_order(&agent_id) {
+                                    let r = tx.send(market_message.clone());
+                                    if r.is_err() {
+                                        log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {
                                 let r = tx.send(market_message.clone());
                                 if r.is_err() {
                                     log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
@@ -258,16 +269,9 @@ impl UdpReceiver {
                                 }
                             }
                         }
-                        _ => {
-                            let r = tx.send(market_message.clone());
-                            if r.is_err() {
-                                log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
-                                break;
-                            }
-                        }
                     }
                 }
-            }
+            });
         });
 
         Ok(rx)
@@ -364,4 +368,3 @@ mod test_udp {
         Ok(())
     }
 }
-

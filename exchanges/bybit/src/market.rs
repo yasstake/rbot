@@ -345,6 +345,7 @@ impl BybitMarket {
         MarketImpl::_repr_html_(self)
     }
 
+    #[pyo3(signature = (ndays, force=false, verbose=true, low_priority=true))]
     fn download_archive(
         &mut self,
         ndays: i64,
@@ -357,6 +358,7 @@ impl BybitMarket {
         })
     }
 
+    #[pyo3(signature = (verbose=true))]
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async { self.async_download_lastest(verbose).await })
     }
@@ -438,7 +440,14 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");
-        let (unfix_start, unfix_end) = self.find_latest_gap()?;
+        let gap_result = self.find_latest_gap();
+        if gap_result.is_err() {
+            log::warn!("no gap found: {:?}", gap_result);
+            return Ok(0);
+        }
+
+        let (unfix_start, unfix_end) = gap_result.unwrap();
+        //let (unfix_start, unfix_end) = self.find_latest_gap();
         log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
 
         if unfix_end - unfix_start <= HHMM(0, 1) {
