@@ -380,21 +380,73 @@ impl Default for AccountChange {
     }
 }
 
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AccountStatus {
-    pub home: Decimal,
-    pub home_free: Decimal,
-    pub home_locked: Decimal,
-
-    pub foreign: Decimal,
-    pub foreign_free: Decimal,
-    pub foreign_locked: Decimal,
+pub struct Coin {
+    pub symbol: String,
+    pub volume: Decimal,
+    pub free: Decimal,
+    pub locked: Decimal,
 }
 
-impl Default for AccountStatus {
+impl Default for Coin {
     fn default() -> Self {
-        return AccountStatus {
+        return Coin {
+            symbol: "".to_string(),
+            volume: dec![0.0],
+            free: dec![0.0],
+            locked: dec![0.0],
+        };
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AccountCoins {
+    pub coins: Vec<Coin>,
+}
+
+impl AccountCoins {
+    pub fn new() -> Self {
+        return AccountCoins { coins: Vec::new() };
+    }
+
+    pub fn append(&mut self, mut coins: AccountCoins) {
+        self.coins.append(&mut coins.coins);
+    }
+
+    pub fn extract_pair(&self, config: &MarketConfig) -> AccountPair {
+        let mut home = Coin::default();
+        let mut foreign = Coin::default();
+
+        for coin in self.coins.iter() {
+            if coin.symbol == config.home_currency {
+                home = coin.clone();
+            } else if coin.symbol == config.foreign_currency {
+                foreign = coin.clone();
+            }
+        }
+
+        return AccountPair { home, foreign };
+    }
+}
+
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AccountPair {
+    pub home: Coin,
+    pub foreign: Coin,
+}
+
+impl Default for AccountPair {
+    fn default() -> Self {
+        AccountPair {
+            home: Coin::default(),
+            foreign: Coin::default(),
+        }
+            /*
             home: dec![0.0],
             home_free: dec![0.0],
             home_locked: dec![0.0],
@@ -402,20 +454,20 @@ impl Default for AccountStatus {
             foreign: dec![0.0],
             foreign_free: dec![0.0],
             foreign_locked: dec![0.0],
-        };
+            */
     }
 }
 
 #[pymethods]
-impl AccountStatus {
+impl AccountPair {
     pub fn apply_order(&mut self, order: &Order) {
-        self.foreign += order.foreign_change;
-        self.foreign_free += order.free_foreign_change;
-        self.foreign_locked += order.lock_foreign_change;
+        self.foreign.volume += order.foreign_change;
+        self.foreign.free += order.free_foreign_change;
+        self.foreign.locked += order.lock_foreign_change;
 
-        self.home += order.home_change;
-        self.home_free += order.free_home_change;
-        self.home_locked += order.lock_home_change;
+        self.home.volume += order.home_change;
+        self.home.free += order.free_home_change;
+        self.home.locked += order.lock_home_change;
     }
 
     pub fn __str__(&self) -> String {
@@ -427,27 +479,27 @@ impl AccountStatus {
     }
     #[getter]
     pub fn get_home(&self) -> f64 {
-        return self.home.to_f64().unwrap();
+        return self.home.volume.to_f64().unwrap();
     }
     #[getter]
     pub fn get_home_free(&self) -> f64 {
-        return self.home_free.to_f64().unwrap();
+        return self.home.free.to_f64().unwrap();
     }
     #[getter]
     pub fn get_home_locked(&self) -> f64 {
-        return self.home_locked.to_f64().unwrap();
+        return self.home.locked.to_f64().unwrap();
     }
     #[getter]
     pub fn get_foreign(&self) -> f64 {
-        return self.foreign.to_f64().unwrap();
+        return self.foreign.volume.to_f64().unwrap();
     }
     #[getter]
     pub fn get_foreign_free(&self) -> f64 {
-        return self.foreign_free.to_f64().unwrap();
+        return self.foreign.free.to_f64().unwrap();
     }
     #[getter]
     pub fn get_foreign_locked(&self) -> f64 {
-        return self.foreign_locked.to_f64().unwrap();
+        return self.foreign.locked.to_f64().unwrap();
     }
 }
 
@@ -455,6 +507,8 @@ impl AccountStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
+    #[pyo3(get)]
+    pub category: String,
     #[pyo3(get)]
     pub symbol: String,
     #[pyo3(get)]
@@ -510,6 +564,7 @@ pub struct Order {
 impl Order {
     #[new]
     pub fn new(
+        category: &str,
         symbol: &str,
         create_time: MicroSec,
         order_id: &str,
@@ -521,6 +576,7 @@ impl Order {
         size: Decimal,
     ) -> Self {
         return Order {
+            category: category.to_string(),
             symbol: symbol.to_string(),
             create_time,
             status: order_status,
@@ -1109,6 +1165,7 @@ mod order_tests {
 
     fn create_order() -> Order {
         let mut order = Order::new(
+            "",
             "",
             0,
             "",

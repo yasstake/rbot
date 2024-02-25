@@ -5,15 +5,17 @@ use std::sync::Mutex;
 
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
+use pyo3_polars::PyDataFrame;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use rbot_lib::common::{
-    date_string, hour_string, min_string, time_string, AccountStatus, MarketConfig, MicroSec,
-    OrderSide, OrderStatus, NOW,Trade, MarketMessage, SEC,Order,OrderType
+    date_string, get_orderbook_df, hour_string, min_string, time_string, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
 };
 use pyo3::prelude::*;
+
+use anyhow;
 
 #[derive(Debug, Clone, PartialEq)]
 #[pyclass]
@@ -53,8 +55,9 @@ pub struct Session {
     execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
-    real_account: AccountStatus,
-    psudo_account: AccountStatus,
+    real_account: AccountPair,
+    psudo_account: AccountPair,
+    exchange: PyObject,
     market: PyObject,
     current_timestamp: MicroSec,
     current_clock_time: MicroSec,
@@ -82,6 +85,8 @@ pub struct Session {
     asks_edge: Decimal,
     bids_edge: Decimal,
 
+    exchange_name: String,
+    trade_category: String,
     market_config: MarketConfig,
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
@@ -92,8 +97,9 @@ pub struct Session {
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (market, execute_mode, session_name=None, log_memory=true))]
+    #[pyo3(signature = (exchange, market, execute_mode, session_name=None, log_memory=true))]
     pub fn new(
+        exchange: PyObject,
         market: PyObject,
         execute_mode: ExecuteMode,
         session_name: Option<&str>,
@@ -120,12 +126,22 @@ impl Session {
             config
         });
 
+        let exchange_name = Python::with_gil(|py| {
+            let exchange_name = exchange.getattr(py, "exchange_name").unwrap();
+            let exchange_name: String = exchange_name.extract(py).unwrap();
+
+            exchange_name
+        });
+
+        let category = config.trade_category.clone();
+
         let mut session = Self {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
-            real_account: AccountStatus::default(),
-            psudo_account: AccountStatus::default(),
+            real_account: AccountPair::default(),
+            psudo_account: AccountPair::default(),
+            exchange,
             market,
             current_timestamp: 0,
             current_clock_time: 0,
@@ -153,6 +169,8 @@ impl Session {
             asks_edge: dec![0.0],
             bids_edge: dec![0.0],
 
+            exchange_name,
+            trade_category: category,
             market_config: config,
 
             dummy_q: Mutex::new(VecDeque::new()),
@@ -201,13 +219,11 @@ impl Session {
 
     #[getter]
     // TODO: リモート動作時にRESTでコールする。
-    pub fn get_board(&self) -> Result<Py<PyAny>, PyErr> {
-        if self.execute_mode == ExecuteMode::BackTest {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "get_board is not supported in backtest mode",
-            ));
-        }
-        Python::with_gil(|py| self.market.getattr(py, "board"))
+    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+        let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
+        let (bids, asks) = get_orderbook_df(&path)?;
+
+        Ok((PyDataFrame(bids), PyDataFrame(asks)))
     }
 
     #[getter]
@@ -289,17 +305,17 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_psudo_account(&self) -> AccountStatus {
+    pub fn get_psudo_account(&self) -> AccountPair {
         self.psudo_account.clone()
     }
 
     #[getter]
-    pub fn get_real_account(&self) -> AccountStatus {
+    pub fn get_real_account(&self) -> AccountPair {
         self.real_account.clone()
     }
 
     #[getter]
-    pub fn get_account(&self) -> AccountStatus {
+    pub fn get_account(&self) -> AccountPair {
         match self.execute_mode {
             ExecuteMode::Real => self.real_account.clone(),
             ExecuteMode::BackTest => self.psudo_account.clone(),
@@ -365,7 +381,8 @@ impl Session {
     /// if fail return None
     pub fn real_cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
-            let r = self.market.call_method1(py, "cancel_order", (order_id,));
+            let r = 
+                self.exchange.call_method1(py, "cancel_order", (self.market_config.clone(), order_id,));
 
             if r.is_err() {
                 let none = Python::None(py);
@@ -413,8 +430,8 @@ impl Session {
         let local_id = self.new_order_id();
 
         Python::with_gil(|py| {
-            self.market
-                .call_method1(py, "market_order", (side, size, local_id))
+            self.exchange
+                .call_method1(py, "market_order", (self.market_config.clone(), side, size, local_id))
         })
     }
 
@@ -473,6 +490,7 @@ impl Session {
         let execute_price = self.calc_dummy_execute_price_by_slip(order_side);
 
         let mut order = Order::new(
+            &self.trade_category,
             &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
             &local_id,
@@ -539,8 +557,8 @@ impl Session {
         // then call market.limit_order
         let r = Python::with_gil(|py| {
             let result =
-                self.market
-                    .call_method1(py, "limit_order", (side, pricedp, sizedp, local_id));
+                self.exchange
+                    .call_method1(py, "limit_order", (self.market_config.clone(), side, pricedp, sizedp, local_id));
 
             match result {
                 // if success update order list
@@ -599,6 +617,7 @@ impl Session {
         );
 
         let mut order = Order::new(
+            &self.trade_category,
             &self.market_config.trade_symbol,
             self.calc_log_timestamp(),
             &local_id,
@@ -680,6 +699,7 @@ impl Session {
 
 impl Session {
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
+        let config = self.market_config.clone();
         let mut new_orders = vec![];
 
         match message {
@@ -705,9 +725,11 @@ impl Session {
                 log::debug!("on_message: order={:?}", order);
                 self.on_order_update(&mut order);
             }
-            MarketMessage::Account(account) => {
-                log::debug!("on_message: account={:?}", account);
-                self.on_account_update(account);
+            MarketMessage::Account(coins) => {
+                log::debug!("on_message: account={:?}", coins);
+
+                let mut account: AccountPair = coins.extract_pair(&config);
+                self.on_account_update(&account);
             }
             MarketMessage::Orderbook(orderbook) => {
                 log::warn!("IGNORED MESSAGE: on_message: orderbook={:?}", orderbook);
@@ -761,7 +783,7 @@ impl Session {
         )
     }
 
-    pub fn log_account(&mut self, account: &AccountStatus) -> Result<(), std::io::Error> {
+    pub fn log_account(&mut self, account: &AccountPair) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
 
         self.log.log_account(time, account)
@@ -800,7 +822,7 @@ impl Session {
         }
     }
 
-    pub fn on_account_update(&mut self, account: &AccountStatus) {
+    pub fn on_account_update(&mut self, account: &AccountPair) {
         self.real_account = account.clone();
 
         if self.log_account(account).is_err() {
@@ -848,8 +870,10 @@ impl Session {
             return Ok(());
         }
 
+        let config = self.market_config.clone();
+
         let r = Python::with_gil(|py| {
-            let result = self.market.getattr(py, "open_orders");
+            let result = self.exchange.call_method1(py, "get_open_orders", (config.clone(),));
 
             match result {
                 // if success update order list
@@ -858,6 +882,10 @@ impl Session {
                     log::debug!("OpenOrders {:?}", orderlist);
 
                     for order in orders {
+                        if order.symbol != config.trade_symbol {
+                            continue;
+                        }
+
                         log::debug!("OpenOrder {:?}", order);
                         if order.order_side == OrderSide::Buy {
                             self.buy_orders.update_or_insert(&order);
@@ -1059,7 +1087,7 @@ impl Session {
         }
     }
 
-    pub fn set_real_account(&mut self, account: &AccountStatus) {
+    pub fn set_real_account(&mut self, account: &AccountPair) {
         self.real_account = account.clone();
     }
 }

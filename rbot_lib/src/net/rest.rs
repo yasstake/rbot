@@ -1,4 +1,4 @@
-// Copyright(c) 2023. yasstake. All rights reserved.
+// Copyright(c) 2023-4. yasstake. All rights reserved.
 // Abloultely no warranty.
 
 use anyhow::Context;
@@ -24,9 +24,10 @@ use tempfile::tempdir;
 //use tokio::spawn;
 use zip::ZipArchive;
 
+use crate::common::AccountCoins;
 use crate::common::{
-    flush_log, to_naive_datetime, AccountStatus, BoardTransfer, Kline, LogStatus, MarketConfig,
-    MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, BLOCK_ON, DAYS, FLOOR_DAY, TODAY,
+    flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig,
+    MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
 //use crate::db::KEY::low;
 
@@ -65,13 +66,12 @@ where
     ) -> impl std::future::Future<Output = anyhow::Result<Order>> + Send;
     fn open_orders(
         server: &T,
-        config: &MarketConfig,
+config: &MarketConfig,
     ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
 
     fn get_account(
         server: &T,
-        config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<AccountStatus>> + Send;
+    ) -> impl std::future::Future<Output = anyhow::Result<AccountCoins>> + Send;
 
     fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
         let history_web_base = server.get_historical_web_base();
@@ -102,8 +102,8 @@ where
     fn rec_to_trade(rec: &StringRecord) -> Trade;
     fn archive_has_header() -> bool;
 
-    fn latest_archive_date(server: &T, config: &MarketConfig) -> anyhow::Result<MicroSec> {
-        BLOCK_ON(async {
+    fn latest_archive_date(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = anyhow::Result<MicroSec>> + Send {
+        async move {
             let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
             let mut latest = TODAY();
             let mut i = 0;
@@ -122,7 +122,7 @@ where
                     return Err(anyhow!("Find archive retry over {}/{}/{}", i, latest, f(latest)));
                 }
             }
-        })
+        }
     }
 
     fn download_archive(
@@ -465,7 +465,7 @@ where
     urls
 }
 
-const MAX_BUFFER_SIZE: usize = 2000;
+const MAX_BUFFER_SIZE: usize = 4096;
 
 const LOW_QUEUE_SIZE: usize = 5;
 

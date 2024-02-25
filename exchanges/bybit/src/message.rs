@@ -10,11 +10,14 @@ use std::str::FromStr;
 use pyo3::pyclass;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::Deserializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rbot_lib::common::{
-    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountStatus, Board, BoardTransfer, ControlMessage, Kline, LogStatus, MarketConfig, MarketMessage, MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade
+    msec_to_microsec, string_to_decimal, string_to_i64, time_string, AccountCoins, AccountPair,
+    Board, BoardTransfer, Coin, ControlMessage, Kline, LogStatus, MarketConfig, MarketMessage,
+    MicroSec, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade,
 };
 
 use crate::Bybit;
@@ -46,10 +49,24 @@ pub fn bybit_order_status(status: &str) -> OrderStatus {
     }
 }
 
+fn deserialize_ret_code<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = <Value as serde::Deserialize>::deserialize(deserializer)?;
+    if let Some(code) = value.get("retCode").or_else(|| value.get("return_code")).and_then(Value::as_i64) {
+        Ok(code as i64)
+    } else {
+        Err(serde::de::Error::custom("retCode/ret_code field not found"))
+    }
+}
+
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
 pub struct BybitRestResponse {
-    #[serde(rename = "retCode")]
+    #[serde(rename="retCode")]
     pub return_code: i64,
     #[serde(rename = "retMsg")]
     pub return_message: String,
@@ -59,6 +76,12 @@ pub struct BybitRestResponse {
     pub time: BybitTimestamp,
     #[serde(rename = "result")]
     pub body: Value,
+}
+
+impl BybitRestResponse {
+    pub fn is_success(&self) -> bool {
+        self.return_code == 0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -494,11 +517,11 @@ pub struct BybitOrderStatus {
 }
 
 impl Into<Order> for &BybitOrderStatus {
-    
     fn into(self) -> Order {
         let order_type = OrderType::from(&self.orderType);
 
         Order {
+            category: "linear".to_string(),     // for default
             symbol: self.symbol.clone(),
             create_time: self.createdTime,
             status: bybit_order_status(&self.orderStatus),
@@ -517,8 +540,8 @@ impl Into<Order> for &BybitOrderStatus {
             commission: self.cumExecFee,
             commission_asset: "".to_string(),
             is_maker: order_type.is_maker(),
-            message: "".to_string(),                // DUMMY value
-            commission_home: dec![0.0],             // DUMMY value
+            message: "".to_string(),    // DUMMY value
+            commission_home: dec![0.0], // DUMMY value
             commission_foreign: dec![0.0],
             home_change: dec![0.0],
             foreign_change: dec![0.0],
@@ -541,10 +564,12 @@ pub struct BybitMultiOrderStatus {
 
 impl Into<Vec<Order>> for BybitMultiOrderStatus {
     fn into(self) -> Vec<Order> {
+        let category = self.category.clone();
         let mut orders: Vec<Order> = vec![];
 
         for order in self.list.iter() {
-            let o: Order = order.into();
+            let mut o: Order = order.into();
+            o.category = category.clone();
             orders.push(o);
         }
 
@@ -562,7 +587,7 @@ pub struct BybitAccountInformation {}
 #[serde(untagged)]
 pub enum BybitPublicWsMessage {
     Status(BybitWsStatus),
-    Pong(BybitWsPongReply), 
+    Pong(BybitWsPongReply),
     Trade(BybitWsTradeMessage),
     Orderbook(BybitWsOrderbookMessage),
 }
@@ -624,7 +649,7 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                 })
             }
             BybitPublicWsMessage::Pong(pong) => {
-                return MultiMarketMessage::Control(ControlMessage{
+                return MultiMarketMessage::Control(ControlMessage {
                     status: true,
                     operation: pong.op,
                     message: pong.conn_id,
@@ -655,6 +680,15 @@ pub struct BybitWsStatus {
     pub args: Option<Vec<String>>,
 }
 
+impl Into<ControlMessage> for BybitWsStatus {
+    fn into(self) -> ControlMessage {
+        ControlMessage {
+            status: self.success,
+            operation: self.op.clone(),
+            message: format!("{:?} args:[{:?}]", self.ret_msg, self.args),
+        }
+    }
+}
 
 /*
 "{\"op\":\"pong\",\"args\":[\"1707031861056\"],\"conn_id\":\"cmsuqo1qo29shn0o3qb0-44fy\"}"
@@ -677,8 +711,6 @@ pub struct BybitWsTradeMessage {
     #[serde(rename = "ts")]
     pub timestamp: BybitTimestamp,
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsTrade {
@@ -908,47 +940,61 @@ pub fn merge_order_and_execution(
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitAccountStatus {
-    accountType: String,
+    pub accountType: String,
     #[serde(deserialize_with = "string_to_decimal")]
-    accountLTV: Decimal, // account total borrowed size / (account total equity + account total borrowed size). In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub accountLTV: Decimal, // account total borrowed size / (account total equity + account total borrowed size). In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    accountIMRate: Decimal, // account initial margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub accountIMRate: Decimal, // account initial margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    accountMMRate: Decimal, // account maintenance margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub accountMMRate: Decimal, // account maintenance margin rate. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalEquity: Decimal, // account total equity. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalEquity: Decimal, // account total equity. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalWalletBalance: Decimal, // account total wallet balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalWalletBalance: Decimal, // account total wallet balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalMarginBalance: Decimal, // account total margin balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalMarginBalance: Decimal, // account total margin balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalAvailableBalance: Decimal, // account total available balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalAvailableBalance: Decimal, // account total available balance. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalPerpUPL: Decimal, // account total unrealized PnL. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalPerpUPL: Decimal, // account total unrealized PnL. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalInitialMargin: Decimal, // account total initial margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub totalInitialMargin: Decimal, // account total initial margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
     #[serde(deserialize_with = "string_to_decimal")]
-    totalMaintenanceMargin: Decimal, // account total maintenance margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
-    coin: Vec<BybitAccountCoin>,
+    pub totalMaintenanceMargin: Decimal, // account total maintenance margin. In non-unified mode & unified (inverse) & unified (isolated_margin), the field will be returned as an empty string.
+    pub coin: Vec<BybitAccountCoin>,
 }
 
-// TODO: implment
-// TODO: MarketConfigを引き継ぐように変更する。
-// Margin取引のときは、homeだけ有効
-// home_freeは有効マージン相当として扱う
-impl Into<AccountStatus> for &BybitAccountStatus {
-    fn into(self) -> AccountStatus {
-        let account = AccountStatus {
-            home: dec![0.0],
-            home_free: dec![0.0],
-            home_locked: dec![0.0],
-            foreign: dec![0.0],
-            foreign_free: dec![0.0],
-            foreign_locked: dec![0.0],
-        };
+impl Into<AccountCoins> for BybitAccountStatus {
+    fn into(self) -> AccountCoins {
+        let mut coins: Vec<Coin> = vec![];
+        for coin in self.coin.iter() {
+            let c: Coin = coin.into();
+            coins.push(c);
+        }
 
-        account
+        AccountCoins { coins: coins }
     }
+}
+
+pub fn convert_coin_to_account_status(
+    config: &MarketConfig,
+    coins: Vec<BybitAccountCoin>,
+) -> AccountPair {
+    let mut account = AccountPair::default();
+
+    for coin in coins.iter() {
+        if coin.coin == config.home_currency {
+            account.home.volume = coin.equity;
+            account.home.free = coin.availableToWithdraw;
+            account.home.locked = coin.locked;
+        } else if coin.coin == config.foreign_currency {
+            account.foreign.volume = coin.equity;
+            account.foreign.free = coin.availableToWithdraw;
+            account.foreign.locked = coin.locked;
+        }
+    }
+
+    account
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -987,6 +1033,47 @@ pub struct BybitAccountCoin {
     marginCollateral: bool,
 }
 
+impl Into<Coin> for &BybitAccountCoin {
+    fn into(self) -> Coin {
+        Coin {
+            symbol: self.coin.clone(),
+            volume: self.equity,
+            free: self.availableToWithdraw,
+            locked: self.locked,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitAccountResponse {
+    list: Vec<BybitAccountResponseList>
+
+ //   coin: Vec<BybitAccountCoin>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BybitAccountResponseList {
+    coin: Vec<BybitAccountCoin>,
+}
+
+
+
+// TODO: check if flatten is OK.
+impl Into<AccountCoins> for BybitAccountResponse {
+    fn into(self) -> AccountCoins {
+        let mut coins: Vec<Coin> = vec![];
+        for l in self.list {
+            for coin in l.coin.iter() {
+            let c: Coin = coin.into();
+            coins.push(c);
+            }
+        }
+
+        AccountCoins { coins: coins }
+    }
+}
+
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[allow(unused_imports)]
@@ -994,6 +1081,7 @@ pub struct BybitAccountCoin {
 mod bybit_message_test {
     use super::*;
     use polars_core::utils::rayon::result;
+    use rbot_lib::common::init_debug_log;
 
     use crate::message::{
         BybitAccountStatus, BybitExecution, BybitMultiOrderStatus, BybitRestResponse,
@@ -1010,10 +1098,8 @@ mod bybit_message_test {
         "#;
 
         let result = serde_json::from_str::<BybitRestResponse>(&message);
-
-        assert!(result.is_ok());
-
         println!("{:?}", result);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1260,39 +1346,89 @@ mod bybit_message_test {
         let order = serde_json::from_str::<BybitUserMessage>(message);
         println!("{:?}", order);
 
-
         let message = r#"{"topic":"execution","id":"100467532_BTCUSDT_8883610598","creationTime":1705761437507,"data":[{"category":"linear","symbol":"BTCUSDT","closedSize":"0","execFee":"0.02285465","execId":"2800474f-1e3d-571e-9cc8-46e3bcb82699","execPrice":"41553.9","execQty":"0.001","execType":"Trade","execValue":"41.5539","feeRate":"0.00055","tradeIv":"","markIv":"","blockTradeId":"","markPrice":"41547.63","indexPrice":"","underlyingPrice":"","leavesQty":"0","orderId":"e4385ca4-59cf-4ef8-aa34-61b7ad99ae84","orderLinkId":"SkeltonAgentlp9qlB-0001","orderPrice":"43607.8","orderQty":"0.001","orderType":"Market","stopOrderType":"UNKNOWN","side":"Buy","execTime":"1705761437503","isLeverage":"0","isMaker":false,"seq":8883610598,"marketUnit":"","createType":"CreateByUser"}]}"#;
         let execution = serde_json::from_str::<BybitUserMessage>(message);
         println!("{:?}", execution);
-
     }
-
-
 
     #[test]
     fn test_bybit_order_and_execution() {
         let message = r#"
         [{"orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","blockTradeId":"","symbol":"BTCUSDT","price":"40643.7","qty":"0.001","side":"Sell","isLeverage":"","positionIdx":0,"orderStatus":"Filled","cancelType":"UNKNOWN","rejectReason":"EC_NoError","avgPrice":"42782","leavesQty":"0","leavesValue":"0","cumExecQty":"0.001","cumExecValue":"42.782","cumExecFee":"0.0235301","timeInForce":"IOC","orderType":"Market","stopOrderType":"","orderIv":"","triggerPrice":"0","takeProfit":"0","stopLoss":"0","tpTriggerBy":"","slTriggerBy":"","triggerDirection":0,"triggerBy":"","lastPriceOnCreated":"42782.8","reduceOnly":true,"closeOnTrigger":true,"smpType":"None","smpGroup":0,"smpOrderId":"","tpslMode":"UNKNOWN","tpLimitPrice":"0","slLimitPrice":"0","placeType":"","createdTime":1707036474698,"updatedTime":1707036474702}]
         "#;
-        let order = serde_json::from_str::<Vec<BybitOrderStatus>>(message);        
+        let order = serde_json::from_str::<Vec<BybitOrderStatus>>(message);
         println!("{:?}", order);
-        
+
         let message = r#"        
         [{"category":"linear","symbol":"BTCUSDT","orderId":"43fac7fc-e2ae-4e80-bb50-0f2ff171fcc0","orderLinkId":"","side":"Sell","orderPrice":"40643.7","orderQty":"0.001","leavesQty":"0","orderType":"Market","execFee":"0.0235301","execId":"be10c344-e1d3-5949-8f56-d45dd192acca","execPrice":"42782","execQty":"0.001","execValue":"42.782","execTime":1707036474699,"isMaker":false,"feeRate":"0.00055","seq":8909836703}]
         "#;
 
-
-        let execution = serde_json::from_str::<Vec<BybitExecution>>(message);        
+        let execution = serde_json::from_str::<Vec<BybitExecution>>(message);
         println!("{:?}", execution);
-
     }
 
-    
+    #[test]
+    fn test_account_status_message() -> anyhow::Result<()> {
+        init_debug_log();
 
+        let message: &str = r#"
+        {"retCode":0,"retMsg":"OK","result":{"list":[{"totalEquity":"11671.04063119","accountIMRate":"0.0784","totalMarginBalance":"11671.04063119","totalInitialMargin":"915.40917399","accountType":"UNIFIED","totalAvailableBalance":"10755.6314572","accountMMRate":"0.0042","totalPerpUPL":"1471.35122086","totalWalletBalance":"10199.68941033","accountLTV":"0","totalMaintenanceMargin":"50.11637468","coin":[{"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10196.98720872","totalOrderIM":"12.1254","equity":"11667.94862481","totalPositionMM":"49.37769736","usdValue":"11671.04063119","unrealisedPnl":"1470.96141609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10196.98720872","cumRealisedPnl":"196.98720872","locked":"0","marginCollateral":true,"coin":"USDT"},{"availableToBorrow":"","bonus":"","accruedInterest":"","availableToWithdraw":"","totalOrderIM":"","equity":"","totalPositionMM":"","usdValue":"","unrealisedPnl":"","collateralSwitch":false,"spotHedgingQty":"0","borrowAmount":"","totalPositionIM":"","walletBalance":"","cumRealisedPnl":"","locked":"","marginCollateral":true,"coin":"BTC"}]}]},"retExtInfo":{},"time":1707918827165}
+        "#;
 
+        let response = serde_json::from_str::<BybitRestResponse>(message);
 
+        println!("{:?}", response);
 
+        let response = response.unwrap().body;
 
+        println!("R>>>{:?}", response);
+        let account_response = serde_json::from_value::<BybitAccountResponse>(response)?;
+        println!("AR>>{:?}", account_response);
+
+        //let ac = (account_response.list);
+
+        //let ac: AccountCoins = account_response.into();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_account_coin() {
+        let MESSAGE: &str = r#"
+        {
+            "list":
+            [
+                {
+                    "totalEquity":"11671.04063119","accountIMRate":"0.0784","totalMarginBalance":"11671.04063119","totalInitialMargin":"915.40917399","accountType":"UNIFIED","totalAvailableBalance":"10755.6314572","accountMMRate":"0.0042","totalPerpUPL":"1471.35122086","totalWalletBalance":"10199.68941033","accountLTV":"0","totalMaintenanceMargin":"50.11637468",
+                    "coin":[
+                    {"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10196.98720872","totalOrderIM":"12.1254","equity":"11667.94862481","totalPositionMM":"49.37769736","usdValue":"11671.04063119","unrealisedPnl":"1470.96141609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10196.98720872","cumRealisedPnl":"196.98720872","locked":"0","marginCollateral":true,"coin":"USDT"},
+                    {"availableToBorrow":"","bonus":"","accruedInterest":"","availableToWithdraw":"","totalOrderIM":"","equity":"","totalPositionMM":"","usdValue":"","unrealisedPnl":"","collateralSwitch":false,"spotHedgingQty":"0","borrowAmount":"","totalPositionIM":"","walletBalance":"","cumRealisedPnl":"","locked":"","marginCollateral":true,"coin":"BTC"}
+                    ]
+                }
+            ]
+        }
+        "#;
+
+        let response = serde_json::from_str::<BybitAccountResponse>(MESSAGE);
+        println!("{:?}", response);
+        assert!(response.is_ok());
+    }
+
+    #[test]
+    fn test_parse_coin() {
+        const M: &str = r#"{"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10196.98720872","totalOrderIM":"12.1254","equity":"11667.94862481","totalPositionMM":"49.37769736","usdValue":"11671.04063119","unrealisedPnl":"1470.96141609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10196.98720872","cumRealisedPnl":"196.98720872","locked":"0","marginCollateral":true,"coin":"USDT"}"#;
+
+        let coins = serde_json::from_str::<BybitAccountCoin>(M);
+
+        println!("{:?}", coins);
+        assert!(coins.is_ok());
+    }
+
+    fn test_parse() {
+        let message: &str = r#"
+        {"retCode":0,"retMsg":"OK","result":{"list":[{"totalEquity":"11745.04972951","accountIMRate":"0.0779","totalMarginBalance":"11745.04972951","totalInitialMargin":"916.00037165","accountType":"UNIFIED","totalAvailableBalance":"10829.04935785","accountMMRate":"0.0042","totalPerpUPL":"1543.8483218","totalWalletBalance":"10201.2014077","accountLTV":"0","totalMaintenanceMargin":"50.14874128","coin":[{"availableToBorrow":"","bonus":"0","accruedInterest":"0","availableToWithdraw":"10191.91657171","totalOrderIM":"12.1254","equity":"11734.3597278","totalPositionMM":"49.37769736","usdValue":"11745.04972951","unrealisedPnl":"1542.44315609","collateralSwitch":true,"spotHedgingQty":"0","borrowAmount":"0.000000000000000000","totalPositionIM":"903.04125483","walletBalance":"10191.91657171","cumRealisedPnl":"191.91657171","locked":"0","marginCollateral":true,"coin":"USDT"},{"availableToBorrow":"","bonus":"","accruedInterest":"","availableToWithdraw":"","totalOrderIM":"","equity":"","totalPositionMM":"","usdValue":"","unrealisedPnl":"","collateralSwitch":false,"spotHedgingQty":"0","borrowAmount":"","totalPositionIM":"","walletBalance":"","cumRealisedPnl":"","locked":"","marginCollateral":true,"coin":"BTC"}]}]},"retExtInfo":{},"time":1708051591009}        
+        "#;
+    }
 }
 
 /*
