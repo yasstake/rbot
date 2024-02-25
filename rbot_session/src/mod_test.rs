@@ -14,6 +14,7 @@ mod tests {
         let now = NOW();
 
         let order1 = Order::new(
+            "linear",
             "BTCUSDT",
             now,
             "MYORDER-1",
@@ -107,6 +108,7 @@ mod tests {
         let now = NOW();
 
         let order1 = Order::new(
+            "linear",
             "BTCUSDT",
             now,
             "MYORDER-1",

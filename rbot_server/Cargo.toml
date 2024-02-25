@@ -1,0 +1,16 @@
+[package]
+name = "rbot_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rbot_lib = { path = "../rbot_lib" }
+
+anyhow={workspace=true}
+tokio={workspace=true}
+actix-rt={workspace=true}
+actix-web = {workspace=true}
+serde = {workspace=true}
+

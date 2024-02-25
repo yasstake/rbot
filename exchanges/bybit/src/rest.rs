@@ -1,12 +1,14 @@
 #![allow(unused)]
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
+use std::convert;
 use std::fmt::format;
 
 use csv::StringRecord;
 use polars_core::export::num::FromPrimitive;
 use rbot_lib::common::time_string;
-use rbot_lib::common::AccountStatus;
+use rbot_lib::common::AccountCoins;
+use rbot_lib::common::AccountPair;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
 use rbot_lib::common::LogStatus;
@@ -32,7 +34,11 @@ use rbot_lib::common::{
 
 use rbot_lib::net::{rest_get, rest_post, RestApi};
 
+use crate::message::convert_coin_to_account_status;
 use crate::message::microsec_to_bybit_timestamp;
+use crate::message::BybitAccountCoin;
+use crate::message::BybitAccountResponse;
+use crate::message::BybitAccountStatus;
 
 use super::config::BybitServerConfig;
 use super::message::BybitKlinesResponse;
@@ -122,6 +128,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             1000 // max records.
         );
 
+
         let r = Self::rest_get(server, path, &params)
             .await
             .with_context(|| {
@@ -135,6 +142,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
         Ok(result.into())
+
+
+//        Err(anyhow!("not implemented"))
     }
 
     async fn get_trade_klines(
@@ -210,7 +220,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         };
 
         let order = BybitOrderRequest {
-            category: category,
+            category: category.clone(),
             symbol: symbol.clone(),
             side: side.to_string(),
             order_type: order_type.to_string(),
@@ -240,6 +250,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         // in bybit only order id is valid when order is created.
         let mut order = Order {
+            category: category,
             symbol: symbol,
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::New,
@@ -284,8 +295,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
+        let category = config.trade_category.clone();
         let message = CancelOrderMessage {
-            category: config.trade_category.clone(),
+            category: category.clone(),
             symbol: config.trade_symbol.clone(),
             order_id: order_id.to_string(),
         };
@@ -304,6 +316,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
 
         let mut order = Order {
+            category,
             symbol: "".to_string(),
             create_time: msec_to_microsec(result.time),
             status: OrderStatus::Canceled,
@@ -342,7 +355,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     // TODO: implement paging.
     async fn open_orders(
         server: &BybitServerConfig,
-        config: &MarketConfig,
+config: &MarketConfig,
     ) -> anyhow::Result<Vec<Order>> {
         let query_string = format!(
             "category={}&symbol={}&limit=50",
@@ -378,10 +391,24 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     }
 
     async fn get_account(
-        _server: &BybitServerConfig,
-        _config: &MarketConfig,
-    ) -> anyhow::Result<AccountStatus> {
-        todo!()
+        server: &BybitServerConfig
+    ) -> anyhow::Result<AccountCoins> {
+
+        let path = "/v5/account/wallet-balance";
+        // TODO: implement otherthn accountType=UNIFIED(e.g.inverse)
+        let query_string = format!("accountType=UNIFIED");
+        //let query_string = format!("accountType=UNIFIED");
+
+        let response = Self::get_sign(&server, path, &query_string)
+            .await
+            .with_context(|| format!("get_account error: {}/{}/{}", &server.get_rest_server(), path, &query_string))?;
+
+        ensure!(response.is_success(), format!("return_code = {}, msg={}", response.is_success(), response.return_message));
+
+        let account_status = serde_json::from_value::<BybitAccountResponse>(response.body)?;
+        let coins: AccountCoins = account_status.into();
+
+        Ok(coins)
     }
 
     fn format_historical_data_url(
@@ -473,14 +500,14 @@ impl BybitRestApi {
         query_string: &str,
     ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key();
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
         let recv_window = "5000";
 
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, query_string);
-        let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
+        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, query_string);
+        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
-        let api_key = server.get_api_key();
 
         headers.push(("X-BAPI-SIGN", &sign));
         headers.push(("X-BAPI-API-KEY", &api_key));
@@ -489,7 +516,7 @@ impl BybitRestApi {
 
         let result = rest_get(&server.rest_server, path, headers, Some(query_string), None)
             .await
-            .with_context(|| format!("get_sign error: {}/{}", &server.rest_server, path))?;
+            .with_context(|| format!("get_sign error: {}/{}/{}", &server.rest_server, path, query_string))?;
 
         Self::parse_rest_response(result)
     }
@@ -500,14 +527,14 @@ impl BybitRestApi {
         body: &str,
     ) -> anyhow::Result<BybitRestResponse> {
         let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key();
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
         let recv_window = "5000";
 
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key, recv_window, body);
-        let sign = hmac_sign(&server.get_api_secret(), &param_to_sign);
+        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, body);
+        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
-        let api_key = server.get_api_key();
 
         headers.push(("X-BAPI-SIGN", &sign));
         headers.push(("X-BAPI-API-KEY", &api_key));
@@ -541,7 +568,7 @@ impl BybitRestApi {
             .with_context(|| format!("parse error in parse_rest_response: {:?}", response))?;
 
         ensure!(
-            result.return_code == 0,
+            result.is_success(),
             format!("parse rest response error = {}", result.return_message)
         );
 
@@ -590,347 +617,6 @@ impl BybitRestApi {
     }
 }
 
-/*
-
-
-pub fn new_limit_order(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-    side: OrderSide,
-    price: Decimal,
-    size: Decimal,
-    client_order_id: Option<&str>,
-) -> Result<Order, String> {
-    new_order(
-        server,
-        config,
-        side,
-        price,
-        size,
-        OrderType::Limit,
-        client_order_id,
-    )
-}
-
-pub fn new_market_order(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-    side: OrderSide,
-    size: Decimal,
-    client_order_id: Option<&str>,
-) -> Result<Order, String> {
-    new_order(
-        server,
-        config,
-        side,
-        dec![0.0],
-        size,
-        OrderType::Market,
-        client_order_id,
-    )
-}
-
-/// create new limit order
-/// https://bybit-exchange.github.io/docs/v5/order/create-order
-pub fn new_order(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-    side: OrderSide,
-    price: Decimal, // when order_type is Market, this value is ignored.
-    size: Decimal,
-    order_type: OrderType,
-    client_order_id: Option<&str>,
-) -> Result<Order, String> {
-    let category = config.trade_category.clone();
-    let symbol = config.trade_symbol.clone();
-
-    let price = if order_type == OrderType::Market {
-        None
-    } else {
-        Some(price)
-    };
-
-    let order = BybitOrderRequest {
-        category: category,
-        symbol: config.trade_symbol.clone(),
-        side: side.to_string(),
-        order_type: order_type.to_string(),
-        qty: size,
-        order_link_id: client_order_id,
-        price: price,
-    };
-
-    log::debug!("order={:?}", order);
-
-    let order_json = serde_json::to_string(&order).unwrap();
-    log::debug!("order_json={}", order_json);
-
-    let path = "/v5/order/create";
-
-    let result = bybit_post_sign(&server, path, &order_json);
-
-    if result.is_err() {
-        let result = result.unwrap_err();
-        return Err(result);
-    }
-
-    let result = result.unwrap();
-
-    let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
-    if response.is_err() {
-        let response = response.unwrap_err();
-        return Err(response.to_string());
-    }
-    let r = response.unwrap();
-
-    let is_maker = if order_type == OrderType::Limit {
-        true
-    } else {
-        false
-    };
-
-    let order = Order {
-        symbol: symbol,
-        create_time: msec_to_microsec(result.time),
-        status: OrderStatus::New,
-        order_id: r.order_id,
-        client_order_id: r.order_link_id,
-        order_side: side,
-        order_type: order_type,
-        order_price: if order_type == OrderType::Market {
-            dec![0.0]
-        } else {
-            price.unwrap()
-        },
-        order_size: size,
-        remain_size: size,
-        transaction_id: "".to_string(),
-        update_time: msec_to_microsec(result.time),
-        execute_price: dec![0.0],
-        execute_size: dec![0.0],
-        quote_vol: dec![0.0],
-        commission: dec![0.0],
-        commission_asset: "".to_string(),
-        is_maker: is_maker,
-        message: "".to_string(),
-        commission_home: dec![0.0],
-        commission_foreign: dec![0.0],
-        home_change: dec![0.0],
-        foreign_change: dec![0.0],
-        free_home_change: dec![0.0],
-        free_foreign_change: dec![0.0],
-        lock_home_change: dec![0.0],
-        lock_foreign_change: dec![0.0],
-        log_id: 0,
-    };
-
-    return Ok(order);
-}
-
-
-pub fn cancel_order(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-    order_id: &str,
-) -> Result<Order, String> {
-    let message = CancelOrderMessage {
-        category: config.trade_category.clone(),
-        symbol: config.trade_symbol.clone(),
-        order_id: order_id.to_string(),
-    };
-
-    let message_json = serde_json::to_string(&message).unwrap();
-    let path = "/v5/order/cancel";
-    let result = bybit_post_sign(&server, path, &message_json);
-
-    if result.is_err() {
-        let result = result.unwrap_err();
-        return Err(result);
-    }
-
-    let result = result.unwrap();
-
-    let response = serde_json::from_value::<BybitOrderRestResponse>(result.body);
-    if response.is_err() {
-        let response = response.unwrap_err();
-        return Err(response.to_string());
-    }
-    let r = response.unwrap();
-
-    let order = Order {
-        symbol: "".to_string(),
-        create_time: msec_to_microsec(result.time),
-        status: OrderStatus::Canceled,
-        order_id: r.order_id,
-        client_order_id: r.order_link_id,
-        order_side: OrderSide::Unknown,
-        order_type: OrderType::Limit,
-        order_price: dec![0.0],
-        order_size: dec![0.0],
-        remain_size: dec![0.0],
-        transaction_id: "".to_string(),
-        update_time: msec_to_microsec(result.time),
-        execute_price: dec![0.0],
-        execute_size: dec![0.0],
-        quote_vol: dec![0.0],
-        commission: dec![0.0],
-        commission_asset: "".to_string(),
-        is_maker: true,
-        message: "".to_string(),
-        commission_home: dec![0.0],
-        commission_foreign: dec![0.0],
-        home_change: dec![0.0],
-        foreign_change: dec![0.0],
-        free_home_change: dec![0.0],
-        free_foreign_change: dec![0.0],
-        lock_home_change: dec![0.0],
-        lock_foreign_change: dec![0.0],
-        log_id: 0,
-    };
-
-    return Ok(order);
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CancelAllMessage {
-    category: String,
-    symbol: String,
-}
-
-pub fn cancell_all_orders(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-) -> Result<Vec<Order>, String> {
-    let message = CancelAllMessage {
-        category: config.trade_category.clone(),
-        symbol: config.trade_symbol.clone(),
-    };
-
-    let message_json = serde_json::to_string(&message).unwrap();
-    let path = "/v5/order/cancel-all";
-    let result = bybit_post_sign(&server, path, &message_json);
-
-    if result.is_err() {
-        let result = result.unwrap_err();
-        return Err(result);
-    }
-
-    let result = result.unwrap();
-
-    let response = serde_json::from_value::<BybitMultiOrderRestResponse>(result.body);
-
-    if response.is_err() {
-        let response = response.unwrap_err();
-        return Err(response.to_string());
-    }
-
-    let response = response.unwrap();
-
-    let mut orders: Vec<Order> = vec![];
-
-    for r in response.list {
-        println!("r={:?}", r);
-
-        let order = Order {
-            symbol: "".to_string(),
-            create_time: msec_to_microsec(result.time),
-            status: OrderStatus::Canceled,
-            order_id: r.order_id,
-            client_order_id: r.order_link_id,
-            order_side: OrderSide::Unknown,
-            order_type: OrderType::Limit,
-            order_price: dec![0.0],
-            order_size: dec![0.0],
-            remain_size: dec![0.0],
-            transaction_id: "".to_string(),
-            update_time: msec_to_microsec(result.time),
-            execute_price: dec![0.0],
-            execute_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            is_maker: true,
-            message: "".to_string(),
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
-            log_id: 0,
-        };
-        orders.push(order);
-    }
-
-    return Ok(orders);
-}
-
-pub fn get_balance(server: &str, config: &MarketConfig) -> Result<BybitAccountInformation, String> {
-    return Err("Not implemented".to_string());
-}
-
-pub fn order_status(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
-    return Err("Not implemented".to_string());
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct OpenOrderRequest {
-    category: String,
-    symbol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "orderId")]
-    order_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cursor: Option<String>,
-}
-
-pub fn open_orders(
-    server: &BybitServerConfig,
-    config: &MarketConfig,
-) -> Result<Vec<Order>, String> {
-    let query_string = format!(
-        "category={}&symbol={}&limit=50",
-        config.trade_category, config.trade_symbol
-    );
-
-    let path = "/v5/order/realtime";
-
-    let result = bybit_get_sign(&server, path, &query_string);
-
-    if result.is_err() {
-        let result = result.unwrap_err();
-        return Err(result);
-    }
-
-    let result = result.unwrap();
-
-    if result.body.is_null() {
-        return Ok(vec![]);
-    }
-
-    let orders: Vec<Order> = vec![];
-
-    println!("result.body={:?}", result.body);
-
-    let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body);
-
-    if response.is_err() {
-        let response = response.unwrap_err();
-        return Err(response.to_string());
-    }
-
-    let orders: Vec<Order> = response.unwrap().into();
-
-    Ok(orders)
-}
-
-pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderStatus>, String> {
-    return Err("Not implemented".to_string());
-}
-
-*/
 
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -940,40 +626,23 @@ pub fn trade_list(server: &str, config: &MarketConfig) -> Result<Vec<BybitOrderS
 mod bybit_rest_test {
     use super::*;
     use std::{any, thread::sleep, time::Duration};
-    use rbot_lib::common::init_log;
+    use rbot_lib::common::{init_log};
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;
     use rbot_lib::common::{init_debug_log, time_string, HHMM};
     use rust_decimal_macros::dec;
 
+
     #[tokio::test]
-    async fn test_rest_get() -> anyhow::Result<()> {
+    async fn get_board_snapshot_test()  -> anyhow::Result<()> {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        BybitRestApi::rest_get(&server_config, "/v2/public/time", "").await?;
+        let r = BybitRestApi::get_board_snapshot(&server_config, &config).await?;
+        println!("{:?}", r);
+
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_get_sign() {
-        let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::BTCUSDT();
-
-        let r = BybitRestApi::get_sign(&server_config, "/v2/public/time", "").await;
-        assert!(r.is_ok());
-        println!("{:?}", r);
-    }
-
-    #[tokio::test]
-    async fn get_board_snapshot_test_trait() {
-        let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::BTCUSDT();
-
-        let r = BybitRestApi::get_board_snapshot(&server_config, &config).await;
-        assert!(r.is_ok());
-        println!("{:?}", r);
     }
 
     #[tokio::test]
@@ -1010,7 +679,7 @@ mod bybit_rest_test {
 
     #[tokio::test]
     async fn test_new_limit_order() {
-        let server_config = BybitServerConfig::new(true);
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let r = BybitRestApi::new_order(
@@ -1030,7 +699,7 @@ mod bybit_rest_test {
 
     #[tokio::test]
     async fn test_new_market_order() {
-        let server_config = BybitServerConfig::new(true);
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let r = BybitRestApi::new_order(
@@ -1050,7 +719,7 @@ mod bybit_rest_test {
 
     #[tokio::test]
     async fn test_cancel_order() {
-        let server_config = BybitServerConfig::new(true);
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let r = BybitRestApi::new_order(
@@ -1077,12 +746,23 @@ mod bybit_rest_test {
     async fn test_open_orders() {
         init_debug_log();
 
-        let server_config = BybitServerConfig::new(true);
+        let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
         let r = BybitRestApi::open_orders(&server_config, &config).await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
+    }
+
+    #[tokio::test]
+    async fn test_get_account() {
+        init_debug_log();
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let r = BybitRestApi::get_account(&server_config).await;
+        println!("{:?}", r);
+        assert!(r.is_ok());
     }
 }

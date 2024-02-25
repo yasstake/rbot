@@ -5,10 +5,12 @@ members = [
     "rbot_lib",
     "rbot_market",
     "rbot_session",
+    "rbot_server",
+    "rbot_blockon",
     "exchanges/binance",
     "exchanges/bitbank",
     "exchanges/bitflyer",
-    "exchanges/bybit",
+    "exchanges/bybit", "rbot_server", "rbot_blockon",
 ]
 
 resolver = "2"
@@ -16,14 +18,18 @@ resolver = "2"
 [workspace.dependencies]
 rbot = { path = "./rbot" }
 rbot_lib = { path = "./rbot_lib" }
+rbot_blockon = { path = "./rbot_blockon" }
 rbot_session = { path = "./rbot_session" }
 rbot_market = { path = "./rbot_market" }
+rbot_server = { path = "./rbot_server" }
 binance = { path = "./exchanges/binance" }
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
 bybit = { path = "./exchanges/bybit" }
 
 anyhow = { version = "1.0.79" }
+
+features = {version = "0.10.0"}
 
 chrono = { version = "0.4.33" }
 serde = { version = "1.0" }
@@ -100,5 +106,8 @@ async-std = { version = "1.12", features = ["attributes"] }
 socket2 = { version = "0.5.5" }
 rmp-serde = { version = "1.1.2" }
 once_cell = { version = "1.19.0" }
+
+actix-web={version="4.5"}
+actix-rt={version="2.9"}
 
 #pyo3 = {version="0.20.2"}

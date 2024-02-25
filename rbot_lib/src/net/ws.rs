@@ -75,222 +75,6 @@ impl WsOpMessage for BinanceWsOpMessage {
 
 
 
-/*
-
-
-#[derive(Debug)]
-/// Tは、WsMessageを実装した型。Subscribeメッセージの取引所の差分を実装する。
-/// WebSocketClientは、文字列のメッセージのやり取りを行う。
-pub struct WebSocketClient<T, U>
-where
-    T: Send + Clone + 'static,
-    U: WsOpMessage + Sync + Send + Sync + Clone + 'static,
-{
-    // url: String,
-    //handle: Option<tokio::task::JoinHandle<()>>,
-    connection: Arc<Mutex<AutoConnectClient<T, U>>>,
-    message: Arc<Mutex<BroadcastChannel<MultiMarketMessage>>>,
-    handle: Option<JoinHandle<()>>, //  control_ch: MultiChannel<String>, // send sbscribe message
-}
-
-impl<T, U> WebSocketClient<T, U>
-where
-    T: Send + Sync + Clone,
-    U: WsOpMessage + Send + Sync + Clone + 'static,
-{
-    pub async fn new(
-        config: &T,
-        market_config: &MarketConfig,
-        url: &str,
-        subscribe: Vec<String>,
-        ping_interval_sec: i64,
-        switch_interval_sec: i64,
-        sync_wait_records: i64,
-        init_fn: Option<fn(&T) -> String>,
-        url_generator: Option<fn(&T, &MarketConfig) -> String>,
-    ) -> Self {
-        let mut client: AutoConnectClient<T, U> = AutoConnectClient::new(
-            &config,
-            market_config,
-            url,
-            ping_interval_sec,
-            switch_interval_sec,
-            sync_wait_records,
-            init_fn,
-            url_generator,
-        );
-
-        client.subscribe(&subscribe).await;
-
-        Self {
-            // handle: None,
-            connection: Arc::new(Mutex::new(client)),
-            message: Arc::new(Mutex::new(BroadcastChannel::new())),
-            handle: None,
-        }
-    }
-
-    pub async fn set_init_function(&mut self, init_fn: fn(&T) -> String) {
-        let mut lock = self.connection.as_ref().lock().await;
-        lock.init_fn = Some(init_fn);
-        drop(lock);
-    }
-
-    /*
-    pub fn connect<F>(&mut self, convert: F)
-    where
-        F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static,
-    {
-        log::debug!("blocking connect start");
-
-        RUNTIME.block_on(async {
-            self._connect(convert).await;
-        });
-    }
-
-    pub fn connect_websocket(&mut self) {
-        log::debug!("blocking connect start");
-
-        RUNTIME.block_on(async {
-            self._connect_websocket().await;
-        });
-    }
-    */
-
-    pub async fn connect_websocket(&mut self) {
-        log::debug!("connect start");
-
-        let websocket = self.connection.clone();
-        let mut websocket = websocket.lock().await;
-        log::debug!("connect start2. get lock.");
-        websocket.connect().await;
-        log::debug!("connected");
-        drop(websocket);
-    }
-
-    /*
-    pub fn receive_text(&mut self) -> Result<String, String> {
-        let result = RUNTIME.block_on(async { Self::_receive_text(&self.connection).await });
-
-        result
-    }
-    */
-
-    pub async fn receive_text(
-        connection: &Arc<Mutex<AutoConnectClient<T, U>>>,
-    ) -> Result<String, String> {
-        let mut lock = connection.as_ref().lock().await;
-        let message = lock.receive_text().await;
-        drop(lock);
-
-        if message.is_err() {
-            log::error!("No message");
-            return Err("No message".to_string());
-        }
-
-        let message = message.unwrap();
-
-        return Ok(message.to_string());
-    }
-    
-
-    /// Receive message from websocket, and process one message
-    pub async fn process_event() {
-        log::debug!("start_event_loop");
-
-    }
-
-
-    /// connect to websocket server
-    /// start listening thread
-    pub async fn connect<F>(&mut self, convert: F)
-    where
-        F: Fn(String) -> MultiMarketMessage + Send + Sync + Clone + 'static,
-    {
-        self.connect_websocket().await;
-
-        let websocket = self.connection.clone();
-        let message_ch = self.message.clone();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let message = Self::receive_text(&websocket).await;
-                if message.is_err() {
-                    log::warn!("Error in websocket.receive_message: {:?}", message);
-                    continue;
-                }
-                let m = message.unwrap();
-
-                let m = convert(m);
-                let result = Self::send_message_channel(&message_ch, m).await;
-                if result.is_err() {
-                    log::warn!("Error in websocket.receive_message: {:?}", result);
-                    continue;
-                }
-            }
-        });
-
-        self.handle = Some(handle)
-    }
-
-    pub async fn send_message_channel(
-        ch: &Arc<Mutex<BroadcastChannel<MultiMarketMessage>>>,
-        message: MultiMarketMessage,
-    ) -> Result<(), anyhow::Error> {
-        //    log::debug!("send_message_channel: {:?}", message);
-        let mut lock = ch.as_ref().lock().await;
-        //        log::debug!("send_message_channel: lock ok");
-        lock.send(message)
-    }
-
-    /*
-    /// Append subscribe list and send subscribe message to send queue
-    pub async fn subscribe(&mut self, message: &Vec<String>) {
-        log::debug!("subscribe: {:?}", message);
-
-        let mut lock = self.subscribe_list.as_ref().write().unwrap();
-        lock.add_params(message);
-        drop(lock);
-
-        let message = self.subscribe_list.as_ref().read().unwrap().make_message();
-
-        log::debug!("call subscribe: {:?}", message);
-
-        let websocket = self.connection.clone();
-        let mut lock = websocket.lock().await;
-
-        for m in &message {
-            lock.send_text(m);
-
-            // TODO: receive status
-        }
-
-        drop(lock);
-    }
-    */
-
-    pub async fn switch(&mut self) {
-        let websocket = self.connection.clone();
-        let mut lock = websocket.lock().await;
-        lock.switch().await;
-        drop(lock);
-    }
-    /*
-    pub fn open_channel(&mut self) -> Receiver<MultiMarketMessage> {
-        RUNTIME.block_on(async { self._open_channel().await })
-    }
-    */
-
-    /// get receive queue
-    pub async fn open_channel(&mut self) -> Receiver<MultiMarketMessage> {
-        log::debug!("open_channel");
-        let mut lock = self.message.as_ref().lock().await;
-        log::debug!("open_channel lock ok");
-        lock.open_channel(0)
-    }
-}
-*/
-
 #[derive(Debug)]
 pub struct SimpleWebsocket<T, U> {
     server: T,
@@ -598,6 +382,10 @@ where
         }
     }
 
+    pub fn get_server(&self) -> T {
+        self.server.clone()
+    }
+
     pub fn get_config(&self) -> MarketConfig {
         self.config.clone()
     }
@@ -885,6 +673,9 @@ mod test_exchange_ws {
     }
 
     impl ServerConfig for TestServerConfig {
+        fn get_exchange_name(&self) -> String {
+            self.exchange_name.clone()
+        }
         fn get_public_ws_server(&self) -> String {
             self.public_ws.clone()
         }

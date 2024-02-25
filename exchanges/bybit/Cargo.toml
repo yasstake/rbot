@@ -5,14 +5,18 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
 [dependencies]
 rbot_lib = {workspace = true}
+rbot_blockon = {workspace = true}
 rbot_market = {workspace = true}
 
 anyhow = {workspace = true}
 
 chrono = {workspace = true}
 log = {workspace = true}
+
+features = {workspace = true}
 
 rust_decimal = {workspace = true}
 rust_decimal_macros = {workspace = true}
@@ -28,6 +32,7 @@ pyo3-polars = {workspace = true}
 tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
+
 
 
 

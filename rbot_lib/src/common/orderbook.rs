@@ -8,7 +8,7 @@ use polars_core::{
     prelude::{DataFrame, NamedFrom},
     series::Series,
 };
-use pyo3::pyclass;
+use pyo3::{pyclass, pyfunction};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -18,34 +18,91 @@ use crate::common::MarketConfig;
 
 use rmp_serde::to_vec;
 
-use super::string_to_decimal;
+use super::{order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig};
 
-pub static ALL_BOARD: Lazy<OrderBookList> = Lazy::new(||OrderBookList::new());
+static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
 
-struct OrderBookList<'a> {
-    books: HashMap<&'a str, Arc<Mutex<OrderBook>>>,
+pub struct OrderBookList {
+    books: HashMap<String, Arc<Mutex<OrderBookRaw>>>,
 }
 
-impl<'a> OrderBookList<'a> {
+impl OrderBookList {
+    pub fn make_path(exchange_name: &str, config: &MarketConfig) -> String {
+        Self::make_path_from_str(exchange_name, &config.trade_category, &config.trade_symbol)
+    }
+
+    pub fn make_path_from_str(exchange_name: &str, trade_category: &str, trade_symbol: &str) -> String {
+        format!("{}/{}/{}", exchange_name, trade_category, trade_symbol)        
+    }
+
+    pub fn parse_path(path: &str) -> (String, String, String) {
+        let v: Vec<&str> = path.split('/').collect();
+        (v[0].to_string(), v[1].to_string(), v[2].to_string())
+    }
+
     pub fn new() -> Self {
         OrderBookList {
             books: HashMap::new(),
         }
     }
 
-    pub fn get(&self, path: &str) -> Option<&Arc<Mutex<OrderBook>>> {
-        self.books.get(path)
+    pub fn get(&self, key: &String) -> Option<OrderBook> {
+        let board = self.books.get(key);
+
+        if board.is_none() {
+            return None;
+        }
+
+        let (exchange, category, symbol) = Self::parse_path(key);
+        
+        Some(OrderBook {
+            exchage: exchange,
+            category: category,
+            symbol: symbol,
+            board: board.unwrap().clone()
+        })
     }
 
-    pub fn register(&mut self, path: &'a str, book: Arc<Mutex<OrderBook>>) {
-        self.books.insert(path, book);
+    pub fn register(&mut self, path: &String, book: Arc<Mutex<OrderBookRaw>>) {
+        self.books.insert(path.clone(), book);
     }
 
-    pub fn unregister(&mut self, key: &str) {
+    pub fn unregister(&mut self, key: &String) {
         self.books.remove(key);
+    }
+
+    pub fn list(&self) -> Vec<String> {
+        self.books.keys().map(|s| s.to_string()).collect()
     }
 }
 
+#[pyfunction]
+pub fn get_orderbook_list() -> Vec<String> {
+    ALL_BOARD.lock().unwrap().list()
+}
+
+#[pyfunction]
+pub fn get_order_book_json(path: &str, size: usize) -> anyhow::Result<String> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_json(size)
+}
+
+#[pyfunction]
+pub fn get_orderbook_vec(path: &str) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_board_vec()
+}
+
+pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
+    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    board.get_board()
+}
 
 
 #[pyclass]
@@ -303,13 +360,28 @@ impl OrderBookRaw {
 #[pyclass]
 #[derive(Debug)]
 pub struct OrderBook {
-    board: Mutex<OrderBookRaw>,
+    exchage: String,
+    category: String,
+    symbol: String,
+    board: Arc<Mutex<OrderBookRaw>>,
 }
 
 impl OrderBook {
-    pub fn new(config: &MarketConfig) -> Self {
+    pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
+        let exchange_name = server.get_exchange_name();
+        let category = config.trade_category.clone();
+        let symbol = config.trade_symbol.clone();
+
+        let path = OrderBookList::make_path(&exchange_name, config);
+        let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
+        
+        ALL_BOARD.lock().unwrap().register(&path,board.clone());
+        
         OrderBook {
-            board: Mutex::new(OrderBookRaw::new(config.board_depth)),
+            exchage: exchange_name,
+            category: category,
+            symbol: symbol,
+            board: board,
         }
     }
 
@@ -333,11 +405,13 @@ impl OrderBook {
 
     pub fn get_json(&self, size: usize) -> anyhow::Result<String> {
         let board = self.board.lock().unwrap();
-        let bids = board.bids.get();
-        let bids = bids[0..size.min(bids.len())].to_vec();
+        let mut bids = board.bids.get();
+        let mut asks = board.asks.get();
 
-        let asks = board.asks.get();
-        let asks = asks[0..size.min(asks.len())].to_vec();
+        if size != 0 {  // if there is a size limit, cut off the data.
+            bids = bids[0..size.min(bids.len())].to_vec();
+            asks = asks[0..size.min(asks.len())].to_vec();
+        }
 
         let json = serde_json::json!({
             "bids": bids,
@@ -358,6 +432,92 @@ impl OrderBook {
             .update(bids_diff, asks_diff, force);
     }
 
+    pub fn dry_market_order(
+        &mut self, 
+        create_time: MicroSec,
+        order_id: &str,
+        client_order_id: &str,
+        symbol: &str,
+        side: OrderSide,
+        size: Decimal,
+        transaction_id: &str,
+    ) -> anyhow::Result<Vec<Order>> {
+        let board = self.board.lock().unwrap();
+
+        let board = if side == OrderSide::Buy {
+            board.asks.get()
+        } else {
+            board.bids.get()
+        };
+
+        let mut orders: Vec<Order> = vec![];
+        let mut split_index = 0;
+
+        let mut remain_size = size;
+
+        // TODO: consume boards
+        for item in board {
+            if remain_size <= dec![0.0] {
+                break;
+            }
+
+            let execute_size;
+            let order_status;
+            split_index += 1;
+
+            if remain_size <= item.size {
+                order_status = OrderStatus::Filled;
+                execute_size = remain_size;
+                remain_size = dec![0.0];
+            } else {
+                order_status = OrderStatus::PartiallyFilled;
+                execute_size = item.size;
+                remain_size -= item.size;
+            }
+
+            let mut order = Order::new(
+                &self.category,
+                symbol,
+                create_time,
+                &order_id,
+                &client_order_id.to_string(),
+                side,
+                OrderType::Market,
+                order_status,
+                dec![0.0],
+                size,
+            );
+
+            order.transaction_id = format!("{}-{}", transaction_id, split_index);
+            order.update_time = create_time;
+            order.is_maker = false;
+            order.execute_price = item.price;
+            order.execute_size = execute_size;
+            order.remain_size = remain_size;
+            order.quote_vol = order.execute_price * order.execute_size;
+
+            orders.push(order);
+        }
+
+        if remain_size > dec![0.0] {
+            log::error!("remain_size > 0.0: {:?}", remain_size);
+        }
+
+        Ok(orders)
+    }
+}
+
+impl Drop for OrderBook {
+    fn drop(&mut self) {
+        let count = Arc::strong_count(&self.board);
+        log::debug!("drop orderbook: {}", count);
+
+        if count <= 1 {
+            ALL_BOARD.lock().unwrap().unregister(
+                &OrderBookList::make_path_from_str(
+                    &self.exchage, &self.category, &self.symbol));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -59,7 +59,8 @@ from rbot import init_debug_log
 
 
 
-bybit  = Bybit(testnet=True)
+bybit  = Bybit(production=False)
+bybit.enable_order_with_my_own_risk = True
 
 market = bybit.open_market(BybitConfig.BTCUSDT)
 
@@ -73,12 +74,13 @@ from rbot import init_debug_log
 init_debug_log()
 
 session = runner.real_run(
+                exchange=bybit,
                 market=market,
                 agent=agent, 
 #                execute_time = 10,
                 verbose=True,
                 log_file="skelton_bot.log",
-                client= True
+                client= False
             )
 
     
