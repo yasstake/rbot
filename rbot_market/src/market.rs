@@ -195,7 +195,7 @@ where
             .with_context(|| format!("Error in get_account"))
     }
 
-    fn start_user_stream(&mut self);
+    async fn async_start_user_stream(&mut self) -> anyhow::Result<()>;
 }
 
 pub trait MarketInterface {

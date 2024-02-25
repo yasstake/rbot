@@ -415,6 +415,21 @@ impl AccountCoins {
     pub fn append(&mut self, mut coins: AccountCoins) {
         self.coins.append(&mut coins.coins);
     }
+
+    pub fn extract_pair(&self, config: &MarketConfig) -> AccountPair {
+        let mut home = Coin::default();
+        let mut foreign = Coin::default();
+
+        for coin in self.coins.iter() {
+            if coin.symbol == config.home_currency {
+                home = coin.clone();
+            } else if coin.symbol == config.foreign_currency {
+                foreign = coin.clone();
+            }
+        }
+
+        return AccountPair { home, foreign };
+    }
 }
 
 
@@ -493,6 +508,8 @@ impl AccountPair {
 pub struct Order {
     // オーダー作成時に必須のデータ。以後変化しない。
     #[pyo3(get)]
+    pub category: String,
+    #[pyo3(get)]
     pub symbol: String,
     #[pyo3(get)]
     pub create_time: MicroSec, // in us
@@ -547,6 +564,7 @@ pub struct Order {
 impl Order {
     #[new]
     pub fn new(
+        category: &str,
         symbol: &str,
         create_time: MicroSec,
         order_id: &str,
@@ -558,6 +576,7 @@ impl Order {
         size: Decimal,
     ) -> Self {
         return Order {
+            category: category.to_string(),
             symbol: symbol.to_string(),
             create_time,
             status: order_status,
@@ -1146,6 +1165,7 @@ mod order_tests {
 
     fn create_order() -> Order {
         let mut order = Order::new(
+            "",
             "",
             0,
             "",

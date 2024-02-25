@@ -1,4 +1,6 @@
 #![allow(unused)]
+use std::pin::Pin;
+
 use async_stream::stream;
 use futures::Stream;
 use futures::StreamExt;
@@ -7,12 +9,15 @@ use rbot_lib::common::AccountPair;
 use rbot_lib::common::ControlMessage;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::Order;
+use rbot_lib::common::MARKET_HUB;
+use rbot_lib::net::BroadcastMessage;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ServerConfig, NOW};
 
 use rbot_lib::net::{AutoConnectClient, WsOpMessage};
+use tokio::task::JoinHandle;
 
 use crate::message::convert_coin_to_account_status;
 use crate::message::merge_order_and_execution;
@@ -72,9 +77,9 @@ impl WsOpMessage for BybitWsOpMessage {
     }
 }
 
-#[derive(Debug)]
 pub struct BybitPublicWsClient {
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
+    handler: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl BybitPublicWsClient {
@@ -100,12 +105,100 @@ impl BybitPublicWsClient {
 
         public_ws.subscribe(&config.public_subscribe_channel).await;
 
-        Self { ws: public_ws }
+        Self {
+            ws: public_ws,
+            handler: None,
+        }
     }
 
     pub async fn connect(&mut self) {
         self.ws.connect().await
     }
+
+    /*
+        pub async fn start_thread(&mut self) -> anyhow::Result<()> {
+            let exchange_name = self.ws.get_server().exchange_name.clone();
+            let category = self.ws.get_config().trade_category.clone();
+            let symbol = self.ws.get_config().trade_symbol.clone();
+
+            let hub_channel = MARKET_HUB.open_channel();
+
+            let mut stream = self.ws.open_stream().await;
+            //let mut s = tokio::pin!(stream);
+
+            //let mut s = Box::pin(self.ws.open_stream().await);
+            let mut s = Box::pin(stream);
+    //        let mut s = Box::pin(stream) as Pin<&mut dyn Stream<Item = Result<Bytes, WsError>> + Send>;
+
+            let handle = tokio::task::spawn_local(async move {
+
+                while let Some(message) = s.next().await {
+                    match message {
+                        Ok(m) => match Self::parse_message(m) {
+                            Err(e) => {
+                                println!("Parse Error: {:?}", e);
+                                continue;
+                            }
+                            Ok(m) => {
+                                let market_message = Self::convert_ws_message(m);
+                                if market_message.is_err() {
+                                    log::error!("Convert Error: {:?}", market_message);
+                                    continue;
+                                }
+
+                                let market_message = market_message.unwrap();
+                                hub_channel.send(HubMessage {
+                                    exchange: exchange_name.clone(),
+                                    category: category.clone(),
+                                    symbol: symbol.clone(),
+                                    msg: market_message,
+                                });
+                            }
+                        },
+                        Err(e) => {
+                            println!("Receive Error: {:?}", e);
+                        }
+                    }
+                }
+            });
+
+            self.handler = Some(handle);
+
+            Ok(())
+        }
+    */
+    /*
+        pub async fn start_thread<'a>(&'a mut self) -> anyhow::Result<JoinHandle<()>> {
+            let exchange_name = self.ws.get_server().exchange_name.clone();
+            let category = self.ws.get_config().trade_category.clone();
+            let symbol = self.ws.get_config().trade_symbol.clone();
+            let hub_channel = MARKET_HUB.open_channel();
+
+            let mut stream = self.open_stream().await;
+
+            let handle = tokio::task::spawn(async move {
+                let mut s = Box::pin(stream);
+                while let Some(message) = s.next().await {
+                    match message {
+                        Ok(m) => {
+                            let market_message = m;
+                            hub_channel.send(HubMessage {
+                                exchange: exchange_name.clone(),
+                                category: category.clone(),
+                                symbol: symbol.clone(),
+                                msg: market_message,
+                            });
+                        }
+                        Err(e) => {
+                            println!("Receive Error: {:?}", e);
+                        }
+                    }
+                }
+            });
+
+            Ok(handle)
+        }
+    */
 
     pub async fn open_stream<'a>(
         &'a mut self,
@@ -162,15 +255,16 @@ impl BybitPublicWsClient {
 }
 
 pub struct BybitPrivateWsClient {
-    pub config: MarketConfig,
     ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
 }
 
 impl BybitPrivateWsClient {
-    pub async fn new(server: &BybitServerConfig, config: &MarketConfig) -> Self {
+    pub async fn new(server: &BybitServerConfig) -> Self {
+        let dummy_config = MarketConfig::new("dummy", "dummy", "dummy", 0, 0, 0);
+
         let mut private_ws = AutoConnectClient::new(
             server,
-            config,
+            &dummy_config,
             &server.private_ws,
             PING_INTERVAL_SEC,
             SWITCH_INTERVAL_SEC,
@@ -187,10 +281,7 @@ impl BybitPrivateWsClient {
             ])
             .await;
 
-        Self {
-            config: config.clone(),
-            ws: private_ws,
-        }
+        Self { ws: private_ws }
     }
 
     fn make_auth_message(server: &BybitServerConfig) -> String {
@@ -215,7 +306,6 @@ impl BybitPrivateWsClient {
     pub async fn open_stream<'a>(
         &'a mut self,
     ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
-        let market_config = self.ws.get_config();
         let mut s = Box::pin(self.ws.open_stream().await);
 
         stream! {
@@ -259,10 +349,6 @@ impl BybitPrivateWsClient {
                                                     last_orders.clear();
                                                     last_executions.clear();
 
-                                                    for o in order.iter() {
-                                                        let mut o = o.clone();
-                                                        o.update_balance(&market_config);
-                                                    }
                                                     yield Ok(MultiMarketMessage::Order(order));
                                                 }
                                             }
@@ -280,10 +366,6 @@ impl BybitPrivateWsClient {
                                                     last_orders.clear();
                                                     last_executions.clear();
 
-                                                    for o in order.iter() {
-                                                        let mut o = o.clone();
-                                                        o.update_balance(&market_config);
-                                                    }
                                                     yield Ok(MultiMarketMessage::Order(order));
                                                 }
                                             }
@@ -294,7 +376,7 @@ impl BybitPrivateWsClient {
                                             } => {
                                                 let mut coins = AccountCoins::new();
                                                 for account in data {
-                                                    let mut account_coins: AccountCoins = account.into();                                                    
+                                                    let mut account_coins: AccountCoins = account.into();
                                                     coins.append(account_coins);
                                                 }
                                                 yield Ok(MultiMarketMessage::Account(coins));
@@ -371,7 +453,7 @@ mod bybit_ws_test {
         let server = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
-        let mut ws = BybitPrivateWsClient::new(&server, &config).await;
+        let mut ws = BybitPrivateWsClient::new(&server).await;
 
         ws.connect().await;
 
@@ -387,96 +469,3 @@ mod bybit_ws_test {
         }
     }
 }
-
-/*
-pub async fn listen_userdata_stream<F>(
-    config: &BybitServerConfig,
-    mut f: F,
-) -> tokio::task::JoinHandle<()>
-where
-    F: FnMut(BybitUserStreamMessage) + Send + 'static,
-{
-    let url = config.private_ws.clone();
-
-    let mut websocket: AutoConnectClient<BybitServerConfig, BybitWsOpMessage> =
-        AutoConnectClient::new(
-
-            config,
-            &url,
-            // Arc::new(RwLock::new(message)),
-            PING_INTERVAL_SEC,
-            SWITCH_INTERVAL_SEC,
-            SYNC_RECORDS,
-            Some(make_auth_message),
-        );
-
-    websocket
-        .subscribe(&vec![
-            "execution".to_string(),
-            "order".to_string(),
-            "wallet".to_string(),
-        ])
-        .await;
-
-    websocket.connect().await;
-
-    let handle = tokio::task::spawn(async move {
-        loop {
-            let msg = websocket.receive_text().await;
-            if msg.is_err() {
-                log::warn!("Error in websocket.receive_message: {:?}", msg);
-                continue;
-            }
-            let msg = msg.unwrap();
-            log::debug!("raw msg: {}", msg);
-            let msg = serde_json::from_str::<BybitUserStreamMessage>(msg.as_str());
-            if msg.is_err() {
-                log::warn!("Error in serde_json::from_str: {:?}", msg);
-                continue;
-            }
-            let msg = msg.unwrap();
-            f(msg);
-        }
-    });
-
-    handle
-}
-
-*/
-
-/*
-#[cfg(test)]
-mod test_ws {
-    use crate::common::init_debug_log;
-
-    #[test]
-    fn test_make_auth_message() {
-        use crate::exchange::bybit::config::BybitServerConfig;
-        let config = BybitServerConfig::new(false);
-        let msg = super::make_auth_message(&config);
-        println!("{}", msg);
-    }
-
-    #[test]
-    fn test_connect() {
-        use crate::exchange::bybit::config::BybitServerConfig;
-        use crate::exchange::bybit::ws::listen_userdata_stream;
-        let config = BybitServerConfig::new(true);
-
-        init_debug_log();
-
-        listen_userdata_stream(&config, |msg| {
-            println!("{:?}", msg);
-        });
-
-        std::thread::sleep(std::time::Duration::from_secs(5));
-    }
-}
-
-/*
-TODO: reconnet ws when disconnected.
-[2024-01-20T04:55:43Z WARN  rbot::exchange::bybit::ws] Error in websocket.receive_message: Err("Disconnected wss://stream-testnet.bybit.com/v5/private: Trying to work with closed connection")
-[2024-01-20T04:55:43Z ERROR rbot::exchange::ws] Disconnected from server
-*/
-
-*/

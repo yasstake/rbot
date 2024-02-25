@@ -16,6 +16,8 @@ anyhow = {workspace = true}
 chrono = {workspace = true}
 log = {workspace = true}
 
+features = {workspace = true}
+
 rust_decimal = {workspace = true}
 rust_decimal_macros = {workspace = true}
 serde = {workspace = true}
@@ -30,6 +32,7 @@ pyo3-polars = {workspace = true}
 tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
+
 
 
 
