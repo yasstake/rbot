@@ -126,7 +126,7 @@ impl Runner {
         self.execute_mode = ExecuteMode::BackTest;
 
         let receiver = Self::open_backtest_receiver(&market, start_time, end_time)?;
-        self.run(exchange, market, &receiver, agent, true, log_file)
+        self.run(exchange, market, &receiver, agent, false, true, log_file)
     }
 
     #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
@@ -157,15 +157,16 @@ impl Runner {
             let receiver =
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
         } else {
             self.prepare_data(&exchange, &market)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
         }
     }
 
+    /*
     #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run_bak(
         &mut self,
@@ -226,6 +227,7 @@ impl Runner {
             })
         }
     }
+    */
 
     #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run(
@@ -255,12 +257,12 @@ impl Runner {
             let receiver =
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
         } else {
             self.prepare_data(&exchange, &market)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
         }
     }
 
@@ -423,6 +425,7 @@ impl Runner {
         &self,
         exchange: PyObject,
         market: PyObject,
+        client_mode: bool, 
         log_memory: bool,
         log_file: Option<String>,
     ) -> Py<Session> {
@@ -433,6 +436,7 @@ impl Runner {
                 exchange,
                 market,
                 self.execute_mode.clone(),
+                client_mode,
                 Some(&session_name),
                 false,
             );
@@ -496,6 +500,7 @@ impl Runner {
         receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
         // receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
+        client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
@@ -509,7 +514,7 @@ impl Runner {
             flush_log();
         }
 
-        let py_session = self.create_session(exchange, market, log_memory, log_file);
+        let py_session = self.create_session(exchange, market, client_mode, log_memory, log_file);
 
         self.call_agent_on_init(&agent, &py_session);
         let interval_sec = self.get_clock_interval(&py_session)?;
@@ -570,6 +575,7 @@ impl Runner {
         //        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
+        client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
@@ -583,7 +589,7 @@ impl Runner {
             flush_log();
         }
 
-        let py_session = self.create_session(exchange, market, log_memory, log_file);
+        let py_session = self.create_session(exchange, market, client_mode, log_memory, log_file);
 
         self.call_agent_on_init(&agent, &py_session);
         let interval_sec = self.get_clock_interval(&py_session)?;
