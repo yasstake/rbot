@@ -486,10 +486,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.server_config.history_web_base.clone()
     }
 
-    fn open_udp(&mut self) -> Arc<Mutex<UdpSender>> {
-        todo!()
-    }
-
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         self.board.clone()
     }

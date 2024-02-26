@@ -2,12 +2,7 @@ use std::mem::MaybeUninit;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
-use futures::{stream, Stream};
-use polars_core::utils::arrow::legacy::kernels::concatenate;
-use pyo3::ffi::symtable;
-use reqwest::header::AGE;
-use tokio::runtime::Runtime;
-use tokio::task::spawn;
+use futures::Stream;
 
 use crossbeam_channel::Receiver;
 use socket2::{Domain, Socket, Type};
@@ -19,13 +14,9 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 use async_stream::stream;
-use futures::stream::StreamExt;
 
 use crate::common::{env_rbot_multicast_addr, env_rbot_multicast_port, MarketMessage};
-//use crate::common::{AccountStatus, Order, Trade};
 
-/// TODO: BroadcastMessageにliniiearの種別を加える
-/// TODO: Sender,Receiverを実装する。
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,15 +43,12 @@ impl Into<MarketMessage> for BroadcastMessage {
 
 #[derive(Debug)]
 pub struct UdpSender {
-    exchange_name: String,
-    category: String,
-    symbol: String,
     socket: Socket,
     multicast_addr: SockAddr,
 }
 
 impl UdpSender {
-    pub fn open(market_name: &str, market_category: &str, symbol: &str) -> Self {
+    pub fn open() -> Self {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         socket.set_reuse_address(true).unwrap();
         socket.set_reuse_port(true).unwrap();
@@ -74,9 +62,6 @@ impl UdpSender {
         let multicast_addr: SocketAddr = multicast_addr.parse().unwrap();
 
         Self {
-            exchange_name: market_name.to_string(),
-            category: market_category.to_string(),
-            symbol: symbol.to_string(),
             socket: socket,
             multicast_addr: multicast_addr.into(),
         }
@@ -88,10 +73,16 @@ impl UdpSender {
             .send_to(message.as_bytes(), &self.multicast_addr)
     }
 
-    pub fn send_market_message(&self, message: &MarketMessage) -> Result<usize, std::io::Error> {
-        let exchange = self.exchange_name.clone();
-        let category = self.category.clone();
-        let symbol = self.symbol.clone();
+    pub fn send_market_message(
+        &self,
+        exchange_name: &str,
+        category: &str,
+        symbol: &str,
+        message: &MarketMessage,
+    ) -> anyhow::Result<usize> {
+        let exchange = exchange_name.to_string();
+        let category = category.to_string();
+        let symbol = symbol.to_string();
 
         let message = BroadcastMessage {
             exchange: exchange,
@@ -100,16 +91,14 @@ impl UdpSender {
             msg: message.clone(),
         };
 
-        let msg = serde_json::to_string(&message).unwrap();
-
-        log::debug!("send:[{:?}] {}", &self.multicast_addr, msg);
-
-        self.socket.send_to(msg.as_bytes(), &self.multicast_addr)
+        self.send_message(&message)
     }
 
-    pub fn send_message(&self, message: &BroadcastMessage) -> Result<usize, std::io::Error> {
+    pub fn send_message(&self, message: &BroadcastMessage) -> anyhow::Result<usize> {
         let msg = serde_json::to_string(message).unwrap();
-        self.socket.send_to(msg.as_bytes(), &self.multicast_addr)
+        let size = self.socket.send_to(msg.as_bytes(), &self.multicast_addr)?;
+
+        Ok(size)
     }
 }
 
@@ -236,42 +225,37 @@ impl UdpReceiver {
         let (tx, rx) = crossbeam_channel::unbounded::<MarketMessage>();
 
         // TOD: change to async
-        std::thread::spawn(move || {
-            let runtime = Runtime::new().unwrap();
-            runtime.block_on(async move {
-                loop {
-                    let msg = udp.async_receive_message().await;
+        std::thread::spawn(move || loop {
+            let msg = udp.receive_message();
 
-                    if msg.is_err() {
-                        break;
-                    }
+            if msg.is_err() {
+                break;
+            }
 
-                    let msg = msg.unwrap();
+            let msg = msg.unwrap();
 
-                    if msg.filter(&exchange, &category, &symbol) {
-                        let market_message = msg.msg.clone();
+            if msg.filter(&exchange, &category, &symbol) {
+                let market_message = msg.msg.clone();
 
-                        match market_message {
-                            MarketMessage::Order(ref order) => {
-                                if order.is_my_order(&agent_id) {
-                                    let r = tx.send(market_message.clone());
-                                    if r.is_err() {
-                                        log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => {
-                                let r = tx.send(market_message.clone());
-                                if r.is_err() {
-                                    log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
-                                    break;
-                                }
+                match market_message {
+                    MarketMessage::Order(ref order) => {
+                        if order.is_my_order(&agent_id) {
+                            let r = tx.send(market_message.clone());
+                            if r.is_err() {
+                                log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                                break;
                             }
                         }
                     }
+                    _ => {
+                        let r = tx.send(market_message.clone());
+                        if r.is_err() {
+                            log::error!("open_channel: {}/{:?}", r.err().unwrap(), msg);
+                            break;
+                        }
+                    }
                 }
-            });
+            }
         });
 
         Ok(rx)
@@ -286,7 +270,7 @@ mod test_udp {
 
     #[test]
     fn send_test2() {
-        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
+        let sender = super::UdpSender::open();
         let r = sender.send("hello world");
 
         assert!(r.is_ok());
@@ -315,7 +299,7 @@ mod test_udp {
             }
         });
 
-        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
+        let sender = super::UdpSender::open();
         for i in 0..10 {
             let r = sender.send(&format!("hello world {}", i));
             assert!(r.is_ok());
@@ -335,7 +319,7 @@ mod test_udp {
             }
         });
 
-        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
+        let sender = super::UdpSender::open();
         for i in 0..10 {
             let r = sender.send(&format!("hello world {}", i));
             assert!(r.is_ok());
@@ -359,7 +343,7 @@ mod test_udp {
             }
         });
 
-        let sender = super::UdpSender::open("EXA", "linear", "BCTUSD");
+        let sender = super::UdpSender::open();
         for i in 0..10 {
             let r = sender.send(&format!("hello world {}", i));
             assert!(r.is_ok());
