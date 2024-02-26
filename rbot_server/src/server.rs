@@ -1,23 +1,8 @@
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 
-use actix_rt::System;
-use rbot_lib::common::{get_orderbook_bin, get_orderbook_json, get_orderbook_list, MarketConfig, OrderBook, OrderBookList, ServerConfig};
-use serde::{ser, Deserialize};
+use rbot_lib::common::{get_orderbook_bin, get_orderbook_json, get_orderbook_list, MarketConfig, OrderBook, OrderBookList};
+use serde::Deserialize;
 use log;
-
-fn board_list() -> String {
-    let list = get_orderbook_list();
-
-    let mut result = String::new();
-
-    for item in list {
-        println!("{}", item);
-        result.push_str(&format!("{}\n", item));
-    }
-
-    result
-}
-
 
 #[get("/")]
 async fn greet() -> impl Responder {
@@ -100,11 +85,6 @@ pub fn start_board_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn start_rest_server() -> anyhow::Result<()> {
-    tokio::task::spawn_blocking(move || start_board_server());
-
-    Ok(())
-}
 
 pub fn get_rest_orderbook(exchange_name: &str, config: &MarketConfig) -> anyhow::Result<OrderBook> {
     let path = OrderBookList::make_path(exchange_name, config);
@@ -120,20 +100,10 @@ pub fn get_rest_orderbook(exchange_name: &str, config: &MarketConfig) -> anyhow:
 #[cfg(test)]
 mod test_rest_server {
     use super::*;
-    use std::thread::sleep;
-    use std::time::Duration;
 
     #[test]
     fn test_start_server_block() {
         let server = start_board_server();
         assert!(server.is_ok());
-    }
-
-    #[test]
-    fn test_start_server() {
-        let server = start_rest_server();
-        assert!(server.is_ok());
-
-        sleep(Duration::from_secs(120));
     }
 }
