@@ -113,6 +113,38 @@ impl MarketHub {
     }
 
 
+    pub fn subscribe_all(&self,
+    ) -> anyhow::Result<crossbeam_channel::Receiver<BroadcastMessage>> {
+        let mut ch = self.tx.subscribe();
+        let (tx, rx) = crossbeam_channel::unbounded();        
+
+        std::thread::spawn(move ||{
+            let runtime = Runtime::new().unwrap();
+
+            runtime.block_on(async move {
+                loop {
+                    let msg = ch.recv().await;
+    
+                    if msg.is_err() {
+                        break;
+                    }
+
+                    if tx.send(msg.unwrap()).is_err() {
+                        log::error!("send message error");
+                        break;
+                }
+            }
+            });
+        });
+
+        Ok(rx)
+    }
+
+
+
+
+
+
 
     pub async fn subscribe_stream<'a>(
         &self,
@@ -199,8 +231,8 @@ mod test_market_hub {
     fn test_market_hub() {
         init_debug_log();
         let tx = MARKET_HUB.open_channel();
-        let mut rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
-        let mut rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
 
         for i in 0..CHANNEL_SIZE * 2 {
             let msg = BroadcastMessage {
@@ -283,7 +315,7 @@ mod test_market_hub {
 
         handle2.await.unwrap();
 
-        sleep(Duration::from_secs(5));
+        sleep(Duration::from_secs(5)).await;
     }
 
     /*
