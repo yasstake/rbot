@@ -11,10 +11,12 @@ use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
-use rbot_lib::common::{
-    date_string, get_orderbook, hour_string, min_string, time_string, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
-};
 use pyo3::prelude::*;
+use rbot_lib::common::{
+    date_string, get_orderbook, hour_string, min_string, time_string, AccountPair, MarketConfig,
+    MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW,
+    SEC,
+};
 
 use anyhow;
 
@@ -227,9 +229,8 @@ impl Session {
     pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = if self.client_mode {
             get_rest_orderbook(&self.exchange_name, &self.market_config)?
-        }
-        else {
-            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);                    
+        } else {
+            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
             get_orderbook(&path)?
         };
 
@@ -353,33 +354,30 @@ impl Session {
 
     pub fn expire_order(&mut self, ttl_sec: i64) -> bool {
         let mut has_expire = false;
-        
+
         let expire_time = self.current_timestamp - SEC(ttl_sec);
 
         for order in self.buy_orders.get_old_orders(expire_time) {
             if self.cancel_order(&order.order_id).is_ok() {
                 has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
-            }
-            else {
+            } else {
                 log::warn!("expire_orders: cancel order error: {:?}", order);
             }
-
         }
 
         for order in self.sell_orders.get_old_orders(expire_time) {
             if self.cancel_order(&order.order_id).is_ok() {
                 has_expire = true;
                 log::debug!("expire_orders: cancel order: {:?}", order);
-            }
-            else {
+            } else {
                 log::warn!("expire_orders: cancel order error: {:?}", order);
             }
         }
 
         has_expire
     }
-    
+
     pub fn cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             self.dummy_cancel_order(order_id)
@@ -393,8 +391,11 @@ impl Session {
     /// if fail return None
     pub fn real_cancel_order(&mut self, order_id: &str) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
-            let r = 
-                self.exchange.call_method1(py, "cancel_order", (self.market_config.clone(), order_id,));
+            let r = self.exchange.call_method1(
+                py,
+                "cancel_order",
+                (self.market_config.clone(), order_id),
+            );
 
             if r.is_err() {
                 let none = Python::None(py);
@@ -442,8 +443,11 @@ impl Session {
         let local_id = self.new_order_id();
 
         Python::with_gil(|py| {
-            self.exchange
-                .call_method1(py, "market_order", (self.market_config.clone(), side, size, local_id))
+            self.exchange.call_method1(
+                py,
+                "market_order",
+                (self.market_config.clone(), side, size, local_id),
+            )
         })
     }
 
@@ -477,9 +481,8 @@ impl Session {
 
         let mut orderbook = if self.client_mode {
             get_rest_orderbook(&self.exchange_name, &self.market_config)?
-        }
-        else {
-            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);                    
+        } else {
+            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
             get_orderbook(&path)?
         };
 
@@ -493,9 +496,9 @@ impl Session {
             &transaction_id,
         )?;
 
-        Python::with_gil(|py| {
-            Ok(order.into_py(py))
-        })
+        self.push_dummy_q(&order.clone());
+
+        Python::with_gil(|py| Ok(order.into_py(py)))
     }
 
     pub fn dummy_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
@@ -574,9 +577,11 @@ impl Session {
 
         // then call market.limit_order
         let r = Python::with_gil(|py| {
-            let result =
-                self.exchange
-                    .call_method1(py, "limit_order", (self.market_config.clone(), side, pricedp, sizedp, local_id));
+            let result = self.exchange.call_method1(
+                py,
+                "limit_order",
+                (self.market_config.clone(), side, pricedp, sizedp, local_id),
+            );
 
             match result {
                 // if success update order list
@@ -654,7 +659,6 @@ impl Session {
         return Ok(vec![order]);
     }
 
-
     pub fn update_psudo_account_by_order(&mut self, order: &Order) -> bool {
         self.psudo_account.apply_order(order);
 
@@ -724,7 +728,7 @@ impl Session {
             MarketMessage::Trade(trade) => {
                 log::debug!("on_message: trade={:?}", trade);
                 new_orders = self.on_tick(trade);
-    
+
                 // ダミーモードの場合は約定キューからの処理が発生する。
                 if 0 < new_orders.len() {
                     for order in new_orders.iter_mut() {
@@ -734,11 +738,11 @@ impl Session {
                 }
             }
             MarketMessage::Order(order) => {
-                if ! order.is_my_order(&self.session_name) {
+                if !order.is_my_order(&self.session_name) {
                     log::debug!("on_message: skip my order: {:?}", order);
                     return new_orders;
                 }
-    
+
                 let mut order = order.clone();
                 log::debug!("on_message: order={:?}", order);
                 self.on_order_update(&mut order);
@@ -765,7 +769,6 @@ impl Session {
 
         return new_orders;
     }
-
 
     pub fn log(&mut self, order: &Order) -> Result<(), std::io::Error> {
         let time = self.calc_log_timestamp();
@@ -891,7 +894,9 @@ impl Session {
         let config = self.market_config.clone();
 
         let r = Python::with_gil(|py| {
-            let result = self.exchange.call_method1(py, "get_open_orders", (config.clone(),));
+            let result = self
+                .exchange
+                .call_method1(py, "get_open_orders", (config.clone(),));
 
             match result {
                 // if success update order list
