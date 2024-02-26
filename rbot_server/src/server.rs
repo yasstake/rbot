@@ -67,20 +67,24 @@ async fn get_board_vec(path: web::Path<PathInfo>) -> impl Responder {
 
 
 pub fn start_board_server() -> anyhow::Result<()> {
-    let sys = actix_rt::System::new();
+    std::thread::spawn(|| {
+        let sys = actix_rt::System::new();
 
-    let server = HttpServer::new(|| 
-        App::new()
-        .service(greet)
-        .service(get_board_json)
-        .service(get_board_vec)
-        )
-        
-        .bind("127.0.0.1:8080")
-        .expect("Failed to bind server")
-        .run();
+        let server = HttpServer::new(|| 
+            App::new()
+            .service(greet)
+            .service(get_board_json)
+            .service(get_board_vec)
+            )
+            
+            .bind("127.0.0.1:8080")
+            .expect("Failed to bind server")
+            .run();
+    
+        sys.block_on(server).unwrap();
+    });
 
-    sys.block_on(server).unwrap();
+    log::debug!("start_board_server: started");
 
     Ok(())
 }

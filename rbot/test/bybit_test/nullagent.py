@@ -14,7 +14,7 @@ class SkeltonAgent:      # クラス名は任意です
         Args:
             session: セッション情報（Botの初期化時用に渡されます）
         """
-        session.clock_interval_sec = 60        # 10秒ごとにon_clockを呼び出します。
+        session.clock_interval_sec = 10        # 10秒ごとにon_clockを呼び出します。
 
     
     def on_tick(self, session, side, price, size):
@@ -27,7 +27,7 @@ class SkeltonAgent:      # クラス名は任意です
         """
         
         # on_tickは高頻度によびだされるので、100回に1回だけ内容をプリントします。
-        #print("on_tick: ", side, price, size)
+        print("on_tick: ", side, price, size)
         pass
     
     def on_clock(self, session, clock):
@@ -38,6 +38,9 @@ class SkeltonAgent:      # クラス名は任意です
             session: セッション情報（市況情報の取得や注文するために利用します)        
             clock: 現在時刻です。エポック時間からのマイクロ秒で表されます。
         """
+        bit, ask = session.board
+        
+        print(bit, ask)
         # 現在の時刻をプリントします。
         print("on_clock: ", clock, ": ", time_string(clock))
         session.market_order("Buy", 0.001)

@@ -254,11 +254,17 @@ impl Runner {
         let agent_id = self.agent_id.clone();
 
         if client {
+            if self.verbose {
+                println!("--- open udp receiver ---");
+            }
             let receiver =
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
         } else {
+            if self.verbose {
+                println!("--- open market hub receiver ---");
+            }
             self.prepare_data(&exchange, &market)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
@@ -272,7 +278,9 @@ impl Runner {
         let receiver = MARKET_HUB.subscribe_all()?;
         let sender = UdpSender::open();
 
+
         start_board_server()?;
+        log::debug!("start board proxy");
 
         loop {
             let message = receiver.recv()?;
@@ -594,9 +602,14 @@ impl Runner {
         self.call_agent_on_init(&agent, &py_session)?;
         let interval_sec = self.get_clock_interval(&py_session)?;
 
+        if self.verbose {
+            println!("start warm up");
+            flush_log();
+        }
         // warm up loop
         let mut warm_up_loop: i64 = WARMUP_STEPS;
         while let Ok(message) = receiver.recv() {
+            log::debug!("warm up loop: {:?}", message);
             self.execute_message_update_session(&py_session, &message)?;
 
             if let MarketMessage::Trade(_trade) = &message {
@@ -605,6 +618,11 @@ impl Runner {
                     break;
                 }
             }
+        }
+
+        if self.verbose {
+            println!("start receiver tick");
+            flush_log();
         }
 
         let mut remain_time: i64 = 0;
@@ -1102,6 +1120,9 @@ impl Runner {
         agent: &PyAny,
         py_session: &Py<Session>,
     ) -> anyhow::Result<()> {
+        if self.verbose {
+            println!("--- call on_init ---");
+        }
         if !self.has_on_init {
             return Ok(());
         }

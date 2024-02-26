@@ -224,9 +224,12 @@ impl UdpReceiver {
         let mut udp = Self::open();
         let (tx, rx) = crossbeam_channel::unbounded::<MarketMessage>();
 
+        log::debug!("open_channel: {}/{}/{}/{}", exchange, category, symbol, agent_id);
+
         // TOD: change to async
         std::thread::spawn(move || loop {
             let msg = udp.receive_message();
+            log::debug!("message: {:?}", msg);
 
             if msg.is_err() {
                 break;

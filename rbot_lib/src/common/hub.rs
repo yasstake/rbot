@@ -56,7 +56,8 @@ impl MarketHub {
         Self { tx, _rx }
     }
 
-    pub fn subscribe(&self,
+    pub fn subscribe(
+        &self,
         exchange: &str,
         category: &str,
         symbol: &str,
@@ -70,22 +71,22 @@ impl MarketHub {
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut ch = self.tx.subscribe();
 
-        std::thread::spawn(move ||{
+        std::thread::spawn(move || {
             let runtime = Runtime::new().unwrap();
 
             runtime.block_on(async move {
                 loop {
                     let msg = ch.recv().await;
-    
+
                     if msg.is_err() {
                         break;
                     }
-    
+
                     let msg = msg.unwrap();
-    
+
                     if msg.filter(&exchange, &category, &symbol) {
                         let market_message = msg.msg.clone();
-    
+
                         match market_message {
                             MarketMessage::Order(ref order) => {
                                 if order.is_my_order(&agent_id) {
@@ -112,19 +113,18 @@ impl MarketHub {
         Ok(rx)
     }
 
-
-    pub fn subscribe_all(&self,
-    ) -> anyhow::Result<crossbeam_channel::Receiver<BroadcastMessage>> {
+    pub fn subscribe_all(&self) -> anyhow::Result<crossbeam_channel::Receiver<BroadcastMessage>> {
         let mut ch = self.tx.subscribe();
-        let (tx, rx) = crossbeam_channel::unbounded();        
+        let (tx, rx) = crossbeam_channel::unbounded();
 
-        std::thread::spawn(move ||{
+        std::thread::spawn(move || {
             let runtime = Runtime::new().unwrap();
 
             runtime.block_on(async move {
                 loop {
                     let msg = ch.recv().await;
-    
+                    log::debug!("hub message rcv: {:?}", msg);
+
                     if msg.is_err() {
                         break;
                     }
@@ -132,19 +132,13 @@ impl MarketHub {
                     if tx.send(msg.unwrap()).is_err() {
                         log::error!("send message error");
                         break;
+                    }
                 }
-            }
-            });
+            })
         });
 
         Ok(rx)
     }
-
-
-
-
-
-
 
     pub async fn subscribe_stream<'a>(
         &self,
@@ -246,7 +240,6 @@ mod test_market_hub {
                 println!("error: {:?}", r);
             }
         }
-
 
         for i in 10..20 {
             let msg = BroadcastMessage {
