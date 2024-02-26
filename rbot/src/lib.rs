@@ -1,6 +1,8 @@
 // Copyright (C) @yasstake
 // All rights reserved. Absolutely NO warranty.
 
+#[cfg(test)]
+mod test;
 
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
