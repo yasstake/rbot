@@ -132,6 +132,15 @@ pub fn get_orderbook_bin(path: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 
+pub fn get_orderbook(path: &str) -> anyhow::Result<OrderBook> {
+    ALL_BOARD
+        .lock()
+        .unwrap()
+        .get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))
+}
+
+/*
 pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
     let board = ALL_BOARD
         .lock()
@@ -141,6 +150,7 @@ pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
 
     board.get_board()
 }
+*/
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,11 +432,11 @@ impl OrderBook {
     }
 
     pub fn from_bin(
-        server: &dyn ServerConfig,
+        exchange_name: &str,
         config: &MarketConfig,
         bin: Vec<u8>,
     ) -> anyhow::Result<Self> {
-        let exchange_name = server.get_exchange_name();
+        let exchange_name = exchange_name.to_string();
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
