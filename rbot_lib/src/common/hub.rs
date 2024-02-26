@@ -113,6 +113,38 @@ impl MarketHub {
     }
 
 
+    pub fn subscribe_all(&self,
+    ) -> anyhow::Result<crossbeam_channel::Receiver<BroadcastMessage>> {
+        let mut ch = self.tx.subscribe();
+        let (tx, rx) = crossbeam_channel::unbounded();        
+
+        std::thread::spawn(move ||{
+            let runtime = Runtime::new().unwrap();
+
+            runtime.block_on(async move {
+                loop {
+                    let msg = ch.recv().await;
+    
+                    if msg.is_err() {
+                        break;
+                    }
+
+                    if tx.send(msg.unwrap()).is_err() {
+                        log::error!("send message error");
+                        break;
+                }
+            }
+            });
+        });
+
+        Ok(rx)
+    }
+
+
+
+
+
+
 
     pub async fn subscribe_stream<'a>(
         &self,
