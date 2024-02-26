@@ -6,12 +6,13 @@ use std::sync::Mutex;
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use pyo3_polars::PyDataFrame;
+use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use rbot_lib::common::{
-    date_string, get_orderbook_df, hour_string, min_string, time_string, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
+    date_string, get_orderbook, hour_string, min_string, time_string, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
 };
 use pyo3::prelude::*;
 
@@ -91,17 +92,20 @@ pub struct Session {
 
     dummy_q: Mutex<VecDeque<Vec<Order>>>,
 
+    client_mode: bool,
+
     log: Logger,
 }
 
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (exchange, market, execute_mode, session_name=None, log_memory=true))]
+    #[pyo3(signature = (exchange, market, execute_mode, client_mode=false, session_name=None, log_memory=true))]
     pub fn new(
         exchange: PyObject,
         market: PyObject,
         execute_mode: ExecuteMode,
+        client_mode: bool,
         session_name: Option<&str>,
         log_memory: bool,
     ) -> Self {
@@ -175,6 +179,8 @@ impl Session {
 
             dummy_q: Mutex::new(VecDeque::new()),
 
+            client_mode: client_mode,
+
             log: Logger::new(log_memory),
         };
 
@@ -218,10 +224,16 @@ impl Session {
     }
 
     #[getter]
-    // TODO: リモート動作時にRESTでコールする。
     pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
-        let (bids, asks) = get_orderbook_df(&path)?;
+        let orderbook = if self.client_mode {
+            get_rest_orderbook(&self.exchange_name, &self.market_config)?
+        }
+        else {
+            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);                    
+            get_orderbook(&path)?
+        };
+
+        let (bids, asks) = orderbook.get_board()?;
 
         Ok((PyDataFrame(bids), PyDataFrame(asks)))
     }
@@ -454,7 +466,6 @@ impl Session {
         return execute_price;
     }
 
-    // TODO: 各Marketではなく、Sessionで実装する。
     pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         let size_scale = self.market_config.size_scale;
         let size = size.round_dp(size_scale);
@@ -464,19 +475,26 @@ impl Session {
 
         let transaction_id = self.dummy_transaction_id();
 
+        let mut orderbook = if self.client_mode {
+            get_rest_orderbook(&self.exchange_name, &self.market_config)?
+        }
+        else {
+            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);                    
+            get_orderbook(&path)?
+        };
+
+        let order = orderbook.dry_market_order(
+            self.current_timestamp,
+            &local_id.clone(),
+            &local_id.clone(),
+            &self.market_config.trade_symbol.clone(),
+            order_side,
+            size,
+            &transaction_id,
+        )?;
+
         Python::with_gil(|py| {
-            self.market.call_method1(
-                py,
-                "dry_market_order",
-                (
-                    self.current_timestamp,
-                    local_id.clone(),
-                    local_id.clone(),
-                    order_side,
-                    size,
-                    transaction_id,
-                ),
-            )
+            Ok(order.into_py(py))
         })
     }
 

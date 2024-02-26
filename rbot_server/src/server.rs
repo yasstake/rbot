@@ -106,12 +106,12 @@ fn start_rest_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn get_rest_orderbook(server: &dyn ServerConfig, config: &MarketConfig) -> anyhow::Result<OrderBook> {
-    let path = OrderBookList::make_path(&server.get_exchange_name(), config);
+pub fn get_rest_orderbook(exchange_name: &str, config: &MarketConfig) -> anyhow::Result<OrderBook> {
+    let path = OrderBookList::make_path(exchange_name, config);
 
     let r = reqwest::blocking::get(&format!("http://localhost:8080/board/vec/{}", path))?.bytes()?;
 
-    let board = OrderBook::from_bin(server, config, r.to_vec())?;
+    let board = OrderBook::from_bin(exchange_name, config, r.to_vec())?;
 
     Ok(board)
 }
