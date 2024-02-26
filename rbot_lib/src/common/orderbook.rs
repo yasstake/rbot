@@ -1,7 +1,11 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use std::{collections::HashMap, iter::FromIterator, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    iter::FromIterator,
+    sync::{Arc, Mutex},
+};
 
 use once_cell::sync::Lazy;
 use polars_core::{
@@ -18,9 +22,11 @@ use crate::common::MarketConfig;
 
 use rmp_serde::to_vec;
 
-use super::{order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig};
+use super::{
+    order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig,
+};
 
-static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(||Mutex::new(OrderBookList::new()));
+static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(|| Mutex::new(OrderBookList::new()));
 
 pub struct OrderBookList {
     books: HashMap<String, Arc<Mutex<OrderBookRaw>>>,
@@ -31,8 +37,12 @@ impl OrderBookList {
         Self::make_path_from_str(exchange_name, &config.trade_category, &config.trade_symbol)
     }
 
-    pub fn make_path_from_str(exchange_name: &str, trade_category: &str, trade_symbol: &str) -> String {
-        format!("{}/{}/{}", exchange_name, trade_category, trade_symbol)        
+    pub fn make_path_from_str(
+        exchange_name: &str,
+        trade_category: &str,
+        trade_symbol: &str,
+    ) -> String {
+        format!("{}/{}/{}", exchange_name, trade_category, trade_symbol)
     }
 
     pub fn parse_path(path: &str) -> (String, String, String) {
@@ -54,12 +64,12 @@ impl OrderBookList {
         }
 
         let (exchange, category, symbol) = Self::parse_path(key);
-        
+
         Some(OrderBook {
             exchage: exchange,
             category: category,
             symbol: symbol,
-            board: board.unwrap().clone()
+            board: board.unwrap().clone(),
         })
     }
 
@@ -82,8 +92,11 @@ pub fn get_orderbook_list() -> Vec<String> {
 }
 
 #[pyfunction]
-pub fn get_order_book_json(path: &str, size: usize) -> anyhow::Result<String> {
-    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+pub fn get_orderbook_json(path: &str, size: usize) -> anyhow::Result<String> {
+    let board = ALL_BOARD
+        .lock()
+        .unwrap()
+        .get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
     board.get_json(size)
@@ -91,19 +104,43 @@ pub fn get_order_book_json(path: &str, size: usize) -> anyhow::Result<String> {
 
 #[pyfunction]
 pub fn get_orderbook_vec(path: &str) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
-    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+    let board = ALL_BOARD
+        .lock()
+        .unwrap()
+        .get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
     board.get_board_vec()
 }
 
+
+#[pyfunction]
+pub fn get_orderbook_bin(path: &str) -> anyhow::Result<Vec<u8>> {
+    let board = ALL_BOARD
+        .lock()
+        .unwrap()
+        .get(&path.to_string())
+        .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
+
+    let (bids, asks) = board.get_board_vec()?;
+    let transfer = BoardTransfer {
+        bids: bids,
+        asks: asks,
+    };
+
+    Ok(transfer.to_vec())
+}
+
+
 pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
-    let board = ALL_BOARD.lock().unwrap().get(&path.to_string())
+    let board = ALL_BOARD
+        .lock()
+        .unwrap()
+        .get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
     board.get_board()
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,10 +209,9 @@ impl BoardTransfer {
     pub fn to_dataframe(&mut self) -> anyhow::Result<(DataFrame, DataFrame)> {
         Ok((
             Self::to_data_frame(&self.bids),
-            Self::to_data_frame(&self.asks)
+            Self::to_data_frame(&self.asks),
         ))
     }
-
 }
 
 /// 板上の1行を表す。（価格＆数量）
@@ -374,9 +410,9 @@ impl OrderBook {
 
         let path = OrderBookList::make_path(&exchange_name, config);
         let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
-        
-        ALL_BOARD.lock().unwrap().register(&path,board.clone());
-        
+
+        ALL_BOARD.lock().unwrap().register(&path, board.clone());
+
         OrderBook {
             exchage: exchange_name,
             category: category,
@@ -385,8 +421,44 @@ impl OrderBook {
         }
     }
 
+    pub fn from_bin(
+        server: &dyn ServerConfig,
+        config: &MarketConfig,
+        bin: Vec<u8>,
+    ) -> anyhow::Result<Self> {
+        let exchange_name = server.get_exchange_name();
+        let category = config.trade_category.clone();
+        let symbol = config.trade_symbol.clone();
+
+        let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
+
+        {
+            let mut board_lock = board.lock().unwrap();
+            let transfer = BoardTransfer::from_vec(bin);
+            board_lock.update(&transfer.bids, &transfer.asks, true);
+        }
+
+        Ok(OrderBook {
+            exchage: exchange_name,
+            category: category,
+            symbol: symbol,
+            board: board,
+        })
+    }
+
     pub fn clear(&mut self) {
         self.board.lock().unwrap().clear();
+    }
+
+    pub fn to_binary(&self) -> anyhow::Result<Vec<u8>> {
+        let board = self.board.lock().unwrap();
+        let (bids, asks) = (board.bids.get(), board.asks.get());
+        let transfer = BoardTransfer {
+            bids: bids,
+            asks: asks,
+        };
+
+        Ok(transfer.to_vec())
     }
 
     pub fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
@@ -408,7 +480,8 @@ impl OrderBook {
         let mut bids = board.bids.get();
         let mut asks = board.asks.get();
 
-        if size != 0 {  // if there is a size limit, cut off the data.
+        if size != 0 {
+            // if there is a size limit, cut off the data.
             bids = bids[0..size.min(bids.len())].to_vec();
             asks = asks[0..size.min(asks.len())].to_vec();
         }
@@ -433,7 +506,7 @@ impl OrderBook {
     }
 
     pub fn dry_market_order(
-        &mut self, 
+        &mut self,
         create_time: MicroSec,
         order_id: &str,
         client_order_id: &str,
@@ -513,9 +586,14 @@ impl Drop for OrderBook {
         log::debug!("drop orderbook: {}", count);
 
         if count <= 1 {
-            ALL_BOARD.lock().unwrap().unregister(
-                &OrderBookList::make_path_from_str(
-                    &self.exchage, &self.category, &self.symbol));
+            ALL_BOARD
+                .lock()
+                .unwrap()
+                .unregister(&OrderBookList::make_path_from_str(
+                    &self.exchage,
+                    &self.category,
+                    &self.symbol,
+                ));
         }
     }
 }
@@ -564,7 +642,6 @@ mod board_test {
         println!("{:?}", b.get());
     }
 
-
     #[test]
     fn serialize_board_transfer() {
         let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2, 1000);
@@ -572,14 +649,29 @@ mod board_test {
 
         let mut b = OrderBookRaw::new(0);
 
-        b.update(&vec![
-            BoardItem{price: dec![10.0], size:dec![0.01]},
-            BoardItem{price: dec![11.0], size:dec![0.01]},
-        ],
-        &vec![
-            BoardItem{price: dec![10.0], size:dec![0.01]},
-            BoardItem{price: dec![11.0], size:dec![0.01]},
-        ],false);
+        b.update(
+            &vec![
+                BoardItem {
+                    price: dec![10.0],
+                    size: dec![0.01],
+                },
+                BoardItem {
+                    price: dec![11.0],
+                    size: dec![0.01],
+                },
+            ],
+            &vec![
+                BoardItem {
+                    price: dec![10.0],
+                    size: dec![0.01],
+                },
+                BoardItem {
+                    price: dec![11.0],
+                    size: dec![0.01],
+                },
+            ],
+            false,
+        );
 
         let transfer = BoardTransfer::from_orderbook(&b);
 
@@ -591,6 +683,5 @@ mod board_test {
 
         let t2 = BoardTransfer::from_vec(vec);
         println!("{:?}", t2);
-
     }
 }

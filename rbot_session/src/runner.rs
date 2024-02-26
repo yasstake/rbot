@@ -2,19 +2,21 @@
 
 use crossbeam_channel::Receiver;
 use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
-use rbot_lib::{
-    common::{
-        flush_log, time_string, AccountPair, LogStatus, MarketConfig, MarketMessage, MarketStream,
-        MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
-    },
-    net::UdpReceiver,
-};
 use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use rbot_blockon::BLOCK_ON;
+
+use rbot_lib::{
+    common::{
+        flush_log, time_string, AccountPair, MarketConfig, MarketMessage, MarketStream, MicroSec,
+        Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+    },
+    net::{UdpReceiver, UdpSender},
+};
+
+use rbot_server::start_board_server;
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -123,11 +125,8 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        BLOCK_ON(async {
-            let receiver = Self::open_backtest_stream(&market, start_time, end_time).await;
-            self.async_run(exchange, market, receiver, agent, true, log_file)
-                .await
-        })
+        let receiver = Self::open_backtest_receiver(&market, start_time, end_time)?;
+        self.run(exchange, market, &receiver, agent, true, log_file)
     }
 
     #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
@@ -155,26 +154,15 @@ impl Runner {
         let agent_id = self.agent_id.clone();
 
         if client {
-            BLOCK_ON(async {
-                let mut udp = UdpReceiver::open();
-                let receiver = udp
-                    .receive_stream(&exchange_name, &category, &symbol, &agent_id)
-                    .await;
+            let receiver =
+                UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
-                    .await
-            })
+            self.run(exchange, market, &receiver, agent, log_memory, log_file)
         } else {
             self.prepare_data(&exchange, &market)?;
+            let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-            BLOCK_ON(async {
-                let receiver = MARKET_HUB
-                    .subscribe_stream(&exchange_name, &category, &symbol, &agent_id)
-                    .await;
-
-                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
-                    .await
-            })
+            self.run(exchange, market, &receiver, agent, log_memory, log_file)
         }
     }
 
@@ -239,7 +227,6 @@ impl Runner {
         }
     }
 
-
     #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run(
         &mut self,
@@ -265,106 +252,34 @@ impl Runner {
         let agent_id = self.agent_id.clone();
 
         if client {
-                let receiver = UdpReceiver::
-                    open_channel(&exchange_name, &category, &symbol, &agent_id)?;
+            let receiver =
+                UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-                self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, log_memory, log_file)
         } else {
             self.prepare_data(&exchange, &market)?;
-                let receiver = MARKET_HUB
-                    .subscribe(&exchange_name, &category, &symbol, &agent_id)?;
+            let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-                self.run(exchange, market, &receiver, agent, log_memory, log_file)
+            self.run(exchange, market, &receiver, agent, log_memory, log_file)
         }
     }
 
+    pub fn start_proxy(&mut self) -> anyhow::Result<()> {
+        self.execute_mode = ExecuteMode::Real;
 
-    /*
-    pub fn start_proxy(&mut self, market: PyObject, port: i64) -> Result<(), PyErr> {
-        let sender = UdpSender::open_with_port(port, port + 1);
+        let receiver = MARKET_HUB.subscribe_all()?;
+        let sender = UdpSender::open();
 
-        let stream = Self::get_market_stream(&market);
-        let reciever = stream.reciver;
-
-        let r = Python::with_gil(|py| {
-            let r = market.call_method0(py, "start_market_stream");
-            if r.is_err() {
-                return Err(r.unwrap_err());
-            }
-            println!("--- start market stream ---");
-
-            let r = market.call_method0(py, "start_user_stream");
-            if r.is_err() {
-                return Err(r.unwrap_err());
-            }
-            println!("--- start user stream ---");
-
-            Ok(())
-        });
-
-        if r.is_err() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                format!("Proxy Send error {}", r.unwrap_err())
-            ));
-        }
+        start_board_server()?;
 
         loop {
-            let message = reciever.recv();
+            let message = receiver.recv()?;
 
-            println!("Proxy: {:?}", message);
-
-            if message.is_err() {
-                log::info!("Data stream is closed {:?}", message);
-                break;
-            }
-
-            let exchange = "BYBIT".to_string();
-            let symbol = "BTCUSDT".to_string();
-            let agent_id = "".to_string();
-
-            let message = match message.unwrap() {
-                MarketMessage {
-                    trade: Some(trade), ..
-                } => BroadcastMessage {
-                    exchange: exchange,
-                    symbol: symbol,
-                    agent_id: agent_id,
-                    msg: BroadcastMessageContent::trade(trade),
-                },
-                MarketMessage {
-                    order: Some(order), ..
-                } => BroadcastMessage {
-                    exchange: exchange,
-                    symbol: symbol,
-                    agent_id: agent_id,
-                    msg: BroadcastMessageContent::order(order),
-                },
-                MarketMessage {
-                    account: Some(account),
-                    ..
-                } => BroadcastMessage {
-                    exchange: exchange,
-                    symbol: symbol,
-                    agent_id: agent_id,
-                    msg: BroadcastMessageContent::account(account),
-                },
-                _ => {
-                    panic!("Unknown message type");
-                }
-            };
-
-            let r = sender.send_message(&message);
-
-            if r.is_err() {
-                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                    "Proxy Send error"
-                ));
+            if sender.send_message(&message).is_err() {
+                log::warn!("Failed to send message: {:?}", message);
             }
         }
-
-        Ok(())
     }
-    */
 }
 
 const WARMUP_STEPS: i64 = 10;
@@ -403,7 +318,11 @@ impl Runner {
                     flush_log();
                 }
 
-                let kwargs = if self.verbose {vec![("verbose", true)]} else {vec![("verbose", false)]};
+                let kwargs = if self.verbose {
+                    vec![("verbose", true)]
+                } else {
+                    vec![("verbose", false)]
+                };
                 let kwargs = kwargs.into_py_dict(py);
 
                 market.call_method(py, "download_latest", (), Some(kwargs))?;
@@ -644,12 +563,11 @@ impl Runner {
         Ok(py_session)
     }
 
-
     pub fn run(
         &mut self,
         exchange: PyObject,
         market: PyObject,
-//        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
+        //        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
         receiver: &Receiver<MarketMessage>,
         agent: &PyAny,
         log_memory: bool,
@@ -714,7 +632,6 @@ impl Runner {
 
         Ok(py_session)
     }
-
 
     fn print_run_result(&self, loop_start_time: i64) {
         if self.verbose {
@@ -1280,16 +1197,19 @@ impl Runner {
         Ok(())
     }
 
-    /// get market stream from Market object
-    /// Every market object shold implement `channel` attribute
-    /// TODO: retrun Error
-    pub fn get_market_stream(market: &PyObject) -> MarketStream {
-        Python::with_gil(|py| {
-            let stream = market.getattr(py, "channel").unwrap();
-            let stream = stream.extract::<MarketStream>(py).unwrap();
+    pub fn open_backtest_receiver(
+        market: &PyObject,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<Receiver<MarketMessage>> {
+        let market_stream = Python::with_gil(|py| {
+            let stream = market.call_method1(py, "open_backtest_channel", (time_from, time_to))?;
+            let stream = stream.extract::<MarketStream>(py)?;
 
-            stream
-        })
+            Ok::<MarketStream, anyhow::Error>(stream)
+        })?;
+
+        Ok(market_stream.reciver)
     }
 
     pub async fn open_backtest_stream(
