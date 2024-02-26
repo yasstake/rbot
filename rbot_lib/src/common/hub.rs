@@ -231,8 +231,8 @@ mod test_market_hub {
     fn test_market_hub() {
         init_debug_log();
         let tx = MARKET_HUB.open_channel();
-        let mut rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
-        let mut rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
 
         for i in 0..CHANNEL_SIZE * 2 {
             let msg = BroadcastMessage {
@@ -315,7 +315,7 @@ mod test_market_hub {
 
         handle2.await.unwrap();
 
-        sleep(Duration::from_secs(5));
+        sleep(Duration::from_secs(5)).await;
     }
 
     /*

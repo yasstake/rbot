@@ -1,4 +1,4 @@
-// Copyright(c) 2022-2023. yasstake. All rights reserved.
+// Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -750,7 +750,7 @@ impl Session {
             MarketMessage::Account(coins) => {
                 log::debug!("on_message: account={:?}", coins);
 
-                let mut account: AccountPair = coins.extract_pair(&config);
+                let account: AccountPair = coins.extract_pair(&config);
                 self.on_account_update(&account);
             }
             MarketMessage::Orderbook(orderbook) => {

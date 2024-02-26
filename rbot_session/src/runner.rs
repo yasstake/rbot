@@ -516,7 +516,7 @@ impl Runner {
 
         let py_session = self.create_session(exchange, market, client_mode, log_memory, log_file);
 
-        self.call_agent_on_init(&agent, &py_session);
+        self.call_agent_on_init(&agent, &py_session)?;
         let interval_sec = self.get_clock_interval(&py_session)?;
 
         let mut rec = Box::pin(receiver);
@@ -591,7 +591,7 @@ impl Runner {
 
         let py_session = self.create_session(exchange, market, client_mode, log_memory, log_file);
 
-        self.call_agent_on_init(&agent, &py_session);
+        self.call_agent_on_init(&agent, &py_session)?;
         let interval_sec = self.get_clock_interval(&py_session)?;
 
         // warm up loop
@@ -1060,6 +1060,7 @@ impl Runner {
         session.update_psudo_account_by_order(order)
     }
 
+    /*
     fn get_clock_interval_py(
         self: &mut Self,
         py: &Python,
@@ -1070,6 +1071,7 @@ impl Runner {
 
         Ok(interval_sec)
     }
+    */
 
     fn get_clock_interval(self: &mut Self, py_session: &Py<Session>) -> Result<i64, PyErr> {
         Python::with_gil(|py| {
@@ -1080,6 +1082,7 @@ impl Runner {
         })
     }
 
+    /*
     fn call_agent_on_init_py(
         self: &mut Self,
         py: &Python,
@@ -1092,6 +1095,7 @@ impl Runner {
 
         Ok(())
     }
+    */
 
     fn call_agent_on_init(
         self: &mut Self,
