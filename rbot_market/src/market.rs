@@ -21,7 +21,6 @@ use rbot_lib::{
         OrderSide, OrderType, ServerConfig, Trade, DAYS, NOW,
     },
     db::{df::KEY, sqlite::TradeTable},
-    net::UdpSender,
 };
 
 macro_rules! check_if_enable_order {
@@ -295,14 +294,6 @@ where
     fn get_db(&self) -> Arc<Mutex<TradeTable>>;
 
     fn get_history_web_base_url(&self) -> String;
-
-    fn open_udp(&mut self) -> Arc<Mutex<UdpSender>> {
-        Arc::new(Mutex::new(UdpSender::open(
-            &self.get_exchange_name(),
-            &self.get_trade_category(),
-            &self.get_trade_symbol(),
-        )))
-    }
 
     fn make_db_path(
         exchange_name: &str,

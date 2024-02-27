@@ -1,6 +1,8 @@
 // Copyright (C) @yasstake
 // All rights reserved. Absolutely NO warranty.
 
+#[cfg(test)]
+mod test;
 
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
@@ -14,7 +16,7 @@ use rbot_session::{Logger, Session, Runner, ExecuteMode};
 
 use bybit::{Bybit, BybitConfig};
 
-use console_subscriber;
+
 
 /*
 use exchange::BoardItem;
@@ -36,9 +38,12 @@ use session::Runner;
 //use sim::session::DummySession;
 
 /// A Python module implemented in Rust.
+
+
+// use console_subscriber;
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
-    // console_subscriber::init();
+    // console_subscriber::init();  // for tokio thread debug
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
