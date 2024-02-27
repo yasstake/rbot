@@ -80,7 +80,7 @@ session = runner.real_run(
 #                execute_time = 10,
                 verbose=True,
                 log_file="skelton_bot.log",
-                client= False
+                client= True
             )
 
     
