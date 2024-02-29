@@ -37,40 +37,6 @@ pub trait WsOpMessage {
     }
 }
 
-//  TODO: move to binance module
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BinanceWsOpMessage {
-    method: String,
-    params: Vec<String>,
-    id: i64,
-}
-
-impl WsOpMessage for BinanceWsOpMessage {
-    fn new() -> Self {
-        BinanceWsOpMessage {
-            method: "SUBSCRIBE".to_string(),
-            params: vec![],
-            id: NOW() % 1000,
-        }
-    }
-
-    fn add_params(&mut self, params: &Vec<String>) {
-        log::debug!("add_params: {:?} / {:?}", self.params, params);
-        self.params.extend(params.clone());
-    }
-
-    fn make_message(&self) -> Vec<String> {
-        vec![self.to_string()]
-    }
-
-    fn to_string(&self) -> String {
-        if self.params.len() == 0 {
-            return "".to_string();
-        } else {
-            return serde_json::to_string(&self).unwrap();
-        }
-    }
-}
 
 
 
