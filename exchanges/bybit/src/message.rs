@@ -774,6 +774,22 @@ impl Into<OrderBookRaw> for BybitWsOrderbook {
     }
 }
 
+impl Into<BoardTransfer> for BybitWsOrderbook {
+    fn into(self) -> BoardTransfer {
+        let mut bt = BoardTransfer::new();
+
+        for bid in self.bids.iter() {
+            bt.insert_bid(bid);
+        }
+
+        for ask in self.asks.iter() {
+            bt.insert_ask(ask);
+        }
+
+        bt
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitWsOrderbookMessage {
     #[serde(rename = "topic")]

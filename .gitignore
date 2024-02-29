@@ -85,3 +85,7 @@ google-cloud-sdk/
 /log/*
 
 log
+
+# R cache
+.RData
+.Rhistory
