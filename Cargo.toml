@@ -22,6 +22,7 @@ rbot_blockon = { path = "./rbot_blockon" }
 rbot_session = { path = "./rbot_session" }
 rbot_market = { path = "./rbot_market" }
 rbot_server = { path = "./rbot_server" }
+
 binance = { path = "./exchanges/binance" }
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
@@ -54,7 +55,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1.14" }
 
 
-rusqlite = { version = "0.30.0", features = ["bundled"] }
+rusqlite = { version = "0.31.0", features = ["bundled"] }
 
 
 polars = { version = "0.35", features = ["lazy"] }
