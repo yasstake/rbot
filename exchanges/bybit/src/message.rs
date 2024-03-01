@@ -619,25 +619,7 @@ impl Into<MultiMarketMessage> for BybitPublicWsMessage {
                 return MultiMarketMessage::Trade(trades);
             }
             BybitPublicWsMessage::Orderbook(orderbook) => {
-                let mut snapshot = false;
-                if orderbook.message_type == "snapshot" {
-                    log::debug!("Board SNAP SHOT");
-                    snapshot = true;
-                }
-
-                if orderbook.data.update_id == 1 {
-                    log::debug!("Board SNAP SHOT");
-
-                    // TODO: debug
-                    if snapshot == false {
-                        log::debug!("force snapshot");
-                    }
-
-                    snapshot = true;
-                }
-
-                let mut board: OrderBookRaw = orderbook.data.into();
-                board.snapshot = snapshot;
+                let mut board: BoardTransfer  = orderbook.into();
 
                 return MultiMarketMessage::Orderbook(board);
             }
@@ -746,7 +728,7 @@ pub struct BybitWsOrderbook {
     pub create_timestamp: Option<BybitTimestamp>,
 }
 
-impl Into<OrderBookRaw> for BybitWsOrderbook {
+/*
     fn into(self) -> OrderBookRaw {
         let mut bids: HashMap<Decimal, Decimal> = HashMap::new();
         for item in self.bids.iter() {
@@ -758,8 +740,15 @@ impl Into<OrderBookRaw> for BybitWsOrderbook {
             asks.insert(item.0, item.1);
         }
 
+        let update_time = if let Some(t) = self.create_timestamp {
+            bybit_timestamp_to_microsec(t)
+        } else {
+            0
+        };
+
         OrderBookRaw {
-            snapshot: false,
+            last_update_id: self.update_id as u64,
+            last_update_time: update_time,
             asks: Board {
                 asc: false,
                 max_depth: 0,
@@ -774,9 +763,13 @@ impl Into<OrderBookRaw> for BybitWsOrderbook {
     }
 }
 
+*/
+
 impl Into<BoardTransfer> for BybitWsOrderbook {
     fn into(self) -> BoardTransfer {
         let mut bt = BoardTransfer::new();
+
+        bt.last_update_id = self.update_id as u64;
 
         for bid in self.bids.iter() {
             bt.insert_bid(bid);
@@ -800,6 +793,24 @@ pub struct BybitWsOrderbookMessage {
     pub data: BybitWsOrderbook,
     #[serde(rename = "ts")]
     pub timestamp: BybitTimestamp,
+}
+
+impl Into<BoardTransfer> for BybitWsOrderbookMessage {
+    fn into(self) -> BoardTransfer {
+        let update_id = self.data.update_id;
+        let mut transfer: BoardTransfer = self.data.into();
+
+        transfer.last_update_time = bybit_timestamp_to_microsec(self.timestamp);
+
+        if self.message_type == "snapshot" || update_id == 1 {||
+            transfer.snapshot = true;
+        }
+        else {
+            transfer.snapshot = false;
+        }
+
+        transfer
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
