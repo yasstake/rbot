@@ -7,10 +7,12 @@ members = [
     "rbot_session",
     "rbot_server",
     "rbot_blockon",
-    "exchanges/binance",
+    "rbot_server", 
+    "rbot_blockon",
     "exchanges/bitbank",
     "exchanges/bitflyer",
-    "exchanges/bybit", "rbot_server", "rbot_blockon",
+    "exchanges/bybit", 
+    "exchanges/binance", 
 ]
 
 resolver = "2"
@@ -23,20 +25,20 @@ rbot_session = { path = "./rbot_session" }
 rbot_market = { path = "./rbot_market" }
 rbot_server = { path = "./rbot_server" }
 
-binance = { path = "./exchanges/binance" }
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
 bybit = { path = "./exchanges/bybit" }
+binance = { path = "./exchanges/binance" }
 
 anyhow = { version = "1.0.79" }
 
 features = {version = "0.10.0"}
 
 chrono = { version = "0.4.33" }
-serde = { version = "1.0" }
+serde = { version = "1.0"}
 serde_json = { version = "1.0" }
 serde_derive = { version = "1.0" }
-serde_with = { version = "3.4.0" }
+serde_with = { version = "3.6.1" }
 log = { version = "0.4" }
 env_logger = { version = "0.11.0" }
 directories = "5.0.1"

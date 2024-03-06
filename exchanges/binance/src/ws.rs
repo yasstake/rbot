@@ -1,16 +1,21 @@
-
-
 use futures::Stream;
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
+use rbot_lib::net::ReceiveMessage;
+use serde::{Deserialize as _, Serialize as _};
 use tokio::task::JoinHandle;
-
 
 use async_stream::stream;
 
-use rbot_lib::{common::{MarketConfig, MicroSec, MultiMarketMessage, ServerConfig, MICRO_SECOND, NOW}, net::{AutoConnectClient, WsOpMessage}};
+use rbot_lib::{
+    common::{MarketConfig, MicroSec, MultiMarketMessage, ServerConfig, MICRO_SECOND, NOW},
+    net::{AutoConnectClient, WsOpMessage},
+};
 
-use crate::{BinanceConfig, BinancePublicWsMessage, BinanceServerConfig};
+use crate::BinanceRestApi;
+use crate::BinanceUserWsMessage;
+use crate::{BinancePublicWsMessage, BinanceServerConfig};
+
+use serde_derive::{Deserialize, Serialize};
 
 use anyhow::anyhow;
 
@@ -22,12 +27,6 @@ use anyhow::anyhow;
 /// It's recommended to send a ping about every 30 minutes.
 
 const KEY_EXTEND_INTERVAL: MicroSec = 5 * 60 * MICRO_SECOND; // 30 min
-
-fn make_user_stream_endpoint(server: &BinanceServerConfig, key: String) -> String {
-    let url = format!("{}/{}", server.get_public_ws_server(), key);
-
-    return url;
-}
 
 pub const PING_INTERVAL_SEC: i64 = 60 * 3; // every 3 min
 pub const SWITCH_INTERVAL_SEC: i64 = 60 * 60 * 12; // 12 hours
@@ -67,14 +66,12 @@ impl WsOpMessage for BinanceWsOpMessage {
     }
 }
 
-
 pub struct BinancePublicWsClient {
     ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
-    handler: Option<tokio::task::JoinHandle<()>>,
+    handler: Option<JoinHandle<()>>,
 }
 
 impl BinancePublicWsClient {
-
     pub async fn new(server: &BinanceServerConfig, config: &MarketConfig) -> Self {
         let mut public_ws = AutoConnectClient::new(
             server,
@@ -108,22 +105,24 @@ impl BinancePublicWsClient {
             while let Some(message) = s.next().await {
                 match message {
                     Ok(m) => {
-                        match Self::parse_message(m) {
-                            Err(e) => {
-                                println!("Parse Error: {:?}", e);
-                                continue;
-                            }
-                            Ok(m) => {
-                                let market_message = Self::convert_ws_message(m);
+                        if let ReceiveMessage::Text(m) = m {
+                            match Self::parse_message(m) {
+                                Err(e) => {
+                                    println!("Parse Error: {:?}", e);
+                                    continue;
+                                }
+                                Ok(m) => {
+                                    let market_message = Self::convert_ws_message(m);
 
-                                match market_message
-                                {
-                                    Err(e) => {
-                                        println!("Convert Error: {:?}", e);
-                                        continue;
-                                    }
-                                    Ok(m) => {
-                                        yield Ok(m);
+                                    match market_message
+                                    {
+                                        Err(e) => {
+                                            println!("Convert Error: {:?}", e);
+                                            continue;
+                                        }
+                                        Ok(m) => {
+                                            yield Ok(m);
+                                        }
                                     }
                                 }
                             }
@@ -154,32 +153,182 @@ impl BinancePublicWsClient {
     }
 }
 
+pub struct BinancePrivateWsClient {
+    ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
+    handler: Option<JoinHandle<()>>,
+    listen_key: String,
+}
 
-#[cfg(test)]
-mod test_binance_ws {
-    use super::*;
-    use rbot_lib::common::MarketConfig;
-    use rust_decimal_macros::dec;
-    use std::time::Duration;
-    use tokio::time::sleep;
+impl BinancePrivateWsClient {
+    pub async fn new(server: &BinanceServerConfig) -> Self {
+        let dummy_config = MarketConfig::new("dummy", "dummy", "dummy", 0, 0, 0);
 
-    use crate::{BinanceConfig, BinanceServerConfig};
+        let url = Self::make_connect_url(server).await.unwrap();
 
-    #[tokio::test]
-    async fn test_binance_ws() {
-        let server = BinanceServerConfig::new(false);
-        let market = BinanceConfig::BTCUSDT();
+        let private_ws = AutoConnectClient::new(
+            server,
+            &dummy_config,
+            &url,
+            PING_INTERVAL_SEC,
+            SWITCH_INTERVAL_SEC,
+            SYNC_WAIT_RECORDS,
+            None,
+            None,
+        );
 
-        let mut ws = BinancePublicWsClient::new(&server, &market).await;
-        ws.connect().await;
-
-        let stream = ws.open_stream().await;
-        let mut pin_stream = Box::pin(stream);
-
-        for _i in 0..100 {
-            let message = pin_stream.next().await;
-            println!("message: {:?}", message);
+        Self {
+            ws: private_ws,
+            handler: None,
+            listen_key: "".to_string(),
         }
+    }
+
+    pub async fn connect(&mut self) {
+        self.ws.connect().await
+    }
+
+    pub async fn open_stream<'a>(
+        &'a mut self,
+    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
+        let mut s = Box::pin(self.ws.open_stream().await);
+
+        stream! {
+            while let Some(message) = s.next().await {
+                match message {
+                    Ok(m) => {
+                        if let ReceiveMessage::Text(m) = m {
+                            match Self::parse_message(m) {
+                                Err(e) => {
+                                    println!("Parse Error: {:?}", e);
+                                    continue;
+                                }
+                                Ok(m) => {
+                                    let market_message = Self::convert_ws_message(m);
+
+                                    match market_message
+                                    {
+                                        Err(e) => {
+                                            println!("Convert Error: {:?}", e);
+                                            continue;
+                                        }
+                                        Ok(m) => {
+                                            yield Ok(m);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Receive Error: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_message(message: String) -> anyhow::Result<BinanceUserWsMessage> {
+        let m = serde_json::from_str::<BinanceUserWsMessage>(&message);
+
+        if m.is_err() {
+            log::warn!("Error in serde_json::from_str: {:?}", message);
+            return Err(anyhow!("Error in serde_json::from_str: {:?}", message));
+        }
+
+        Ok(m.unwrap())
+    }
+
+    fn convert_ws_message(message: BinanceUserWsMessage) -> anyhow::Result<MultiMarketMessage> {
+        //Ok(message.into())
+        todo!();
+    }
+
+    async fn make_connect_url(server: &BinanceServerConfig) -> anyhow::Result<String> {
+        let key = BinanceRestApi::create_listen_key(server).await?;
+
+        let url = format!("{}/ws/{}", server.get_user_ws_server(), key);
+
+        Ok(url)
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BinanceConfig;
+    use rbot_lib::common::{init_debug_log, MarketConfig};
+
+    #[tokio::test]
+    async fn test_binance_public_ws_client() {
+        let server = BinanceServerConfig::new(true);
+        let config = BinanceConfig::BTCUSDT();
+
+        let mut client = BinancePublicWsClient::new(&server, &config).await;
+
+        client.connect().await;
+
+        let stream = client.open_stream().await;
+
+        let mut stream = Box::pin(stream);
+
+        let mut count = 0;
+
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(m) => {
+                    println!("Message: {:?}", m);
+                }
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            }
+
+            if 100 < count {
+                break;
+            }
+            count += 1;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_make_connect_url() {
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+
+        let url = BinancePrivateWsClient::make_connect_url(&server).await;
+
+        println!("URL: {:?}", url);
+    }
+
+    #[tokio::test]
+    async fn test_binance_private_ws_client() {
+        init_debug_log();
+        
+        let server = BinanceServerConfig::new(false);
+        let mut client = BinancePrivateWsClient::new(&server).await;
+
+        client.connect().await;
+
+        let stream = client.open_stream().await;
+
+        let mut stream = Box::pin(stream);
+
+        let mut count = 0;
+
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(m) => {
+                    println!("Message: {:?}", m);
+                }
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            }
+
+            if 100 < count {
+                break;
+            }
+            count += 1;
+        }
+    }
+}

@@ -11,6 +11,7 @@ use rbot_lib::common::MarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::net::BroadcastMessage;
+use rbot_lib::net::ReceiveMessage;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
@@ -124,29 +125,31 @@ impl BybitPublicWsClient {
             while let Some(message) = s.next().await {
                 match message {
                     Ok(m) => {
-                        match Self::parse_message(m) {
-                            Err(e) => {
-                                println!("Parse Error: {:?}", e);
-                                continue;
-                            }
-                            Ok(m) => {
-                                let market_message = Self::convert_ws_message(m);
+                        if let ReceiveMessage::Text(m) = m {
+                            match Self::parse_message(m) {
+                                Err(e) => {
+                                    println!("Parse Error: {:?}", e);
+                                    continue;
+                                }
+                                Ok(m) => {
+                                    let market_message = Self::convert_ws_message(m);
 
-                                match market_message
-                                {
-                                    Err(e) => {
-                                        println!("Convert Error: {:?}", e);
-                                        continue;
-                                    }
-                                    Ok(m) => {
-                                        yield Ok(m);
+                                    match market_message
+                                    {
+                                        Err(e) => {
+                                            println!("Convert Error: {:?}", e);
+                                            continue;
+                                        }
+                                        Ok(m) => {
+                                            yield Ok(m);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        println!("Receive Error: {:?}", e);
+                            println!("Receive Error: {:?}", e);
                     }
                 }
             }
@@ -231,70 +234,72 @@ impl BybitPrivateWsClient {
             while let Some(message) = s.next().await {
                 match message {
                     Ok(m) => {
-                        let m = Self::parse_message(m);
+                        if let ReceiveMessage::Text(m) = m {
+                            let m = Self::parse_message(m);
 
-                        match m {
-                            Err(e) => {
-                                println!("Parse Error: {:?}", e);
-                                continue;
-                            }
-                            Ok(m) => {
-                                match m {
-                                    BybitUserWsMessage::status(s) => {
-                                        let control: ControlMessage = s.into();
-                                        log::debug!("status message: {:?}", control);
-                                        yield Ok(MultiMarketMessage::Control(control));
-                                    }
-                                    BybitUserWsMessage::pong(p) => {
-                                        log::debug!("pong message: {:?}", p);
-                                    }
-                                    BybitUserWsMessage::message(m) => {
-                                        match m {
-                                            BybitUserMessage::order {
-                                                id,
-                                                creationTime,
-                                                mut data,
-                                            } => {
-                                                println!("{}", serde_json::to_string(&data).unwrap().to_string());
-                                                if last_orders.len() == 0 {
-                                                    last_orders.append(&mut data);
-                                                }
-                                                if last_executions.len() != 0 {
-                                                    let order = merge_order_and_execution(&last_orders, &last_executions);
-                                                    last_orders.clear();
-                                                    last_executions.clear();
+                            match m {
+                                Err(e) => {
+                                    println!("Parse Error: {:?}", e);
+                                    continue;
+                                }
+                                Ok(m) => {
+                                    match m {
+                                        BybitUserWsMessage::status(s) => {
+                                            let control: ControlMessage = s.into();
+                                            log::debug!("status message: {:?}", control);
+                                            yield Ok(MultiMarketMessage::Control(control));
+                                        }
+                                        BybitUserWsMessage::pong(p) => {
+                                            log::debug!("pong message: {:?}", p);
+                                        }
+                                        BybitUserWsMessage::message(m) => {
+                                            match m {
+                                                BybitUserMessage::order {
+                                                    id,
+                                                    creationTime,
+                                                    mut data,
+                                                } => {
+                                                    println!("{}", serde_json::to_string(&data).unwrap().to_string());
+                                                    if last_orders.len() == 0 {
+                                                        last_orders.append(&mut data);
+                                                    }
+                                                    if last_executions.len() != 0 {
+                                                        let order = merge_order_and_execution(&last_orders, &last_executions);
+                                                        last_orders.clear();
+                                                        last_executions.clear();
 
-                                                    yield Ok(MultiMarketMessage::Order(order));
+                                                        yield Ok(MultiMarketMessage::Order(order));
+                                                    }
                                                 }
-                                            }
-                                            BybitUserMessage::execution {
-                                                id,
-                                                creationTime,
-                                                mut data,
-                                            } => {
-                                                println!("{}", serde_json::to_string(&data).unwrap().to_string());
-                                                if last_executions.len() == 0 {
-                                                    last_executions.append(&mut data);
-                                                }
-                                                if last_orders.len() != 0 {
-                                                    let order = merge_order_and_execution(&last_orders, &last_executions);
-                                                    last_orders.clear();
-                                                    last_executions.clear();
+                                                BybitUserMessage::execution {
+                                                    id,
+                                                    creationTime,
+                                                    mut data,
+                                                } => {
+                                                    println!("{}", serde_json::to_string(&data).unwrap().to_string());
+                                                    if last_executions.len() == 0 {
+                                                        last_executions.append(&mut data);
+                                                    }
+                                                    if last_orders.len() != 0 {
+                                                        let order = merge_order_and_execution(&last_orders, &last_executions);
+                                                        last_orders.clear();
+                                                        last_executions.clear();
 
-                                                    yield Ok(MultiMarketMessage::Order(order));
+                                                        yield Ok(MultiMarketMessage::Order(order));
+                                                    }
                                                 }
-                                            }
-                                            BybitUserMessage::wallet {
-                                                id,
-                                                creationTime,
-                                                data,
-                                            } => {
-                                                let mut coins = AccountCoins::new();
-                                                for account in data {
-                                                    let mut account_coins: AccountCoins = account.into();
-                                                    coins.append(account_coins);
+                                                BybitUserMessage::wallet {
+                                                    id,
+                                                    creationTime,
+                                                    data,
+                                                } => {
+                                                    let mut coins = AccountCoins::new();
+                                                    for account in data {
+                                                        let mut account_coins: AccountCoins = account.into();
+                                                        coins.append(account_coins);
+                                                    }
+                                                    yield Ok(MultiMarketMessage::Account(coins));
                                                 }
-                                                yield Ok(MultiMarketMessage::Account(coins));
                                             }
                                         }
                                     }
