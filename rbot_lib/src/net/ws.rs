@@ -8,6 +8,7 @@ use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
 use serde_derive::{Deserialize, Serialize};
+use strum::Display;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
@@ -37,7 +38,12 @@ pub trait WsOpMessage {
     }
 }
 
-
+#[derive(Debug, Display, Clone, PartialEq)]
+pub enum ReceiveMessage {
+    Text(String),
+    Ping(Vec<u8>),
+    Pong(Vec<u8>),
+}
 
 
 
@@ -249,7 +255,7 @@ where
         */
     }
 
-    pub async fn receive_text(&mut self) -> Result<String, String> {
+    pub async fn receive_text(&mut self) -> Result<ReceiveMessage, String> {
         loop {
             let message = self.read_stream.as_mut().unwrap().next().await;
 
@@ -268,17 +274,19 @@ where
 
             match message {
                 Message::Text(t) => {
-                    return Ok(t);
+                    return Ok(ReceiveMessage::Text(t));
                 }
                 Message::Binary(b) => {
                     log::debug!("BINARY: {:?}", b);
                 }
                 Message::Ping(p) => {
                     log::debug!("<PING<: {:?}", p);
-                    self.send_pong(p).await;
+                    self.send_pong(p.clone()).await;
+                    return Ok(ReceiveMessage::Ping(p));
                 }
                 Message::Pong(p) => {
                     log::debug!("<PONG<: {:?}", p);
+                    return Ok(ReceiveMessage::Pong(p));
                 }
                 Message::Close(c) => {
                     log::debug!("CLOSE: {:?}", c);
@@ -419,7 +427,7 @@ where
         }
     }
 
-    pub async fn open_stream<'a>(&'a mut self) -> impl Stream<Item = Result<String, String>> + 'a {
+    pub async fn open_stream<'a>(&'a mut self) -> impl Stream<Item = Result<ReceiveMessage, String>> + 'a {
         stream! {
             loop {
                 let message = self.receive_text().await;
@@ -428,7 +436,7 @@ where
         }
     }
 
-    pub async fn receive_text(&mut self) -> Result<String, String> {
+    pub async fn receive_text(&mut self) -> Result<ReceiveMessage, String> {
         let client = self.client.as_mut();
         if client.is_none() {
             log::info!("Try reconnect");
@@ -474,7 +482,10 @@ where
                 }
 
                 let m = message.unwrap();
-                self.last_message = m.clone();
+
+                if let ReceiveMessage::Text(text) = m.clone() {
+                    self.last_message = text;
+                }
 
                 self.sync_records += 1;
 
@@ -503,22 +514,25 @@ where
 
                     let message = message.unwrap();
 
-                    if message == self.last_message {
-                        log::debug!(
-                            "SYNC complete: {} / {} ({})",
-                            message,
-                            self.last_message,
-                            self.sync_records
-                        );
-                        self.last_message = "".to_string();
-                        self.sync_mode = false;
-                        self.sync_records = 0;
-
-                        break;
+                    if let ReceiveMessage::Text(m) = message {
+                        log::debug!("SYNC: {}", m);
+                        if m == self.last_message {
+                            log::debug!(
+                                "SYNC complete: {} / {} ({})",
+                                m,
+                                self.last_message,
+                                self.sync_records
+                            );
+                            self.last_message = "".to_string();
+                            self.sync_mode = false;
+                            self.sync_records = 0;
+    
+                            break;
+                        }
                     }
 
                     if self.sync_records == 0 {
-                        log::warn!("SYNC timeup: {} / {}", message, self.last_message);
+                        log::warn!("SYNC timeup: {}", self.last_message);
                         self.last_message = "".to_string();
                         self.sync_mode = false;
                         self.sync_records = 0;
@@ -534,7 +548,7 @@ where
         return self._receive_message().await;
     }
 
-    async fn _receive_message(&mut self) -> Result<String, String> {
+    async fn _receive_message(&mut self) -> Result<ReceiveMessage, String> {
         let mut websocket = self.client.as_mut();
         if websocket.is_none() {
             log::warn!("No websocket, try reconnect");

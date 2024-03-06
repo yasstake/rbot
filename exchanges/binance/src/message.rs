@@ -977,16 +977,18 @@ impl BinanceExecutionReport {
     */
 
 
-/*
+
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
-pub enum BinanceUserStreamMessage {
+pub enum BinanceUserWsMessage {
     outboundAccountPosition(BinanceAccountUpdate),
     balanceUpdate(BinanceBalanceUpdate),
     executionReport(BinanceExecutionReport),
 }
 
+
+/*
 impl BinanceUserStreamMessage {
     pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
         let mut message = MarketMessage::new();
@@ -1128,24 +1130,6 @@ pub struct BinanceAccountInformation {
 
 #[pymethods]
 impl BinanceAccountInformation {
-    pub fn __getitem__(&self, asset: String) -> BinanceAccountBalance {
-        for balance in &self.balances {
-            if balance.asset.to_uppercase() == asset.to_uppercase() {
-                return balance.clone();
-            }
-        }
-
-        BinanceAccountBalance {
-            asset: "".to_string(),
-            free: dec![0.0],
-            locked: dec![0.0],
-        }
-    }
-
-    pub fn __repr__(&self) -> String {
-        serde_json::to_string(self).unwrap()
-        // format!("{:?}", self)
-    }
 
     pub fn into_coins(&self) -> AccountCoins {
         let mut coins = AccountCoins::new();
@@ -1166,37 +1150,6 @@ impl BinanceAccountInformation {
     
 }
 
-#[pyclass]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BinanceAccountBalances {
-    #[pyo3(get)]
-    pub balances: Vec<BinanceAccountBalance>,
-}
-
-#[pymethods]
-impl BinanceAccountBalances {
-    /*
-        #[getter]
-        pub fn __getitem__(&self, asset: String) -> BinanceAccountBalance {
-            print!("asset: {}", asset);
-
-            for balance in &self.balances {
-                if balance.asset == asset {
-                    return balance.clone();
-                }
-            }
-
-            BinanceAccountBalance {
-                asset: "".to_string(),
-                free: dec![0.0],
-                locked: dec![0.0],
-            }
-        }
-    */
-    pub fn __repr__(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-}
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize, Clone)]
