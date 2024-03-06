@@ -17,7 +17,6 @@ use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
 
 
-use binance::{BinanceConfig};
 
 
 /*
@@ -88,7 +87,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // Binance
     //m.add_class::<Binance>()?;
     //m.add_class::<BinanceMarket>()?;
-    m.add_class::<BinanceConfig>()?;
+    // m.add_class::<BinanceConfig>()?;
     
 
     // ByBit

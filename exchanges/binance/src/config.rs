@@ -44,9 +44,9 @@ impl BinanceServerConfig {
         .to_string();
 
         let private_ws_server = if production {
-            "wss://stream.binance.com:9443/ws"            
+            "wss://stream.binance.com:9443"            
         } else {
-            "wss://testnet.binance.vision/ws"
+            "wss://testnet.binance.vision"
         }
         .to_string();
 

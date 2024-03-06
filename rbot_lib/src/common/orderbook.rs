@@ -15,8 +15,8 @@ use polars_core::{
 use pyo3::{pyclass, pyfunction};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::Deserialize;
-use serde_derive::Serialize;
+
+use serde_derive::{Deserialize, Serialize};
 
 use crate::common::MarketConfig;
 
