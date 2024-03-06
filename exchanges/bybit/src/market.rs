@@ -1,4 +1,4 @@
-// Copyright(c) 2022-2023. yasstake. All rights reserved.
+// Copyright(c) 2022-2024. yasstake. All rights reserved.
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(unused)]
@@ -69,7 +69,7 @@ impl Bybit {
 
         return Bybit {
             enable_order: false,
-            server_config: server_config.clone(),
+            server_config: server_config,
             user_handler: None,
         };
     }
@@ -223,7 +223,7 @@ impl BybitMarket {
     #[new]
     pub fn new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BybitMarket::new");
-        BLOCK_ON(async { Self::async_new(server_config, config).await })
+        BLOCK_ON(async { Self::async_new(server_config, config).await.unwrap() })
     }
     #[getter]
     fn get_config(&self) -> MarketConfig {
@@ -328,11 +328,6 @@ impl BybitMarket {
     }
 
     #[getter]
-    fn get_market_config(&self) -> MarketConfig {
-        MarketImpl::get_market_config(self)
-    }
-
-    #[getter]
     fn get_running(&self) -> bool {
         MarketImpl::get_running(self)
     }
@@ -393,33 +388,40 @@ impl BybitMarket {
 }
 
 impl BybitMarket {
-    pub async fn async_new(server_config: &BybitServerConfig, config: &MarketConfig) -> Self {
-        let db = TradeTable::open(&Self::make_db_path(
+    pub async fn async_new(server_config: &BybitServerConfig, config: &MarketConfig) -> anyhow::Result<Self> {
+        let db_path = Self::make_db_path(
             &server_config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
             &server_config.db_base_dir,
-        ));
+        );
 
-        if db.is_err() {
-            log::error!("Error in TradeTable::open: {:?}", db);
-        }
+        let db = TradeTable::open(&db_path)
+              .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
-        return BybitMarket {
+        let mut market =BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
-            db: Arc::new(Mutex::new(db.unwrap())),
+            db: Arc::new(Mutex::new(db)),
             board: Arc::new(RwLock::new(OrderBook::new(server_config, &config))),
             public_handler: None,
         };
+
+        market.cache_all_data().with_context(|| format!("Error in cache_all_data"))?;
+
+        Ok(market)
     }
 }
 
 impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     fn get_config(&self) -> MarketConfig {
         self.config.clone()
+    }
+
+    fn get_server_config(&self) -> BybitServerConfig {
+        self.server_config.clone()
     }
 
     fn get_exchange_name(&self) -> String {
@@ -492,14 +494,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 
     fn reflesh_order_book(&mut self) {
         todo!()
-    }
-
-    fn get_market_config(&self) -> MarketConfig {
-        self.config.clone()
-    }
-
-    fn get_server_config(&self) -> BybitServerConfig {
-        self.server_config.clone()
     }
 
     fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
