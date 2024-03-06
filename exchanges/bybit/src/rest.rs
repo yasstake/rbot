@@ -98,7 +98,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             config.board_depth
         );
 
-        let r = Self::rest_get(&server, path, &params)
+        let r = Self::get(&server, path, &params)
             .await
             .with_context(|| {
                 format!(
@@ -129,7 +129,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         );
 
 
-        let r = Self::rest_get(server, path, &params)
+        let r = Self::get(server, path, &params)
             .await
             .with_context(|| {
                 format!(
@@ -480,7 +480,7 @@ config: &MarketConfig,
 }
 
 impl BybitRestApi {
-    async fn rest_get(
+    async fn get(
         server: &BybitServerConfig,
         path: &str,
         params: &str,
@@ -601,7 +601,7 @@ impl BybitRestApi {
             1000 // max records.
         );
 
-        let r = Self::rest_get(server, path, &params).await;
+        let r = Self::get(server, path, &params).await;
 
         if r.is_err() {
             let r = r.unwrap_err();
