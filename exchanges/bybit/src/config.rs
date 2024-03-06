@@ -17,9 +17,7 @@ pub struct BybitServerConfig {
     pub private_ws: String,
     pub db_base_dir: String,
     pub history_web_base: String,
-    //#[serde(serialize_with = "to_mask_string")]
     api_key: SecretString,
-    //#[serde(serialize_with = "to_mask_string")]
     api_secret: SecretString,
 }
 
@@ -143,7 +141,7 @@ impl BybitConfig {
     pub fn BTCUSDT() -> MarketConfig {
         MarketConfig {
             price_unit: dec![0.1],
-            price_scale: 3,
+            price_scale: 2,
             size_unit: dec![0.001],
             size_scale: 4,
             maker_fee: dec![0.00_01],
