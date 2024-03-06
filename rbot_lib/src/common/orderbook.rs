@@ -127,7 +127,7 @@ pub fn get_orderbook_bin(path: &str) -> anyhow::Result<Vec<u8>> {
     Ok(transfer.to_vec())
 }
 
-
+#[pyfunction]
 pub fn get_orderbook(path: &str) -> anyhow::Result<OrderBook> {
     ALL_BOARD
         .lock()

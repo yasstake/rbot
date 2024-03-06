@@ -405,7 +405,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
     }
 
     fn get_history_web_base_url(&self) -> String {
-        todo!()
+        self.server_config.history_web_base.clone()
     }
 
     fn get_latest_archive_date(&self) -> anyhow::Result<rbot_lib::common::MicroSec> {
@@ -413,7 +413,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
     }
 
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
-        todo!()
+        self.board.clone()
     }
 
     fn reflesh_order_book(&mut self) {
