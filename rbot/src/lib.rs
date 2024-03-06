@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod test;
 
+use binance::{Binance, BinanceConfig};
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
     get_orderbook_list,
@@ -15,6 +16,7 @@ use rbot_lib::common::{
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 
 use bybit::{Bybit, BybitConfig};
+
 
 
 
@@ -82,12 +84,11 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
 
     //m.add_class::<Broadcast>()?;
     //m.add_class::<BroadcastMessage>()?;
-    /*
+    
     // Binance
     m.add_class::<Binance>()?;
-    m.add_class::<BinanceMarket>()?;
     m.add_class::<BinanceConfig>()?;
-    */
+    
 
     // ByBit
     m.add_class::<Bybit>()?;

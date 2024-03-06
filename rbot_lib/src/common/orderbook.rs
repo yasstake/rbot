@@ -15,8 +15,8 @@ use polars_core::{
 use pyo3::{pyclass, pyfunction};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::Deserialize;
-use serde_derive::Serialize;
+
+use serde_derive::{Deserialize, Serialize};
 
 use crate::common::MarketConfig;
 
@@ -122,11 +122,7 @@ pub fn get_orderbook_bin(path: &str) -> anyhow::Result<Vec<u8>> {
         .get(&path.to_string())
         .ok_or_else(|| anyhow::anyhow!("orderbook path=({})not found", path))?;
 
-    let (bids, asks) = board.get_board_vec()?;
-    let transfer = BoardTransfer {
-        bids: bids,
-        asks: asks,
-    };
+    let transfer = board.get_board_trasnfer();
 
     Ok(transfer.to_vec())
 }
@@ -151,26 +147,34 @@ pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
     board.get_board()
 }
 */
-
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BoardTransfer {
+    pub last_update_time: MicroSec,
+    pub last_update_id: u64,
     pub bids: Vec<BoardItem>,
     pub asks: Vec<BoardItem>,
+    pub snapshot: bool,
 }
 
 impl BoardTransfer {
     pub fn new() -> Self {
         BoardTransfer {
+            last_update_time: 0,
+            last_update_id: 0,
             bids: vec![],
             asks: vec![],
+            snapshot: false,
         }
     }
 
     pub fn from_orderbook(order_book: &OrderBookRaw) -> Self {
         BoardTransfer {
+            last_update_time: order_book.last_update_time,
+            last_update_id: order_book.last_update_id,
             bids: order_book.bids.get(),
             asks: order_book.asks.get(),
+            snapshot: true
         }
     }
 
@@ -226,7 +230,7 @@ impl BoardTransfer {
 
 /// 板上の1行を表す。（価格＆数量）
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BoardItem {
     #[serde(deserialize_with = "string_to_decimal")]
     pub price: Decimal,
@@ -343,7 +347,8 @@ impl Board {
 #[pyclass]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderBookRaw {
-    pub snapshot: bool, // only use for message.
+    pub last_update_time: MicroSec,
+    pub last_update_id: u64,
     pub bids: Board,
     pub asks: Board,
 }
@@ -351,7 +356,8 @@ pub struct OrderBookRaw {
 impl OrderBookRaw {
     pub fn new(max_depth: u32) -> Self {
         OrderBookRaw {
-            snapshot: false,
+            last_update_id: 0,
+            last_update_time: 0,
             bids: Board::new(max_depth, false),
             asks: Board::new(max_depth, true),
         }
@@ -388,18 +394,24 @@ impl OrderBookRaw {
         self.bids.get()
     }
 
-    pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
-        if force {
+    pub fn update(&mut self, board_transfer: &BoardTransfer) {
+        self.last_update_time = board_transfer.last_update_time;
+        self.last_update_id = board_transfer.last_update_id;
+
+        if board_transfer.snapshot {
             self.clear();
         }
 
-        for item in bids_diff {
+        for item in &board_transfer.bids {
             self.bids.set(item.price, item.size);
         }
 
-        for item in asks_diff {
+        for item in &board_transfer.asks {
             self.asks.set(item.price, item.size);
         }
+
+        self.bids.clip_depth();
+        self.asks.clip_depth();
     }
 }
 
@@ -445,7 +457,7 @@ impl OrderBook {
         {
             let mut board_lock = board.lock().unwrap();
             let transfer = BoardTransfer::from_vec(bin);
-            board_lock.update(&transfer.bids, &transfer.asks, true);
+            board_lock.update(&transfer);
         }
 
         Ok(OrderBook {
@@ -460,15 +472,15 @@ impl OrderBook {
         self.board.lock().unwrap().clear();
     }
 
-    pub fn to_binary(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn get_board_trasnfer(&self) -> BoardTransfer {
         let board = self.board.lock().unwrap();
-        let (bids, asks) = (board.bids.get(), board.asks.get());
-        let transfer = BoardTransfer {
-            bids: bids,
-            asks: asks,
-        };
+        BoardTransfer::from_orderbook(&board)
+    }
 
-        Ok(transfer.to_vec())
+    pub fn to_binary(&self) -> anyhow::Result<Vec<u8>> {
+        let board_transfer = self.get_board_trasnfer();
+
+        Ok(board_transfer.to_vec())
     }
 
     pub fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
@@ -508,11 +520,11 @@ impl OrderBook {
         self.board.lock().unwrap().get_edge_price()
     }
 
-    pub fn update(&mut self, bids_diff: &Vec<BoardItem>, asks_diff: &Vec<BoardItem>, force: bool) {
+    pub fn update(&mut self, board_transfer: &BoardTransfer) {
         self.board
             .lock()
             .unwrap()
-            .update(bids_diff, asks_diff, force);
+            .update(board_transfer);
     }
 
     pub fn dry_market_order(
@@ -659,8 +671,10 @@ mod board_test {
 
         let mut b = OrderBookRaw::new(0);
 
-        b.update(
-            &vec![
+        let board_transfer = BoardTransfer{
+            last_update_time: 0,
+            last_update_id: 0,
+            bids: vec![
                 BoardItem {
                     price: dec![10.0],
                     size: dec![0.01],
@@ -670,7 +684,7 @@ mod board_test {
                     size: dec![0.01],
                 },
             ],
-            &vec![
+            asks: vec![
                 BoardItem {
                     price: dec![10.0],
                     size: dec![0.01],
@@ -680,8 +694,10 @@ mod board_test {
                     size: dec![0.01],
                 },
             ],
-            false,
-        );
+            snapshot: true
+        };
+
+        b.update(&board_transfer);
 
         let transfer = BoardTransfer::from_orderbook(&b);
 

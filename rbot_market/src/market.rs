@@ -643,8 +643,6 @@ where
         Ok(edge_price)
     }
 
-    fn get_market_config(&self) -> MarketConfig;
-
     fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
@@ -658,9 +656,6 @@ where
     ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send where Self: Sync {async {
         T::get_recent_trades(&self.get_server_config(), market_config).await
     } }
-
-
-
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();

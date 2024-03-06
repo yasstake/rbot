@@ -12,6 +12,7 @@ use super::order::Order;
 use super::order::Trade;
 use super::AccountCoins;
 use super::AccountPair;
+use super::BoardTransfer;
 use super::OrderBookRaw;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,7 +74,7 @@ pub enum MultiMarketMessage {
     Trade(Vec<Trade>),
     Order(Vec<Order>),
     Account(AccountCoins),
-    Orderbook(OrderBookRaw),
+    Orderbook(BoardTransfer),
     Message(String),
     Control(ControlMessage),
 }
