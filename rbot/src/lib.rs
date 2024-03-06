@@ -8,6 +8,7 @@ use binance::{Binance, BinanceConfig};
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::common::{
     get_orderbook_list,
+    get_orderbook,
     init_debug_log, init_log, time_string, 
     AccountPair, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
 };
@@ -53,6 +54,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_debug_log, m)?)?;
 
     m.add_function(wrap_pyfunction!(get_orderbook_list, m)?)?;
+    m.add_function(wrap_pyfunction!(get_orderbook, m)?)?;
 
     // time util
     m.add_function(wrap_pyfunction!(time_string, m)?)?;
