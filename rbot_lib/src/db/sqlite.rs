@@ -733,8 +733,18 @@ impl TradeTable {
                 // no cache / update all
                 self.load_df(start_time, end_time)?;
 
-                let df_start_time = start_time_df(&self.cache_df).unwrap();
-                let df_end_time = end_time_df(&self.cache_df).unwrap();
+                let df_start_time = if let Some(t) = start_time_df(&self.cache_df) {
+                    t
+                } else {
+                    return Ok(());
+                };
+
+                let df_end_time = if let Some(t) = end_time_df(&self.cache_df) {
+                    t
+                } else {
+                    return Ok(());
+                };
+
 
                 // update ohlcv
                 self.cache_ohlcvv = ohlcvv_df(

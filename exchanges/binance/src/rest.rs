@@ -163,8 +163,8 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
             let category = category.to_lowercase();
             if category == "spot" {
             return format!(
-                "/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-                category, symbol, symbol, yyyy, mm, dd
+                "{}/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
+                history_web_base, category, symbol, symbol, yyyy, mm, dd
             );
         }
         else {
