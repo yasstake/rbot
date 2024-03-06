@@ -8,13 +8,15 @@ use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
 use polars_core::export::num::FromPrimitive;
 use rust_decimal::Decimal;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de, Deserialize as _, Deserializer, Serialize, Serializer};
+use serde_derive::Deserialize;
 use serde_json::Value;
 use sha2::Sha256;
 use std::{fmt, io::Write, ops::Deref};
 use anyhow::anyhow;
 
 use super::env_rbot_db_root;
+
 
 pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
     if let Ok(path) = env_rbot_db_root() {
@@ -153,7 +155,7 @@ where
     serializer.serialize_str(&mask)
 }
 
-pub fn hmac_sign(secret_key: &String, message: &String) -> String {
+pub fn hmac_sign(secret_key: &str, message: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret_key.as_bytes())
         .expect("HMAC can take key of any size");
     mac.update(message.as_bytes());

@@ -412,6 +412,10 @@ impl AccountCoins {
         return AccountCoins { coins: Vec::new() };
     }
 
+    pub fn push(&mut self, coin: Coin) {
+        self.coins.push(coin);
+    }
+
     pub fn append(&mut self, mut coins: AccountCoins) {
         self.coins.append(&mut coins.coins);
     }

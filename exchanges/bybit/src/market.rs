@@ -623,14 +623,9 @@ impl BybitMarket {
                             }
                         }
                     }
-                    MultiMarketMessage::Orderbook(ob) => {
-                        let board = BoardTransfer::from_orderbook(&ob);
-                        let snapshot = ob.snapshot;
-
-                        {
+                    MultiMarketMessage::Orderbook(board) => {
                             let mut b = orderbook.write().unwrap();
-                            b.update(&board.bids, &board.asks, snapshot);
-                        }
+                            b.update(&board);
                     }
                     MultiMarketMessage::Control(control) => {
                         // TODO: alert or recovery.
