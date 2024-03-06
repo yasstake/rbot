@@ -594,12 +594,11 @@ pub async fn do_rest_request(
     let response = request_builder.send().await.with_context(|| format!("URL get error {url:}"))?;
 
     log::debug!(
-        "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
+        "Response code = {} / content size {:?} / method({:?}) / URL = {} ",
         response.status().as_str(),
         response.content_length(),
         method,
         url,
-        body
     );
 
     if response.status().as_str() != "200" {
@@ -613,7 +612,11 @@ pub async fn do_rest_request(
         ));
     }
 
-    Ok(response.text().await?)
+    let body = response.text().await.with_context(|| format!("response text error"))?;
+
+    log::debug!("body{}", body);
+
+    Ok(body)
 }
 
 pub async fn rest_get(

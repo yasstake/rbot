@@ -1016,21 +1016,6 @@ impl BinanceMarket {
         }
     }
 
-    pub fn make_historical_data_url_timestamp(config: &BinanceConfig, t: MicroSec) -> String {
-        let timestamp = to_naive_datetime(t);
-
-        let yyyy = timestamp.year() as i64;
-        let mm = timestamp.month() as i64;
-        let dd = timestamp.day() as i64;
-
-        let symbol = &config.market_config.trade_symbol;
-
-        // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
-        return format!(
-            "{}/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-            config.history_web_base, symbol, symbol, yyyy, mm, dd
-        );
-    }
 
     pub fn download_log(
         &mut self,
@@ -1058,49 +1043,6 @@ impl BinanceMarket {
         }
     }
 
-    fn rec_to_trade(rec: &StringRecord) -> Trade {
-        let id = rec.get(0).unwrap_or_default().to_string();
-        let price = rec
-            .get(1)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let price = Decimal::from_f64(price).unwrap_or_default();
-
-        let size = rec
-            .get(2)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let size = Decimal::from_f64(size).unwrap_or_default();
-
-        let timestamp = rec
-            .get(4)
-            .unwrap_or_default()
-            .parse::<MicroSec>()
-            .unwrap_or_default()
-            * 1_000;
-
-        let is_buyer_make = rec.get(5).unwrap_or_default();
-        let order_side = match is_buyer_make {
-            "True" => OrderSide::Buy,
-            "False" => OrderSide::Sell,
-            _ => OrderSide::Unknown,
-        };
-
-        let trade = Trade::new(
-            timestamp,
-            order_side,
-            price,
-            size,
-            LogStatus::FixArchiveBlock,
-            &id,
-        );
-
-        return trade;
-    }
 
     fn get_latest_archive_date(&self) -> Result<MicroSec, String> {
         let f = |date: MicroSec| -> String {

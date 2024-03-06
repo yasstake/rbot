@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bybit = {path = "../exchanges/bybit"}
+binance = {path = "../exchanges/binance"}
 
 rbot_lib = {path="../rbot_lib"}
 rbot_session = {path="../rbot_session"}
