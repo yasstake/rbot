@@ -2,7 +2,12 @@
 #![allow(non_camel_case_types)]
 
 use pyo3::{pyclass, pymethods};
-use rbot_lib::common::{msec_to_microsec, orderside_deserialize, orderstatus_deserialize, ordertype_deserialize, string_to_decimal, string_to_f64, AccountCoins, BoardItem, BoardTransfer, Coin, LogStatus, MarketConfig, MarketMessage, MultiMarketMessage, Order, OrderBookRaw, OrderSide, OrderStatus, OrderType, Trade};
+use rbot_lib::common::{
+    msec_to_microsec, orderside_deserialize, orderstatus_deserialize, ordertype_deserialize,
+    string_to_decimal, string_to_f64, AccountCoins, BoardItem, BoardTransfer, Coin, ControlMessage,
+    LogStatus, MarketConfig, MarketMessage, MultiMarketMessage, Order, OrderBookRaw, OrderSide,
+    OrderStatus, OrderType, Trade,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
@@ -10,11 +15,34 @@ use std::{ops::Mul, str::FromStr};
 
 use crate::BinanceConfig;
 
-
 pub type BinanceMessageId = u64;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BinanceWsRawMessage {
+    message(BinancePublicWsMessage),
+    reply(BinanceSubscriptionReply),
+}
+
+impl Into<BinancePublicWsMessage> for BinanceWsRawMessage {
+    fn into(self) -> BinancePublicWsMessage {
+        match self {
+            BinanceWsRawMessage::message(m) => m,
+            BinanceWsRawMessage::reply(r) => BinancePublicWsMessage::Control(
+                if let Some(msg) = r.result {
+                    msg
+                }
+                else {
+                    "None".to_string()
+                }
+            )
+        }
+    }
+}
+
+
 #[pyclass]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceSubscriptionReply {
     pub result: Option<String>,
     pub id: u64,
@@ -27,6 +55,8 @@ pub enum BinancePublicWsMessage {
     Trade(BinanceWsTradeMessage),
     #[serde(rename = "depthUpdate")]
     BoardUpdate(BinanceWsBoardUpdate),
+    #[serde(rename = "control")]
+    Control(String),
 }
 
 impl BinancePublicWsMessage {
@@ -37,10 +67,7 @@ impl BinancePublicWsMessage {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
-
 }
-
-
 
 impl Into<MultiMarketMessage> for BinancePublicWsMessage {
     fn into(self) -> MultiMarketMessage {
@@ -50,8 +77,8 @@ impl Into<MultiMarketMessage> for BinancePublicWsMessage {
 
                 let t = trade.to_trade();
                 trades.push(t);
-                MultiMarketMessage::Trade (trades)
-            },
+                MultiMarketMessage::Trade(trades)
+            }
             BinancePublicWsMessage::BoardUpdate(board_update) => {
                 let mut board: BoardTransfer = board_update.into();
                 // TODO: implment
@@ -59,12 +86,14 @@ impl Into<MultiMarketMessage> for BinancePublicWsMessage {
 
                 MultiMarketMessage::Orderbook(board)
             }
+            BinancePublicWsMessage::Control(m) => MultiMarketMessage::Control(ControlMessage {
+                status: true,
+                operation: "".to_string(),
+                message: m,
+            }),
         }
     }
 }
-
-
-
 
 #[pyclass]
 //  {"result":null,"id":1}
@@ -223,7 +252,6 @@ impl Into<BoardTransfer> for BinanceWsBoardUpdate {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 // ["26127.87000000","20.79393000"]
 #[pyclass]
@@ -333,11 +361,7 @@ impl BinanceOrderFill {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
-
-
-        
 }
-
 
 #[allow(non_snake_case)]
 #[pyclass]
@@ -422,7 +446,6 @@ impl BinanceOrderResponse {
         orders
     }
 }
-
 
 pub fn binance_order_response_vec_to_orders(
     config: &MarketConfig,
@@ -511,7 +534,6 @@ impl BinanceCancelOrderResponse {
         )
     }
 }
-
 
 /*
 BiannceListOrderResponse will parse json below
@@ -802,181 +824,177 @@ impl BinanceExecutionReport {
         serde_json::to_string(&self).unwrap()
     }
 
-        fn to_order(&self, config: &MarketConfig) -> Order {
-            let mut order = Order::new(
-                &config.trade_category,
-                &self.symbol,
-                msec_to_microsec(self.time),
-                &self.order_id.to_string(),
-                &self.client_order_id,
-                self.order_side,
-                self.order_type,
-                self.current_order_status,
-                self.order_price,
-                self.order_quantity,
-            );
-    
-            order.status = self.current_order_status;
-            order.transaction_id = self.trade_id.to_string();
-            order.update_time = msec_to_microsec(self.transaction_time);
-            order.execute_price = self.last_executed_price;
-            order.execute_size = self.last_executed_quantity;
-            order.remain_size = self.order_quantity - self.cumulative_filled_quantity;
-            order.quote_vol = self.last_quote_quantity;
-            order.commission = self.commission_amount;
-            order.commission_asset = self.commission_asset.clone().unwrap_or_default();
-            order.is_maker = self.is_maker;
-    
-            if self.order_reject_reason != "NONE" {
-                order.message = self.order_reject_reason.clone();
-            }
-    
-            log::debug!("order: {:?}", order);
-    
-            order
+    fn to_order(&self, config: &MarketConfig) -> Order {
+        let mut order = Order::new(
+            &config.trade_category,
+            &self.symbol,
+            msec_to_microsec(self.time),
+            &self.order_id.to_string(),
+            &self.client_order_id,
+            self.order_side,
+            self.order_type,
+            self.current_order_status,
+            self.order_price,
+            self.order_quantity,
+        );
+
+        order.status = self.current_order_status;
+        order.transaction_id = self.trade_id.to_string();
+        order.update_time = msec_to_microsec(self.transaction_time);
+        order.execute_price = self.last_executed_price;
+        order.execute_size = self.last_executed_quantity;
+        order.remain_size = self.order_quantity - self.cumulative_filled_quantity;
+        order.quote_vol = self.last_quote_quantity;
+        order.commission = self.commission_amount;
+        order.commission_asset = self.commission_asset.clone().unwrap_or_default();
+        order.is_maker = self.is_maker;
+
+        if self.order_reject_reason != "NONE" {
+            order.message = self.order_reject_reason.clone();
         }
 
+        log::debug!("order: {:?}", order);
+
+        order
+    }
 }
 
+/*
+fn from(order: &BinanceExecutionReport) -> Self {
+    let order_id = order.order_id.to_string();
+    let client_order_id = order.client_order_id.clone();
 
-    /*
-    fn from(order: &BinanceExecutionReport) -> Self {
-        let order_id = order.order_id.to_string();
-        let client_order_id = order.client_order_id.clone();
+    let order_side:OrderSide = order.order_side;
+    let order_price: Decimal = order.order_price;
+    let order_size:Decimal = order.order_quantity;
+    let order_type: OrderType = order.order_type;
+    let order_status = order.current_order_status;
+    let order_quote = order_price * order_size;
 
-        let order_side:OrderSide = order.order_side;
-        let order_price: Decimal = order.order_price;
-        let order_size:Decimal = order.order_quantity;
-        let order_type: OrderType = order.order_type;
-        let order_status = order.current_order_status;
-        let order_quote = order_price * order_size;
+    let trade_id = order.trade_id.to_string();
+    //let create_time = binance_to_microsec(order.O);
+    let update_time = binance_to_microsec(order.time);
+    let execute_size = order.last_executed_quantity;
+    let execute_price = order.last_executed_price;
+    let execute_total = order.cumulative_filled_quantity;
+    let commission_amount = order.commission_amount;
+    let commition_asset = order.commission_asset.clone().unwrap_or_default();
+    let ismaker = order.is_maker;
 
-        let trade_id = order.trade_id.to_string();
-        //let create_time = binance_to_microsec(order.O);
-        let update_time = binance_to_microsec(order.time);
-        let execute_size = order.last_executed_quantity;
-        let execute_price = order.last_executed_price;
-        let execute_total = order.cumulative_filled_quantity;
-        let commission_amount = order.commission_amount;
-        let commition_asset = order.commission_asset.clone().unwrap_or_default();
-        let ismaker = order.is_maker;
-
-        let remain_size =
-            if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
-                Decimal::from(0)
-            } else {
-                order.order_quantity - execute_total
-            };
-
-        let fills = OrderFill {
-            transaction_id: trade_id,
-            update_time: update_time,
-            price: execute_price,
-            filled_size: execute_size,
-            quote_vol: execute_price * execute_size,
-            commission: order.commission_amount,
-            commission_asset: commition_asset,
-            maker: ismaker,
+    let remain_size =
+        if order_status == OrderStatus::Filled || order_status == OrderStatus::Canceled {
+            Decimal::from(0)
+        } else {
+            order.order_quantity - execute_total
         };
 
-        let mut account_change = AccountChange::new();
+    let fills = OrderFill {
+        transaction_id: trade_id,
+        update_time: update_time,
+        price: execute_price,
+        filled_size: execute_size,
+        quote_vol: execute_price * execute_size,
+        commission: order.commission_amount,
+        commission_asset: commition_asset,
+        maker: ismaker,
+    };
 
-        match order_status {
-            OrderStatus::New => {
-                // in new order, asset is locked.
-                if order_side == OrderSide::Buy {
-                    let lock_size = order_size * order.order_price;
-                    account_change.lock_home_change = lock_size;
-                    account_change.free_home_change = - lock_size;
-                    // TODO: may be need to add fee
-                }
-                else if order_side == OrderSide::Sell {
-                    let lock_size = order_size;
-                    account_change.lock_foreign_change = lock_size;
-                    account_change.free_foreign_change = - lock_size;
-                    // TODO: may be need to add fee
-                }
+    let mut account_change = AccountChange::new();
+
+    match order_status {
+        OrderStatus::New => {
+            // in new order, asset is locked.
+            if order_side == OrderSide::Buy {
+                let lock_size = order_size * order.order_price;
+                account_change.lock_home_change = lock_size;
+                account_change.free_home_change = - lock_size;
+                // TODO: may be need to add fee
             }
-
-            OrderStatus::PartiallyFilled | OrderStatus::Filled => {
-                // lock is free, and foreing sizie is change.
-                if order_side == OrderSide::Buy {
-                    let unlock_size = execute_size * execute_price;
-                    if order.is_maker {
-                        account_change.lock_home_change = - unlock_size;
-                    }
-                    account_change.home_change = - unlock_size;
-
-                    account_change.foreign_change = execute_size;
-                }
-                else if order_side == OrderSide::Sell {
-                    let unlock_size = execute_size;
-
-                    if order.is_maker {
-                        account_change.lock_foreign_change = - unlock_size;
-                    }
-                    account_change.foreign_change = - unlock_size;
-
-                    account_change.home_change = execute_size * execute_price;
-
-                }
+            else if order_side == OrderSide::Sell {
+                let lock_size = order_size;
+                account_change.lock_foreign_change = lock_size;
+                account_change.free_foreign_change = - lock_size;
+                // TODO: may be need to add fee
             }
-            OrderStatus::Canceled => {
-                // lock is free
-                if order_side == OrderSide::Buy {
-                    if order.on_order_book {
-                        let unlock_size = order_size * order_price;
-                        account_change.lock_home_change = - unlock_size;
-                        account_change.free_home_change = unlock_size;
-                    }
-                }
-                else if order_side == OrderSide::Sell {
-                    if order.on_order_book {
-                        let unlock_size = order_size;
-                        account_change.lock_foreign_change = - unlock_size;
-                        account_change.free_foreign_change = unlock_size;
-                    }
-                }
-            }
-            OrderStatus::Rejected => {log::error!("Rejected: not implemented {:?}", order);},
-            OrderStatus::Expired => {log::error!("Expired: not implemented {:?}", order);},
-            OrderStatus::Error => {log::error!("Error: not implemented {:?}", order);},
         }
 
-        let order = Order::new(
-            order.symbol,
-            update_time,
-            order_id,
-            client_order_id,
-            order_side,
-            order_type,
-            order_status,
-            order_price,
-            order_size,
-        );
-        )
-        let r = Order {
-            symbol: order.symbol.clone(),
-            create_time: binance_to_microsec(order.transaction_time),
-            order_id: order.order_id.to_string(),
-            order_list_index: order.order_list_id,
-            client_order_id: order.client_order_id.clone(),
-            order_side: order_side,
-            order_type: order_type,
-            price: order.order_price,
-            size: order.order_quantity,
-            remain_size: remain_size,
-            status: order_status,
-            account_change: account_change,
-            message: "".to_string(),
-            fills: fills,
-        };
+        OrderStatus::PartiallyFilled | OrderStatus::Filled => {
+            // lock is free, and foreing sizie is change.
+            if order_side == OrderSide::Buy {
+                let unlock_size = execute_size * execute_price;
+                if order.is_maker {
+                    account_change.lock_home_change = - unlock_size;
+                }
+                account_change.home_change = - unlock_size;
 
-        return r;
+                account_change.foreign_change = execute_size;
+            }
+            else if order_side == OrderSide::Sell {
+                let unlock_size = execute_size;
+
+                if order.is_maker {
+                    account_change.lock_foreign_change = - unlock_size;
+                }
+                account_change.foreign_change = - unlock_size;
+
+                account_change.home_change = execute_size * execute_price;
+
+            }
+        }
+        OrderStatus::Canceled => {
+            // lock is free
+            if order_side == OrderSide::Buy {
+                if order.on_order_book {
+                    let unlock_size = order_size * order_price;
+                    account_change.lock_home_change = - unlock_size;
+                    account_change.free_home_change = unlock_size;
+                }
+            }
+            else if order_side == OrderSide::Sell {
+                if order.on_order_book {
+                    let unlock_size = order_size;
+                    account_change.lock_foreign_change = - unlock_size;
+                    account_change.free_foreign_change = unlock_size;
+                }
+            }
+        }
+        OrderStatus::Rejected => {log::error!("Rejected: not implemented {:?}", order);},
+        OrderStatus::Expired => {log::error!("Expired: not implemented {:?}", order);},
+        OrderStatus::Error => {log::error!("Error: not implemented {:?}", order);},
     }
-    */
 
+    let order = Order::new(
+        order.symbol,
+        update_time,
+        order_id,
+        client_order_id,
+        order_side,
+        order_type,
+        order_status,
+        order_price,
+        order_size,
+    );
+    )
+    let r = Order {
+        symbol: order.symbol.clone(),
+        create_time: binance_to_microsec(order.transaction_time),
+        order_id: order.order_id.to_string(),
+        order_list_index: order.order_list_id,
+        client_order_id: order.client_order_id.clone(),
+        order_side: order_side,
+        order_type: order_type,
+        price: order.order_price,
+        size: order.order_quantity,
+        remain_size: remain_size,
+        status: order_status,
+        account_change: account_change,
+        message: "".to_string(),
+        fills: fills,
+    };
 
+    return r;
+}
+*/
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -986,7 +1004,6 @@ pub enum BinanceUserWsMessage {
     balanceUpdate(BinanceBalanceUpdate),
     executionReport(BinanceExecutionReport),
 }
-
 
 /*
 impl BinanceUserStreamMessage {
@@ -1126,11 +1143,8 @@ pub struct BinanceAccountInformation {
     pub uid: i64,
 }
 
-
-
 #[pymethods]
 impl BinanceAccountInformation {
-
     pub fn into_coins(&self) -> AccountCoins {
         let mut coins = AccountCoins::new();
 
@@ -1147,9 +1161,7 @@ impl BinanceAccountInformation {
 
         coins
     }
-    
 }
-
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1244,8 +1256,6 @@ pub struct BinanceOrderStatus {
     selfTradePreventionMode: String,
 }
 
-
-
 pub fn binance_order_status_vec_to_orders(
     config: &MarketConfig,
     order_response: &Vec<BinanceOrderStatus>,
@@ -1298,7 +1308,6 @@ impl BinanceOrderStatus {
         // format!("{:?}", self)
     }
 }
-
 
 /*
 #[cfg(test)]

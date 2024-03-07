@@ -1,7 +1,15 @@
+// Copyright(c) 2024. yasstake. All rights reserved.
+
 use crossbeam_channel::Sender;
 use rbot_lib::common::AccountCoins;
+use rbot_lib::common::MarketMessage;
+use rbot_lib::common::MultiMarketMessage;
+use rbot_lib::common::MARKET_HUB;
 use rbot_lib::db::db_full_path;
+use rbot_lib::net::BroadcastMessage;
 use rust_decimal_macros::dec;
+use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -287,6 +295,14 @@ where
     /// Download historical log from REST API
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
 
+    fn download_archives(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        low_priority: bool,
+    ) -> anyhow::Result<i64>;
+
     /// Download historical log from REST API, between the latest data and the latest FIX data.
     /// If the latest FIX data is not found, generate psudo data from klines.
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64>;
@@ -305,9 +321,6 @@ where
 
         return db_path.to_str().unwrap().to_string();
     }
-    
-    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec>;
-
 
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
@@ -400,7 +413,7 @@ where
             let board = self.board.clone();
             let db_channel_for_after = db_channel.clone();
 
-            let udp_sender = self.udp_sender.clone();
+            let udp_sender = self.ufdp_sender.clone();
 
             let handler = tokio::task::spawn(async move {
                 loop {
@@ -615,7 +628,7 @@ where
 
         let json = {
             let lock = orderbook.read().unwrap();
-            lock.get_json(size)?            
+            lock.get_json(size)?
         };
 
         Ok(json)
@@ -623,9 +636,9 @@ where
 
     fn get_board_vec(&self) -> anyhow::Result<(Vec<BoardItem>, Vec<BoardItem>)> {
         let orderbook = self.get_order_book();
-        
+
         let (bids, asks) = {
-            let lock = orderbook.read().unwrap();            
+            let lock = orderbook.read().unwrap();
             lock.get_board_vec()?
         };
 
@@ -653,9 +666,12 @@ where
     fn download_recent_trades(
         &self,
         market_config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send where Self: Sync {async {
-        T::get_recent_trades(&self.get_server_config(), market_config).await
-    } }
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send
+    where
+        Self: Sync,
+    {
+        async { T::get_recent_trades(&self.get_server_config(), market_config).await }
+    }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
@@ -678,15 +694,12 @@ where
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
     fn start_market_stream(&mut self) -> anyhow::Result<()>;
-    // fn start_user_stream(&mut self); -> move to OrderInterface
 
-    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream>;
     fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
     ) -> anyhow::Result<MarketStream>;
-
 
     /*------------   async ----------------*/
     async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
@@ -716,66 +729,89 @@ where
         .with_context(|| format!("Error in download_archive: {:?}", date))
     }
 
-        /// Download historical data archive and store to database.
-        async fn async_download_archives(
-            &mut self,
-            ndays: i64,
-            force: bool,
-            verbose: bool,
-            low_priority: bool,
-        ) -> anyhow::Result<i64> {
-            log::info!("log download: {} days", ndays);
-            if verbose {
-                println!("log download: {} days", ndays);
-                flush_log();
-            }
-    
-            let latest_date = match self.async_get_latest_archive_date().await {
-                Ok(timestamp) => timestamp,
-                Err(_) => NOW() - DAYS(2),
-            };
-    
-            log::info!("archive latest_date: {}", time_string(latest_date));
-            if verbose {
-                println!("archive latest_date: {}", time_string(latest_date));
-                flush_log();
-            }
-    
-            let mut download_rec: i64 = 0;
-    
-            let tx = self.start_db_thread();
-    
-            for i in 0..ndays {
-                let date = latest_date - i * DAYS(1);
-    
-                if !force && self.validate_db_by_date(date)? {
-                    log::info!("{} is valid", time_string(date));
-    
-                    if verbose {
-                        println!("{} skip download", time_string(date));
-                        flush_log();
-                    }
-                    continue;
-                }
-    
-                match self
-                    .async_download_archive(&tx, date, low_priority, verbose)
-                    .await
-                {
-                    Ok(rec) => {
-                        log::info!("downloaded: {}", download_rec);
-                        download_rec += rec;
-                    }
-                    Err(e) => {
-                        log::error!("Error in download_log: {:?}", e);
-                        if verbose {
-                            println!("Error in download_log: {:?}", e);
-                        }
-                    }
-                }
-            }
-    
-            Ok(download_rec)
+    /// Download historical data archive and store to database.
+    async fn async_download_archives(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        low_priority: bool,
+    ) -> anyhow::Result<i64> {
+        log::info!("log download: {} days", ndays);
+        if verbose {
+            println!("log download: {} days", ndays);
+            flush_log();
         }
-    
+
+        let latest_date = match self.async_get_latest_archive_date().await {
+            Ok(timestamp) => timestamp,
+            Err(_) => NOW() - DAYS(2),
+        };
+
+        log::info!("archive latest_date: {}", time_string(latest_date));
+        if verbose {
+            println!("archive latest_date: {}", time_string(latest_date));
+            flush_log();
+        }
+
+        let mut download_rec: i64 = 0;
+
+        let tx = self.start_db_thread();
+
+        for i in 0..ndays {
+            let date = latest_date - i * DAYS(1);
+
+            if !force && self.validate_db_by_date(date)? {
+                log::info!("{} is valid", time_string(date));
+
+                if verbose {
+                    println!("{} skip download", time_string(date));
+                    flush_log();
+                }
+                continue;
+            }
+
+            match self
+                .async_download_archive(&tx, date, low_priority, verbose)
+                .await
+            {
+                Ok(rec) => {
+                    log::info!("downloaded: {}", download_rec);
+                    download_rec += rec;
+                }
+                Err(e) => {
+                    log::error!("Error in download_log: {:?}", e);
+                    if verbose {
+                        println!("Error in download_log: {:?}", e);
+                    }
+                }
+            }
+        }
+
+        Ok(download_rec)
+    }
+
+    async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        if verbose {
+            println!("async_download_lastest");
+            flush_log();
+        }
+
+        let server_config = self.get_server_config();
+        let config = self.get_config().clone();
+
+        let trades = T::get_recent_trades(&server_config, &config).await?;
+        let rec = trades.len() as i64;
+
+        if verbose {
+            println!("rec: {}", rec);
+            flush_log();
+        }
+
+        let tx = self.start_db_thread();
+
+        tx.send(trades)?;        
+
+        Ok(rec)
+    }
 }
