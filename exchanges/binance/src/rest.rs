@@ -1,15 +1,25 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use crate::{binance_order_response_vec_to_orders, binance_order_status_vec_to_orders, BinanceAccountInformation, BinanceCancelOrderResponse, BinanceOrderResponse, BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig, BinanceTradeMessage};
+use crate::{
+    binance_order_response_vec_to_orders, binance_order_status_vec_to_orders,
+    BinanceAccountInformation, BinanceCancelOrderResponse, BinanceOrderResponse,
+    BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig, BinanceTradeMessage,
+};
 
 use anyhow::anyhow;
 use csv::StringRecord;
-use rbot_lib::{common::{hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW}, net::{rest_delete, rest_get, rest_post, rest_put, RestApi}};
+use rbot_lib::{
+    common::{
+        hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
+        OrderSide, OrderType, ServerConfig, Trade, NOW,
+    },
+    net::{rest_delete, rest_get, rest_post, rest_put, RestApi},
+};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::Value;
 
-use anyhow::Result;
 use anyhow::Context;
+use anyhow::Result;
 
 pub struct BinanceRestApi {}
 
@@ -134,8 +144,7 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
 
         let orders: Vec<BinanceOrderStatus> = serde_json::from_value(message)?;
 
-        let orders 
-            = binance_order_status_vec_to_orders(config, &orders);
+        let orders = binance_order_status_vec_to_orders(config, &orders);
 
         Ok(orders)
     }
@@ -144,7 +153,8 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         let path = "/api/v3/account";
 
         let message = Self::get_sign(server, path, None)
-            .await.with_context(||format!("get_account error"))?;
+            .await
+            .with_context(|| format!("get_account error"))?;
 
         let account: BinanceAccountInformation = serde_json::from_value(message)?;
 
@@ -159,15 +169,14 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         mm: i64,
         dd: i64,
     ) -> String {
-            // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
-            let category = category.to_lowercase();
-            if category == "spot" {
+        // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
+        let category = category.to_lowercase();
+        if category == "spot" {
             return format!(
                 "{}/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
                 history_web_base, category, symbol, symbol, yyyy, mm, dd
             );
-        }
-        else {
+        } else {
             log::error!("Unknown category {}", category);
             return "".to_string();
         }
@@ -384,38 +393,73 @@ impl BinanceRestApi {
     }
 
     pub async fn create_listen_key(server: &BinanceServerConfig) -> anyhow::Result<String> {
-        let message = Self::post_key(server,  "/api/v3/userDataStream", "")
-            .await.with_context(||format!("create_listen_key error"))?;
-    
-            if message.get("listenKey").is_some() {
-                let listen_key = message.get("listenKey").unwrap().as_str().unwrap();
-                return Ok(listen_key.to_string());
-            } else {
-                let err_message = format!("listenKey is not found {}", message);
-                return Err(anyhow!(err_message));
-            }
+        let message = Self::post_key(server, "/api/v3/userDataStream", "")
+            .await
+            .with_context(|| format!("create_listen_key error"))?;
+
+        if message.get("listenKey").is_some() {
+            let listen_key = message.get("listenKey").unwrap().as_str().unwrap();
+            return Ok(listen_key.to_string());
+        } else {
+            let err_message = format!("listenKey is not found {}", message);
+            return Err(anyhow!(err_message));
         }
-    
+    }
+
     pub async fn extend_listen_key(server: &BinanceServerConfig, key: &str) -> anyhow::Result<()> {
         let path = format!("/api/v3/userDataStream?listenKey={}", key);
         let _message = Self::put_key(server, path.as_str(), "")
-            .await.with_context(||format!("extend_listen_key error"))?;
+            .await
+            .with_context(|| format!("extend_listen_key error"))?;
 
         Ok(())
     }
-    
-}
 
+    pub async fn get_historical_trades(
+        server: &BinanceServerConfig,
+        config: &MarketConfig,
+        from_id: i64,
+        from_time: MicroSec,
+    ) -> anyhow::Result<Vec<Trade>> {
+        let path = "/api/v3/historicalTrades";
+
+        let params = if from_id == 0 {
+            format!("symbol={}&limit=1000", config.trade_symbol)
+        } else {
+            format!(
+                "symbol={}&fromId={}&limit=1000",
+                config.trade_symbol, from_id
+            )
+        };
+
+        let result = Self::get(&server, path, &params).await?;
+
+        let binance_trades: Vec<BinanceTradeMessage> = serde_json::from_value(result)?;
+
+        let mut trades: Vec<Trade> = vec![];
+
+        for t in binance_trades {
+            let trade = t.to_trade();
+
+            if trade.time < from_time {
+                break;
+            }
+
+            trades.push(trade);
+        }
+
+        Ok(trades)
+    }
+}
 
 #[cfg(test)]
 mod binance_api_test {
+    use super::*;
     use crate::BinanceConfig;
     use rbot_lib::common::init_debug_log;
     use rust_decimal_macros::dec;
     use tokio::*;
-    use super::*;
 
-    
     #[tokio::test]
     async fn test_board_snapshot() -> anyhow::Result<()> {
         let server = BinanceServerConfig::new(false);
@@ -428,7 +472,7 @@ mod binance_api_test {
     }
 
     #[tokio::test]
-    async fn test_recent_trades() -> anyhow::Result<()>{
+    async fn test_recent_trades() -> anyhow::Result<()> {
         let server = BinanceServerConfig::new(false);
         let config = BinanceConfig::BTCUSDT();
 
@@ -453,13 +497,17 @@ mod binance_api_test {
         let config = BinanceConfig::BTCUSDT();
 
         let result = BinanceRestApi::new_order(
-                &server, &config, OrderSide::Buy, 
-                dec![50000], dec![0.001], 
-                OrderType::Limit,                
-                None).await;
+            &server,
+            &config,
+            OrderSide::Buy,
+            dec![50000],
+            dec![0.001],
+            OrderType::Limit,
+            None,
+        )
+        .await;
         println!("result: {:?}", result);
     }
-
 
     #[tokio::test]
     async fn test_open_orders() {
@@ -472,7 +520,7 @@ mod binance_api_test {
     }
 
     #[tokio::test]
-    async fn test_get_account() -> anyhow::Result<()>{
+    async fn test_get_account() -> anyhow::Result<()> {
         init_debug_log();
         let server = BinanceServerConfig::new(false);
 
@@ -492,4 +540,25 @@ mod binance_api_test {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_get_historical_trades() {
+        init_debug_log();
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+
+        let result = BinanceRestApi::get_historical_trades(&server, &config, 0, 0).await;
+        println!("result: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_historical_trades_from_id_10000() {
+        init_debug_log();
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+
+        let result = BinanceRestApi::get_historical_trades(&server, &config, 10000, 0).await;
+        println!("result: {:?}", result);
+    }
+
 }
