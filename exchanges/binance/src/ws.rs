@@ -13,6 +13,7 @@ use rbot_lib::{
 
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
+use crate::BinanceWsRawMessage;
 use crate::{BinancePublicWsMessage, BinanceServerConfig};
 
 use serde_derive::{Deserialize, Serialize};
@@ -137,14 +138,16 @@ impl BinancePublicWsClient {
     }
 
     fn parse_message(message: String) -> anyhow::Result<BinancePublicWsMessage> {
-        let m = serde_json::from_str::<BinancePublicWsMessage>(&message);
+        let m = serde_json::from_str::<BinanceWsRawMessage>(&message);
 
         if m.is_err() {
             log::warn!("Error in serde_json::from_str: {:?}", message);
             return Err(anyhow!("Error in serde_json::from_str: {:?}", message));
         }
 
-        Ok(m.unwrap())
+        let m = m.unwrap();
+
+        Ok(m.into())
     }
 
     // TODO: implement

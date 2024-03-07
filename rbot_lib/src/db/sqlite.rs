@@ -705,7 +705,7 @@ impl TradeTable {
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
 
-    pub fn update_cache_df(&mut self, start_time: MicroSec, mut end_time: MicroSec) -> anyhow::Result<()> {
+    pub fn update_cache_df(&mut self, mut start_time: MicroSec, mut end_time: MicroSec) -> anyhow::Result<()> {
         log::debug!("update_cache_df {} -> {}", start_time, end_time);
 
         let df_start_time: i64;

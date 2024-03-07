@@ -348,14 +348,12 @@ impl BybitMarket {
         verbose: bool,
         low_priority: bool,
     ) -> anyhow::Result<i64> {
-        BLOCK_ON(async {
-            MarketImpl::async_download_archives(self, ndays, force, verbose, low_priority).await
-        })
+            MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
     }
 
     #[pyo3(signature = (verbose=true))]
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { self.async_download_lastest(verbose).await })
+        MarketImpl::download_latest(self, verbose)
     }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
@@ -374,10 +372,6 @@ impl BybitMarket {
         MarketImpl::start_market_stream(self)
     }
 
-    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
-        MarketImpl::open_realtime_channel(self)
-    }
-
     fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
@@ -388,7 +382,10 @@ impl BybitMarket {
 }
 
 impl BybitMarket {
-    pub async fn async_new(server_config: &BybitServerConfig, config: &MarketConfig) -> anyhow::Result<Self> {
+    pub async fn async_new(
+        server_config: &BybitServerConfig,
+        config: &MarketConfig,
+    ) -> anyhow::Result<Self> {
         let db_path = Self::make_db_path(
             &server_config.exchange_name,
             &config.trade_category,
@@ -397,19 +394,17 @@ impl BybitMarket {
         );
 
         let db = TradeTable::open(&db_path)
-              .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
+            .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
-        let mut market =BybitMarket {
+        let mut market = BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db)),
             board: Arc::new(RwLock::new(OrderBook::new(server_config, &config))),
             public_handler: None,
         };
-
-        market.cache_all_data().with_context(|| format!("Error in cache_all_data"))?;
 
         Ok(market)
     }
@@ -496,10 +491,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         todo!()
     }
 
-    fn open_realtime_channel(&mut self) -> anyhow::Result<MarketStream> {
-        todo!()
-    }
-
     fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
@@ -509,12 +500,23 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_start_market_stream().await })
+        BLOCK_ON(async {
+            self.async_start_market_stream().await
+        })
+    }
+    
+    fn download_archives(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+        low_priority: bool,
+    ) -> anyhow::Result<i64> {
+        BLOCK_ON(async {
+            self.async_download_archives(ndays, force, verbose, low_priority).await
+        })
     }
 
-    fn get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
-        todo!()
-    }
 }
 
 impl BybitMarket {
@@ -562,7 +564,7 @@ impl BybitMarket {
             lock.start_thread()
         };
 
-        let mut orderbook = self.board.clone();
+        let orderbook = self.board.clone();
 
         let server_config = self.server_config.clone();
         let config = self.config.clone();
@@ -577,7 +579,7 @@ impl BybitMarket {
             let trade_symbol = config.trade_symbol.clone();
 
             public_ws.connect().await;
-            let mut ws_stream = public_ws.open_stream().await;
+            let ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
             loop {
