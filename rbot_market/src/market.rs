@@ -590,7 +590,7 @@ where
     ///
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>>;
 
-    fn reflesh_order_book(&mut self);
+    fn reflesh_order_book(&mut self)-> anyhow::Result<()>;
 
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
