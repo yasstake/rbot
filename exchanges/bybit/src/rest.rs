@@ -123,8 +123,8 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
 
         let params = format!(
             "category={}&symbol={}&limit={}",
-            config.trade_category.as_str(),
-            config.trade_symbol.as_str(),
+            &config.trade_category,
+            &config.trade_symbol,
             1000 // max records.
         );
 

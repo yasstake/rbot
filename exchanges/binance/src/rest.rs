@@ -8,6 +8,7 @@ use crate::{
 
 use anyhow::anyhow;
 use csv::StringRecord;
+use polars_core::utils::rayon::vec;
 use rbot_lib::{
     common::{
         hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
@@ -45,18 +46,24 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
     /// https://binance-docs.github.io/apidocs/spot/en/#recent-trades-list
     async fn get_recent_trades(
         server: &BinanceServerConfig,
-        config: &rbot_lib::common::MarketConfig,
+        config: &MarketConfig,
     ) -> anyhow::Result<Vec<Trade>> {
         let path = "/api/v3/trades";
-        let params = format!("symbol={}&limit=1000", config.trade_symbol);
+        let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
-        let messasge = Self::get(&server, path, &params)
+        let messasge = Self::get(server, path, &params)
             .await
             .with_context(|| format!("get_recent_trades error"))?;
 
         let trades: Vec<BinanceTradeMessage> = serde_json::from_value(messasge)?;
 
-        Ok(trades.into_iter().map(|t| t.to_trade()).collect())
+        let mut result: Vec<Trade> = vec![];
+
+        for t in trades {
+            result.push(t.to_trade());
+        }
+
+        Ok(result)
     }
 
     async fn get_trade_klines(

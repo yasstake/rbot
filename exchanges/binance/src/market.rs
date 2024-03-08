@@ -234,9 +234,11 @@ impl BinanceMarket {
         MarketImpl::reset_cache_duration(self)
     }
 
+    /*
     fn stop_db_thread(&mut self) {
         MarketImpl::stop_db_thread(self)
     }
+    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
@@ -416,7 +418,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            println!("download_gap");
+            log::debug!("download_gap");
             self.async_download_gap(verbose).await
         })
     }
@@ -574,22 +576,21 @@ impl BinanceMarket {
             );
         }
 
-        if unfix_end == 0 {
-            log::info!("Try Download archive first");
-            return Ok(0);
-        }
+        if unfix_end != 0 && (unfix_end - unfix_start <= HHMM(0, 1)) {
+            if verbose {
+                println!("no need to download");
+            }
 
-        if unfix_end - unfix_start <= HHMM(0, 1) {
-            log::info!("no need to download");
             return Ok(0);
         }
 
         let mut from_id: i64 = 0;
-        let mut insert_len: i64 = 0;
+        let insert_len: i64 = 0;
 
         let tx = self.start_db_thread();
 
         loop {
+            log::debug!("download recent from_id: {:?}", from_id);
             let mut trades = BinanceRestApi::get_historical_trades(
                 &self.server_config,
                 &self.config,
@@ -598,18 +599,33 @@ impl BinanceMarket {
             )
             .await?;
 
-            trades.retain(|t| unfix_start <= t.time && t.time <= unfix_end);
+            log::debug!("downloaded: {:?}", trades.len());
 
-            let l = trades.len();
-            if l == 0 {
+            if trades.len() == 0 {
+                break;
+
+            }
+
+            if trades[trades.len()-1].time < unfix_start {
                 break;
             }
 
             let trade_id = trades[0].id.parse::<i64>()?;
-
             from_id = trade_id - 1000;
+
+            trades.retain(|t| unfix_start <= t.time && t.time <= unfix_end);
+
+            let l = trades.len();
+
+            log::debug!("Trim downloaded: {:?}", l);            
+            if l == 0 {
+                continue;
+            }
+
             if from_id <= 0 {
-                log::warn!("from_id is too small: {:?}", from_id);
+                if verbose {
+                    println!("from_id is too small: {:?}", from_id);
+                }
                 break;
             }
 
@@ -630,6 +646,7 @@ impl BinanceMarket {
             tx.send(trades)?;
 
             std::thread::sleep(std::time::Duration::from_millis(200));
+            log::debug!("inserted: {}", l);
         }
 
         Ok(insert_len)
@@ -638,6 +655,8 @@ impl BinanceMarket {
 
 #[cfg(test)]
 mod binance_market_test {
+    use std::thread::sleep;
+
     use rbot_lib::common::init_debug_log;
 
     use crate::BinanceConfig;
@@ -656,5 +675,29 @@ mod binance_market_test {
         let r = market.download_latest(true);
 
         assert!(r.is_ok());
+        log::debug!("download {:?}", r);
+
+        sleep(std::time::Duration::from_secs(5));        
+    }
+
+    #[test]
+    fn test_dowlad_gap() {
+        // init_debug_log();
+        use super::*;
+        let server_config = BinanceServerConfig::new(true);
+        let config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server_config, &config);
+
+        //market.download_archive(2, true, true, false);
+
+        log::debug!("market build complete");
+        //let _ = market.expire_unfix_data();
+
+        let r = market.download_gap(true);
+
+        assert!(r.is_ok());
+
+        sleep(std::time::Duration::from_secs(60));
     }
 }
