@@ -1,6 +1,5 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use std::arch::aarch64::vreinterpret_f32_p64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 
@@ -8,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::flush_log;
+use rbot_lib::common::{flush_log, LogStatus, SEC};
 use rbot_lib::common::time_string;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::BoardItem;
@@ -648,7 +647,7 @@ impl BinanceMarket {
             );
         }
 
-        if unfix_end != 0 && (unfix_end - unfix_start <= HHMM(0, 1)) {
+        if unfix_end != 0 && (unfix_end - unfix_start <= SEC(30)) {
             if verbose {
                 println!("no need to download");
             }
@@ -671,21 +670,45 @@ impl BinanceMarket {
             )
             .await?;
 
-            log::debug!("downloaded: {:?}", trades.len());
+            let l = trades.len();
 
-            if trades.len() == 0 {
+            if l == 0 {
+                if verbose {
+                    println!("end of data");
+                }
                 break;
+            }
 
+            if verbose {
+                println!(
+                    "Downloaded: from:{}({})  to:{}({})",
+                    time_string(trades[0].time),
+                    trades[0].time,
+                    time_string(trades[l - 1].time),
+                    trades[l - 1].time
+                );
             }
 
             if trades[trades.len()-1].time < unfix_start {
+                if verbose {
+                    println!("break : from:{}({})  to:{}({})",
+                        time_string(trades[0].time),
+                        trades[0].time,
+                        time_string(trades[trades.len()-1].time),
+                        trades[trades.len()-1].time);
+                }
                 break;
             }
 
             let trade_id = trades[0].id.parse::<i64>()?;
             from_id = trade_id - 1000;
 
-            trades.retain(|t| unfix_start <= t.time && t.time <= unfix_end);
+            if unfix_end != 0 {
+                trades.retain(|t| unfix_start <= t.time && t.time <= unfix_end);
+            }
+            else {
+                trades.retain(|t| unfix_start <= t.time);
+            }
 
             let l = trades.len();
 
@@ -701,20 +724,15 @@ impl BinanceMarket {
                 break;
             }
 
-            if verbose {
-                println!(
-                    "Downloaded: from:{}({})  to:{}({})",
-                    time_string(trades[0].time),
-                    trades[0].time,
-                    time_string(trades[l - 1].time),
-                    trades[l - 1].time
-                );
-            }
+
+            trades[0].status = LogStatus::FixRestApiStart;
+            trades[l-1].status = LogStatus::FixRestApiEnd;
 
             let expire_message =
                 TradeTableDb::expire_control_message(trades[0].time, trades[l - 1].time);
 
             tx.send(expire_message)?;
+
             tx.send(trades)?;
 
             std::thread::sleep(std::time::Duration::from_millis(200));
