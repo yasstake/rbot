@@ -1,6 +1,8 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
+use std::arch::aarch64::vreinterpret_f32_p64;
 use std::sync::{Arc, Mutex, RwLock};
+use std::thread::sleep;
 
 use anyhow::Context;
 use futures::StreamExt;
@@ -17,11 +19,12 @@ use rbot_lib::common::MicroSec;
 use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::OrderBook;
+use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::HHMM;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::db::TradeTable;
 use rbot_lib::db::TradeTableDb;
-use rbot_lib::net::BroadcastMessage;
+use rbot_lib::net::{BroadcastMessage, RestApi};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 use tokio::task::JoinHandle;
@@ -333,6 +336,13 @@ impl BinanceMarket {
 
     #[pyo3(signature = (verbose=true))]
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        if verbose {
+            println!(
+                "download_latest: {} {}",
+                self.config.trade_category, self.config.trade_symbol
+            );
+            flush_log();
+        }
         MarketImpl::download_latest(self, verbose)
     }
 
@@ -383,6 +393,13 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        if verbose {
+            println!(
+                "download_latest: {} {}",
+                self.config.trade_category, self.config.trade_symbol
+            );
+            flush_log();            
+        }
         BLOCK_ON(async { self.async_download_latest(verbose).await })
     }
 
@@ -398,8 +415,8 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         self.board.clone()
     }
 
-    fn reflesh_order_book(&mut self) {
-        todo!()
+    fn reflesh_order_book(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_reflesh_order_book_self().await })
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -466,6 +483,7 @@ impl BinanceMarket {
     }
 
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
+
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
             return Ok(());
@@ -483,6 +501,8 @@ impl BinanceMarket {
 
         let hub_channel = MARKET_HUB.open_channel();
 
+
+
         self.public_handler = Some(tokio::task::spawn(async move {
             let mut public_ws = BinancePublicWsClient::new(&server_config, &config).await;
 
@@ -491,6 +511,11 @@ impl BinanceMarket {
             let trade_symbol = config.trade_symbol.clone();
 
             public_ws.connect().await;
+                        
+            let _ = Self::async_reflesh_order_book(&orderbook, &server_config, &config).await;            
+
+            sleep(std::time::Duration::from_secs(1));
+
             let ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
@@ -532,11 +557,9 @@ impl BinanceMarket {
                         }
                     }
                     MultiMarketMessage::Orderbook(board) => {
-                        let mut b = orderbook.write().unwrap();
-                        b.update(&board);
+                        Self::update_orderbook(&orderbook, &board);
                     }
                     MultiMarketMessage::Control(control) => {
-                        // TODO: alert or recovery.
                         if control.status == false {
                             log::error!("Control message: {:?}", control);
                         }
@@ -554,6 +577,55 @@ impl BinanceMarket {
 
         Ok(())
     }
+
+    async fn async_reflesh_order_book_self(&mut self) -> anyhow::Result<()> {
+        let transfer = BinanceRestApi::get_board_snapshot(&self.server_config, &self.config).await?;
+
+        Self::update_orderbook(&self.board, &transfer);
+
+        log::debug!("reflesh order book done");
+
+        Ok(())
+    }
+
+    async fn async_reflesh_order_book(orderbook: &Arc<RwLock<OrderBook>>, server: &BinanceServerConfig, config: &MarketConfig) -> anyhow::Result<()> {
+        let transfer = BinanceRestApi::get_board_snapshot(&server, &config).await?;
+
+        let orderbook = orderbook.clone();
+        Self::update_orderbook(&orderbook, &transfer);
+
+        log::debug!("reflesh order book done");
+
+        Ok(())
+    }
+
+    fn update_orderbook(orderbook: &Arc<RwLock<OrderBook>>, transfer: &BoardTransfer) {
+        let mut b = orderbook.write().unwrap();
+
+//        let first_update_id = b.get_first_update_id();
+        let last_update_id = b.get_last_update_id();
+
+        // 4. Drop any event where u is <= lastUpdateId in the snapshot.
+        if transfer.last_update_id <= last_update_id {
+            log::warn!(
+                "transfer update_id is too small: {} <= {}",
+                transfer.last_update_id,
+                b.get_last_update_id()
+            );
+            return;
+        }
+
+        if last_update_id + 1 != transfer.first_update_id {
+            log::warn!(
+                "last_update_id is not continuous: {} + 1 != {}",
+                last_update_id,
+                transfer.last_update_id
+            );
+        }
+
+        b.update(&transfer);
+    }
+
 
     async fn async_download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");

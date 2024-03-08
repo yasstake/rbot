@@ -80,9 +80,7 @@ impl Into<MultiMarketMessage> for BinancePublicWsMessage {
                 MultiMarketMessage::Trade(trades)
             }
             BinancePublicWsMessage::BoardUpdate(board_update) => {
-                let mut board: BoardTransfer = board_update.into();
-                // TODO: implment
-                log::warn!("BinancePublicWsMessage::BoardUpdate is not implemented yet");
+                let board: BoardTransfer = board_update.into();
 
                 MultiMarketMessage::Orderbook(board)
             }
@@ -243,6 +241,7 @@ impl Into<BoardTransfer> for BinanceWsBoardUpdate {
     fn into(self) -> BoardTransfer {
         let mut board = BoardTransfer::new();
 
+        board.first_update_id = self.U;
         board.last_update_id = self.u;
         board.last_update_time = msec_to_microsec(self.event_time as i64);
 

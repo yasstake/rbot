@@ -489,7 +489,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         self.board.clone()
     }
 
-    fn reflesh_order_book(&mut self) {
+    fn reflesh_order_book(&mut self) -> anyhow::Result<()>{
         todo!()
     }
 
