@@ -19,8 +19,11 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::time::Duration;
-use tokio::task::spawn;
-use tokio::task::JoinHandle;
+//use tokio::task::spawn;
+//use tokio::task::JoinHandle;
+
+use std::thread::JoinHandle;
+use std::thread::spawn;
 
 use crate::common::MarketStream;
 
@@ -620,8 +623,9 @@ impl TradeTable {
 
         self.tx = Some(tx);
 
-        let handle = spawn(async move {
+        let handle = spawn(move || {
             let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let rx = rx; // Move rx into the closure's environment
             loop {
                 match rx.recv() {
                     Ok(trades) => {
@@ -646,6 +650,7 @@ impl TradeTable {
         return self.tx.clone().unwrap();
     }
 
+    /*
     pub fn stop_thread(&mut self) {
         if self.handle.is_some() {
             let handle = self.handle.take().unwrap();
@@ -657,6 +662,7 @@ impl TradeTable {
             self.tx = None;
         }
     }
+    */
 
     pub fn validate_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
         self.connection.validate_by_date(date)
