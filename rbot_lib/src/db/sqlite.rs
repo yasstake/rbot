@@ -608,6 +608,7 @@ impl TradeTable {
         self.cache_ohlcvv = df;
     }
 
+
     pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
         // check if the thread is already started
         // check self.tx is valid and return clone of self.tx
@@ -649,6 +650,51 @@ impl TradeTable {
 
         return self.tx.clone().unwrap();
     }
+
+
+    /*
+    pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
+        // check if the thread is already started
+        // check self.tx is valid and return clone of self.tx
+        log::debug!("start_thread");
+        if self.is_running() {
+            log::info!("DB Thread is already started, reuse tx");
+            return self.tx.clone().unwrap();
+        }
+
+        let (tx, rx) = unbounded();
+
+        let file_name = self.file_name.clone();
+
+        self.tx = Some(tx);
+
+        let handle = spawn(move || {
+            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let rx = rx; // Move rx into the closure's environment
+            loop {
+                match rx.recv() {
+                    Ok(trades) => {
+                        let result = db.insert_records(&trades);
+
+                        if result.is_err() {
+                            log::error!("insert error {:?}", result);
+                            continue;
+                        }
+                        log::debug!("recv trades: {}", trades.len());
+                    }
+                    Err(e) => {
+                        log::error!("recv error(sender program died?) {:?}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.handle = Some(handle);
+
+        return self.tx.clone().unwrap();
+    }
+    */
 
     /*
     pub fn stop_thread(&mut self) {
