@@ -24,6 +24,7 @@ use tempfile::tempdir;
 //use tokio::spawn;
 use zip::ZipArchive;
 
+use crate::common::time_string;
 use crate::common::AccountCoins;
 use crate::common::{
     flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig,
@@ -109,9 +110,9 @@ config: &MarketConfig,
             let mut i = 0;
 
             loop {
-                let has_archive = has_archive(latest, &f).await?;
+                log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-                if has_archive {
+                if has_archive(latest, &f).await {
                     return Ok(latest);
                 }
 
@@ -689,18 +690,24 @@ pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
         response.content_length().unwrap()
     );
 
-
     anyhow::ensure!(response.status().as_str() == "200", "URL get response error {}/code={}", url, response.status());
 
     Ok(true)
 }
 
-async fn has_archive<F>(date: MicroSec, f: &F) -> anyhow::Result<bool>
+async fn has_archive<F>(date: MicroSec, f: &F) -> bool
 where
     F: Fn(MicroSec) -> String,
 {
     let url = f(date);
-    Ok(check_exist(url.as_str()).await?)
+
+    let result = check_exist(url.as_str()).await;
+
+    if result.is_err() {
+        return false;
+    }    
+
+    result.unwrap()
 }
 
 pub async fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String>
@@ -713,14 +720,8 @@ where
     loop {
         let has_archive = has_archive(latest, f).await;
 
-        if has_archive.is_err() {
-            log::error!("Error in has_archive: {:?}", has_archive);
-            return Err(format!("Error in has_archive: {:?}", has_archive));
-        }
-
-        let has_archive = has_archive.unwrap();
-
         if has_archive {
+            log::debug!("latest archive date = {}({})", time_string(latest), latest);
             return Ok(latest);
         }
 
