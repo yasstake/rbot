@@ -256,9 +256,11 @@ impl BybitMarket {
         MarketImpl::reset_cache_duration(self)
     }
 
+    /*
     fn stop_db_thread(&mut self) {
         MarketImpl::stop_db_thread(self)
     }
+    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
@@ -432,7 +434,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { self.async_download_lastest(verbose).await })
+        BLOCK_ON(async { self.async_download_latest(verbose).await })
     }
 
     fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
@@ -520,6 +522,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 }
 
 impl BybitMarket {
+    /*
     async fn async_download_lastest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         if verbose {
             print!("async_download_lastest");
@@ -552,6 +555,7 @@ impl BybitMarket {
 
         Ok(rec)
     }
+    */
 
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
         if self.public_handler.is_some() {

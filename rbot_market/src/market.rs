@@ -496,11 +496,13 @@ where
         lock.reset_cache_duration();
     }
 
+    /*
     fn stop_db_thread(&mut self) {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.stop_thread()
     }
+    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
