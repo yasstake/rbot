@@ -446,11 +446,13 @@ impl BinanceRestApi {
         let mut trades: Vec<Trade> = vec![];
 
         for t in binance_trades {
-            let trade = t.to_trade();
+            let mut trade = t.to_trade();
 
             if trade.time < from_time {
-                break;
+                continue;
             }
+
+            trade.status = LogStatus::FixArchiveBlock;
 
             trades.push(trade);
         }
@@ -567,5 +569,6 @@ mod binance_api_test {
         let result = BinanceRestApi::get_historical_trades(&server, &config, 10000, 0).await;
         println!("result: {:?}", result);
     }
+
 
 }
