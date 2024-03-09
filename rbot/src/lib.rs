@@ -42,11 +42,14 @@ use session::Runner;
 
 /// A Python module implemented in Rust.
 
+use tracing_subscriber;
+
 
 // use console_subscriber;
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // console_subscriber::init();  // for tokio thread debug
+    tracing_subscriber::fmt::init();
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
