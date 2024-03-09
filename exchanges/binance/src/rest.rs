@@ -11,8 +11,7 @@ use csv::StringRecord;
 use polars_core::utils::rayon::vec;
 use rbot_lib::{
     common::{
-        hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
-        OrderSide, OrderType, ServerConfig, Trade, NOW,
+        flush_log, hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW
     },
     net::{rest_delete, rest_get, rest_post, rest_put, RestApi},
 };
@@ -48,6 +47,8 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         server: &BinanceServerConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<Vec<Trade>> {
+        log::debug!("get_recent_trades: {:?}", &config.trade_symbol);
+
         let path = "/api/v3/trades";
         let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
@@ -55,12 +56,18 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
             .await
             .with_context(|| format!("get_recent_trades error"))?;
 
+        log::debug!("get_recent_trades: {:?}", messasge);
+
         let trades: Vec<BinanceTradeMessage> = serde_json::from_value(messasge)?;
+
+        log::debug!("get_recent_trades: {:?}", trades.len());
 
         let mut result: Vec<Trade> = vec![];
 
         for t in trades {
             result.push(t.to_trade());
+
+            log::debug!("trade: {:?}", t.to_trade());
         }
 
         Ok(result)
@@ -248,11 +255,16 @@ impl BinanceRestApi {
     async fn get(server: &BinanceServerConfig, path: &str, params: &str) -> anyhow::Result<Value> {
         let query = format!("{}?{}", path, params);
 
+        log::debug!("path{} / body: {}", path, query);
+        flush_log();
+
         let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
             .await
             .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
 
-        Ok(Self::parse_binance_result(&response)?)
+        log::debug!("path{} / body: {}", path, response);
+
+        Self::parse_binance_result(response)
     }
 
     async fn get_sign(
@@ -286,7 +298,7 @@ impl BinanceRestApi {
 
         log::debug!("AUTH GET: path{} / body: {} / {:?}", path, q, message);
 
-        Ok(Self::parse_binance_result(&message)?)
+        Self::parse_binance_result(message)
     }
 
     async fn post_sign(
@@ -307,7 +319,7 @@ impl BinanceRestApi {
             .await
             .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
 
-        Ok(Self::parse_binance_result(&message)?)
+        Self::parse_binance_result(message)
     }
 
     fn sign_with_timestamp(secret_key: &str, message: &str) -> String {
@@ -333,7 +345,7 @@ impl BinanceRestApi {
             .await
             .with_context(|| format!("post_key error {}/{}", server.get_rest_server(), path))?;
 
-        Ok(Self::parse_binance_result(&result)?)
+        Self::parse_binance_result(result)
     }
 
     async fn put_key(
@@ -349,7 +361,7 @@ impl BinanceRestApi {
             .await
             .with_context(|| format!("post_key error {}/{}", server.get_rest_server(), path))?;
 
-        Ok(Self::parse_binance_result(&result)?)
+        Self::parse_binance_result(result)
     }
 
     pub async fn delete_sign(
@@ -370,7 +382,7 @@ impl BinanceRestApi {
             .await
             .with_context(|| format!("delete_sign error {}/{}", server.get_rest_server(), path))?;
 
-        Ok(Self::parse_binance_result(&result)?)
+        Self::parse_binance_result(result)
     }
 
     fn order_side_string(side: OrderSide) -> String {
@@ -383,8 +395,8 @@ impl BinanceRestApi {
         }
     }
 
-    pub fn parse_binance_result(message: &String) -> anyhow::Result<Value> {
-        let v = serde_json::from_str::<Value>(message.as_str())
+    pub fn parse_binance_result(message: String) -> anyhow::Result<Value> {
+        let v = serde_json::from_str::<Value>(&message)
             .with_context(|| format!("json format error {:?}", message))?;
 
         let code = v.get("code");

@@ -1,11 +1,10 @@
 // Copyright(c) 2023-4. yasstake. All rights reserved.
 // Abloultely no warranty.
 
-use anyhow::Context;
-use chrono::Datelike;
 use anyhow::anyhow;
 use anyhow::ensure;
-
+use anyhow::Context;
+use chrono::Datelike;
 
 // use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
@@ -27,8 +26,8 @@ use zip::ZipArchive;
 use crate::common::time_string;
 use crate::common::AccountCoins;
 use crate::common::{
-    flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig,
-    MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
+    flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
+    OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
 //use crate::db::KEY::low;
 
@@ -36,15 +35,14 @@ pub trait RestApi<T>
 where
     T: ServerConfig,
 {
-    fn get_board_snapshot(
-        server: &T,
-        config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<BoardTransfer>> + Send;
+    async fn get_board_snapshot(server: &T, config: &MarketConfig)
+        -> anyhow::Result<BoardTransfer>;
 
-    fn get_recent_trades(
+    async fn get_recent_trades(
         server: &T,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send;
+    ) -> anyhow::Result<Vec<Trade>>;
+    
     fn get_trade_klines(
         server: &T,
         config: &MarketConfig,
@@ -67,7 +65,7 @@ where
     ) -> impl std::future::Future<Output = anyhow::Result<Order>> + Send;
     fn open_orders(
         server: &T,
-config: &MarketConfig,
+        config: &MarketConfig,
     ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
 
     fn get_account(
@@ -103,25 +101,28 @@ config: &MarketConfig,
     fn rec_to_trade(rec: &StringRecord) -> Trade;
     fn archive_has_header() -> bool;
 
-    fn latest_archive_date(server: &T, config: &MarketConfig) -> impl std::future::Future<Output = anyhow::Result<MicroSec>> + Send {
-        async move {
-            let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
-            let mut latest = TODAY();
-            let mut i = 0;
+    async fn latest_archive_date(server: &T, config: &MarketConfig) -> anyhow::Result<MicroSec> {
+        let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
+        let mut latest = TODAY();
+        let mut i = 0;
 
-            loop {
-                log::debug!("check log exist = {}({})", time_string(latest), latest);
+        loop {
+            log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-                if has_archive(latest, &f).await {
-                    return Ok(latest);
-                }
+            if has_archive(latest, &f).await {
+                return Ok(latest);
+            }
 
-                latest -= DAYS(1);
-                i += 1;
+            latest -= DAYS(1);
+            i += 1;
 
-                if 5 < i {
-                    return Err(anyhow!("Find archive retry over {}/{}/{}", i, latest, f(latest)));
-                }
+            if 5 < i {
+                return Err(anyhow!(
+                    "Find archive retry over {}/{}/{}",
+                    i,
+                    latest,
+                    f(latest)
+                ));
             }
         }
     }
@@ -160,7 +161,8 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<Strin
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html")
         .send()
-        .await.with_context(|| format!("URL get error {}", url))?;
+        .await
+        .with_context(|| format!("URL get error {}", url))?;
 
     log::debug!(
         "Response code = {} / download size {}",
@@ -180,14 +182,19 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<Strin
         .unwrap_or("tmp.bin");
 
     let fname = tmp_dir.join(fname);
-    let file_name = fname.to_str().unwrap();    
+    let file_name = fname.to_str().unwrap();
 
-    let mut target = File::create(&fname).with_context(|| format!("file create error {}", fname.to_str().unwrap()))?;
+    let mut target = File::create(&fname)
+        .with_context(|| format!("file create error {}", fname.to_str().unwrap()))?;
 
-    let content = response.bytes().await.with_context(|| format!("response bytes error {}", url))?;
+    let content = response
+        .bytes()
+        .await
+        .with_context(|| format!("response bytes error {}", url))?;
     let mut cursor = Cursor::new(content);
 
-    let size = copy(&mut cursor, &mut target).with_context(||format!("write error {}", file_name))?;
+    let size =
+        copy(&mut cursor, &mut target).with_context(|| format!("write error {}", file_name))?;
     ensure!(size > 0, "file is empty {}", file_name);
 
     let _r = target.flush();
@@ -255,7 +262,8 @@ where
     let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
 
     let file_path = log_download_tmp(url, tmp_dir.path())
-            .await.with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
+        .await
+        .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
 
     let mut buffer: Vec<Trade> = vec![];
     let mut is_first_record = true;
@@ -294,7 +302,8 @@ where
 
     buffer[buffer_len - 1].status = LogStatus::FixBlockEnd;
 
-    tx.send(buffer.to_vec()).with_context(|| format!("channel send error"))?;
+    tx.send(buffer.to_vec())
+        .with_context(|| format!("channel send error"))?;
 
     buffer.clear();
 
@@ -306,8 +315,6 @@ where
 
     Ok(download_rec)
 }
-
-
 
 fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F)
 where
@@ -592,7 +599,10 @@ pub async fn do_rest_request(
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html");
 
-    let response = request_builder.send().await.with_context(|| format!("URL get error {url:}"))?;
+    let response = request_builder
+        .send()
+        .await
+        .with_context(|| format!("URL get error {url:}"))?;
 
     log::debug!(
         "Response code = {} / content size {:?} / method({:?}) / URL = {} ",
@@ -613,7 +623,10 @@ pub async fn do_rest_request(
         ));
     }
 
-    let body = response.text().await.with_context(|| format!("response text error"))?;
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("response text error"))?;
 
     log::debug!("body{}", body);
 
@@ -673,7 +686,6 @@ pub async fn rest_put(
     do_rest_request(Method::PUT, &url, headers, body).await
 }
 
-
 pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
     let client = reqwest::Client::new();
 
@@ -682,7 +694,8 @@ pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "text/html")
         .send()
-        .await.with_context(|| format!("URL get error {}", url))?;
+        .await
+        .with_context(|| format!("URL get error {}", url))?;
 
     log::debug!(
         "Response code = {} / download size {}",
@@ -690,7 +703,12 @@ pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
         response.content_length().unwrap()
     );
 
-    anyhow::ensure!(response.status().as_str() == "200", "URL get response error {}/code={}", url, response.status());
+    anyhow::ensure!(
+        response.status().as_str() == "200",
+        "URL get response error {}/code={}",
+        url,
+        response.status()
+    );
 
     Ok(true)
 }
@@ -705,7 +723,7 @@ where
 
     if result.is_err() {
         return false;
-    }    
+    }
 
     result.unwrap()
 }
@@ -740,10 +758,10 @@ mod test_exchange {
 
     use super::*;
     use crate::common::init_debug_log;
-    // use crossbeam_channel::bounded;    
+    // use crossbeam_channel::bounded;
 
     #[tokio::test]
-    async fn log_download_temp_test() -> anyhow::Result<()>{
+    async fn log_download_temp_test() -> anyhow::Result<()> {
         init_debug_log();
         let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
         let tmp_dir = tempdir().unwrap();
@@ -805,8 +823,6 @@ mod test_exchange {
 
         Ok(())
     }
-
-
 
     /*
     use crate::exchange::binance::BinanceMarket;

@@ -479,6 +479,8 @@ config: &MarketConfig,
     }
 }
 
+use tracing::instrument;    
+
 impl BybitRestApi {
     async fn get(
         server: &BybitServerConfig,
@@ -494,6 +496,7 @@ impl BybitRestApi {
         Self::parse_rest_response(response)
     }
 
+    #[instrument]
     pub async fn get_sign(
         server: &BybitServerConfig,
         path: &str,

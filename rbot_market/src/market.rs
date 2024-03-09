@@ -665,14 +665,12 @@ where
         lock.start_thread()
     }
 
-    fn download_recent_trades(
+    async fn download_recent_trades(
         &self,
         market_config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Trade>>> + Send
-    where
-        Self: Sync,
+    ) -> anyhow::Result<Vec<Trade>>
     {
-        async { T::get_recent_trades(&self.get_server_config(), market_config).await }
+        T::get_recent_trades(&self.get_server_config(), market_config).await
     }
 
     fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
@@ -805,6 +803,9 @@ where
         let trades = T::get_recent_trades(&server_config, &config).await?;
         let rec = trades.len() as i64;
 
+        log::debug!("rec: {}", rec);
+
+
         if verbose {
             println!("rec: {}", rec);
             flush_log();
@@ -817,3 +818,4 @@ where
         Ok(rec)
     }
 }
+
