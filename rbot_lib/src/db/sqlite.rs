@@ -125,26 +125,49 @@ impl TradeTableDb {
         Ok(tx)
     }
 
-    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
+    pub fn latest_fix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
         let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#;
         let trades = self.select_query(sql, vec![start_time])?;
 
         if trades.len() == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(trades[0].clone()))
+    }
+
+    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
+        let trade = self.latest_fix_trade(start_time)?;
+
+        if trade.is_none() {
             return Ok(0);
         }
 
-        Ok(TradeTable::ohlcv_end(trades[0].time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
+        let trade = trade.unwrap();
+
+        Ok(TradeTable::ohlcv_end(trade.time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
     }
 
-    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
+    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
         let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp order by time_stamp limit 1"#;
         let trades = self.select_query(sql, vec![start_time])?;
 
         if trades.len() == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(trades[0].clone()))
+    }
+
+    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
+        let trade = self.first_unfix_trade(start_time)?;
+        if trade.is_none() {
             return Ok(0);
         }
 
-        Ok(TradeTable::ohlcv_end(trades[0].time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
+        let trade = trade.unwrap();
+
+        Ok(TradeTable::ohlcv_end(trade.time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
     }
 
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
@@ -1412,13 +1435,22 @@ impl TradeTable {
         Ok((fix_time, unfix_time))
     }
 
+    pub fn latest_fix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
+        self.connection.latest_fix_trade(start_time)
+    }
+
     pub fn latest_fix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
         self.connection.latest_fix_time(start_time)
+    }
+
+    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
+        self.connection.first_unfix_trade(start_time)
     }
 
     pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
         self.connection.first_unfix_time(start_time)
     }
+
 }
 
 impl TradeTable {
