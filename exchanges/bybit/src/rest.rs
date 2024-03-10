@@ -496,7 +496,6 @@ impl BybitRestApi {
         Self::parse_rest_response(response)
     }
 
-    #[instrument]
     pub async fn get_sign(
         server: &BybitServerConfig,
         path: &str,

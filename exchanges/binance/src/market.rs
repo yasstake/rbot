@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::time_string;
+use rbot_lib::common::{time_string, NOW};
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
@@ -622,44 +622,51 @@ impl BinanceMarket {
     async fn async_download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");
 
-        let gap_result = self.find_latest_gap();
+        let gap_result = self.find_latest_gap_trade();
         if gap_result.is_err() {
             log::warn!("no gap found: {:?}", gap_result);
             return Ok(0);
         }
 
+        let start_time = NOW();        
         let (unfix_start, unfix_end) = gap_result.unwrap();
-        //let (unfix_start, unfix_end) = self.find_latest_gap();
-        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
 
         if verbose {
-            println!(
-                "unfix_start: {:?}, unfix_end: {:?}",
-                time_string(unfix_start),
-                time_string(unfix_end)
-            );
+            println!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
         }
 
-        if unfix_end != 0 && (unfix_end - unfix_start <= SEC(30)) {
-            if verbose {
-                println!("no need to download");
-            }
-
+        let unfix_start_id = if let Some(trade) = unfix_start {
+            trade.id.parse::<i64>().unwrap()
+        } else {
+            log::warn!("no gap start found: {:?}", unfix_start);            
             return Ok(0);
-        }
+        };
 
-        let mut from_id: i64 = 0;
-        let insert_len: i64 = 0;
+        let unfix_end_id = if let Some(trade) = unfix_end {
+            trade.id.parse::<i64>().unwrap()
+        } else {
+            0
+        };
 
-        let tx = self.start_db_thread();
+        let mut from_id = unfix_start_id + 1;
+        let mut insert_len: i64 = 0;
+
+        let tx = {
+            self.db.lock().unwrap().start_thread()
+        };
 
         loop {
+            if from_id == unfix_end_id {
+                log::debug!("from_id == unfix_end_id: {:?}", from_id);
+                break;
+            }
+
             log::debug!("download recent from_id: {:?}", from_id);
             let mut trades = BinanceRestApi::get_historical_trades(
                 &self.server_config,
                 &self.config,
                 from_id,
-                unfix_start,
+                0,
             )
             .await?;
 
@@ -674,47 +681,28 @@ impl BinanceMarket {
 
             if verbose {
                 println!(
-                    "Downloaded: from:{}({})  to:{}({})",
+                    "Downloaded: from:{}({})[{}]  to:{}({})[{}]",
                     time_string(trades[0].time),
                     trades[0].time,
+                    trades[0].id,
                     time_string(trades[l - 1].time),
-                    trades[l - 1].time
+                    trades[l - 1].time,
+                    trades[l - 1].id
                 );
             }
 
-            if trades[trades.len() - 1].time < unfix_start {
-                if verbose {
-                    println!(
-                        "break : from:{}({})  to:{}({})",
-                        time_string(trades[0].time),
-                        trades[0].time,
-                        time_string(trades[trades.len() - 1].time),
-                        trades[trades.len() - 1].time
-                    );
-                }
-                break;
-            }
+            let trade_id = trades[l-1].id.parse::<i64>()?;
+            from_id = trade_id + 1;
 
-            let trade_id = trades[0].id.parse::<i64>()?;
-            from_id = trade_id - 1000;
-
-            if unfix_end != 0 {
-                trades.retain(|t| unfix_start <= t.time && t.time <= unfix_end);
-            } else {
-                trades.retain(|t| unfix_start <= t.time);
-            }
+            trades.retain(|t| 
+                (t.id.parse::<i64>().unwrap()  <= unfix_end_id)
+                && (t.time <= start_time)
+            );
 
             let l = trades.len();
-
             log::debug!("Trim downloaded: {:?}", l);
-            if l == 0 {
-                continue;
-            }
 
-            if from_id <= 0 {
-                if verbose {
-                    println!("from_id is too small: {:?}", from_id);
-                }
+            if l == 0 {
                 break;
             }
 
@@ -725,16 +713,16 @@ impl BinanceMarket {
                 TradeTableDb::expire_control_message(trades[0].time, trades[l - 1].time);
 
             tx.send(expire_message)?;
-
+            std::thread::sleep(std::time::Duration::from_millis(200));            
             tx.send(trades)?;
 
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            insert_len += l as i64;
             log::debug!("inserted: {}", l);
         }
-
-        Ok(insert_len)
+        Ok(insert_len)        
     }
 }
+
 
 #[cfg(test)]
 mod binance_market_test {
@@ -785,15 +773,14 @@ mod binance_market_test {
     }
 }
 
-
-#[cfg(test)] 
+#[cfg(test)]
 mod test_market_impl {
     use rbot_lib::common::init_debug_log;
 
     use crate::BinanceConfig;
 
     #[tokio::test]
-    async fn test_async_download_latest() -> anyhow::Result<()>{
+    async fn test_async_download_latest() -> anyhow::Result<()> {
         use super::*;
         use rbot_lib::common::MarketConfig;
         use rbot_lib::common::ServerConfig;
@@ -828,5 +815,4 @@ mod test_market_impl {
         let rec = market.download_latest(true).unwrap();
         assert!(rec > 0);
     }
-
 }
