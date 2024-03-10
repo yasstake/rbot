@@ -10,6 +10,7 @@ use rbot_lib::net::BroadcastMessage;
 use rust_decimal_macros::dec;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt;
+use std::iter::Filter;
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -335,7 +336,7 @@ where
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
-
+        
         let (fix_time, unfix_time) = {
             let mut lock = db.lock().unwrap();
             let fix_time = lock.latest_fix_time(start_time)?;
@@ -351,129 +352,37 @@ where
         Ok((fix_time, unfix_time))
     }
 
-    /*
-        async fn _start_market_stream(&mut self) {
-            // if thread is working, do nothing.
-            if self.public_handler.is_some() {
-                println!("market stream is already running.");
-                return;
-            }
+    fn find_latest_gap_trade(&self) -> anyhow::Result<(Option<Trade>, Option<Trade>)> {
+        log::debug!("[start] find_latest_gap_trade");
+        let start_time = NOW() - DAYS(2);
 
-            // delete unstable data
-            let db_channel = self.db.start_thread();
+        let db = self.get_db();
 
-            // if the latest data is overrap with REST minute, do not delete data.
-            let trades = self.get_recent_trades();
-            let l = trades.len();
-            if l != 0 {
-                let rest_start_time = trades[l - 1].time;
-                let last_time = self.db.end_time(rest_start_time);
-                if last_time.is_err() {
-                    let now = NOW();
+        let mut lock = db.lock().unwrap();
+        let latest_trade = lock.latest_fix_trade(start_time)?;
 
-                    log::debug!(
-                        "db has gap, so delete after FIX data now={:?} / db_end={:?}",
-                        time_string(now),
-                        time_string(rest_start_time)
-                    );
-
-                    let delete_message = self.db.connection.make_expire_control_message(now);
-
-                    log::debug!("delete_message: {:?}", delete_message);
-
-                    db_channel.send(delete_message).unwrap();
-                } else {
-                    log::debug!(
-                        "db has no gap, so continue to receive data {}",
-                        time_string(rest_start_time)
-                    );
-                }
-
-                db_channel.send(trades).unwrap();
-            }
-
-            let agent_channel = self.agent_channel.clone();
-            let ws_channel = self.public_ws._open_channel().await;
-
-            self.public_ws
-                ._connect(|message| {
-                    let m = serde_json::from_str::<BybitWsMessage>(&message);
-
-                    if m.is_err() {
-                        log::warn!("Error in serde_json::from_str: {:?}", message);
-                        println!("ERR: {:?}", message);
-                    }
-
-                    let m = m.unwrap();
-
-                    return m.into();
-                })
-                .await;
-
-            let board = self.board.clone();
-            let db_channel_for_after = db_channel.clone();
-
-            let udp_sender = self.ufdp_sender.clone();
-
-            let handler = tokio::task::spawn(async move {
-                loop {
-                    let message = ws_channel.recv();
-                    let message = message.unwrap();
-
-                    if message.trade.len() != 0 {
-                        log::debug!("Trade: {:?}", message.trade);
-                        let r = db_channel.send(message.trade.clone());
-
-                        if r.is_err() {
-                            log::error!("Error in db_channel.send: {:?}", r);
-                        }
-                    }
-
-                    if message.orderbook.is_some() {
-                        let orderbook = message.orderbook.clone().unwrap();
-                        let mut b = board.write().unwrap();
-                        b.update(&orderbook);
-                        drop(b);
-                    }
-
-                    let messages = message.extract();
-
-                    // update board
-
-                    // send message to agent
-                    for m in messages {
-                        if m.trade.is_some() {
-                            // broadcast only trade message
-                            if udp_sender.is_some() {
-                                let sender = udp_sender.as_ref().unwrap().as_ref();
-                                sender.lock().unwrap().send_market_message(&m);
-                            }
-
-                            let mut ch = agent_channel.write().unwrap();
-                            let r = ch.send(m.clone());
-                            drop(ch);
-
-                            if r.is_err() {
-                                log::error!("Error in db_channel.send: {:?}", r);
-                            }
-                        }
-                    }
-                }
-            });
-
-            self.public_handler = Some(handler);
-
-            // update recent trade
-            // wait for channel open
-            sleep(Duration::from_millis(100)); // TODO: fix to wait for channel open
-            let trade = self.get_recent_trades();
-            db_channel_for_after.send(trade).unwrap();
-
-            // TODO: store recent trade timestamp.
-
-            log::info!("start_market_stream");
+        if latest_trade.is_none() {
+            log::debug!("No data found");
+            return Ok((None, None));
         }
-    */
+
+        let latest_trade_id = latest_trade.as_ref().unwrap().id.clone();
+        let fix_time = latest_trade.as_ref().unwrap().time;
+
+        let first_unfix_trade = lock.first_unfix_trade(fix_time)?;
+
+        if first_unfix_trade.is_some() {
+            let first_unfix_trade_id = first_unfix_trade.as_ref().unwrap().id.clone();
+
+            if first_unfix_trade_id == latest_trade_id {
+                log::debug!("first_unfix_trade_id <= latest_trade_id");
+                return Ok((None, None));
+            }
+        }
+
+        Ok((latest_trade, first_unfix_trade))
+    }
+
     // --- DB ----
     fn drop_table(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
