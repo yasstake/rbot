@@ -345,13 +345,10 @@ impl Runner {
 
     pub fn update_market_info(&mut self, market: &PyObject) -> Result<(), PyErr> {
         let r = Python::with_gil(|py| {
-            let config = market.getattr(py, "market_config").unwrap();
-
             let exchange_name = market.getattr(py, "exchange_name").unwrap();
             let category = market.getattr(py, "trade_category").unwrap();
             let symbol = market.getattr(py, "trade_symbol").unwrap();
 
-            self.config = config.extract::<MarketConfig>(py).unwrap();
             self.exchange_name = exchange_name.extract::<String>(py).unwrap();
             self.category = category.extract::<String>(py).unwrap();
             self.symbol = symbol.extract::<String>(py).unwrap();

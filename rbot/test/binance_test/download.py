@@ -19,4 +19,4 @@ market = binance.open_market(config)
 #market.download_latest(verbose=True)
 market.download_gap(force=False, verbose=True)
 
-sleep(60)
+sleep(5)
