@@ -8,15 +8,15 @@ config = BinanceConfig.BTCUSDT
 binance = Binance(True)
 
 
-#init_debug_log()
 market = binance.open_market(config)
 
-market.expire_unfix_data()
+#market.expire_unfix_data(True)
 
-market.download_archive(ndays=2, verbose=True)
-market.start_market_stream()
+#market.start_market_stream()
+#market.download_archive(ndays=2, verbose=True)
 
-market.download_latest(verbose=True)
-market.download_gap(verbose=True)
+#init_debug_log()
+#market.download_latest(verbose=True)
+market.download_gap(force=False, verbose=True)
 
-sleep(10)
+sleep(60)
