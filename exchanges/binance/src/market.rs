@@ -7,7 +7,6 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{time_string, NOW};
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
@@ -21,6 +20,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::common::HHMM;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::{flush_log, LogStatus, SEC};
+use rbot_lib::common::{time_string, NOW};
 use rbot_lib::db::TradeTable;
 use rbot_lib::db::TradeTableDb;
 use rbot_lib::net::{BroadcastMessage, RestApi};
@@ -346,16 +346,17 @@ impl BinanceMarket {
         MarketImpl::download_latest(self, verbose)
     }
 
-    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
-        MarketImpl::expire_unfix_data(self)
+    #[pyo3(signature = (force=false))]
+    fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_expire_unfix_data(force).await })
     }
 
-    fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
-        MarketImpl::find_latest_gap(self)
+    fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
+        MarketImpl::find_latest_gap(self, force)
     }
 
-    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        MarketImpl::download_gap(self, verbose)
+    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        MarketImpl::download_gap(self, force, verbose)
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -424,10 +425,10 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         todo!()
     }
 
-    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
+    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async {
             log::debug!("download_gap");
-            self.async_download_gap(verbose).await
+            self.async_download_gap(force, verbose).await
         })
     }
 
@@ -481,7 +482,7 @@ impl BinanceMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread()
+            lock.start_thread().await
         };
 
         let orderbook = self.board.clone();
@@ -619,31 +620,36 @@ impl BinanceMarket {
         b.update(&transfer);
     }
 
-    async fn async_download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
+    async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");
 
-        let gap_result = self.find_latest_gap_trade();
+        let gap_result = self.find_latest_gap_trade(force);
         if gap_result.is_err() {
             log::warn!("no gap found: {:?}", gap_result);
             return Ok(0);
         }
 
-        let start_time = NOW();        
+        let start_time = NOW();
         let (unfix_start, unfix_end) = gap_result.unwrap();
 
         if verbose {
-            println!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
+            if let Some(t) = unfix_start.clone() {
+                println!("unfix_start: {:?}", t.__str__());
+            }
+            if let Some(t) = unfix_end.clone() {
+                println!("unfix_end  : {:?}", t.__str__());
+            }
         }
 
         let unfix_start_id = if let Some(trade) = unfix_start {
             trade.id.parse::<i64>().unwrap()
         } else {
-            log::warn!("no gap start found: {:?}", unfix_start);            
+            log::warn!("no gap start found: {:?}", unfix_start);
             return Ok(0);
         };
 
         let unfix_end_id = if let Some(trade) = unfix_end {
-            trade.id.parse::<i64>().unwrap()
+            trade.id.parse::<i64>().unwrap_or_default()
         } else {
             0
         };
@@ -651,9 +657,7 @@ impl BinanceMarket {
         let mut from_id = unfix_start_id + 1;
         let mut insert_len: i64 = 0;
 
-        let tx = {
-            self.db.lock().unwrap().start_thread()
-        };
+        let tx = { self.db.lock().unwrap().start_thread().await };
 
         loop {
             if from_id == unfix_end_id {
@@ -691,13 +695,16 @@ impl BinanceMarket {
                 );
             }
 
-            let trade_id = trades[l-1].id.parse::<i64>()?;
+            let trade_id = trades[l - 1].id.parse::<i64>()?;
             from_id = trade_id + 1;
 
-            trades.retain(|t| 
-                (t.id.parse::<i64>().unwrap()  <= unfix_end_id)
-                && (t.time <= start_time)
-            );
+            if unfix_end_id == 0 {
+                trades.retain(|t| t.time <= start_time);
+            } else {
+                trades.retain(|t| {
+                    (t.id.parse::<i64>().unwrap() <= unfix_end_id) && (t.time <= start_time)
+                });
+            }
 
             let l = trades.len();
             log::debug!("Trim downloaded: {:?}", l);
@@ -709,20 +716,22 @@ impl BinanceMarket {
             trades[0].status = LogStatus::FixRestApiStart;
             trades[l - 1].status = LogStatus::FixRestApiEnd;
 
+            /*
+            Binanceではklineから作ったデータは存在しないので削除不要
             let expire_message =
                 TradeTableDb::expire_control_message(trades[0].time, trades[l - 1].time);
 
             tx.send(expire_message)?;
-            std::thread::sleep(std::time::Duration::from_millis(200));            
+            */
             tx.send(trades)?;
 
             insert_len += l as i64;
             log::debug!("inserted: {}", l);
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
-        Ok(insert_len)        
+        Ok(insert_len)
     }
 }
-
 
 #[cfg(test)]
 mod binance_market_test {
@@ -765,7 +774,7 @@ mod binance_market_test {
         log::debug!("market build complete");
         //let _ = market.expire_unfix_data();
 
-        let r = market.download_gap(true);
+        let r = market.download_gap(true, true);
 
         assert!(r.is_ok());
 

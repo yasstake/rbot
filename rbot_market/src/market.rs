@@ -1,6 +1,7 @@
 // Copyright(c) 2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Sender;
+use pyo3::exceptions;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::MultiMarketMessage;
@@ -306,7 +307,7 @@ where
 
     /// Download historical log from REST API, between the latest data and the latest FIX data.
     /// If the latest FIX data is not found, generate psudo data from klines.
-    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64>;
+    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64>;
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>>;
 
@@ -331,7 +332,7 @@ where
         lock.validate_by_date(date)
     }
 
-    fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
+    fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
         log::debug!("[start] find_latest_gap");
         let start_time = NOW() - DAYS(2);
 
@@ -339,7 +340,7 @@ where
         
         let (fix_time, unfix_time) = {
             let mut lock = db.lock().unwrap();
-            let fix_time = lock.latest_fix_time(start_time)?;
+            let fix_time = lock.latest_fix_time(start_time, force)?;
             if fix_time == 0 {
                 return Err(anyhow!("No data found"));
             }
@@ -352,14 +353,14 @@ where
         Ok((fix_time, unfix_time))
     }
 
-    fn find_latest_gap_trade(&self) -> anyhow::Result<(Option<Trade>, Option<Trade>)> {
-        log::debug!("[start] find_latest_gap_trade");
+    fn find_latest_gap_trade(&self, force: bool) -> anyhow::Result<(Option<Trade>, Option<Trade>)> {
+        log::debug!("[start] find_latest_gap_trade force={}", force);
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
 
         let mut lock = db.lock().unwrap();
-        let latest_trade = lock.latest_fix_trade(start_time)?;
+        let latest_trade = lock.latest_fix_trade(start_time, force)?;
 
         if latest_trade.is_none() {
             log::debug!("No data found");
@@ -567,14 +568,14 @@ where
         Ok(edge_price)
     }
 
-    fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
+    async fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        lock.start_thread()
+        lock.start_thread().await
     }
 
-    async fn download_recent_trades(
+    async fn async_download_recent_trades(
         &self,
         market_config: &MarketConfig,
     ) -> anyhow::Result<Vec<Trade>>
@@ -582,16 +583,22 @@ where
         T::get_recent_trades(&self.get_server_config(), market_config).await
     }
 
-    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
+    async fn async_expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
         let db = self.get_db();
         let now = NOW();
 
         let expire_message = {
             let mut lock = db.lock().unwrap();
-            lock.make_expire_control_message(now)?
+            lock.make_expire_control_message(now, force)
         };
 
-        let tx = self.start_db_thread();
+        if expire_message.is_err() {
+            return Ok(());
+        }
+
+        let expire_message = expire_message.unwrap();
+
+        let tx = self.start_db_thread().await;
         let r = tx.send(expire_message);
         if r.is_err() {
             log::error!("Error in tx.send: {:?}", r.err().unwrap());
@@ -665,7 +672,7 @@ where
 
         let mut download_rec: i64 = 0;
 
-        let tx = self.start_db_thread();
+        let tx = self.start_db_thread().await;
 
         for i in 0..ndays {
             let date = latest_date - i * DAYS(1);
@@ -720,7 +727,7 @@ where
             flush_log();
         }
 
-        let tx = self.start_db_thread();
+        let tx = self.start_db_thread().await;
 
         tx.send(trades)?;        
 
