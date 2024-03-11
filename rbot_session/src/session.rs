@@ -126,7 +126,7 @@ impl Session {
         };
 
         let config = Python::with_gil(|py| {
-            let config = market.getattr(py, "market_config").unwrap();
+            let config = market.getattr(py, "config").unwrap();
             let config: MarketConfig = config.extract(py).unwrap();
 
             config
