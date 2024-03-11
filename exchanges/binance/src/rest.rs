@@ -460,7 +460,7 @@ impl BinanceRestApi {
         for t in binance_trades {
             let mut trade = t.to_trade();
 
-            if trade.time < from_time {
+            if from_time != 0 && trade.time < from_time {
                 continue;
             }
 

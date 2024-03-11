@@ -1,6 +1,8 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
+use std::path::Display;
+
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
@@ -228,7 +230,8 @@ pub enum LogStatus {
     FixRestApiStart,
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
-    ExpireControl, // 削除指示
+    ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
+    ExpireControl, // 削除指示(通常：WSデータのみ削除)
     Unknown,       // 未知のステータス / 未確定のステータス
 }
 
@@ -248,7 +251,8 @@ impl From<&str> for LogStatus {
             "s" => LogStatus::FixRestApiStart,
             "a" => LogStatus::FixRestApiBlock,
             "e" => LogStatus::FixRestApiEnd,
-            "X" => LogStatus::ExpireControl,
+            "X" => LogStatus::ExpireControlForce,
+            "x" => LogStatus::ExpireControl,            
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -267,8 +271,9 @@ impl LogStatus {
             LogStatus::FixRestApiStart => "s".to_string(),
             LogStatus::FixRestApiBlock => "a".to_string(),
             LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::ExpireControl => "X".to_string(),
-            LogStatus::Unknown => "x".to_string(),
+            LogStatus::ExpireControlForce => "X".to_string(),            
+            LogStatus::ExpireControl => "x".to_string(),
+            LogStatus::Unknown => "?".to_string(),
         }
     }
 }
@@ -320,23 +325,31 @@ impl Trade {
         )
     }
 
+
     pub fn __str__(&self) -> String {
         format!(
-            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
+            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status{:?}}}",
             time_string(self.time),
             self.time,
             self.order_side,
             self.price,
             self.size,
-            self.id
+            self.id,
+            self.status
         )
     }
 
     pub fn __repr__(&self) -> String {
         format!(
-            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status:{:?}}}",
+            self.time, self.order_side, self.price, self.size, self.id, self.status
         )
+    }
+}
+
+impl Into<String> for &Trade {
+    fn into(self) -> String {
+        self.__str__()
     }
 }
 
@@ -345,6 +358,20 @@ impl Into<MarketMessage> for &Trade {
         MarketMessage::Trade(self.clone())
     }
 }
+
+impl Default for Trade {
+    fn default() -> Self {
+        return Trade {
+            time: 0,
+            order_side: OrderSide::Buy,
+            price: dec![0.0],
+            size: dec![0.0],
+            status: LogStatus::UnFix,
+            id: "".to_string(),
+        };
+    }
+}
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

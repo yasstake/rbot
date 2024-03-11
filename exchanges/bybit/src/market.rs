@@ -358,16 +358,19 @@ impl BybitMarket {
         MarketImpl::download_latest(self, verbose)
     }
 
-    fn expire_unfix_data(&mut self) -> anyhow::Result<()> {
-        MarketImpl::expire_unfix_data(self)
+    #[pyo3(signature = (force=false))]
+    fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
+        BLOCK_ON(async {
+            self.async_expire_unfix_data(force).await
+        })
     }
 
-    fn find_latest_gap(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
-        MarketImpl::find_latest_gap(self)
+    fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
+        MarketImpl::find_latest_gap(self, force)
     }
 
-    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        MarketImpl::download_gap(self, verbose)
+    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        MarketImpl::download_gap(self, force, verbose)
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -437,45 +440,10 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         BLOCK_ON(async { self.async_download_latest(verbose).await })
     }
 
-    fn download_gap(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        log::debug!("[start] download_gap ");
-        let gap_result = self.find_latest_gap();
-        if gap_result.is_err() {
-            log::warn!("no gap found: {:?}", gap_result);
-            return Ok(0);
-        }
-
-        let (unfix_start, unfix_end) = gap_result.unwrap();
-        //let (unfix_start, unfix_end) = self.find_latest_gap();
-        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
-
-        if unfix_end - unfix_start <= HHMM(0, 1) {
-            log::info!("no need to download");
-            return Ok(0);
-        }
-
-        let klines = BLOCK_ON(BybitRestApi::get_trade_klines(
-            &self.server_config,
-            &self.get_config(),
-            unfix_start,
-            unfix_end,
-        ))?;
-
-        let trades: Vec<Trade> = convert_klines_to_trades(klines);
-        let rec = trades.len() as i64;
-
-        let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end);
-
-        let tx = {
-            let mut lock = self.db.lock().unwrap();
-            lock.start_thread()
-        };
-
-        tx.send(expire_message)?;
-        tx.send(trades)?;
-
-        Ok(rec)
+    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        BLOCK_ON(async { self.async_download_gap(force, verbose).await })
     }
+
 
     fn get_db(&self) -> Arc<Mutex<TradeTable>> {
         self.db.clone()
@@ -565,7 +533,7 @@ impl BybitMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread()
+            lock.start_thread().await
         };
 
         let orderbook = self.board.clone();
@@ -646,6 +614,48 @@ impl BybitMarket {
 
         Ok(())
     }
+
+    async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        log::debug!("[start] download_gap ");
+        let gap_result = self.find_latest_gap(force);
+        if gap_result.is_err() {
+            log::warn!("no gap found: {:?}", gap_result);
+            return Ok(0);
+        }
+
+        let (unfix_start, unfix_end) = gap_result.unwrap();
+        //let (unfix_start, unfix_end) = self.find_latest_gap();
+        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
+
+        if unfix_end - unfix_start <= HHMM(0, 1) {
+            log::info!("no need to download");
+            return Ok(0);
+        }
+
+        let klines = BLOCK_ON(BybitRestApi::get_trade_klines(
+            &self.server_config,
+            &self.get_config(),
+            unfix_start,
+            unfix_end,
+        ))?;
+
+        let trades: Vec<Trade> = convert_klines_to_trades(klines);
+        let rec = trades.len() as i64;
+
+        let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end, false);
+
+        let tx = {
+            let mut lock = self.db.lock().unwrap();
+            lock.start_thread().await
+        };
+
+        tx.send(expire_message)?;
+        tx.send(trades)?;
+
+        Ok(rec)
+    }
+
+
 }
 
 #[cfg(test)]
