@@ -417,14 +417,6 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
 
-    fn open_backtest_channel(
-        &mut self,
-        time_from: rbot_lib::common::MicroSec,
-        time_to: rbot_lib::common::MicroSec,
-    ) -> anyhow::Result<rbot_lib::common::MarketStream> {
-        todo!()
-    }
-
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async {
             log::debug!("download_gap");

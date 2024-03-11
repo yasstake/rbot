@@ -20,6 +20,8 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
 
+use tokio::task::spawn;
+
 use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
@@ -615,7 +617,29 @@ where
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream>;
+    ) -> anyhow::Result<MarketStream>{
+        let (sender, market_stream) = MarketStream::open();
+        
+        let db = self.get_db();
+
+        std::thread::spawn(move ||{
+            let mut table_db = db.lock().unwrap();
+
+            let result = table_db.select(time_from, time_to, |trade| {
+                let message: MarketMessage = trade.into();
+                sender.send(message)?;
+
+                Ok(())
+            });
+
+            if result.is_err() {
+                log::error!("Error in select: {:?}", result.err().unwrap());
+            }
+        });
+
+        return Ok(market_stream);
+
+    }
 
     /*------------   async ----------------*/
     async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
