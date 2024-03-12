@@ -342,7 +342,7 @@ impl BybitMarket {
         MarketImpl::_repr_html_(self)
     }
 
-    #[pyo3(signature = (ndays, force=false, verbose=true, low_priority=true))]
+    #[pyo3(signature = (ndays, force=false, verbose=false, low_priority=true))]    
     fn download_archive(
         &mut self,
         ndays: i64,
@@ -353,7 +353,7 @@ impl BybitMarket {
             MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
     }
 
-    #[pyo3(signature = (verbose=true))]
+    #[pyo3(signature = (verbose=false))]    
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_latest(self, verbose)
     }
@@ -369,6 +369,7 @@ impl BybitMarket {
         MarketImpl::find_latest_gap(self, force)
     }
 
+    #[pyo3(signature = (force=false, verbose=false))]    
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_gap(self, force, verbose)
     }
