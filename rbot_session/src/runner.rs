@@ -446,7 +446,7 @@ impl Runner {
                     println!("Failed to open log file: {}", &log_file);
                 };
             } else if !log_memory {
-                log::error!(
+                log::warn!(
                     "log_memory and log_file are both false. Please set one of them to true."
                 );
                 println!("WARNING: log_memory and log_file are both false. Please set one of them to true.");
