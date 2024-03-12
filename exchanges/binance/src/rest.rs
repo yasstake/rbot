@@ -93,7 +93,6 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
     ) -> anyhow::Result<Vec<Order>> {
         let path = "/api/v3/order";
         let side = Self::order_side_string(side);
-        //let type = "LIMIT";
 
         let order_type_str: &str = match order_type {
             OrderType::Limit => "LIMIT",
@@ -102,12 +101,12 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         };
 
         let mut body = format!(
-            "symbol={}&side={}&type={}&timeInForce=GTC&quantity={}",
+            "symbol={}&side={}&type={}&quantity={}",
             config.trade_symbol, side, order_type_str, size
         );
 
         if order_type == OrderType::Limit {
-            body = format!("{}&price={}", body, price);
+            body = format!("{}&price={}&timeInForce=GTC", body, price);
         }
 
         if client_order_id.is_some() {

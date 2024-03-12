@@ -322,7 +322,7 @@ impl BinanceMarket {
         MarketImpl::_repr_html_(self)
     }
 
-    #[pyo3(signature = (ndays, force=false, verbose=true, low_priority=true))]
+    #[pyo3(signature = (ndays, force=false, verbose=false, low_priority=true))]
     fn download_archive(
         &mut self,
         ndays: i64,
@@ -333,7 +333,7 @@ impl BinanceMarket {
         MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
     }
 
-    #[pyo3(signature = (verbose=true))]
+    #[pyo3(signature = (verbose=false))]
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         if verbose {
             println!(
@@ -355,6 +355,7 @@ impl BinanceMarket {
         MarketImpl::find_latest_gap(self, force)
     }
 
+    #[pyo3(signature = (force=false, verbose=false))]
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         MarketImpl::download_gap(self, force, verbose)
     }
@@ -416,6 +417,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
+
 
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async {

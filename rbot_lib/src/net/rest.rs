@@ -614,7 +614,7 @@ pub async fn do_rest_request(
 
     if response.status().as_str() != "200" {
         return Err(anyhow!(
-            "Response code = {} / download size {:?} / method({:?}) / URL = {} / path{}",
+            "Response code = {} / download size {:?} / method({:?}) / URL = {} / path = {}",
             response.status().as_str(),
             response.content_length(),
             method,
