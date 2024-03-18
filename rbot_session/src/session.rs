@@ -13,9 +13,7 @@ use rust_decimal_macros::dec;
 use super::{Logger, OrderList};
 use pyo3::prelude::*;
 use rbot_lib::common::{
-    date_string, get_orderbook, hour_string, min_string, time_string, AccountPair, MarketConfig,
-    MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW,
-    SEC,
+    date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
 };
 
 use anyhow;
@@ -58,8 +56,8 @@ pub struct Session {
     execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
-    real_account: AccountPair,
-    psudo_account: AccountPair,
+    real_account: AccountCoins,
+    psudo_account: AccountCoins,
     exchange: PyObject,
     market: PyObject,
     current_timestamp: MicroSec,
@@ -145,8 +143,8 @@ impl Session {
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
-            real_account: AccountPair::default(),
-            psudo_account: AccountPair::default(),
+            real_account: AccountCoins::default(),
+            psudo_account: AccountCoins::default(),
             exchange,
             market,
             current_timestamp: 0,
@@ -318,17 +316,17 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_psudo_account(&self) -> AccountPair {
+    pub fn get_psudo_account(&self) -> AccountCoins {
         self.psudo_account.clone()
     }
 
     #[getter]
-    pub fn get_real_account(&self) -> AccountPair {
+    pub fn get_real_account(&self) -> AccountCoins {
         self.real_account.clone()
     }
 
     #[getter]
-    pub fn get_account(&self) -> AccountPair {
+    pub fn get_account(&self) -> AccountCoins {
         match self.execute_mode {
             ExecuteMode::Real => self.real_account.clone(),
             ExecuteMode::BackTest => self.psudo_account.clone(),
@@ -660,7 +658,7 @@ impl Session {
     }
 
     pub fn update_psudo_account_by_order(&mut self, order: &Order) -> bool {
-        self.psudo_account.apply_order(order);
+        self.psudo_account.apply_order(&self.market_config, order);
 
         if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
             return true;
@@ -750,8 +748,7 @@ impl Session {
             MarketMessage::Account(coins) => {
                 log::debug!("on_message: account={:?}", coins);
 
-                let account: AccountPair = coins.extract_pair(&config);
-                self.on_account_update(&account);
+                self.on_account_update(coins);
             }
             MarketMessage::Orderbook(orderbook) => {
                 log::warn!("IGNORED MESSAGE: on_message: orderbook={:?}", orderbook);
@@ -843,10 +840,12 @@ impl Session {
         }
     }
 
-    pub fn on_account_update(&mut self, account: &AccountPair) {
-        self.real_account = account.clone();
+    pub fn on_account_update(&mut self, account: &AccountCoins) {
+        self.real_account.update(account);
 
-        if self.log_account(account).is_err() {
+        let account_pair: AccountPair = self.real_account.extract_pair(&self.market_config);        
+
+        if self.log_account(&account_pair).is_err() {
             log::error!("log_account_status error");
         };
     }
@@ -1108,10 +1107,6 @@ impl Session {
             log::error!("Unknown order side: {:?}", tick.order_side);
             return vec![];
         }
-    }
-
-    pub fn set_real_account(&mut self, account: &AccountPair) {
-        self.real_account = account.clone();
     }
 }
 

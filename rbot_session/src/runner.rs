@@ -10,8 +10,7 @@ use futures::{Stream, StreamExt};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountPair, MarketConfig, MarketMessage, MarketStream, MicroSec,
-        Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+        flush_log, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -521,7 +520,9 @@ impl Runner {
         // warm up loop
         let mut warm_up_loop: i64 = WARMUP_STEPS;
         while let Some(message) = rec.next().await {
-            let message = message?;
+            let mut message = message?;
+            message.update_config(&self.config);
+
             self.execute_message_update_session(&py_session, &message)?;
 
             if let MarketMessage::Trade(_trade) = &message {
@@ -536,6 +537,7 @@ impl Runner {
 
         let loop_start_time = NOW();
         while let Some(message) = rec.next().await {
+
             let message = message?;
             self.execute_message(&py_session, agent, &message, interval_sec)?;
             self.loop_count += 1;
@@ -1012,9 +1014,7 @@ impl Runner {
                 // IN Real run, account message is from user stream.
                 // AccountUpdateはFilledかPartiallyFilledのみ発生。
                 if self.has_account_update {
-                    let account_pair = account.extract_pair(&config);
-
-                    self.call_agent_on_account_update(py, agent, py_session, &account_pair)?;
+                    self.call_agent_on_account_update(py, agent, py_session, &account)?;
                 }
             }
             _ => {
@@ -1165,15 +1165,17 @@ impl Runner {
         py: &Python,
         agent: &PyAny,
         py_session: &Py<Session>,
-        account: &AccountPair,
+        account: &AccountCoins,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
-        session.set_real_account(account);
-        if session.log_account(account).is_err() {
+
+        let account_pair = account.extract_pair(&self.config);
+
+        if session.log_account(&account_pair).is_err() {
             log::error!("call_agent_on_account_update: log_account failed");
         }
 
-        log::debug!("call_agent_on_account_update: {:?}", &account);
+        log::debug!("call_agent_on_account_update: {:?}", &account_pair);
         let py_account = Py::new(*py, account.clone()).unwrap();
 
         agent.call_method1("on_account_update", (session, py_account))?;
@@ -1191,7 +1193,10 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         let account = session.get_account();
-        if session.log_account(&account).is_err() {
+
+        let account_pair = account.extract_pair(&self.config);
+       
+        if session.log_account(&account_pair).is_err() {
             log::error!("call_agent_on_account_update_dummy: log_account failed");
         }
         log::debug!("call_agent_on_account_update_dummy: {:?}", &account);
@@ -1262,8 +1267,8 @@ impl Runner {
                 0..=25 => (r + 65) as u8 as char,
                 26..=51 => (r + 71) as u8 as char,
                 52..=61 => (r - 4) as u8 as char,
-                62 => '+',
-                63 => '/',
+                62 => '-',
+                63 => '_',
                 _ => panic!("Invalid number"),
             };
 

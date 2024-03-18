@@ -529,6 +529,29 @@ mod binance_api_test {
         println!("result: {:?}", result);
     }
 
+
+    #[tokio::test]
+    async fn test_new_order_market() {
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+
+        init_debug_log();
+
+        let result = BinanceRestApi::new_order(
+            &server,
+            &config,
+            OrderSide::Buy,
+            dec![0],
+            dec![0.001],
+            OrderType::Market,
+            None,
+        )
+        .await;
+        println!("result: {:?}", result);
+    }
+
+
+
     #[tokio::test]
     async fn test_open_orders() {
         init_debug_log();
