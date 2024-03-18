@@ -242,8 +242,7 @@ impl BinancePrivateWsClient {
     }
 
     fn convert_ws_message(message: BinanceUserWsMessage) -> anyhow::Result<MultiMarketMessage> {
-        //Ok(message.into())
-        todo!();
+        Ok(message.convert_multimarketmessage("SPOT"))
     }
 
     async fn make_connect_url(server: &BinanceServerConfig) -> anyhow::Result<String> {

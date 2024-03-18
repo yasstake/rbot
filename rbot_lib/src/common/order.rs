@@ -434,9 +434,15 @@ pub struct AccountCoins {
     pub coins: Vec<Coin>,
 }
 
+impl Default for AccountCoins {
+    fn default() -> Self {
+        AccountCoins::new()
+    }    
+}
+
 impl AccountCoins {
     pub fn new() -> Self {
-        return AccountCoins { coins: Vec::new() };
+        AccountCoins { coins: Vec::new() }
     }
 
     pub fn push(&mut self, coin: Coin) {
@@ -445,6 +451,24 @@ impl AccountCoins {
 
     pub fn append(&mut self, mut coins: AccountCoins) {
         self.coins.append(&mut coins.coins);
+    }
+
+    pub fn update(&mut self, coins: &AccountCoins) {
+        for coin in coins.coins.iter() {
+            let mut found = false;
+            for my_coin in self.coins.iter_mut() {
+                if my_coin.symbol == coin.symbol {
+                    my_coin.volume = coin.volume;
+                    my_coin.free = coin.free;
+                    my_coin.locked = coin.locked;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                self.coins.push(coin.clone());
+            }
+        }
     }
 
     pub fn extract_pair(&self, config: &MarketConfig) -> AccountPair {
@@ -460,6 +484,44 @@ impl AccountCoins {
         }
 
         return AccountPair { home, foreign };
+    }
+
+    pub fn diff_update(&mut self, symbol: &str, volume: Decimal, free: Decimal, locked: Decimal) {
+        for coin in self.coins.iter_mut() {
+            if coin.symbol == symbol {
+                coin.volume += volume;
+                coin.free += free;
+                coin.locked += locked;
+                return;
+            }
+        }
+        let coin = Coin {
+            symbol: symbol.to_string(),
+            volume,
+            free,
+            locked,
+        };
+        self.coins.push(coin);
+    }
+
+    pub fn apply_order(&mut self, config: &MarketConfig, order: &Order) {
+        self.diff_update(
+            &config.home_currency, 
+            order.home_change,
+            order.free_home_change,
+            order.lock_home_change,
+        );
+
+        self.diff_update(
+            &config.foreign_currency,
+            order.foreign_change,
+            order.free_foreign_change,
+            order.lock_foreign_change,
+        );
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
     }
 }
 

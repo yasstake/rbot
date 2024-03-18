@@ -148,7 +148,7 @@ impl OrderInterfaceImpl<BinanceRestApi, BinanceServerConfig> for Binance {
             let mut ws = BinancePrivateWsClient::new(&server_config).await;
             ws.connect().await;
 
-            let mut market_channel = MARKET_HUB.open_channel();
+            let market_channel = MARKET_HUB.open_channel();
             let mut ws_stream = Box::pin(ws.open_stream().await);
 
             while let Some(message) = ws_stream.next().await {
@@ -418,7 +418,6 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
 
-
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         BLOCK_ON(async {
             log::debug!("download_gap");
@@ -549,11 +548,7 @@ impl BinanceMarket {
                     }
                     _ => {
                         log::info!("Market stream message: {:?}", messages);
-                    } /*
-                      MultiMarketMessage::Order(_) => todo!(),
-                      MultiMarketMessage::Account(_) => todo!(),
-                      MultiMarketMessage::Message(_) => todo!(),
-                      */
+                    }
                 }
             }
         }));
@@ -594,21 +589,23 @@ impl BinanceMarket {
         let last_update_id = b.get_last_update_id();
 
         // 4. Drop any event where u is <= lastUpdateId in the snapshot.
-        if transfer.last_update_id <= last_update_id {
-            log::warn!(
-                "transfer update_id is too small: {} <= {}",
-                transfer.last_update_id,
-                b.get_last_update_id()
-            );
-            return;
-        }
+        if last_update_id != 0 {
+            if transfer.last_update_id <= last_update_id {
+                log::warn!(
+                    "transfer update_id is too small: {} <= {}",
+                    transfer.last_update_id,
+                    b.get_last_update_id()
+                );
+                return;
+            }
 
-        if last_update_id + 1 != transfer.first_update_id {
-            log::warn!(
-                "last_update_id is not continuous: {} + 1 != {}",
-                last_update_id,
-                transfer.last_update_id
-            );
+            if last_update_id + 1 != transfer.first_update_id {
+                log::warn!(
+                    "last_update_id is not continuous: {} + 1 != {}",
+                    last_update_id,
+                    transfer.last_update_id
+                );
+            }
         }
 
         b.update(&transfer);
@@ -817,5 +814,25 @@ mod test_market_impl {
 
         let rec = market.download_latest(true).unwrap();
         assert!(rec > 0);
+    }
+
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_market_order() {
+        init_debug_log();
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut binance = Binance::new(true);
+        binance.enable_order = true;
+
+        let rec = binance.market_order
+            (&market_config, 
+            "Buy", 
+            dec![0.001],
+            None);
+        assert!(rec.is_ok());
     }
 }
