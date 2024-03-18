@@ -10,7 +10,7 @@ use futures::{Stream, StreamExt};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
+        flush_log, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -975,7 +975,7 @@ impl Runner {
         message: &MarketMessage,
         interval_sec: i64,
     ) -> anyhow::Result<()> {
-        let config = self.config.clone();
+        let _config = self.config.clone();
 
         // on clockはSession更新前に呼ぶ
         // こうすることでsession.curent_timestampより先の値でon_clockが呼ばれる.

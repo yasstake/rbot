@@ -719,7 +719,7 @@ impl Session {
 
 impl Session {
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
-        let config = self.market_config.clone();
+        let _config = self.market_config.clone();
         let mut new_orders = vec![];
 
         match message {

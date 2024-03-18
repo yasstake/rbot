@@ -17,12 +17,10 @@ use rbot_lib::common::MicroSec;
 use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::OrderBook;
-use rbot_lib::common::HHMM;
 use rbot_lib::common::MARKET_HUB;
-use rbot_lib::common::{flush_log, LogStatus, SEC};
+use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
 use rbot_lib::db::TradeTable;
-use rbot_lib::db::TradeTableDb;
 use rbot_lib::net::{BroadcastMessage, RestApi};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
@@ -456,7 +454,7 @@ impl BinanceMarket {
 
         // let public_ws = BinancePublicWsClient::new(&server_config, &config).await;
 
-        let mut market = BinanceMarket {
+        let market = BinanceMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db)),
@@ -726,8 +724,6 @@ impl BinanceMarket {
 
 #[cfg(test)]
 mod binance_market_test {
-    use std::thread::sleep;
-
     use rbot_lib::common::init_debug_log;
 
     use crate::BinanceConfig;
@@ -782,10 +778,6 @@ mod test_market_impl {
     #[tokio::test]
     async fn test_async_download_latest() -> anyhow::Result<()> {
         use super::*;
-        use rbot_lib::common::MarketConfig;
-        use rbot_lib::common::ServerConfig;
-        use rbot_lib::common::Trade;
-
         init_debug_log();
 
         let server = BinanceServerConfig::new(true);
@@ -822,7 +814,7 @@ mod test_market_impl {
     fn test_market_order() {
         init_debug_log();
         use super::*;
-        let server = BinanceServerConfig::new(true);
+        // let server = BinanceServerConfig::new(true);
         let market_config = BinanceConfig::BTCUSDT();
 
         let mut binance = Binance::new(true);
