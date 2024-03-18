@@ -7,15 +7,14 @@ use pyo3::{pyclass, pymethods};
 use rbot_lib::common::{
     msec_to_microsec, orderside_deserialize, orderstatus_deserialize, ordertype_deserialize,
     string_to_decimal, string_to_f64, AccountCoins, BoardItem, BoardTransfer, Coin, ControlMessage,
-    LogStatus, MarketConfig, MarketMessage, MultiMarketMessage, Order, OrderBookRaw, OrderSide,
+    LogStatus, MarketConfig, MultiMarketMessage, Order, OrderSide,
     OrderStatus, OrderType, Trade,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
-use std::{ops::Mul, str::FromStr};
+use std::str::FromStr;
 
-use crate::BinanceConfig;
 
 pub type BinanceMessageId = u64;
 
@@ -896,7 +895,7 @@ impl BinanceUserWsMessage {
                 MultiMarketMessage::Message("not implemented".to_string())
             }
             BinanceUserWsMessage::executionReport(report) => {
-                let mut order: Order = report.to_order(category);
+                let order: Order = report.to_order(category);
                 MultiMarketMessage::Order(vec![order])
             }
         };
@@ -1214,6 +1213,8 @@ impl BinanceOrderStatus {
 
 #[cfg(test)]
 mod binance_message_test {
+    use crate::config::BinanceConfig;
+    // use crate::config::BinanceServerConfig;
     use super::*;
 
     #[test]

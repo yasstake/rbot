@@ -840,7 +840,7 @@ impl TradeTable {
 
     pub fn update_cache_df(
         &mut self,
-        mut start_time: MicroSec,
+        start_time: MicroSec,
         mut end_time: MicroSec,
     ) -> anyhow::Result<()> {
         log::debug!("update_cache_df {} -> {}", start_time, end_time);
@@ -1674,21 +1674,6 @@ mod test_transaction_table {
 
         let r = tr.insert_records(&vec![rec1, rec2, rec3]);
         assert!(r.is_ok());
-    }
-
-    #[test]
-    fn test_select_fn() -> anyhow::Result<()> {
-        test_insert_table();
-
-        let mut table = TradeTable::open("test.db").unwrap();
-
-        table.select(0, 0, |row| {
-            println!("{:?}", row);
-
-            Ok(())
-        });
-
-        Ok(())
     }
 
     #[test]

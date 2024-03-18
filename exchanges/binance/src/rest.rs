@@ -1,14 +1,13 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use crate::{
-    binance_order_response_vec_to_orders, binance_order_status_vec_to_orders,
+    binance_order_status_vec_to_orders,
     BinanceAccountInformation, BinanceCancelOrderResponse, BinanceOrderResponse,
     BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig, BinanceTradeMessage,
 };
 
 use anyhow::anyhow;
 use csv::StringRecord;
-use polars_core::utils::rayon::vec;
 use rbot_lib::{
     common::{
         flush_log, hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW
@@ -19,7 +18,6 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::Value;
 
 use anyhow::Context;
-use anyhow::Result;
 
 pub struct BinanceRestApi {}
 
@@ -74,10 +72,10 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
     }
 
     async fn get_trade_klines(
-        server: &BinanceServerConfig,
-        config: &MarketConfig,
-        start_time: MicroSec,
-        end_time: MicroSec,
+        _server: &BinanceServerConfig,
+        _config: &MarketConfig,
+        _start_time: MicroSec,
+        _end_time: MicroSec,
     ) -> anyhow::Result<Vec<Kline>> {
         todo!();
     }
@@ -478,8 +476,7 @@ mod binance_api_test {
     use crate::BinanceConfig;
     use rbot_lib::common::init_debug_log;
     use rust_decimal_macros::dec;
-    use tokio::*;
-
+    
     #[tokio::test]
     async fn test_board_snapshot() -> anyhow::Result<()> {
         let server = BinanceServerConfig::new(false);
