@@ -42,7 +42,7 @@ use session::Runner;
 
 /// A Python module implemented in Rust.
 
-use tracing_subscriber;
+// use tracing_subscriber;
 
 
 // use console_subscriber;
