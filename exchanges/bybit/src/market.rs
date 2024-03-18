@@ -604,11 +604,7 @@ impl BybitMarket {
                     }
                     _ => {
                         log::info!("Market stream message: {:?}", messages);
-                    } /*
-                      MultiMarketMessage::Order(_) => todo!(),
-                      MultiMarketMessage::Account(_) => todo!(),
-                      MultiMarketMessage::Message(_) => todo!(),
-                      */
+                    } 
                 }
             }
         }));
