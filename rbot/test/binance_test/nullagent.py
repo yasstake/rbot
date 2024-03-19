@@ -1,8 +1,10 @@
 
 from rbot import Session
 from rbot import Runner
+
+from rbot import Binance
 from rbot import BinanceConfig
-from rbot import BinanceMarket
+
 from rbot import init_debug_log
 from rbot import init_log
 from rbot import OrderSide
@@ -14,7 +16,7 @@ class MyAgent:
         pass
 
     def on_init(self, session):
-        session.clock_interval = 60
+        session.clock_interval_sec = 60
         print("init: ", session.timestamp)
 
         pass
@@ -40,23 +42,32 @@ class MyAgent:
         pass
 
 init_log()
-   
-market = BinanceMarket(BinanceConfig.TEST_BTCUSDT)
-#market.download(1, force=False, verbose=True)
 
-market.cancel_all_orders()
-    
+
+binance = Binance(False)   
+
+market = binance.open_market(BinanceConfig.BTCUSDT)
 agent = MyAgent()
 runner = Runner()
 
 #init_debug_log()
-session = runner.back_test(market, agent, start_time=NOW()-DAYS(1), end_time=0, verbose=True,execute_time=60*3)
-#session = runner.dry_run(market, agent, verbose=True, execute_time=60)
-#session = runner.real_run(market, agent, verbose=True, execute_time=60)
+#session = runner.back_test(exchange=binance, market=market, agent=agent, start_time=NOW()-DAYS(1), end_time=0, verbose=True,execute_time=60*3)
+#print(session)
 
 
-print(session)
+#runner = Runner()
+#session = runner.dry_run(
+    #exchange=binance, market=market, agent=agent, verbose=True, execute_time=60*3, log_memory=True)
+#print(session)
 
+
+binance.enable_order_with_my_own_risk = True
+
+runner = Runner()
+session = runner.real_run(
+    exchange=binance, market=market, agent=agent, verbose=True, execute_time=60*3, log_memory=True)
+
+print(session.log)
 
 
 

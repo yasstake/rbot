@@ -6,11 +6,9 @@ mod test;
 
 use binance::{Binance, BinanceConfig};
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
-use rbot_lib::common::{
-    get_orderbook_list,
-    init_debug_log, init_log, time_string, 
-    AccountPair, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
-};
+use rbot_lib::{common::{
+    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountPair, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
+}, db::get_db_root, db::set_db_root};
 
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
@@ -18,41 +16,22 @@ use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
 
 
-
-
-/*
-use exchange::BoardItem;
-use exchange::bybit::{BybitMarket, Bybit};
-use exchange::bybit::config::{BybitConfig, BybitServerConfig};
-use pyo3::prelude::*;
-// use exchange::ftx::FtxMarket;
-use exchange::binance::{BinanceMarket, BinanceConfig, Binance};
-// use exchange::bb::BBMarket;
-
-use common::*;
-use session::{Session, ExecuteMode, Logger};
-use session::Runner;
-*/
-
-
-// use net::{Broadcast, BroadcastMessage};
-//use sim::back::BackTester;
-//use sim::session::DummySession;
-
-/// A Python module implemented in Rust.
-
-
 // use console_subscriber;
 #[pymodule]
 fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // console_subscriber::init();  // for tokio thread debug
+    //tracing_subscriber::fmt::init();
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
+    m.add_function(wrap_pyfunction!(get_db_root, m)?)?;
+    m.add_function(wrap_pyfunction!(set_db_root, m)?)?;
 
     m.add_function(wrap_pyfunction!(init_log, m)?)?;
     m.add_function(wrap_pyfunction!(init_debug_log, m)?)?;
 
     m.add_function(wrap_pyfunction!(get_orderbook_list, m)?)?;
+    m.add_function(wrap_pyfunction!(get_orderbook, m)?)?;
 
     // time util
     m.add_function(wrap_pyfunction!(time_string, m)?)?;
