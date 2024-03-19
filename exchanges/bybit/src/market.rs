@@ -79,6 +79,11 @@ impl Bybit {
         self.server_config.exchange_name.clone()
     }
 
+    #[getter]
+    fn get_production(&self) -> bool {
+        self.server_config.production
+    }
+
     pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
         return BybitMarket::new(&self.server_config, config);
     }
@@ -395,11 +400,10 @@ impl BybitMarket {
         config: &MarketConfig,
         test_mode: bool,
     ) -> anyhow::Result<Self> {
-        let db_path = Self::make_db_path(
+        let db_path = TradeTable::make_db_path(
             &server_config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
-            &server_config.db_base_dir,
             test_mode    
         );
 

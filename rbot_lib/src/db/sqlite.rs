@@ -7,6 +7,7 @@ use anyhow::Context;
 
 use numpy::IntoPyArray;
 use numpy::PyArray2;
+use once_cell::sync::Lazy;
 use polars::prelude::DataFrame;
 use polars::prelude::Float64Type;
 use polars_core::prelude::IndexOrder;
@@ -25,6 +26,7 @@ use tokio::task::JoinHandle;
 //use std::thread::JoinHandle;
 //use std::thread::spawn;
 
+use crate::common::env_rbot_db_root;
 use crate::common::MarketStream;
 
 //use crossbeam_channel::Receiver;
@@ -49,8 +51,12 @@ use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_
 
 use crate::db::df::KEY;
 
+use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
+
+
+
 
 #[derive(Debug)]
 pub struct TradeTableDb {
@@ -637,6 +643,18 @@ pub struct TradeTable {
 
 impl TradeTable {
     const OHLCV_WINDOW_SEC: i64 = 60; // min
+
+    pub fn make_db_path(
+        exchange_name: &str,
+        trade_category: &str,
+        trade_symbol: &str,
+        test_net: bool,
+    ) -> String {
+
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, "", test_net);
+
+        return db_path.to_str().unwrap().to_string();
+    }
 
     /// check if db thread is running.
     pub fn is_running(&self) -> bool {
@@ -1722,7 +1740,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() -> anyhow::Result<()> {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13)?;
@@ -1743,7 +1761,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1757,7 +1775,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -1771,7 +1789,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunks() -> anyhow::Result<()> {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10)?;
@@ -1807,7 +1825,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -1849,7 +1867,7 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
@@ -1860,7 +1878,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
@@ -1871,7 +1889,7 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW())?;
@@ -1882,7 +1900,7 @@ mod test_transaction_table {
     #[tokio::test]
     async fn test_start_thread() {
         let mut table = TradeTable::open(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
                 .to_str()
                 .unwrap(),
         )
@@ -1929,7 +1947,7 @@ mod test_transaction_table {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
         TradeTableDb::set_wal_mode(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
                 .to_str()
                 .unwrap(),
         )?;
