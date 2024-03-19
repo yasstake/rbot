@@ -246,8 +246,6 @@ impl Session {
         let time_from = self.current_timestamp - SEC(window_sec);
         let time_to = self.current_timestamp;
 
-        println!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
-
         let df = self.db.ohlcv_df(time_from, time_to, interval)?;
 
         Ok(PyDataFrame(df))
