@@ -462,14 +462,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
         todo!()
     }
 
-    fn open_backtest_channel(
-        &mut self,
-        time_from: MicroSec,
-        time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream> {
-        todo!()
-    }
-
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async {
             self.async_start_market_stream().await
