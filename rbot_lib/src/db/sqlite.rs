@@ -811,6 +811,10 @@ impl TradeTable {
         return self.cache_duration;
     }
 
+    pub fn ohlcv_floor_fix_time(t: MicroSec, unit_sec: i64) -> MicroSec {
+        return FLOOR_SEC(t, unit_sec)
+    }
+
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
         return FLOOR_SEC(t, TradeTable::OHLCV_WINDOW_SEC);
     }
@@ -999,10 +1003,12 @@ impl TradeTable {
 
     pub fn ohlcvv_df(
         &mut self,
-        start_time: MicroSec,
+        mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
+        start_time = TradeTable::ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
+
         self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
@@ -1065,7 +1071,7 @@ impl TradeTable {
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcvv_df(start_time, end_time, window_sec)?;
 
@@ -1076,10 +1082,12 @@ impl TradeTable {
 
     pub fn ohlcv_df(
         &mut self,
-        start_time: MicroSec,
+        mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+
         self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
