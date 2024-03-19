@@ -316,8 +316,15 @@ where
         trade_category: &str,
         trade_symbol: &str,
         db_base_dir: &str,
+        test_net: bool,
     ) -> String {
-        let db_path = db_full_path(&exchange_name, trade_category, trade_symbol, db_base_dir);
+        let trade_category = if test_net {
+            format!("TEST-{}", trade_category)
+        } else {
+            trade_category.to_string()
+        };
+
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, db_base_dir);
 
         return db_path.to_str().unwrap().to_string();
     }
