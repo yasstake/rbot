@@ -3,8 +3,18 @@
 use std::fs;
 use std::path::PathBuf;
 use directories::ProjectDirs;
+use once_cell::sync::Lazy;
 
-use crate::common::DB_ROOT;
+use crate::common::env_rbot_db_root;
+
+
+pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
+    if let Ok(path) = env_rbot_db_root() {
+        return path;
+    } else {
+        "".to_string()
+    }
+});
 
 
 pub fn project_dir() -> PathBuf {
@@ -13,8 +23,7 @@ pub fn project_dir() -> PathBuf {
     return proj_dir.data_dir().to_owned();
 }
 
-
-pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str) -> PathBuf {
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str, test_net: bool) -> PathBuf {
     let path = DB_ROOT.to_string();    
     
     let project_dir = if base_dir != "" {
@@ -31,7 +40,12 @@ pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir:
     let exchange_dir = db_dir.join(exchange_name);
     let _ = fs::create_dir_all(&exchange_dir);
 
-    let db_name = format!("{}-{}.db", category, symbol);
+    let mut db_name = format!("{}-{}.db", category, symbol);
+
+    if test_net {
+        db_name = format!("TEST-{}", db_name);
+    }
+    
     let db_path = exchange_dir.join(db_name);
 
     return db_path;
@@ -52,13 +66,13 @@ mod test_fs {
 
     #[test]
     fn test_db_full_path() {
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
         println!("{:?}", db);
 
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp/");
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp/", true);
         println!("{:?}", db);
 
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "./");
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "./", false);
         println!("{:?}", db);
 
     }

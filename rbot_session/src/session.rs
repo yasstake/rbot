@@ -12,9 +12,9 @@ use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use pyo3::prelude::*;
-use rbot_lib::common::{
+use rbot_lib::{common::{
     date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
-};
+}, db::TradeTable};
 
 use anyhow;
 
@@ -97,6 +97,8 @@ pub struct Session {
     client_mode: bool,
 
     log: Logger,
+
+    db: TradeTable,
 }
 
 #[pymethods]
@@ -125,6 +127,13 @@ impl Session {
             }
         };
 
+        let production = Python::with_gil(|py| {
+            let production = exchange.getattr(py, "production").unwrap();
+            let production: bool = production.extract(py).unwrap();
+
+            production
+        });
+
         let config = Python::with_gil(|py| {
             let config = market.getattr(py, "config").unwrap();
             let config: MarketConfig = config.extract(py).unwrap();
@@ -141,6 +150,14 @@ impl Session {
 
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
+
+        let db_path = TradeTable::make_db_path(
+            &exchange_name, 
+            &category, 
+            &config.trade_symbol, 
+            ! production);
+
+        let db = TradeTable::open(&db_path);
 
         let mut session = Self {
             session_id: Self::int_to_base64(now_time),
@@ -186,6 +203,8 @@ impl Session {
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
+
+            db: db.unwrap(),
         };
 
         session.load_order_list().unwrap();
@@ -195,12 +214,17 @@ impl Session {
 
     // -----   market information -----
     // call market with current_timestamp
-    pub fn ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
+    pub fn py_ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
         let window_sec = interval * count;
         let time_from = self.current_timestamp - SEC(window_sec);
         let time_to = self.current_timestamp;
 
+        println!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
         Python::with_gil(|py| {
+
+            println!("call start ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
             let result = self
                 .market
                 .call_method1(py, "ohlcv", (time_from, time_to, interval));
@@ -216,6 +240,19 @@ impl Session {
             }
         })
     }
+
+    pub fn ohlcv(&mut self, interval: i64, count: i64) -> anyhow::Result<PyDataFrame> {
+        let window_sec = interval * count;
+        let time_from = self.current_timestamp - SEC(window_sec);
+        let time_to = self.current_timestamp;
+
+        println!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
+        let df = self.db.ohlcv_df(time_from, time_to, interval)?;
+
+        Ok(PyDataFrame(df))
+    }
+
 
     #[getter]
     pub fn get_timestamp(&self) -> MicroSec {
