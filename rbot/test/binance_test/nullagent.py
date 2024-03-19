@@ -67,7 +67,7 @@ runner = Runner()
 session = runner.real_run(
     exchange=binance, market=market, agent=agent, verbose=True, execute_time=60*3, log_memory=True)
 
-print(session)
+print(session.log)
 
 
 

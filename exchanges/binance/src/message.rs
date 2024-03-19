@@ -904,62 +904,6 @@ impl BinanceUserWsMessage {
     }
 }
 
-/*
-impl BinanceUserStreamMessage {
-    pub fn convert_to_market_message(&self, config: &BinanceConfig) -> MarketMessage {
-        let mut message = MarketMessage::new();
-
-        log::debug!("RAW user stream:\n{:?}\n", self);
-
-        match self {
-            BinanceUserStreamMessage::outboundAccountPosition(account) => {
-                let status = binance_account_update_to_account_status(config, account);
-                message.account = Some(status);
-            }
-            BinanceUserStreamMessage::balanceUpdate(_balance) => {
-                log::error!("not implemented");
-            }
-            BinanceUserStreamMessage::executionReport(order) => {
-                let mut order: Order = order.into();
-                order.update_balance(&config.market_config);
-                message.order = Some(order);
-            }
-        };
-
-        message
-    }
-}
-*/
-
-/*
-impl Into<Order> for BinanceUserStreamMessage {
-    fn into(self) -> Order {
-        match self {
-            BinanceUserStreamMessage::executionReport(order) => order.into(),
-            _ => {
-                log::error!("not supported");
-                Order {
-                    symbol: "".to_string(),
-                    create_time: 0,
-                    order_id: "".to_string(),
-                    order_list_index: 0,
-                    client_order_id: "".to_string(),
-                    order_side: OrderSide::Buy,
-                    order_type: OrderType::Limit,
-                    price: Decimal::from(0),
-                    size: Decimal::from(0),
-                    remain_size: Decimal::from(0),
-                    status: OrderStatus::New,
-                    account_change: AccountChange::new(),
-                    message: "".to_string(),
-                    fills: None,
-                    profit: None,
-                }
-            }
-        }
-    }
-}
-*/
 
 /*
 https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
