@@ -207,6 +207,8 @@ where
 
 pub trait MarketInterface {
     // --- GET CONFIG INFO ----
+    fn get_production(&self) -> bool;
+
     fn get_config(&self) -> MarketConfig;
     fn get_exchange_name(&self) -> String;
     fn get_trade_category(&self) -> String;
@@ -311,23 +313,6 @@ where
 
     fn get_history_web_base_url(&self) -> String;
 
-    fn make_db_path(
-        exchange_name: &str,
-        trade_category: &str,
-        trade_symbol: &str,
-        db_base_dir: &str,
-        test_net: bool,
-    ) -> String {
-        let trade_category = if test_net {
-            format!("TEST-{}", trade_category)
-        } else {
-            trade_category.to_string()
-        };
-
-        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, db_base_dir);
-
-        return db_path.to_str().unwrap().to_string();
-    }
 
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {

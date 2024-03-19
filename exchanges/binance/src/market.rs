@@ -63,6 +63,11 @@ impl Binance {
         self.server_config.exchange_name.clone()
     }
 
+    #[getter]
+    fn get_production(&self) -> bool {
+        self.server_config.production
+    }
+
     pub fn open_market(&self, config: &MarketConfig) -> BinanceMarket {
         return BinanceMarket::new(&self.server_config, config);
     }
@@ -445,11 +450,10 @@ impl BinanceMarket {
         config: &MarketConfig,
         test_mode: bool,
     ) -> anyhow::Result<Self> {
-        let db_path = Self::make_db_path(
+        let db_path = TradeTable::make_db_path(
             &server_config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
-            &server_config.db_base_dir,
             test_mode
         );
 
@@ -789,7 +793,7 @@ mod test_market_impl {
 
         //let binance = Binance::new(true);
 
-        let mut market = BinanceMarket::async_new(&server, &market_config).await?;
+        let mut market = BinanceMarket::async_new(&server, &market_config, true).await?;
         //let mut market = binance.open_market(&market_config);
 
         let rec = market.async_download_latest(true).await.unwrap();
