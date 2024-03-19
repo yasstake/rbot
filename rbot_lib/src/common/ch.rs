@@ -13,6 +13,7 @@ use super::order::Trade;
 use super::AccountCoins;
 use super::AccountPair;
 use super::BoardTransfer;
+use super::MarketConfig;
 use super::OrderBookRaw;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +35,24 @@ pub enum MarketMessage {
 }
 
 impl MarketMessage {
+    pub fn update_config(&mut self, config: &MarketConfig) {
+        match self {
+            MarketMessage::Trade(_trade) => {
+                //                
+            }
+            MarketMessage::Order(order) => {
+                order.update_balance(config);
+            }
+            MarketMessage::Account(_account) => {
+                //
+            }
+            MarketMessage::Orderbook(_orderbook) => {
+                //
+            }
+            _ => {}
+        }
+    }
+
     pub fn from_trade(trade: Trade) -> Self {
         MarketMessage::Trade(trade)
     }

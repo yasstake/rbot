@@ -1,18 +1,19 @@
 use futures::Stream;
 use futures::StreamExt;
 use rbot_lib::net::ReceiveMessage;
-use serde::{Deserialize as _, Serialize as _};
+// use serde::{Deserialize as _, Serialize as _};
 use tokio::task::JoinHandle;
 
 use async_stream::stream;
 
 use rbot_lib::{
-    common::{MarketConfig, MicroSec, MultiMarketMessage, ServerConfig, MICRO_SECOND, NOW},
+    common::{MarketConfig, MultiMarketMessage, ServerConfig, NOW},
     net::{AutoConnectClient, WsOpMessage},
 };
 
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
+use crate::BinanceWsRawMessage;
 use crate::{BinancePublicWsMessage, BinanceServerConfig};
 
 use serde_derive::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ use anyhow::anyhow;
 /// User data streams will close after 60 minutes.
 /// It's recommended to send a ping about every 30 minutes.
 
-const KEY_EXTEND_INTERVAL: MicroSec = 5 * 60 * MICRO_SECOND; // 30 min
+// const KEY_EXTEND_INTERVAL: MicroSec = 5 * 60 * MICRO_SECOND; // 30 min
 
 pub const PING_INTERVAL_SEC: i64 = 60 * 3; // every 3 min
 pub const SWITCH_INTERVAL_SEC: i64 = 60 * 60 * 12; // 12 hours
@@ -68,7 +69,7 @@ impl WsOpMessage for BinanceWsOpMessage {
 
 pub struct BinancePublicWsClient {
     ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
-    handler: Option<JoinHandle<()>>,
+    _handler: Option<JoinHandle<()>>,
 }
 
 impl BinancePublicWsClient {
@@ -88,7 +89,7 @@ impl BinancePublicWsClient {
 
         Self {
             ws: public_ws,
-            handler: None,
+            _handler: None,
         }
     }
 
@@ -137,14 +138,16 @@ impl BinancePublicWsClient {
     }
 
     fn parse_message(message: String) -> anyhow::Result<BinancePublicWsMessage> {
-        let m = serde_json::from_str::<BinancePublicWsMessage>(&message);
+        let m = serde_json::from_str::<BinanceWsRawMessage>(&message);
 
         if m.is_err() {
             log::warn!("Error in serde_json::from_str: {:?}", message);
             return Err(anyhow!("Error in serde_json::from_str: {:?}", message));
         }
 
-        Ok(m.unwrap())
+        let m = m.unwrap();
+
+        Ok(m.into())
     }
 
     // TODO: implement
@@ -155,8 +158,8 @@ impl BinancePublicWsClient {
 
 pub struct BinancePrivateWsClient {
     ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
-    handler: Option<JoinHandle<()>>,
-    listen_key: String,
+    _handler: Option<JoinHandle<()>>,
+    _listen_key: String,
 }
 
 impl BinancePrivateWsClient {
@@ -178,8 +181,8 @@ impl BinancePrivateWsClient {
 
         Self {
             ws: private_ws,
-            handler: None,
-            listen_key: "".to_string(),
+            _handler: None,
+            _listen_key: "".to_string(),
         }
     }
 
@@ -239,8 +242,7 @@ impl BinancePrivateWsClient {
     }
 
     fn convert_ws_message(message: BinanceUserWsMessage) -> anyhow::Result<MultiMarketMessage> {
-        //Ok(message.into())
-        todo!();
+        Ok(message.convert_multimarketmessage("SPOT"))
     }
 
     async fn make_connect_url(server: &BinanceServerConfig) -> anyhow::Result<String> {
@@ -256,7 +258,7 @@ impl BinancePrivateWsClient {
 mod tests {
     use super::*;
     use crate::BinanceConfig;
-    use rbot_lib::common::{init_debug_log, MarketConfig};
+    use rbot_lib::common::init_debug_log;
 
     #[tokio::test]
     async fn test_binance_public_ws_client() {
@@ -293,7 +295,7 @@ mod tests {
     #[tokio::test]
     async fn test_make_connect_url() {
         let server = BinanceServerConfig::new(false);
-        let config = BinanceConfig::BTCUSDT();
+        let _config = BinanceConfig::BTCUSDT();
 
         let url = BinancePrivateWsClient::make_connect_url(&server).await;
 
