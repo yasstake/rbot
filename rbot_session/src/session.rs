@@ -12,11 +12,9 @@ use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use pyo3::prelude::*;
-use rbot_lib::common::{
-    date_string, get_orderbook, hour_string, min_string, time_string, AccountPair, MarketConfig,
-    MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW,
-    SEC,
-};
+use rbot_lib::{common::{
+    date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
+}, db::TradeTable};
 
 use anyhow;
 
@@ -55,11 +53,13 @@ impl ExecuteMode {
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
+    session_id: String,
+
     execute_mode: ExecuteMode,
     buy_orders: OrderList,
     sell_orders: OrderList,
-    real_account: AccountPair,
-    psudo_account: AccountPair,
+    real_account: AccountCoins,
+    psudo_account: AccountCoins,
     exchange: PyObject,
     market: PyObject,
     current_timestamp: MicroSec,
@@ -85,8 +85,8 @@ pub struct Session {
 
     clock_interval_sec: i64,
 
-    asks_edge: Decimal,
-    bids_edge: Decimal,
+    ask_edge: Decimal,
+    bid_edge: Decimal,
 
     exchange_name: String,
     trade_category: String,
@@ -97,6 +97,8 @@ pub struct Session {
     client_mode: bool,
 
     log: Logger,
+
+    db: TradeTable,
 }
 
 #[pymethods]
@@ -125,8 +127,15 @@ impl Session {
             }
         };
 
+        let production = Python::with_gil(|py| {
+            let production = exchange.getattr(py, "production").unwrap();
+            let production: bool = production.extract(py).unwrap();
+
+            production
+        });
+
         let config = Python::with_gil(|py| {
-            let config = market.getattr(py, "market_config").unwrap();
+            let config = market.getattr(py, "config").unwrap();
             let config: MarketConfig = config.extract(py).unwrap();
 
             config
@@ -140,13 +149,23 @@ impl Session {
         });
 
         let category = config.trade_category.clone();
+        let now_time = NOW() / 1_000_000;
+
+        let db_path = TradeTable::make_db_path(
+            &exchange_name, 
+            &category, 
+            &config.trade_symbol, 
+            ! production);
+
+        let db = TradeTable::open(&db_path);
 
         let mut session = Self {
+            session_id: Self::int_to_base64(now_time),
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
             sell_orders: OrderList::new(OrderSide::Sell),
-            real_account: AccountPair::default(),
-            psudo_account: AccountPair::default(),
+            real_account: AccountCoins::default(),
+            psudo_account: AccountCoins::default(),
             exchange,
             market,
             current_timestamp: 0,
@@ -172,8 +191,8 @@ impl Session {
 
             clock_interval_sec: 0,
 
-            asks_edge: dec![0.0],
-            bids_edge: dec![0.0],
+            ask_edge: dec![0.0],
+            bid_edge: dec![0.0],
 
             exchange_name,
             trade_category: category,
@@ -184,6 +203,8 @@ impl Session {
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
+
+            db: db.unwrap(),
         };
 
         session.load_order_list().unwrap();
@@ -193,12 +214,17 @@ impl Session {
 
     // -----   market information -----
     // call market with current_timestamp
-    pub fn ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
+    pub fn py_ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
         let window_sec = interval * count;
         let time_from = self.current_timestamp - SEC(window_sec);
         let time_to = self.current_timestamp;
 
+        println!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
         Python::with_gil(|py| {
+
+            println!("call start ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
             let result = self
                 .market
                 .call_method1(py, "ohlcv", (time_from, time_to, interval));
@@ -214,6 +240,17 @@ impl Session {
             }
         })
     }
+
+    pub fn ohlcv(&mut self, interval: i64, count: i64) -> anyhow::Result<PyDataFrame> {
+        let window_sec = interval * count;
+        let time_from = self.current_timestamp - SEC(window_sec);
+        let time_to = self.current_timestamp;
+
+        let df = self.db.ohlcv_df(time_from, time_to, interval)?;
+
+        Ok(PyDataFrame(df))
+    }
+
 
     #[getter]
     pub fn get_timestamp(&self) -> MicroSec {
@@ -307,8 +344,8 @@ impl Session {
     #[getter]
     pub fn get_last_price(&self) -> (f64, f64) {
         (
-            self.bids_edge.to_f64().unwrap(),
-            self.asks_edge.to_f64().unwrap(),
+            self.bid_edge.to_f64().unwrap(),
+            self.ask_edge.to_f64().unwrap(),
         )
     }
 
@@ -318,17 +355,17 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_psudo_account(&self) -> AccountPair {
+    pub fn get_psudo_account(&self) -> AccountCoins {
         self.psudo_account.clone()
     }
 
     #[getter]
-    pub fn get_real_account(&self) -> AccountPair {
+    pub fn get_real_account(&self) -> AccountCoins {
         self.real_account.clone()
     }
 
     #[getter]
-    pub fn get_account(&self) -> AccountPair {
+    pub fn get_account(&self) -> AccountCoins {
         match self.execute_mode {
             ExecuteMode::Real => self.real_account.clone(),
             ExecuteMode::BackTest => self.psudo_account.clone(),
@@ -462,9 +499,9 @@ impl Session {
         }
 
         let execute_price = if side == OrderSide::Buy {
-            self.asks_edge + self.market_config.market_order_price_slip
+            self.ask_edge + self.market_config.market_order_price_slip
         } else {
-            self.bids_edge - self.market_config.market_order_price_slip
+            self.bid_edge - self.market_config.market_order_price_slip
         };
 
         return execute_price;
@@ -660,7 +697,7 @@ impl Session {
     }
 
     pub fn update_psudo_account_by_order(&mut self, order: &Order) -> bool {
-        self.psudo_account.apply_order(order);
+        self.psudo_account.apply_order(&self.market_config, order);
 
         if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
             return true;
@@ -721,7 +758,7 @@ impl Session {
 
 impl Session {
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
-        let config = self.market_config.clone();
+        let _config = self.market_config.clone();
         let mut new_orders = vec![];
 
         match message {
@@ -750,8 +787,7 @@ impl Session {
             MarketMessage::Account(coins) => {
                 log::debug!("on_message: account={:?}", coins);
 
-                let account: AccountPair = coins.extract_pair(&config);
-                self.on_account_update(&account);
+                self.on_account_update(coins);
             }
             MarketMessage::Orderbook(orderbook) => {
                 log::warn!("IGNORED MESSAGE: on_message: orderbook={:?}", orderbook);
@@ -825,14 +861,14 @@ impl Session {
         self.current_timestamp = tick.time;
 
         if tick.order_side == OrderSide::Buy {
-            self.asks_edge = tick.price;
-            if self.asks_edge <= self.bids_edge {
-                self.bids_edge = self.asks_edge - self.market_config.price_unit;
+            self.ask_edge = tick.price;
+            if self.ask_edge <= self.bid_edge {
+                self.bid_edge = self.ask_edge - self.market_config.price_unit;
             }
         } else if tick.order_side == OrderSide::Sell {
-            self.bids_edge = tick.price;
-            if self.asks_edge <= self.bids_edge {
-                self.asks_edge = self.bids_edge + self.market_config.price_unit;
+            self.bid_edge = tick.price;
+            if self.ask_edge <= self.bid_edge {
+                self.ask_edge = self.bid_edge + self.market_config.price_unit;
             }
         }
 
@@ -843,15 +879,22 @@ impl Session {
         }
     }
 
-    pub fn on_account_update(&mut self, account: &AccountPair) {
-        self.real_account = account.clone();
+    pub fn on_account_update(&mut self, account: &AccountCoins) {
+        self.real_account.update(account);
 
-        if self.log_account(account).is_err() {
+        let account_pair: AccountPair = self.real_account.extract_pair(&self.market_config);        
+
+        if self.log_account(&account_pair).is_err() {
             log::error!("log_account_status error");
         };
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
+        if ! order.is_my_order(&self.session_name) {
+            log::debug!("on_order_update: skip my order: {:?}", order);
+            return;
+        }
+
         self.log_id += 1;
         order.log_id = self.log_id;
         order.update_balance(&self.market_config);
@@ -882,7 +925,7 @@ impl Session {
     fn new_order_id(&mut self) -> String {
         self.order_number += 1;
 
-        format!("{}-{:04}", self.session_name, self.order_number)
+        format!("{}-{}{:04}", self.session_name, self.session_id, self.order_number)
     }
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
@@ -906,6 +949,10 @@ impl Session {
 
                     for order in orders {
                         if order.symbol != config.trade_symbol {
+                            continue;
+                        }
+
+                        if ! order.is_my_order(&self.session_name) {
                             continue;
                         }
 
@@ -1110,9 +1157,34 @@ impl Session {
         }
     }
 
-    pub fn set_real_account(&mut self, account: &AccountPair) {
-        self.real_account = account.clone();
+    // base 64 generated by co pilot!!
+    pub fn int_to_base64(num: i64) -> String {
+        let mut num = num;
+        let mut result = String::new();
+
+        loop {
+            let r = num % 64;
+            num = num / 64;
+
+            let c = match r {
+                0..=25 => (r + 65) as u8 as char,
+                26..=51 => (r + 71) as u8 as char,
+                52..=61 => (r - 4) as u8 as char,
+                62 => '-',
+                63 => '_',
+                _ => panic!("Invalid number"),
+            };
+
+            result.push(c);
+
+            if num == 0 {
+                break;
+            }
+        }
+
+        result
     }
+
 }
 
 #[cfg(test)]

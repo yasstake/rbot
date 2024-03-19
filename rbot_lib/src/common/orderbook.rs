@@ -127,7 +127,7 @@ pub fn get_orderbook_bin(path: &str) -> anyhow::Result<Vec<u8>> {
     Ok(transfer.to_vec())
 }
 
-
+#[pyfunction]
 pub fn get_orderbook(path: &str) -> anyhow::Result<OrderBook> {
     ALL_BOARD
         .lock()
@@ -151,6 +151,7 @@ pub fn get_orderbook_df(path: &str) -> anyhow::Result<(DataFrame, DataFrame)> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BoardTransfer {
     pub last_update_time: MicroSec,
+    pub first_update_id: u64,
     pub last_update_id: u64,
     pub bids: Vec<BoardItem>,
     pub asks: Vec<BoardItem>,
@@ -161,6 +162,7 @@ impl BoardTransfer {
     pub fn new() -> Self {
         BoardTransfer {
             last_update_time: 0,
+            first_update_id: 0,
             last_update_id: 0,
             bids: vec![],
             asks: vec![],
@@ -170,6 +172,7 @@ impl BoardTransfer {
 
     pub fn from_orderbook(order_book: &OrderBookRaw) -> Self {
         BoardTransfer {
+            first_update_id: order_book.first_update_id,
             last_update_time: order_book.last_update_time,
             last_update_id: order_book.last_update_id,
             bids: order_book.bids.get(),
@@ -348,6 +351,7 @@ impl Board {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderBookRaw {
     pub last_update_time: MicroSec,
+    pub first_update_id: u64,    
     pub last_update_id: u64,
     pub bids: Board,
     pub asks: Board,
@@ -356,6 +360,7 @@ pub struct OrderBookRaw {
 impl OrderBookRaw {
     pub fn new(max_depth: u32) -> Self {
         OrderBookRaw {
+            first_update_id: 0,
             last_update_id: 0,
             last_update_time: 0,
             bids: Board::new(max_depth, false),
@@ -396,6 +401,7 @@ impl OrderBookRaw {
 
     pub fn update(&mut self, board_transfer: &BoardTransfer) {
         self.last_update_time = board_transfer.last_update_time;
+        self.first_update_id = board_transfer.first_update_id;
         self.last_update_id = board_transfer.last_update_id;
 
         if board_transfer.snapshot {
@@ -441,6 +447,18 @@ impl OrderBook {
             symbol: symbol,
             board: board,
         }
+    }
+
+    pub fn get_first_update_id(&self) -> u64 {
+        self.board.lock().unwrap().first_update_id
+    }
+
+    pub fn get_last_update_time(&self) -> MicroSec {
+        self.board.lock().unwrap().last_update_time
+    }
+
+    pub fn get_last_update_id(&self) -> u64 {
+        self.board.lock().unwrap().last_update_id
     }
 
     pub fn from_bin(
@@ -672,6 +690,7 @@ mod board_test {
         let mut b = OrderBookRaw::new(0);
 
         let board_transfer = BoardTransfer{
+            first_update_id: 0,
             last_update_time: 0,
             last_update_id: 0,
             bids: vec![

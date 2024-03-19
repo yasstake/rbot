@@ -1,6 +1,8 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
+use std::path::Display;
+
 use crate::common::time::time_string;
 
 use super::time::MicroSec;
@@ -228,7 +230,8 @@ pub enum LogStatus {
     FixRestApiStart,
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
-    ExpireControl, // 削除指示
+    ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
+    ExpireControl, // 削除指示(通常：WSデータのみ削除)
     Unknown,       // 未知のステータス / 未確定のステータス
 }
 
@@ -248,7 +251,8 @@ impl From<&str> for LogStatus {
             "s" => LogStatus::FixRestApiStart,
             "a" => LogStatus::FixRestApiBlock,
             "e" => LogStatus::FixRestApiEnd,
-            "X" => LogStatus::ExpireControl,
+            "X" => LogStatus::ExpireControlForce,
+            "x" => LogStatus::ExpireControl,            
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -267,8 +271,9 @@ impl LogStatus {
             LogStatus::FixRestApiStart => "s".to_string(),
             LogStatus::FixRestApiBlock => "a".to_string(),
             LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::ExpireControl => "X".to_string(),
-            LogStatus::Unknown => "x".to_string(),
+            LogStatus::ExpireControlForce => "X".to_string(),            
+            LogStatus::ExpireControl => "x".to_string(),
+            LogStatus::Unknown => "?".to_string(),
         }
     }
 }
@@ -320,23 +325,31 @@ impl Trade {
         )
     }
 
+
     pub fn __str__(&self) -> String {
         format!(
-            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
+            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status{:?}}}",
             time_string(self.time),
             self.time,
             self.order_side,
             self.price,
             self.size,
-            self.id
+            self.id,
+            self.status
         )
     }
 
     pub fn __repr__(&self) -> String {
         format!(
-            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status:{:?}}}",
+            self.time, self.order_side, self.price, self.size, self.id, self.status
         )
+    }
+}
+
+impl Into<String> for &Trade {
+    fn into(self) -> String {
+        self.__str__()
     }
 }
 
@@ -345,6 +358,20 @@ impl Into<MarketMessage> for &Trade {
         MarketMessage::Trade(self.clone())
     }
 }
+
+impl Default for Trade {
+    fn default() -> Self {
+        return Trade {
+            time: 0,
+            order_side: OrderSide::Buy,
+            price: dec![0.0],
+            size: dec![0.0],
+            status: LogStatus::UnFix,
+            id: "".to_string(),
+        };
+    }
+}
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -407,9 +434,15 @@ pub struct AccountCoins {
     pub coins: Vec<Coin>,
 }
 
+impl Default for AccountCoins {
+    fn default() -> Self {
+        AccountCoins::new()
+    }    
+}
+
 impl AccountCoins {
     pub fn new() -> Self {
-        return AccountCoins { coins: Vec::new() };
+        AccountCoins { coins: Vec::new() }
     }
 
     pub fn push(&mut self, coin: Coin) {
@@ -418,6 +451,24 @@ impl AccountCoins {
 
     pub fn append(&mut self, mut coins: AccountCoins) {
         self.coins.append(&mut coins.coins);
+    }
+
+    pub fn update(&mut self, coins: &AccountCoins) {
+        for coin in coins.coins.iter() {
+            let mut found = false;
+            for my_coin in self.coins.iter_mut() {
+                if my_coin.symbol == coin.symbol {
+                    my_coin.volume = coin.volume;
+                    my_coin.free = coin.free;
+                    my_coin.locked = coin.locked;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                self.coins.push(coin.clone());
+            }
+        }
     }
 
     pub fn extract_pair(&self, config: &MarketConfig) -> AccountPair {
@@ -433,6 +484,44 @@ impl AccountCoins {
         }
 
         return AccountPair { home, foreign };
+    }
+
+    pub fn diff_update(&mut self, symbol: &str, volume: Decimal, free: Decimal, locked: Decimal) {
+        for coin in self.coins.iter_mut() {
+            if coin.symbol == symbol {
+                coin.volume += volume;
+                coin.free += free;
+                coin.locked += locked;
+                return;
+            }
+        }
+        let coin = Coin {
+            symbol: symbol.to_string(),
+            volume,
+            free,
+            locked,
+        };
+        self.coins.push(coin);
+    }
+
+    pub fn apply_order(&mut self, config: &MarketConfig, order: &Order) {
+        self.diff_update(
+            &config.home_currency, 
+            order.home_change,
+            order.free_home_change,
+            order.lock_home_change,
+        );
+
+        self.diff_update(
+            &config.foreign_currency,
+            order.foreign_change,
+            order.free_foreign_change,
+            order.lock_foreign_change,
+        );
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
     }
 }
 
