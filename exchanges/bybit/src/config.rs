@@ -7,10 +7,11 @@ use serde_derive::{Serialize, Deserialize};
 
 use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
 
+use crate::BYBIT;
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitServerConfig {
-    pub exchange_name: String,
     pub production: bool,
     pub rest_server: String,
     pub public_ws: String,
@@ -49,7 +50,6 @@ impl BybitServerConfig {
         let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
 
         return BybitServerConfig {
-            exchange_name: "BYBIT".to_string(),
             production,
             rest_server,
             public_ws: public_ws_server,
@@ -68,9 +68,6 @@ impl BybitServerConfig {
 }
 
 impl ServerConfig for BybitServerConfig {
-    fn get_exchange_name(&self) -> String {
-        self.exchange_name.clone()
-    }
 
     fn get_public_ws_server(&self) -> String {
         self.public_ws.clone()
@@ -138,6 +135,7 @@ impl BybitConfig {
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
         MarketConfig {
+            exchange_name: BYBIT.to_string(),
             price_unit: dec![0.1],
             price_scale: 2,
             size_unit: dec![0.001],
