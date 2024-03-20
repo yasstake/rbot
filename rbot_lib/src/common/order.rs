@@ -4,6 +4,7 @@
 use std::path::Display;
 
 use crate::common::time::time_string;
+use crate::db::get_db_root;
 
 use super::time::MicroSec;
 use super::FeeType;
@@ -428,6 +429,37 @@ impl Default for Coin {
     }
 }
 
+#[pymethods]
+impl Coin {
+    #[getter]
+    pub fn get_symbol(&self) -> String {
+        return self.symbol.clone();
+    }
+
+    #[getter]
+    pub fn get_volume(&self) -> f64 {
+        return self.volume.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_free(&self) -> f64 {
+        return self.free.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_locked(&self) -> f64 {
+        return self.locked.to_f64().unwrap();
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }    
+}
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountCoins {
@@ -440,7 +472,9 @@ impl Default for AccountCoins {
     }    
 }
 
+#[pymethods]
 impl AccountCoins {
+    #[new]
     pub fn new() -> Self {
         AccountCoins { coins: Vec::new() }
     }
@@ -527,6 +561,16 @@ impl AccountCoins {
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    pub fn __getitem__(&self, key: &str) -> anyhow::Result<Coin> {
+        for coin in self.coins.iter() {
+            if coin.symbol == key {
+                return Ok(coin.clone());
+            }
+        }
+        Err(anyhow::anyhow!("Coin not found: {}", key))
+    }
+
 }
 
 
