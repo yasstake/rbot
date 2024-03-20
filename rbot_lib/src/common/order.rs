@@ -523,6 +523,10 @@ impl AccountCoins {
     pub fn __repr__(&self) -> String {
         serde_json::to_string(&self).unwrap()
     }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 
