@@ -7,7 +7,8 @@ mod test;
 use binance::{Binance, BinanceConfig};
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
 use rbot_lib::{common::{
-    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountPair, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
+    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, 
+    AccountPair, AccountCoins, BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
 }, db::get_db_root, db::set_db_root};
 
 
@@ -48,6 +49,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<MarketConfig>()?;
     m.add_class::<OrderStatus>()?;
     m.add_class::<AccountPair>()?;
+    m.add_class::<AccountCoins>()?;    
     
     m.add_class::<Logger>()?;
 
