@@ -142,7 +142,7 @@ impl Session {
         });
 
         let exchange_name = Python::with_gil(|py| {
-            let exchange_name = exchange.getattr(py, "exchange_name").unwrap();
+            let exchange_name = market.getattr(py, "exchange_name").unwrap();
             let exchange_name: String = exchange_name.extract(py).unwrap();
 
             exchange_name

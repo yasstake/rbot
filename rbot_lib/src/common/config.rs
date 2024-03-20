@@ -27,6 +27,8 @@ pub enum PriceType {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketConfig {
+    #[pyo3(set)]
+    pub exchange_name: String,
     #[pyo3(set, get)]    
     pub trade_category: String,
     #[pyo3(set, get)]    
@@ -77,6 +79,7 @@ impl MarketConfig {
         board_depth: u32,
     ) -> Self {
         Self {
+            exchange_name: "DUMMY".to_string(),
             price_unit: Decimal::new(1, price_scale),
             price_scale,
             size_unit: Decimal::new(1, size_scale),
@@ -110,6 +113,7 @@ impl MarketConfig {
         };
 
         Self {
+            exchange_name: "DUMMY".to_string(),
             price_unit: Decimal::new(1, price_scale),
             price_scale,
             size_unit: Decimal::new(1, size_scale),
@@ -132,6 +136,7 @@ impl MarketConfig {
 impl Default for MarketConfig {
     fn default() -> Self {
         Self {
+            exchange_name: "DUMMY".to_string(),
             trade_category: "DUMMY".to_string(),
             trade_symbol: "DUMMY".to_string(),
             price_unit: dec![0.01],
@@ -195,9 +200,7 @@ impl ServerConfig for ServerConfigStruct {
 */
 
 
-
 pub trait ServerConfig : Send + Sync {
-    fn get_exchange_name(&self) -> String;
     fn get_historical_web_base(&self) -> String;
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;

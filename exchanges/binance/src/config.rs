@@ -6,15 +6,15 @@ use std::env;
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 
-
 use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
+
+use crate::BINANCE;
 
 /// see https://binance-docs.github.io/apidocs/spot/en/#general-info
 
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct BinanceServerConfig {
-    pub exchange_name: String,
     pub production: bool,
     pub rest_server: String,
     pub public_ws: String,
@@ -53,7 +53,7 @@ impl BinanceServerConfig {
         let api_secret = env::var("BINANCE_API_SECRET").unwrap_or_default();
 
         return BinanceServerConfig {
-            exchange_name: "BINANCE".to_string(),
+
             production,
             rest_server,
             public_ws: public_ws_server,
@@ -67,9 +67,6 @@ impl BinanceServerConfig {
 
 
 impl ServerConfig for BinanceServerConfig {
-    fn get_exchange_name(&self) -> String {
-        self.exchange_name.clone()
-    }
 
     fn get_rest_server(&self) -> String {
         self.rest_server.clone()
@@ -113,6 +110,7 @@ impl BinanceConfig {
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
         MarketConfig {
+            exchange_name: BINANCE.to_string(),            
             price_unit: dec![0.5],
             price_scale: 2,
             size_unit: dec![0.001],
