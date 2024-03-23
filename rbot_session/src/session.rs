@@ -113,6 +113,8 @@ impl Session {
         session_name: Option<&str>,
         log_memory: bool,
     ) -> Self {
+        log::info!("Session::new: exchange={:?}, market={:?}, execute_mode={:?}, client_mode={:?}, session_name={:?}, log_memory={:?}", exchange, market, execute_mode, client_mode, session_name, log_memory);
+        println!("new session");
         let session_name = match session_name {
             Some(name) => name.to_string(),
             None => {
