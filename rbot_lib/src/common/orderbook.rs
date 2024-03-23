@@ -431,8 +431,8 @@ pub struct OrderBook {
 }
 
 impl OrderBook {
-    pub fn new(server: &dyn ServerConfig, config: &MarketConfig) -> Self {
-        let exchange_name = server.get_exchange_name();
+    pub fn new(config: &MarketConfig) -> Self {
+        let exchange_name = config.exchange_name.clone();
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
