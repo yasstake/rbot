@@ -38,6 +38,8 @@ use crate::BinanceServerConfig;
 
 use pyo3::prelude::*;
 
+pub const BINANCE:&str = "BINANCE";
+
 #[pyclass]
 pub struct Binance {
     enable_order: bool,
@@ -56,11 +58,6 @@ impl Binance {
             server_config: server_config,
             user_handler: None,
         }
-    }
-
-    #[getter]
-    pub fn get_exchange_name(&self) -> String {
-        self.server_config.exchange_name.clone()
     }
 
     #[getter]
@@ -144,7 +141,7 @@ impl OrderInterfaceImpl<BinanceRestApi, BinanceServerConfig> for Binance {
     }
 
     async fn async_start_user_stream(&mut self) -> anyhow::Result<()> {
-        let exchange_name = self.server_config.exchange_name.clone();
+        let exchange_name = BINANCE.to_string();
         let server_config = self.server_config.clone();
 
         self.user_handler = Some(tokio::task::spawn(async move {
@@ -388,7 +385,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
     }
 
     fn get_exchange_name(&self) -> String {
-        self.server_config.exchange_name.clone()
+        self.config.exchange_name.clone()
     }
 
     fn get_trade_category(&self) -> String {
@@ -451,7 +448,7 @@ impl BinanceMarket {
         test_mode: bool,
     ) -> anyhow::Result<Self> {
         let db_path = TradeTable::make_db_path(
-            &server_config.exchange_name,
+            &config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
             test_mode
@@ -466,7 +463,7 @@ impl BinanceMarket {
             server_config: server_config.clone(),
             config: config.clone(),
             db: Arc::new(Mutex::new(db)),
-            board: Arc::new(RwLock::new(OrderBook::new(server_config, &config))),
+            board: Arc::new(RwLock::new(OrderBook::new(&config))),
             public_handler: None,
         };
 
@@ -494,7 +491,7 @@ impl BinanceMarket {
         self.public_handler = Some(tokio::task::spawn(async move {
             let mut public_ws = BinancePublicWsClient::new(&server_config, &config).await;
 
-            let exchange_name = server_config.exchange_name.clone();
+            let exchange_name = config.exchange_name.clone();
             let trade_category = config.trade_category.clone();
             let trade_symbol = config.trade_symbol.clone();
 
