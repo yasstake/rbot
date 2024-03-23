@@ -372,7 +372,7 @@ impl Runner {
                 self.execute_mode.clone(),
                 client_mode,
                 Some(&session_name),
-                false,
+                log_memory,
             );
 
             if log_file.is_some() {

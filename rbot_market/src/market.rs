@@ -529,7 +529,11 @@ where
         let orderbook = self.get_order_book();
 
         let json = {
-            let lock = orderbook.read().unwrap();
+            let lock = orderbook.read();
+            if lock.is_err() {
+                return Err(anyhow!("Error get lock in get_board_json {:?}", lock));
+            }
+            let lock = lock.unwrap();
             lock.get_json(size)?
         };
 
