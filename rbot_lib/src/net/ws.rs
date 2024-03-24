@@ -7,7 +7,6 @@ use futures::stream::SplitStream;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
-use serde_derive::{Deserialize, Serialize};
 use strum::Display;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;

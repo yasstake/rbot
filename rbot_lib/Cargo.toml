@@ -20,11 +20,7 @@ serde_json = {workspace=true}
 serde_with = {workspace=true}
 env_logger = {workspace = true}
 
-polars = {workspace=true, features=["lazy"]}
-polars-core = {workspace=true, features=["ndarray", "temporal", "dtype-time", "object", "round_series"]}
-polars-lazy = {workspace=true, features=["dynamic_group_by", "round_series", "pivot"]}
-polars-time = {workspace=true}
-polars-ops = {workspace=true}
+polars = {workspace=true}
 pyo3-polars = {workspace=true}
 
 strum_macros = {workspace=true}

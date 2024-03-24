@@ -1113,7 +1113,6 @@ impl Into<AccountCoins> for BybitAccountResponse {
 #[allow(unused_variables)]
 mod bybit_message_test {
     use super::*;
-    use polars_core::utils::rayon::result;
     use rbot_lib::common::init_debug_log;
 
     use crate::message::{

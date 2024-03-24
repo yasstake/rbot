@@ -7,10 +7,9 @@ use anyhow::Context;
 
 use numpy::IntoPyArray;
 use numpy::PyArray2;
-use once_cell::sync::Lazy;
 use polars::prelude::DataFrame;
 use polars::prelude::Float64Type;
-use polars_core::prelude::IndexOrder;
+use polars::prelude::IndexOrder;
 use pyo3::{Py, Python};
 use pyo3_polars::PyDataFrame;
 use rusqlite::params_from_iter;
@@ -26,7 +25,6 @@ use tokio::task::JoinHandle;
 //use std::thread::JoinHandle;
 //use std::thread::spawn;
 
-use crate::common::env_rbot_db_root;
 use crate::common::MarketStream;
 
 //use crossbeam_channel::Receiver;
@@ -680,8 +678,8 @@ impl TradeTable {
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
-        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap();
-        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap();
+        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap().unwrap();
+        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap().unwrap();
 
         let head = select_df(&self.cache_ohlcvv, 0, start_time);
         let tail = select_df(&self.cache_ohlcvv, end_time, 0);

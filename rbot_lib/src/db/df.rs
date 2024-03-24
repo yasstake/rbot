@@ -10,12 +10,13 @@ use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
-use polars_core::prelude::SortOptions;
+use polars::prelude::SortOptions;
 
-use polars_lazy::frame::pivot::pivot;
-use polars_lazy::prelude::{col, LazyFrame};
-use polars_lazy::prelude::IntoLazy;
-use polars_time::ClosedWindow;
+use polars::prelude::pivot::pivot;
+use polars::prelude::col;
+use polars::prelude::LazyFrame;
+use polars::prelude::IntoLazy;
+use polars::prelude::ClosedWindow;
 
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -115,11 +116,11 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
 }
 
 pub fn start_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::time_stamp).unwrap().min()
+    df.column(KEY::time_stamp).unwrap().min().unwrap()
 }
 
 pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::time_stamp).unwrap().max()
+    df.column(KEY::time_stamp).unwrap().max().unwrap()
 }
 
 pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {

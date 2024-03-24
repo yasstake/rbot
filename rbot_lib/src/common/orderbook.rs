@@ -8,7 +8,7 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use polars_core::{
+use polars::{
     prelude::{DataFrame, NamedFrom},
     series::Series,
 };
