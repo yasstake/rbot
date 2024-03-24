@@ -600,7 +600,6 @@ mod test_exchange_ws {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestServerConfig {
-        pub exchange_name: String,
         pub testnet: bool,
         pub rest_server: String,
         pub public_ws: String,
@@ -639,7 +638,6 @@ mod test_exchange_ws {
             let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
 
             return TestServerConfig {
-                exchange_name: "BYBIT".to_string(),
                 testnet,
                 rest_server,
                 public_ws: public_ws_server,
@@ -653,9 +651,6 @@ mod test_exchange_ws {
     }
 
     impl ServerConfig for TestServerConfig {
-        fn get_exchange_name(&self) -> String {
-            self.exchange_name.clone()
-        }
         fn get_public_ws_server(&self) -> String {
             self.public_ws.clone()
         }
@@ -683,6 +678,7 @@ mod test_exchange_ws {
 
     fn make_market_config() -> MarketConfig {
         MarketConfig {
+            exchange_name: "BYBIT".to_string(),            
             price_unit: dec![0.1],
             price_scale: 3,
             size_unit: dec![0.001],

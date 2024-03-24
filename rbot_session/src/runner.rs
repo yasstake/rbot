@@ -10,8 +10,7 @@ use futures::{Stream, StreamExt};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountPair, MarketConfig, MarketMessage, MarketStream, MicroSec,
-        Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+        flush_log, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -166,69 +165,6 @@ impl Runner {
         }
     }
 
-    /*
-    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
-    pub fn real_run_bak(
-        &mut self,
-        exchange: PyObject,
-        market: PyObject,
-        agent: &PyAny,
-        log_memory: bool,
-        execute_time: i64,
-        verbose: bool,
-        log_file: Option<String>,
-        client: bool,
-    ) -> anyhow::Result<Py<Session>> {
-        self.update_market_info(&market)?;
-        self.update_agent_info(agent)?;
-
-        self.execute_time = execute_time;
-        self.verbose = verbose;
-        self.execute_mode = ExecuteMode::Real;
-
-        let exchange_name = self.exchange_name.clone();
-        let category = self.category.clone();
-        let symbol = self.symbol.clone();
-        let agent_id = self.agent_id.clone();
-
-        if client {
-            //            let rt = tokio::runtime::Runtime::new().unwrap();
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            rt.block_on(async {
-                let mut udp = UdpReceiver::open();
-
-                let receiver = udp
-                    .receive_stream(&exchange_name, &category, &symbol, &agent_id)
-                    .await;
-
-                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
-                    .await
-            })
-        } else {
-            self.prepare_data(&exchange, &market)?;
-
-            //            let rt = tokio::runtime::Runtime::new().unwrap();
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            rt.block_on(async {
-                let receiver = MARKET_HUB
-                    .subscribe_stream(&exchange_name, &category, &symbol, &agent_id)
-                    .await;
-
-                self.async_run(exchange, market, receiver, agent, log_memory, log_file)
-                    .await
-            })
-        }
-    }
-    */
-
     #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
     pub fn real_run(
         &mut self,
@@ -345,13 +281,10 @@ impl Runner {
 
     pub fn update_market_info(&mut self, market: &PyObject) -> Result<(), PyErr> {
         let r = Python::with_gil(|py| {
-            let config = market.getattr(py, "market_config").unwrap();
-
             let exchange_name = market.getattr(py, "exchange_name").unwrap();
             let category = market.getattr(py, "trade_category").unwrap();
             let symbol = market.getattr(py, "trade_symbol").unwrap();
 
-            self.config = config.extract::<MarketConfig>(py).unwrap();
             self.exchange_name = exchange_name.extract::<String>(py).unwrap();
             self.category = category.extract::<String>(py).unwrap();
             self.symbol = symbol.extract::<String>(py).unwrap();
@@ -416,7 +349,8 @@ impl Runner {
 
         let time = NOW() / 1_000_000;
 
-        self.agent_id = format!("{}{}", agent_name, Runner::int_to_base64(time));
+        //self.agent_id = format!("{}{}", agent_name, Runner::int_to_base64(time));
+        self.agent_id = format!("{}", agent_name);
 
         Ok(())
     }
@@ -438,7 +372,7 @@ impl Runner {
                 self.execute_mode.clone(),
                 client_mode,
                 Some(&session_name),
-                false,
+                log_memory,
             );
 
             if log_file.is_some() {
@@ -449,7 +383,7 @@ impl Runner {
                     println!("Failed to open log file: {}", &log_file);
                 };
             } else if !log_memory {
-                log::error!(
+                log::warn!(
                     "log_memory and log_file are both false. Please set one of them to true."
                 );
                 println!("WARNING: log_memory and log_file are both false. Please set one of them to true.");
@@ -524,7 +458,9 @@ impl Runner {
         // warm up loop
         let mut warm_up_loop: i64 = WARMUP_STEPS;
         while let Some(message) = rec.next().await {
-            let message = message?;
+            let mut message = message?;
+            message.update_config(&self.config);
+
             self.execute_message_update_session(&py_session, &message)?;
 
             if let MarketMessage::Trade(_trade) = &message {
@@ -539,6 +475,7 @@ impl Runner {
 
         let loop_start_time = NOW();
         while let Some(message) = rec.next().await {
+
             let message = message?;
             self.execute_message(&py_session, agent, &message, interval_sec)?;
             self.loop_count += 1;
@@ -589,6 +526,7 @@ impl Runner {
             flush_log();
         }
 
+        // TODO: retrive session id.
         let py_session = self.create_session(exchange, market, client_mode, log_memory, log_file);
 
         self.call_agent_on_init(&agent, &py_session)?;
@@ -976,7 +914,7 @@ impl Runner {
         message: &MarketMessage,
         interval_sec: i64,
     ) -> anyhow::Result<()> {
-        let config = self.config.clone();
+        let _config = self.config.clone();
 
         // on clockはSession更新前に呼ぶ
         // こうすることでsession.curent_timestampより先の値でon_clockが呼ばれる.
@@ -1015,9 +953,7 @@ impl Runner {
                 // IN Real run, account message is from user stream.
                 // AccountUpdateはFilledかPartiallyFilledのみ発生。
                 if self.has_account_update {
-                    let account_pair = account.extract_pair(&config);
-
-                    self.call_agent_on_account_update(py, agent, py_session, &account_pair)?;
+                    self.call_agent_on_account_update(py, agent, py_session, &account)?;
                 }
             }
             _ => {
@@ -1168,15 +1104,17 @@ impl Runner {
         py: &Python,
         agent: &PyAny,
         py_session: &Py<Session>,
-        account: &AccountPair,
+        account: &AccountCoins,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
-        session.set_real_account(account);
-        if session.log_account(account).is_err() {
+
+        let account_pair = account.extract_pair(&self.config);
+
+        if session.log_account(&account_pair).is_err() {
             log::error!("call_agent_on_account_update: log_account failed");
         }
 
-        log::debug!("call_agent_on_account_update: {:?}", &account);
+        log::debug!("call_agent_on_account_update: {:?}", &account_pair);
         let py_account = Py::new(*py, account.clone()).unwrap();
 
         agent.call_method1("on_account_update", (session, py_account))?;
@@ -1194,7 +1132,10 @@ impl Runner {
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
         let account = session.get_account();
-        if session.log_account(&account).is_err() {
+
+        let account_pair = account.extract_pair(&self.config);
+       
+        if session.log_account(&account_pair).is_err() {
             log::error!("call_agent_on_account_update_dummy: log_account failed");
         }
         log::debug!("call_agent_on_account_update_dummy: {:?}", &account);
@@ -1252,43 +1193,4 @@ impl Runner {
         }
     }
 
-    // base 64 generated by co pilot!!
-    pub fn int_to_base64(num: i64) -> String {
-        let mut num = num;
-        let mut result = String::new();
-
-        loop {
-            let r = num % 64;
-            num = num / 64;
-
-            let c = match r {
-                0..=25 => (r + 65) as u8 as char,
-                26..=51 => (r + 71) as u8 as char,
-                52..=61 => (r - 4) as u8 as char,
-                62 => '+',
-                63 => '/',
-                _ => panic!("Invalid number"),
-            };
-
-            result.push(c);
-
-            if num == 0 {
-                break;
-            }
-        }
-
-        result
-    }
-}
-
-#[cfg(test)]
-mod runner_test {
-    #[test]
-    fn test_int_to_base64() {
-        let b64 = super::Runner::int_to_base64(0);
-        println!("b64: {}", b64);
-
-        let b64 = super::Runner::int_to_base64(1000001);
-        println!("b64: {}", b64);
-    }
 }

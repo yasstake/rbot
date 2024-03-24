@@ -1,7 +1,7 @@
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 
 use rbot_lib::common::{get_orderbook_bin, get_orderbook_json, get_orderbook_list, MarketConfig, OrderBook, OrderBookList};
-use serde::Deserialize;
+use serde_derive::Deserialize;
 use log;
 
 #[get("/")]

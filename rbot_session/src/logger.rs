@@ -5,7 +5,6 @@ use std::{
 };
 
 use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
-use polars_ops::frame::{DataFrameJoinOps, JoinArgs, JoinType};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
@@ -234,7 +233,6 @@ pub struct Logger {
     user_indicator: HashMap<String, Vec<TimeIndicator>>,
     system_indicator: HashMap<String, Vec<TimeIndicator>>,
     account: Vec<SingleLogRecord>,
-    profit: Vec<SingleLogRecord>,
     log_file: Option<File>,
     log_buffer: Option<LogRecord>,
 }
@@ -244,6 +242,8 @@ impl Logger {
     #[pyo3(signature = (on_memory = true))]
     #[new]
     pub fn new(on_memory: bool) -> Self {
+        log::debug!("new Logger({:?})", on_memory);
+
         Self {
             on_memory,
             order_serial: 0,
@@ -252,7 +252,6 @@ impl Logger {
             user_indicator: HashMap::new(),
             system_indicator: HashMap::new(),
             account: vec![],
-            profit: vec![],
             log_file: None,
             log_buffer: None,
         }
@@ -317,8 +316,6 @@ impl Logger {
         // save account status
         self.save_log_records(&self.account.clone())?;
 
-        self.save_log_records(&self.profit.clone())?;
-
         self.flush_buffer()?;
 
         Ok(())
@@ -375,33 +372,6 @@ impl Logger {
         self.log_system_indicator(timestamp, "position", position_change, Some(position), Some(order_id), Some(transaction_id), Some(log_id))             
     }
 
-    pub fn log_profit(
-        &mut self,
-        timestamp: MicroSec,
-        log_id: i64,
-        open_position: f64,
-        close_position: f64,
-        position: f64,
-        profit: f64,
-        fee: f64,
-        profit_sum: f64,
-    ) -> Result<(), std::io::Error> {
-        let profit = Profit{
-            log_id: log_id,
-            open_position: open_position,
-            close_position: close_position,
-            position: position,
-            profit: profit,
-            fee: fee,
-            total_profit: profit_sum,
-        };
-        
-        self.log_message(timestamp, &LogMessage::Profit(profit))
-    }
-
-
-
-
     #[getter]
     pub fn get_orders(&self) -> PyResult<PyDataFrame> {
         let orders = self
@@ -416,21 +386,10 @@ impl Logger {
             .collect();
 
         let orders = ordervec_to_dataframe(orders);
-        let profit = Self::profit_to_df(self.profit.clone());
-
-        let all = orders.join(&profit, ["log_id"], ["log_id"], JoinArgs::new(JoinType::Left));
-
-        Ok(PyDataFrame(all.unwrap()))
+    
+        Ok(PyDataFrame(orders))
     }
 
-    /*
-    #[getter]
-    pub fn get_position(&self) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.system_indicator.get("position"), "position_change", Some("position"), true, true);
-
-        Ok(PyDataFrame(df))
-    }
-    */
 
     #[getter]
     pub fn get_account(&self) -> PyResult<PyDataFrame> {
@@ -439,17 +398,22 @@ impl Logger {
         Ok(PyDataFrame(df))
     }
 
-    #[getter]
-    pub fn get_profit(&self) -> PyResult<PyDataFrame> {
-        let df = Self::profit_to_df(self.profit.clone());
-
-        Ok(PyDataFrame(df))
-    }
-
     pub fn __getitem__(&self, key: &str) -> PyResult<PyDataFrame> {
         let df = Self::indicator_to_df(self.user_indicator.get(key), key, None, false, false);
 
         Ok(PyDataFrame(df))
+    }
+
+    pub fn __repr__(&self) -> String {
+        let order_json = serde_json::to_string(&self.order).unwrap();
+        let system_indicator_json = serde_json::to_string(&self.system_indicator).unwrap();
+        let user_indicator_json = serde_json::to_string(&self.user_indicator).unwrap();
+        let account_json = serde_json::to_string(&self.account).unwrap();
+
+        return format!(
+            "Logger(order={}, system_indicator={}, user_indicator={}, account={})",
+            order_json, system_indicator_json, user_indicator_json, account_json
+        )
     }
 }
 
@@ -670,18 +634,18 @@ impl Logger {
             user_indicator: self.user_indicator.clone(),
             system_indicator: self.system_indicator.clone(),
             account: self.account.clone(),
-            profit: self.profit.clone(),
             log_file: None,
             log_buffer: None,
         }
     }
 
-    // TODO: implement
     pub fn log_message(
         &mut self,
         timestamp: MicroSec,
         msg: &LogMessage,
     ) -> Result<(), std::io::Error> {
+        log::debug!("log_message: {:?}", msg);
+
         if self.on_memory {
             self.store_memory(timestamp, msg)?;
         }
@@ -748,7 +712,6 @@ impl Logger {
                 self.account.push(log_record);
             }
             LogMessage::Profit(_) => {
-                self.profit.push(log_record);
             }
             /*
               _ => {
@@ -829,8 +792,7 @@ impl Drop for Logger {
 }
 
 #[cfg(test)]
-#[cfg(test)]
-mod tests {
+mod logger_tests {
     use super::*;
     use rbot_lib::common::Order;
     use rbot_lib::common::OrderSide;
@@ -894,19 +856,19 @@ mod tests {
         println!("{:?}", convert);
     }
 
-    /*
+
     #[test]
     fn test_logger() {
-        init_debug_log();
         let mut logger = Logger::new(true);
 
         logger.open_log("/tmp/test").unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",
+            "BTCUSD",
             1,
-            "order-1".to_string(),
-            "clientid".to_string(),
+            "order-1",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -917,10 +879,11 @@ mod tests {
         logger.log_order(1, &order).unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",            
+            "BTCUSD",
             2,
-            "order-2".to_string(),
-            "clientid".to_string(),
+            "order-2",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -931,10 +894,11 @@ mod tests {
         logger.log_order(2, &order).unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",                        
+            "BTCUSD",
             1,
-            "order-3".to_string(),
-            "clientid".to_string(),
+            "order-3",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -945,10 +909,11 @@ mod tests {
         logger.log_order(3, &order).unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",                                    
+            "BTCUSD",
             1,
-            "order-4".to_string(),
-            "clientid".to_string(),
+            "order-4",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -959,10 +924,11 @@ mod tests {
         logger.log_order(4, &order).unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",                                                
+            "BTCUSD",
             1,
-            "order-5".to_string(),
-            "clientid".to_string(),
+            "order-5",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -971,14 +937,16 @@ mod tests {
         );
 
         logger.log_order(5, &order).unwrap();
-        logger.log_indicator(5, "test-key0", Some("order01".to_string()),
-            Some("tr01".to_string()),  1.0, Some(1.0)).unwrap();
+
+        //logger.log_indicator(5, "test-key0", Some("order01".to_string()),
+            // Some("tr01".to_string()),  1.0, Some(1.0)).unwrap();
 
         let order = Order::new(
-            "BTCUSD".to_string(),
+            "linear",                                                            
+            "BTCUSD",
             1,
-            "order-6".to_string(),
-            "clientid".to_string(),
+            "order-6",
+            "clientid",
             OrderSide::Buy,
             OrderType::Limit,
             OrderStatus::New,
@@ -986,13 +954,13 @@ mod tests {
             dec![10.0],
         );
         logger.log_order(6, &order).unwrap();
-
+/*
         logger.log_indicator(6, "test-key", 1.0).unwrap();
         logger.log_indicator(6, "test-key2", 1.0).unwrap();
         logger.log_indicator(7, "test-key2", 1.1).unwrap();
         logger.log_indicator(7, "test-key3", 1.1).unwrap();
         logger.log_indicator(8, "test-key-SUPER", 1.1).unwrap();
-
+*/
         logger.dump("/tmp/dump").unwrap();
         let mut l = Logger::new(true);
         l.restore("/tmp/dump".to_string()).unwrap();
@@ -1009,8 +977,11 @@ mod tests {
             l.user_indicator.keys()
         );
         assert!(logger.user_indicator.len() == l.user_indicator.len());
+        println!("{:?}", logger.__repr__());
+
     }
 
+    /*
     #[test]
     fn test_dump_restore() {
         init_debug_log();
@@ -1059,7 +1030,7 @@ mod tests {
         );
         assert!(logger.user_indicator.len() == logger3.user_indicator.len());
     }
-    */
+*/
     /*
         #[test]
         fn test_logger_new() {
