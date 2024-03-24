@@ -89,7 +89,8 @@ pub fn start_board_server() -> anyhow::Result<()> {
 pub fn get_rest_orderbook(exchange_name: &str, config: &MarketConfig) -> anyhow::Result<OrderBook> {
     let path = OrderBookList::make_path(exchange_name, config);
 
-    let r = reqwest::blocking::get(&format!("http://localhost:8080/board/vec/{}", path))?.bytes()?;
+    let r = reqwest::blocking::get(&format!("http://localhost:8080/board/vec/{}", path))?
+            .bytes()?;
 
     let board = OrderBook::from_bin(exchange_name, config, r.to_vec())?;
 

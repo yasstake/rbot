@@ -347,9 +347,6 @@ impl Runner {
         let agent_name = agent_name.extract::<String>().unwrap();
         log::info!("Agent name: {}", agent_name);
 
-        let time = NOW() / 1_000_000;
-
-        //self.agent_id = format!("{}{}", agent_name, Runner::int_to_base64(time));
         self.agent_id = format!("{}", agent_name);
 
         Ok(())
