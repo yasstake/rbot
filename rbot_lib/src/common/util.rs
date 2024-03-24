@@ -18,13 +18,6 @@ use anyhow::anyhow;
 use super::env_rbot_db_root;
 
 
-pub static DB_ROOT: Lazy<String> = Lazy::new(|| {
-    if let Ok(path) = env_rbot_db_root() {
-        return path;
-    } else {
-        "".to_string()
-    }
-});
 
 #[derive(Clone, Deserialize)]
 pub struct SecretString {

@@ -7,6 +7,7 @@ use anyhow::Context;
 
 use numpy::IntoPyArray;
 use numpy::PyArray2;
+use once_cell::sync::Lazy;
 use polars::prelude::DataFrame;
 use polars::prelude::Float64Type;
 use polars_core::prelude::IndexOrder;
@@ -22,6 +23,10 @@ use std::time::Duration;
 use tokio::task::spawn;
 use tokio::task::JoinHandle;
 
+//use std::thread::JoinHandle;
+//use std::thread::spawn;
+
+use crate::common::env_rbot_db_root;
 use crate::common::MarketStream;
 
 //use crossbeam_channel::Receiver;
@@ -46,8 +51,12 @@ use crate::db::df::{end_time_df, make_empty_ohlcvv, ohlcv_df, ohlcv_from_ohlcvv_
 
 use crate::db::df::KEY;
 
+use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
+
+
+
 
 #[derive(Debug)]
 pub struct TradeTableDb {
@@ -68,21 +77,29 @@ impl TradeTableDb {
 
     /// delete unstable data, include both edge.
     /// start_time <= (time_stamp) <= end_time
-    pub fn delete_unstable_data(tx: &Transaction, start_time: MicroSec, end_time: MicroSec) {
+    pub fn delete_unstable_data(
+        tx: &Transaction,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<i64> {
         let sql =
             r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and status = "U""#;
 
-        let result = tx.execute(sql, params![start_time, end_time]);
+        let result = tx.execute(sql, params![start_time, end_time])?;
 
-        match result {
-            Ok(rec_size) => {
-                log::debug!("delete unstable data [{}]\n", rec_size);
-            }
-            Err(e) => {
-                println!("delete unstable data error {}", e);
-                log::error!("delete unstable data error {}", e);
-            }
-        }
+        Ok(result as i64)
+    }
+
+    pub fn delete_unarchived_data(
+        tx: &Transaction,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<i64> {
+        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and (status = "U" or status = "s" or status = "a" or status = "e")"#;
+
+        let result = tx.execute(sql, params![start_time, end_time])?;
+
+        Ok(result as i64)
     }
 
     /// insert trades into database
@@ -122,36 +139,78 @@ impl TradeTableDb {
         Ok(tx)
     }
 
-    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#;
+    pub fn latest_fix_trade(
+        &mut self,
+        start_time: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<Option<Trade>> {
+        let sql = if force {
+            r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#
+        } else {
+            r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E" or status = "e") order by time_stamp desc limit 1"#
+        };
+
         let trades = self.select_query(sql, vec![start_time])?;
 
         if trades.len() == 0 {
+            return Ok(None);
+        }
+
+        log::debug!("latest_fix_trade {}", trades[0].__str__());
+
+        Ok(Some(trades[0].clone()))
+    }
+
+    pub fn latest_fix_time(
+        &mut self,
+        start_time: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<MicroSec> {
+        let trade = self.latest_fix_trade(start_time, force)?;
+
+        if trade.is_none() {
             return Ok(0);
         }
 
-        Ok(TradeTable::ohlcv_end(trades[0].time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
+        let trade = trade.unwrap();
+
+        Ok(TradeTable::ohlcv_end(trade.time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
+    }
+
+    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "U") order by time_stamp limit 1"#;
+        let trades = self.select_query(sql, vec![start_time])?;
+
+        if trades.len() == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(trades[0].clone()))
     }
 
     pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 < time_stamp order by time_stamp limit 1"#;
-        let trades = self.select_query(sql, vec![start_time])?;
-
-        if trades.len() == 0 {
+        let trade = self.first_unfix_trade(start_time)?;
+        if trade.is_none() {
             return Ok(0);
         }
 
-        Ok(TradeTable::ohlcv_end(trades[0].time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
+        let trade = trade.unwrap();
+
+        Ok(TradeTable::ohlcv_end(trade.time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
     }
 
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
     /// ２日以内にデータがない場合はエラーを返す。
-    pub fn make_expire_control_message(&mut self, now: MicroSec) -> anyhow::Result<Vec<Trade>> {
+    pub fn make_expire_control_message(
+        &mut self,
+        now: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<Vec<Trade>> {
         log::debug!("make_expire_control_message from {}", time_string(now));
 
         let start_time = now - DAYS(2);
 
-        let fix_time = self.latest_fix_time(start_time)?;
+        let fix_time = self.latest_fix_time(start_time, force)?;
         ensure!(fix_time != 0, "no fix data in 2 days");
 
         log::debug!(
@@ -160,17 +219,27 @@ impl TradeTableDb {
             time_string(now)
         );
 
-        Ok(Self::expire_control_message(fix_time, now))
+        Ok(Self::expire_control_message(fix_time, now, force))
     }
 
-    pub fn expire_control_message(start_time: MicroSec, end_time: MicroSec) -> Vec<Trade> {
+    pub fn expire_control_message(
+        start_time: MicroSec,
+        end_time: MicroSec,
+        force: bool,
+    ) -> Vec<Trade> {
+        let status = if force {
+            LogStatus::ExpireControlForce
+        } else {
+            LogStatus::ExpireControl
+        };
+
         let mut trades: Vec<Trade> = vec![];
         let t = Trade::new(
             start_time,
             OrderSide::Unknown,
             dec![0.0],
             dec![0.0],
-            LogStatus::ExpireControl,
+            status,
             "",
         );
         trades.push(t);
@@ -180,7 +249,7 @@ impl TradeTableDb {
             OrderSide::Unknown,
             dec![0.0],
             dec![0.0],
-            LogStatus::ExpireControl,
+            status,
             "",
         );
         trades.push(t);
@@ -198,25 +267,31 @@ impl TradeTableDb {
         let end_time = trades[trades_len - 1].time;
         let log_status = trades[0].status;
 
-        // when fix data comes, delete unstable data first
-        if log_status != LogStatus::UnFix {
-            // create transaction with immidate mode
-            let tx = self.begin_transaction()?;
-            Self::delete_unstable_data(&tx, start_time, end_time);
-            tx.commit()?;
+        log::debug!(
+            "insert_records {} {} {} {}",
+            trades[0].status,
+            time_string(start_time),
+            time_string(end_time),
+            trades_len
+        );
 
-            if log_status == LogStatus::ExpireControl {
-                return Ok(0);
-            }
-        } else if log_status == LogStatus::ExpireControl {
+        if log_status == LogStatus::ExpireControl && trades_len == 2 {
+            log::debug!("delete unarchived data");
             let tx = self.begin_transaction()?;
-            Self::delete_unstable_data(&tx, trades[0].time, trades[1].time);
+            let rec = Self::delete_unstable_data(&tx, trades[0].time, trades[1].time)?;
             tx.commit()?;
+            return Ok(rec);
+        } else if log_status == LogStatus::ExpireControlForce && trades_len == 2 {
+            log::debug!("delete unarchived data(force");
+            let tx = self.begin_transaction()?;
+            let rec = Self::delete_unarchived_data(&tx, trades[0].time, trades[1].time)?;
+            tx.commit()?;
+            return Ok(rec);
         }
 
         // create transaction with immidate mode
         let tx = self.begin_transaction()?;
-
+        let _ = Self::delete_unstable_data(&tx, start_time, end_time);
         // then insert data
         let insert_len = Self::insert_transaction(&tx, trades)?;
         tx.commit()?;
@@ -380,7 +455,6 @@ impl TradeTableDb {
     }
 
     fn create_table_if_not_exists(&mut self) -> anyhow::Result<()> {
-
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
             time_stamp    INTEGER,
@@ -407,8 +481,9 @@ impl TradeTableDb {
         println!("DB file = {}", self.file_name);
         flush_log();
 
-        self.connection.execute("drop table trades", ())
-            .with_context(||format!("database drop error"))?;
+        self.connection
+            .execute("drop table trades", ())
+            .with_context(|| format!("database drop error"))?;
 
         self.vacuum()?;
 
@@ -416,7 +491,8 @@ impl TradeTableDb {
     }
 
     fn vacuum(&self) -> anyhow::Result<()> {
-        self.connection.execute("VACUUM", ())
+        self.connection
+            .execute("VACUUM", ())
             .with_context(|| format!("database VACUUM error"))?;
 
         Ok(())
@@ -432,9 +508,14 @@ impl TradeTableDb {
 
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
-    pub fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, mut f: F) -> anyhow::Result<()>
+    pub fn select<F>(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        mut f: F,
+    ) -> anyhow::Result<()>
     where
-        F: FnMut(&Trade),
+        F: FnMut(&Trade) -> anyhow::Result<()>,
     {
         let sql: &str;
         let param: Vec<i64>;
@@ -468,14 +549,17 @@ impl TradeTableDb {
                     id: row.get_unwrap(5),
                 })
             })
-            .with_context(||format!("select trade error"))?;
+            .with_context(|| format!("select trade error"))?;
 
         log::debug!("create iter {} microsec", NOW() - start_time);
 
         for trade in _transaction_iter {
             match trade {
                 Ok(t) => {
-                    f(&t);
+                    let r = f(&t);
+                    if r.is_err() {
+                        return Err(r.err().unwrap());
+                    }
                 }
                 Err(e) => {
                     return Err(anyhow!("select query: SQL error {}", e));
@@ -532,11 +616,9 @@ impl TradeTableDb {
             // let mut channel = sender.lock().unwrap();
             let r = table_db.select(time_from, time_to, |trade| {
                 let message: MarketMessage = trade.into();
-                let r = sender.send(message);
+                let r = sender.send(message)?;
 
-                if r.is_err() {
-                    log::error!("Error in channel.send: {:?}", r);
-                }
+                Ok(())
             });
 
             if r.is_err() {
@@ -562,6 +644,18 @@ pub struct TradeTable {
 impl TradeTable {
     const OHLCV_WINDOW_SEC: i64 = 60; // min
 
+    pub fn make_db_path(
+        exchange_name: &str,
+        trade_category: &str,
+        trade_symbol: &str,
+        test_net: bool,
+    ) -> String {
+
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, "", test_net);
+
+        return db_path.to_str().unwrap().to_string();
+    }
+
     /// check if db thread is running.
     pub fn is_running(&self) -> bool {
         if self.handle.is_none() {
@@ -577,8 +671,12 @@ impl TradeTable {
 
     /// create new expire control message(from latest fix time to now)
     /// if there is not fix record in 2 days, return error.
-    pub fn make_expire_control_message(&mut self, now: MicroSec) -> anyhow::Result<Vec<Trade>> {
-        self.connection.make_expire_control_message(now)
+    pub fn make_expire_control_message(
+        &mut self,
+        now: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<Vec<Trade>> {
+        self.connection.make_expire_control_message(now, force)
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
@@ -605,7 +703,7 @@ impl TradeTable {
         self.cache_ohlcvv = df;
     }
 
-    pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
+    pub async fn start_thread(&mut self) -> Sender<Vec<Trade>> {
         // check if the thread is already started
         // check self.tx is valid and return clone of self.tx
         log::debug!("start_thread");
@@ -622,6 +720,7 @@ impl TradeTable {
 
         let handle = spawn(async move {
             let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let rx = rx; // Move rx into the closure's environment
             loop {
                 match rx.recv() {
                     Ok(trades) => {
@@ -646,6 +745,51 @@ impl TradeTable {
         return self.tx.clone().unwrap();
     }
 
+    /*
+    pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
+        // check if the thread is already started
+        // check self.tx is valid and return clone of self.tx
+        log::debug!("start_thread");
+        if self.is_running() {
+            log::info!("DB Thread is already started, reuse tx");
+            return self.tx.clone().unwrap();
+        }
+
+        let (tx, rx) = unbounded();
+
+        let file_name = self.file_name.clone();
+
+        self.tx = Some(tx);
+
+        let handle = spawn(move || {
+            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let rx = rx; // Move rx into the closure's environment
+            loop {
+                match rx.recv() {
+                    Ok(trades) => {
+                        let result = db.insert_records(&trades);
+
+                        if result.is_err() {
+                            log::error!("insert error {:?}", result);
+                            continue;
+                        }
+                        log::debug!("recv trades: {}", trades.len());
+                    }
+                    Err(e) => {
+                        log::error!("recv error(sender program died?) {:?}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.handle = Some(handle);
+
+        return self.tx.clone().unwrap();
+    }
+    */
+
+    /*
     pub fn stop_thread(&mut self) {
         if self.handle.is_some() {
             let handle = self.handle.take().unwrap();
@@ -657,6 +801,7 @@ impl TradeTable {
             self.tx = None;
         }
     }
+    */
 
     pub fn validate_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
         self.connection.validate_by_date(date)
@@ -664,6 +809,10 @@ impl TradeTable {
 
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.cache_duration;
+    }
+
+    pub fn ohlcv_floor_fix_time(t: MicroSec, unit_sec: i64) -> MicroSec {
+        return FLOOR_SEC(t, unit_sec)
     }
 
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
@@ -678,11 +827,17 @@ impl TradeTable {
         self.cache_duration = 0;
     }
 
-    pub fn select_df_from_db(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn select_df_from_db(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
         let mut buffer = TradeBuffer::new();
 
         self.select(start_time, end_time, |trade| {
             buffer.push_trade(trade);
+
+            Ok(())
         })?;
 
         return Ok(buffer.to_dataframe());
@@ -694,7 +849,7 @@ impl TradeTable {
         Ok(())
     }
 
-    pub fn update_cache_all(&mut self) -> anyhow::Result<()>{
+    pub fn update_cache_all(&mut self) -> anyhow::Result<()> {
         self.update_cache_df(0, 0)
     }
 
@@ -705,7 +860,11 @@ impl TradeTable {
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
 
-    pub fn update_cache_df(&mut self, start_time: MicroSec, mut end_time: MicroSec) -> anyhow::Result<()> {
+    pub fn update_cache_df(
+        &mut self,
+        start_time: MicroSec,
+        mut end_time: MicroSec,
+    ) -> anyhow::Result<()> {
         log::debug!("update_cache_df {} -> {}", start_time, end_time);
 
         let df_start_time: i64;
@@ -733,8 +892,17 @@ impl TradeTable {
                 // no cache / update all
                 self.load_df(start_time, end_time)?;
 
-                let df_start_time = start_time_df(&self.cache_df).unwrap();
-                let df_end_time = end_time_df(&self.cache_df).unwrap();
+                let df_start_time = if let Some(t) = start_time_df(&self.cache_df) {
+                    t
+                } else {
+                    return Ok(());
+                };
+
+                let df_end_time = if let Some(t) = end_time_df(&self.cache_df) {
+                    t
+                } else {
+                    return Ok(());
+                };
 
                 // update ohlcv
                 self.cache_ohlcvv = ohlcvv_df(
@@ -743,7 +911,7 @@ impl TradeTable {
                     df_end_time,
                     TradeTable::OHLCV_WINDOW_SEC,
                 )?;
-                return Ok(());  // update cache all.
+                return Ok(()); // update cache all.
             }
         }
 
@@ -835,11 +1003,12 @@ impl TradeTable {
 
     pub fn ohlcvv_df(
         &mut self,
-        start_time: MicroSec,
+        mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
-    ) -> anyhow::Result<DataFrame> 
-    {
+    ) -> anyhow::Result<DataFrame> {
+        start_time = TradeTable::ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
+
         self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
@@ -902,7 +1071,7 @@ impl TradeTable {
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeTable::ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcvv_df(start_time, end_time, window_sec)?;
 
@@ -913,10 +1082,12 @@ impl TradeTable {
 
     pub fn ohlcv_df(
         &mut self,
-        start_time: MicroSec,
+        mut start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
+        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+
         self.update_cache_df(start_time, end_time)?;
 
         if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
@@ -998,7 +1169,12 @@ impl TradeTable {
         Ok(py_df)
     }
 
-    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> anyhow::Result<DataFrame> {
+    pub fn vap(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        price_unit: i64,
+    ) -> anyhow::Result<DataFrame> {
         self.update_cache_df(start_time, end_time)?;
         let df = vap_df(&self.cache_df, start_time, end_time, price_unit);
 
@@ -1045,8 +1221,7 @@ impl TradeTable {
         let array: ndarray::Array2<f64> = trades
             .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
             .unwrap()
-            .to_ndarray::<Float64Type>(IndexOrder::C)
-            ?;
+            .to_ndarray::<Float64Type>(IndexOrder::C)?;
 
         Ok(array)
     }
@@ -1088,16 +1263,19 @@ impl TradeTable {
         );
     }
 
-
     /// Retrieves the earliest time stamp from the trades table in the SQLite database.
     /// Returns a Result containing the earliest time stamp as a MicroSec value, or an Error if the query fails.
     pub fn start_time(&self) -> anyhow::Result<MicroSec> {
         let sql = "select time_stamp from trades order by time_stamp asc limit 1";
 
-        let r = self.connection.connection.query_row(sql, [], |row| {
-            let min: i64 = row.get(0)?;
-            Ok(min)
-        }).with_context(||format!("start_time select error"))?;
+        let r = self
+            .connection
+            .connection
+            .query_row(sql, [], |row| {
+                let min: i64 = row.get(0)?;
+                Ok(min)
+            })
+            .with_context(|| format!("start_time select error"))?;
 
         return Ok(r);
     }
@@ -1115,7 +1293,7 @@ impl TradeTable {
                 let max: i64 = row.get(0)?;
                 Ok(max)
             })
-            .with_context(||format!("end_time select error"))?;
+            .with_context(|| format!("end_time select error"))?;
 
         return Ok(r);
     }
@@ -1252,8 +1430,7 @@ impl TradeTable {
                     chunks.push(c);
                 }
                 index += 1;
-            }
-            else {
+            } else {
                 log::error!("select_time_chunks_in_db error {}", chunk.err().unwrap());
             }
         }
@@ -1341,17 +1518,33 @@ impl TradeTable {
         return self.connection.insert_records(trades);
     }
 
-    pub fn find_latest_gap(&mut self) -> anyhow::Result<(MicroSec, MicroSec)> {
+    pub fn find_latest_gap(&mut self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
         let start_time = NOW() - DAYS(2);
 
-        let fix_time = self.latest_fix_time(start_time)?;
+        let fix_time = self.latest_fix_time(start_time, force)?;
         let unfix_time = self.first_unfix_time(fix_time)?;
 
         Ok((fix_time, unfix_time))
     }
 
-    pub fn latest_fix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
-        self.connection.latest_fix_time(start_time)
+    pub fn latest_fix_trade(
+        &mut self,
+        start_time: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<Option<Trade>> {
+        self.connection.latest_fix_trade(start_time, force)
+    }
+
+    pub fn latest_fix_time(
+        &mut self,
+        start_time: MicroSec,
+        force: bool,
+    ) -> anyhow::Result<MicroSec> {
+        self.connection.latest_fix_time(start_time, force)
+    }
+
+    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
+        self.connection.first_unfix_trade(start_time)
     }
 
     pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
@@ -1424,9 +1617,14 @@ impl TradeTable {
     /// assert_eq!(trades.len(), 1);
     /// assert_eq!(trades[0].timestamp, from_time);
     /// ```
-    fn select<F>(&mut self, start_time: MicroSec, end_time: MicroSec, f: F) -> anyhow::Result<()>
+    pub fn select<F>(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        f: F,
+    ) -> anyhow::Result<()>
     where
-        F: FnMut(&Trade),
+        F: FnMut(&Trade) -> anyhow::Result<()>,
     {
         self.connection.select(start_time, end_time, f)
     }
@@ -1505,16 +1703,6 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_select_fn() -> anyhow::Result<()> {
-        test_insert_table();
-
-        let mut table = TradeTable::open("test.db").unwrap();
-
-        table.select(0, 0, |row| println!("{:?}", row))?;
-        Ok(())
-    }
-
-    #[test]
     fn test_select_array() {
         init_debug_log();
 
@@ -1560,7 +1748,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() -> anyhow::Result<()> {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13)?;
@@ -1581,7 +1769,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1595,7 +1783,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -1608,8 +1796,8 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_select_time_chunks() -> anyhow::Result<()>{
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp");
+    fn test_select_time_chunks() -> anyhow::Result<()> {
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10)?;
@@ -1645,7 +1833,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -1687,18 +1875,18 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
-        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| {});
+        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| {Ok(())});
 
         println!("{:?} / {} microsec", ohlcv, NOW() - start);
     }
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
@@ -1707,9 +1895,9 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_update_cache() -> anyhow::Result<()>{
+    fn test_update_cache() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp");
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW())?;
@@ -1717,15 +1905,15 @@ mod test_transaction_table {
         Ok(())
     }
 
-    #[test]
-    fn test_start_thread() {
+    #[tokio::test]
+    async fn test_start_thread() {
         let mut table = TradeTable::open(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
                 .to_str()
                 .unwrap(),
         )
         .unwrap();
-        let tx = table.start_thread();
+        let tx = table.start_thread().await;
 
         let v = vec![Trade {
             time: 1,
@@ -1747,7 +1935,7 @@ mod test_transaction_table {
         }];
         tx.send(v).unwrap();
 
-        let tx = table.start_thread();
+        let tx = table.start_thread().await;
 
         let v = vec![Trade {
             time: 1,
@@ -1767,7 +1955,7 @@ mod test_transaction_table {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
         TradeTableDb::set_wal_mode(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp")
+            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
                 .to_str()
                 .unwrap(),
         )?;
