@@ -5,18 +5,19 @@ use std::path::Display;
 
 use crate::common::time::time_string;
 use crate::db::get_db_root;
-
 use super::time::MicroSec;
 use super::FeeType;
 use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
+use async_std::stream::Cloned;
 use polars_core::prelude::DataFrame;
 use polars_core::prelude::NamedFrom;
 use polars_core::prelude::TimeUnit;
 use polars_core::series::Series;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use reqwest::Proxy;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -698,6 +699,13 @@ pub struct Order {
     pub free_foreign_change: Decimal,
     pub lock_home_change: Decimal,
     pub lock_foreign_change: Decimal,
+    pub open_position: Decimal,
+    pub close_position: Decimal,
+    pub position: Decimal,
+    pub profit: Decimal,
+    pub fee: Decimal,
+    pub total_profit: Decimal,
+
     pub log_id: i64,
 }
 
@@ -716,37 +724,43 @@ impl Order {
         price: Decimal,
         size: Decimal,
     ) -> Self {
-        return Order {
-            category: category.to_string(),
-            symbol: symbol.to_string(),
+        Order {
+            category:category.to_string(),
+            symbol:symbol.to_string(),
             create_time,
-            status: order_status,
-            order_id: order_id.to_string(),
-            client_order_id: client_order_id.to_string(),
+            status:order_status,
+            order_id:order_id.to_string(),
+            client_order_id:client_order_id.to_string(),
             order_side,
             order_type,
-            order_price: price.clone(),
-            order_size: size.clone(),
-            remain_size: size.clone(),
-            transaction_id: "".to_string(),
-            update_time: 0,
-            execute_price: dec![0.0],
-            execute_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            is_maker: false,
-            message: "".to_string(),
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
-            log_id: 0,
-        };
+            order_price:price.clone(),
+            order_size:size.clone(),
+            remain_size:size.clone(),
+            transaction_id:"".to_string(),
+            update_time:0,
+            execute_price:dec![0.0],
+            execute_size:dec![0.0],
+            quote_vol:dec![0.0],
+            commission:dec![0.0],
+            commission_asset:"".to_string(),
+            is_maker:false,
+            message:"".to_string(),
+            commission_home:dec![0.0],
+            commission_foreign:dec![0.0],
+            home_change:dec![0.0],
+            foreign_change:dec![0.0],
+            free_home_change:dec![0.0],
+            free_foreign_change:dec![0.0],
+            lock_home_change:dec![0.0],
+            lock_foreign_change:dec![0.0],
+            log_id:0, 
+            open_position: dec![0.0],
+            close_position: dec![0.0],
+            position: dec![0.0],
+            profit: dec![0.0],
+            fee: dec![0.0],
+            total_profit: dec![0.0],
+        }
     }
 
     pub fn __str__(&self) -> String {
@@ -893,6 +907,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let mut free_foreign_change = Vec::<f64>::new();
     let mut lock_home_change = Vec::<f64>::new();
     let mut lock_foreign_change = Vec::<f64>::new();
+    let mut open_position = Vec::<f64>::new();
+    let mut close_position = Vec::<f64>::new();
+    let mut position = Vec::<f64>::new();
+    let mut profit = Vec::<f64>::new();
+    let mut fee = Vec::<f64>::new();
+    let mut total_profit = Vec::<f64>::new();
 
     for order in orders {
         log_id.push(order.log_id);
@@ -924,6 +944,13 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         free_foreign_change.push(order.free_foreign_change.to_f64().unwrap());
         lock_home_change.push(order.lock_home_change.to_f64().unwrap());
         lock_foreign_change.push(order.lock_foreign_change.to_f64().unwrap());
+
+        open_position.push(order.open_position.to_f64().unwrap());
+        close_position.push(order.close_position.to_f64().unwrap());
+        position.push(order.position.to_f64().unwrap());
+        profit.push(order.profit.to_f64().unwrap());
+        fee.push(order.fee.to_f64().unwrap());
+        total_profit.push(order.total_profit.to_f64().unwrap());
     }
 
     let log_id = Series::new("log_id", log_id);
@@ -955,6 +982,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let free_foreign_change = Series::new("free_foreign_change", free_foreign_change);
     let lock_home_change = Series::new("lock_home_change", lock_home_change);
     let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
+    let open_position = Series::new("open_position", open_position);
+    let close_position = Series::new("close_position", close_position);
+    let position = Series::new("position", position);
+    let profit = Series::new("profit", profit);
+    let fee = Series::new("fee", fee);
+    let total_profit = Series::new("total_profit", total_profit);
 
     let mut df = DataFrame::new(vec![
         log_id,
@@ -985,6 +1018,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         free_foreign_change,
         lock_home_change,
         lock_foreign_change,
+        open_position,
+        close_position,
+        position,
+        profit,
+        fee,
+        total_profit,
     ])
     .unwrap();
 

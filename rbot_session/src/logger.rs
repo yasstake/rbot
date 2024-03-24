@@ -5,7 +5,6 @@ use std::{
 };
 
 use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
-use polars_ops::frame::{DataFrameJoinOps, JoinArgs, JoinType};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
@@ -234,7 +233,6 @@ pub struct Logger {
     user_indicator: HashMap<String, Vec<TimeIndicator>>,
     system_indicator: HashMap<String, Vec<TimeIndicator>>,
     account: Vec<SingleLogRecord>,
-    profit: Vec<SingleLogRecord>,
     log_file: Option<File>,
     log_buffer: Option<LogRecord>,
 }
@@ -254,7 +252,6 @@ impl Logger {
             user_indicator: HashMap::new(),
             system_indicator: HashMap::new(),
             account: vec![],
-            profit: vec![],
             log_file: None,
             log_buffer: None,
         }
@@ -319,8 +316,6 @@ impl Logger {
         // save account status
         self.save_log_records(&self.account.clone())?;
 
-        self.save_log_records(&self.profit.clone())?;
-
         self.flush_buffer()?;
 
         Ok(())
@@ -377,32 +372,8 @@ impl Logger {
         self.log_system_indicator(timestamp, "position", position_change, Some(position), Some(order_id), Some(transaction_id), Some(log_id))             
     }
 
-    pub fn log_profit(
-        &mut self,
-        timestamp: MicroSec,
-        log_id: i64,
-        open_position: f64,
-        close_position: f64,
-        position: f64,
-        profit: f64,
-        fee: f64,
-        profit_sum: f64,
-    ) -> Result<(), std::io::Error> {
-        let profit = Profit{
-            log_id: log_id,
-            open_position: open_position,
-            close_position: close_position,
-            position: position,
-            profit: profit,
-            fee: fee,
-            total_profit: profit_sum,
-        };
-        
-        self.log_message(timestamp, &LogMessage::Profit(profit))
-    }
-
     #[getter]
-    pub fn get_order(&self) -> PyResult<PyDataFrame> {
+    pub fn get_orders(&self) -> PyResult<PyDataFrame> {
         let orders = self
             .order
             .iter()
@@ -420,47 +391,9 @@ impl Logger {
     }
 
 
-
-    #[getter]
-    pub fn get_orders(&self) -> PyResult<PyDataFrame> {
-        let orders = self
-            .order
-            .iter()
-            .map(|x| match &x.data {
-                LogMessage::Order(order) => order.clone(),
-                _ => {
-                    panic!("not supported message type");
-                }
-            })
-            .collect();
-
-        let orders = ordervec_to_dataframe(orders);
-        let profit = Self::profit_to_df(self.profit.clone());
-
-        let all = orders.join(&profit, ["log_id"], ["log_id"], JoinArgs::new(JoinType::Left));
-
-        Ok(PyDataFrame(all.unwrap()))
-    }
-
-    /*
-    #[getter]
-    pub fn get_position(&self) -> PyResult<PyDataFrame> {
-        let df = Self::indicator_to_df(self.system_indicator.get("position"), "position_change", Some("position"), true, true);
-
-        Ok(PyDataFrame(df))
-    }
-    */
-
     #[getter]
     pub fn get_account(&self) -> PyResult<PyDataFrame> {
         let df = account_logrec_to_df(self.account.clone());
-
-        Ok(PyDataFrame(df))
-    }
-
-    #[getter]
-    pub fn get_profit(&self) -> PyResult<PyDataFrame> {
-        let df = Self::profit_to_df(self.profit.clone());
 
         Ok(PyDataFrame(df))
     }
@@ -476,11 +409,10 @@ impl Logger {
         let system_indicator_json = serde_json::to_string(&self.system_indicator).unwrap();
         let user_indicator_json = serde_json::to_string(&self.user_indicator).unwrap();
         let account_json = serde_json::to_string(&self.account).unwrap();
-        let profit_json = serde_json::to_string(&self.profit).unwrap();
 
         return format!(
-            "Logger(order={}, system_indicator={}, user_indicator={}, account={}, profit={})",
-            order_json, system_indicator_json, user_indicator_json, account_json, profit_json
+            "Logger(order={}, system_indicator={}, user_indicator={}, account={})",
+            order_json, system_indicator_json, user_indicator_json, account_json
         )
     }
 }
@@ -702,7 +634,6 @@ impl Logger {
             user_indicator: self.user_indicator.clone(),
             system_indicator: self.system_indicator.clone(),
             account: self.account.clone(),
-            profit: self.profit.clone(),
             log_file: None,
             log_buffer: None,
         }
@@ -781,7 +712,6 @@ impl Logger {
                 self.account.push(log_record);
             }
             LogMessage::Profit(_) => {
-                self.profit.push(log_record);
             }
             /*
               _ => {
@@ -1047,8 +977,6 @@ mod logger_tests {
             l.user_indicator.keys()
         );
         assert!(logger.user_indicator.len() == l.user_indicator.len());
-
-        println!("{:?}", logger.get_order().unwrap());
         println!("{:?}", logger.__repr__());
 
     }
