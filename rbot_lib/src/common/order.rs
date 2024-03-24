@@ -1,19 +1,23 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use crate::common::time::time_string;
+use std::path::Display;
 
+use crate::common::time::time_string;
+use crate::db::get_db_root;
 use super::time::MicroSec;
 use super::FeeType;
 use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
+use async_std::stream::Cloned;
 use polars_core::prelude::DataFrame;
 use polars_core::prelude::NamedFrom;
 use polars_core::prelude::TimeUnit;
 use polars_core::series::Series;
 use pyo3::pyclass;
 use pyo3::pymethods;
+use reqwest::Proxy;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -228,7 +232,8 @@ pub enum LogStatus {
     FixRestApiStart,
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
-    ExpireControl, // 削除指示
+    ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
+    ExpireControl, // 削除指示(通常：WSデータのみ削除)
     Unknown,       // 未知のステータス / 未確定のステータス
 }
 
@@ -248,7 +253,8 @@ impl From<&str> for LogStatus {
             "s" => LogStatus::FixRestApiStart,
             "a" => LogStatus::FixRestApiBlock,
             "e" => LogStatus::FixRestApiEnd,
-            "X" => LogStatus::ExpireControl,
+            "X" => LogStatus::ExpireControlForce,
+            "x" => LogStatus::ExpireControl,            
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -267,8 +273,9 @@ impl LogStatus {
             LogStatus::FixRestApiStart => "s".to_string(),
             LogStatus::FixRestApiBlock => "a".to_string(),
             LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::ExpireControl => "X".to_string(),
-            LogStatus::Unknown => "x".to_string(),
+            LogStatus::ExpireControlForce => "X".to_string(),            
+            LogStatus::ExpireControl => "x".to_string(),
+            LogStatus::Unknown => "?".to_string(),
         }
     }
 }
@@ -320,23 +327,31 @@ impl Trade {
         )
     }
 
+
     pub fn __str__(&self) -> String {
         format!(
-            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
+            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status{:?}}}",
             time_string(self.time),
             self.time,
             self.order_side,
             self.price,
             self.size,
-            self.id
+            self.id,
+            self.status
         )
     }
 
     pub fn __repr__(&self) -> String {
         format!(
-            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}}}",
-            self.time, self.order_side, self.price, self.size, self.id
+            "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status:{:?}}}",
+            self.time, self.order_side, self.price, self.size, self.id, self.status
         )
+    }
+}
+
+impl Into<String> for &Trade {
+    fn into(self) -> String {
+        self.__str__()
     }
 }
 
@@ -345,6 +360,20 @@ impl Into<MarketMessage> for &Trade {
         MarketMessage::Trade(self.clone())
     }
 }
+
+impl Default for Trade {
+    fn default() -> Self {
+        return Trade {
+            time: 0,
+            order_side: OrderSide::Buy,
+            price: dec![0.0],
+            size: dec![0.0],
+            status: LogStatus::UnFix,
+            id: "".to_string(),
+        };
+    }
+}
+
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -401,15 +430,54 @@ impl Default for Coin {
     }
 }
 
+#[pymethods]
+impl Coin {
+    #[getter]
+    pub fn get_symbol(&self) -> String {
+        return self.symbol.clone();
+    }
+
+    #[getter]
+    pub fn get_volume(&self) -> f64 {
+        return self.volume.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_free(&self) -> f64 {
+        return self.free.to_f64().unwrap();
+    }
+
+    #[getter]
+    pub fn get_locked(&self) -> f64 {
+        return self.locked.to_f64().unwrap();
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }    
+}
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountCoins {
     pub coins: Vec<Coin>,
 }
 
+impl Default for AccountCoins {
+    fn default() -> Self {
+        AccountCoins::new()
+    }    
+}
+
+#[pymethods]
 impl AccountCoins {
+    #[new]
     pub fn new() -> Self {
-        return AccountCoins { coins: Vec::new() };
+        AccountCoins { coins: Vec::new() }
     }
 
     pub fn push(&mut self, coin: Coin) {
@@ -418,6 +486,24 @@ impl AccountCoins {
 
     pub fn append(&mut self, mut coins: AccountCoins) {
         self.coins.append(&mut coins.coins);
+    }
+
+    pub fn update(&mut self, coins: &AccountCoins) {
+        for coin in coins.coins.iter() {
+            let mut found = false;
+            for my_coin in self.coins.iter_mut() {
+                if my_coin.symbol == coin.symbol {
+                    my_coin.volume = coin.volume;
+                    my_coin.free = coin.free;
+                    my_coin.locked = coin.locked;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                self.coins.push(coin.clone());
+            }
+        }
     }
 
     pub fn extract_pair(&self, config: &MarketConfig) -> AccountPair {
@@ -434,6 +520,58 @@ impl AccountCoins {
 
         return AccountPair { home, foreign };
     }
+
+    pub fn diff_update(&mut self, symbol: &str, volume: Decimal, free: Decimal, locked: Decimal) {
+        for coin in self.coins.iter_mut() {
+            if coin.symbol == symbol {
+                coin.volume += volume;
+                coin.free += free;
+                coin.locked += locked;
+                return;
+            }
+        }
+        let coin = Coin {
+            symbol: symbol.to_string(),
+            volume,
+            free,
+            locked,
+        };
+        self.coins.push(coin);
+    }
+
+    pub fn apply_order(&mut self, config: &MarketConfig, order: &Order) {
+        self.diff_update(
+            &config.home_currency, 
+            order.home_change,
+            order.free_home_change,
+            order.lock_home_change,
+        );
+
+        self.diff_update(
+            &config.foreign_currency,
+            order.foreign_change,
+            order.free_foreign_change,
+            order.lock_foreign_change,
+        );
+    }
+
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    pub fn __getitem__(&self, key: &str) -> anyhow::Result<Coin> {
+        for coin in self.coins.iter() {
+            if coin.symbol == key {
+                return Ok(coin.clone());
+            }
+        }
+        Err(anyhow::anyhow!("Coin not found: {}", key))
+    }
+
 }
 
 
@@ -561,6 +699,13 @@ pub struct Order {
     pub free_foreign_change: Decimal,
     pub lock_home_change: Decimal,
     pub lock_foreign_change: Decimal,
+    pub open_position: Decimal,
+    pub close_position: Decimal,
+    pub position: Decimal,
+    pub profit: Decimal,
+    pub fee: Decimal,
+    pub total_profit: Decimal,
+
     pub log_id: i64,
 }
 
@@ -579,37 +724,43 @@ impl Order {
         price: Decimal,
         size: Decimal,
     ) -> Self {
-        return Order {
-            category: category.to_string(),
-            symbol: symbol.to_string(),
+        Order {
+            category:category.to_string(),
+            symbol:symbol.to_string(),
             create_time,
-            status: order_status,
-            order_id: order_id.to_string(),
-            client_order_id: client_order_id.to_string(),
+            status:order_status,
+            order_id:order_id.to_string(),
+            client_order_id:client_order_id.to_string(),
             order_side,
             order_type,
-            order_price: price.clone(),
-            order_size: size.clone(),
-            remain_size: size.clone(),
-            transaction_id: "".to_string(),
-            update_time: 0,
-            execute_price: dec![0.0],
-            execute_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            is_maker: false,
-            message: "".to_string(),
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
-            log_id: 0,
-        };
+            order_price:price.clone(),
+            order_size:size.clone(),
+            remain_size:size.clone(),
+            transaction_id:"".to_string(),
+            update_time:0,
+            execute_price:dec![0.0],
+            execute_size:dec![0.0],
+            quote_vol:dec![0.0],
+            commission:dec![0.0],
+            commission_asset:"".to_string(),
+            is_maker:false,
+            message:"".to_string(),
+            commission_home:dec![0.0],
+            commission_foreign:dec![0.0],
+            home_change:dec![0.0],
+            foreign_change:dec![0.0],
+            free_home_change:dec![0.0],
+            free_foreign_change:dec![0.0],
+            lock_home_change:dec![0.0],
+            lock_foreign_change:dec![0.0],
+            log_id:0, 
+            open_position: dec![0.0],
+            close_position: dec![0.0],
+            position: dec![0.0],
+            profit: dec![0.0],
+            fee: dec![0.0],
+            total_profit: dec![0.0],
+        }
     }
 
     pub fn __str__(&self) -> String {
@@ -756,6 +907,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let mut free_foreign_change = Vec::<f64>::new();
     let mut lock_home_change = Vec::<f64>::new();
     let mut lock_foreign_change = Vec::<f64>::new();
+    let mut open_position = Vec::<f64>::new();
+    let mut close_position = Vec::<f64>::new();
+    let mut position = Vec::<f64>::new();
+    let mut profit = Vec::<f64>::new();
+    let mut fee = Vec::<f64>::new();
+    let mut total_profit = Vec::<f64>::new();
 
     for order in orders {
         log_id.push(order.log_id);
@@ -787,6 +944,13 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         free_foreign_change.push(order.free_foreign_change.to_f64().unwrap());
         lock_home_change.push(order.lock_home_change.to_f64().unwrap());
         lock_foreign_change.push(order.lock_foreign_change.to_f64().unwrap());
+
+        open_position.push(order.open_position.to_f64().unwrap());
+        close_position.push(order.close_position.to_f64().unwrap());
+        position.push(order.position.to_f64().unwrap());
+        profit.push(order.profit.to_f64().unwrap());
+        fee.push(order.fee.to_f64().unwrap());
+        total_profit.push(order.total_profit.to_f64().unwrap());
     }
 
     let log_id = Series::new("log_id", log_id);
@@ -818,6 +982,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let free_foreign_change = Series::new("free_foreign_change", free_foreign_change);
     let lock_home_change = Series::new("lock_home_change", lock_home_change);
     let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
+    let open_position = Series::new("open_position", open_position);
+    let close_position = Series::new("close_position", close_position);
+    let position = Series::new("position", position);
+    let profit = Series::new("profit", profit);
+    let fee = Series::new("fee", fee);
+    let total_profit = Series::new("total_profit", total_profit);
 
     let mut df = DataFrame::new(vec![
         log_id,
@@ -848,6 +1018,12 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         free_foreign_change,
         lock_home_change,
         lock_foreign_change,
+        open_position,
+        close_position,
+        position,
+        profit,
+        fee,
+        total_profit,
     ])
     .unwrap();
 
