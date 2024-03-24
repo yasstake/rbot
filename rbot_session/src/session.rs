@@ -759,8 +759,9 @@ impl Session {
 }
 
 impl Session {
+    /// Message処理
+    /// Dummyのときは、Tradeで約定情報を受け取り、約定キューに追加する。
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
-        let _config = self.market_config.clone();
         let mut new_orders = vec![];
 
         match message {
@@ -775,11 +776,12 @@ impl Session {
                         self.on_order_update(order);
                     }
                 }
+                return new_orders;
             }
             MarketMessage::Order(order) => {
                 if !order.is_my_order(&self.session_name) {
                     log::debug!("on_message: skip my order: {:?}", order);
-                    return new_orders;
+                    return vec![];
                 }
 
                 let mut order = order.clone();
@@ -816,30 +818,6 @@ impl Session {
 
     pub fn open_log(&mut self, path: &str) -> Result<(), std::io::Error> {
         self.log.open_log(path)
-    }
-
-    pub fn log_profit(
-        &mut self,
-        log_id: i64,
-        open_position: Decimal,
-        close_position: Decimal,
-        position: Decimal,
-        profit: Decimal,
-        fee: Decimal,
-        total_profit: Decimal,
-    ) -> Result<(), std::io::Error> {
-        let time = self.calc_log_timestamp();
-
-        self.log.log_profit(
-            time,
-            log_id,
-            open_position.to_f64().unwrap(),
-            close_position.to_f64().unwrap(),
-            position.to_f64().unwrap(),
-            profit.to_f64().unwrap(),
-            fee.to_f64().unwrap(),
-            total_profit.to_f64().unwrap(),
-        )
     }
 
     pub fn log_account(&mut self, account: &AccountPair) -> Result<(), std::io::Error> {
@@ -981,7 +959,7 @@ impl Session {
     }
 
     // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
-    pub fn update_psudo_position(&mut self, order: &Order) {
+    pub fn update_psudo_position(&mut self, order: &mut Order) {
         let mut open_position = dec![0.0];
         let mut close_position = dec![0.0];
         let mut profit = dec![0.0];
@@ -1018,6 +996,14 @@ impl Session {
 
         let total_profit = profit - fee;
 
+        order.open_position = open_position;
+        order.close_position = close_position;
+        order.position = self.position;
+        order.fee = fee;
+        order.profit = profit;
+        order.total_profit = total_profit;
+
+        /*
         if self
             .log_profit(
                 order.log_id,
@@ -1032,6 +1018,7 @@ impl Session {
         {
             log::error!("log_profit error");
         };
+        */
     }
 
     /// returns position change
@@ -1123,6 +1110,7 @@ impl Session {
         for o in orders {
             o.update_time = self.current_timestamp;
             o.update_balance(&self.market_config);
+            self.update_psudo_position(o);
 
             if o.status == OrderStatus::Filled || o.status == OrderStatus::PartiallyFilled {
                 o.transaction_id = self.dummy_transaction_id();

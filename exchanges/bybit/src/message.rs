@@ -550,6 +550,12 @@ impl Into<Order> for &BybitOrderStatus {
             lock_home_change: dec![0.0],
             lock_foreign_change: dec![0.0],
             log_id: 0,
+            open_position: dec![0.0],
+            close_position: dec![0.0],
+            position: dec![0.0],
+            profit: dec![0.0],
+            fee: dec![0.0],
+            total_profit: dec![0.0],
         }
     }
 }
