@@ -1,6 +1,6 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 use std::sync::Mutex;
 
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
@@ -88,7 +88,6 @@ pub struct Session {
     ask_edge: Decimal,
     bid_edge: Decimal,
 
-    exchange_name: String,
     trade_category: String,
     market_config: MarketConfig,
 
@@ -97,8 +96,7 @@ pub struct Session {
     client_mode: bool,
 
     log: Logger,
-
-    db: TradeTable,
+    db_path: String,
 }
 
 #[pymethods]
@@ -143,23 +141,14 @@ impl Session {
             config
         });
 
-        let exchange_name = Python::with_gil(|py| {
-            let exchange_name = market.getattr(py, "exchange_name").unwrap();
-            let exchange_name: String = exchange_name.extract(py).unwrap();
-
-            exchange_name
-        });
-
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
 
         let db_path = TradeTable::make_db_path(
-            &exchange_name, 
+            &config.exchange_name, 
             &category, 
             &config.trade_symbol, 
             ! production);
-
-        let db = TradeTable::open(&db_path);
 
         let mut session = Self {
             session_id: Self::int_to_base64(now_time),
@@ -196,7 +185,6 @@ impl Session {
             ask_edge: dec![0.0],
             bid_edge: dec![0.0],
 
-            exchange_name,
             trade_category: category,
             market_config: config,
 
@@ -205,8 +193,7 @@ impl Session {
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
-
-            db: db.unwrap(),
+            db_path: db_path,
         };
 
         session.load_order_list().unwrap();
@@ -214,45 +201,55 @@ impl Session {
         return session;
     }
 
-    // -----   market information -----
-    // call market with current_timestamp
-    pub fn py_ohlcv(&self, interval: i64, count: i64) -> Result<Py<PyAny>, PyErr> {
+
+    #[pyo3(signature = (interval, count, market=None))]
+    pub fn ohlcv(&mut self, interval: i64, count: i64, market: Option<&MarketConfig>) -> anyhow::Result<PyDataFrame> {
         let window_sec = interval * count;
         let time_from = self.current_timestamp - SEC(window_sec);
         let time_to = self.current_timestamp;
 
-        println!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+        let df = {
+            log::debug!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
 
-        Python::with_gil(|py| {
+            let db = self.get_db(market)?;
+            let lock = db.lock();
 
-            println!("call start ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+            let ohlcv = lock.unwrap().ohlcv_df(time_from, time_to, interval)?;
 
-            let result = self
-                .market
-                .call_method1(py, "ohlcv", (time_from, time_to, interval));
-
-            match result {
-                Ok(df) => {
-                    return Ok(df);
-                }
-                Err(e) => {
-                    log::error!("ohlcv error: {:?}", e);
-                    return Err(e);
-                }
-            }
-        })
-    }
-
-    pub fn ohlcv(&mut self, interval: i64, count: i64) -> anyhow::Result<PyDataFrame> {
-        let window_sec = interval * count;
-        let time_from = self.current_timestamp - SEC(window_sec);
-        let time_to = self.current_timestamp;
-
-        let df = self.db.ohlcv_df(time_from, time_to, interval)?;
+            ohlcv
+        };
 
         Ok(PyDataFrame(df))
     }
 
+    #[pyo3(signature = (interval, count, market=None))]
+    pub fn ohlcvv(&mut self, interval: i64, count: i64, market: Option<&MarketConfig>) -> anyhow::Result<PyDataFrame> {
+        let window_sec = interval * count;
+        let time_from = self.current_timestamp - SEC(window_sec);
+        let time_to = self.current_timestamp;
+
+        let df = {
+            log::debug!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+
+            let db = self.get_db(market)?;
+            let lock = db.lock();
+
+            let ohlcv = lock.unwrap().ohlcvv_df(time_from, time_to, interval)?;
+
+            ohlcv
+        };
+
+        Ok(PyDataFrame(df))
+    }
+
+    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> anyhow::Result<PyDataFrame> {
+        let db = self.get_db(None).unwrap();
+        let mut lock = db.lock().unwrap();
+
+        let vap = lock.vap(start_time, end_time, price_unit)?;
+
+        Ok(PyDataFrame(vap))
+    }
 
     #[getter]
     pub fn get_timestamp(&self) -> MicroSec {
@@ -265,11 +262,22 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        let orderbook = if self.client_mode {
-            get_rest_orderbook(&self.exchange_name, &self.market_config)?
+    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)>{
+        self.board(None)
+    }
+
+    #[pyo3(signature = (market_config=None))]
+    pub fn board(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+        let board_config = if let Some(config) = market_config {
+            config
         } else {
-            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
+            &self.market_config
+        };
+
+        let orderbook = if self.client_mode {
+            get_rest_orderbook(board_config)?
+        } else {
+            let path = OrderBookList::make_path(board_config);
             get_orderbook(&path)?
         };
 
@@ -519,9 +527,9 @@ impl Session {
         let transaction_id = self.dummy_transaction_id();
 
         let mut orderbook = if self.client_mode {
-            get_rest_orderbook(&self.exchange_name, &self.market_config)?
+            get_rest_orderbook(&&self.market_config)?
         } else {
-            let path = OrderBookList::make_path(&self.exchange_name, &self.market_config);
+            let path = OrderBookList::make_path(&self.market_config);
             get_orderbook(&path)?
         };
 
@@ -759,6 +767,23 @@ impl Session {
 }
 
 impl Session {
+    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeTable>>> {
+        if market_config.is_none() {
+            return TradeTable::get(&self.db_path);
+        }
+
+        let market = market_config.unwrap();
+
+        let db_path = TradeTable::make_db_path(
+            &market.exchange_name,
+            &market.trade_category,
+            &market.trade_symbol,
+            false,      // use only production db for reference
+        );
+
+        TradeTable::get(&db_path)
+    }
+
     /// Message処理
     /// Dummyのときは、Tradeで約定情報を受け取り、約定キューに追加する。
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
