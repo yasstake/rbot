@@ -6,7 +6,7 @@
 
 use hmac::{Hmac, Mac};
 use once_cell::sync::Lazy;
-use polars_core::export::num::FromPrimitive;
+use polars::export::num::FromPrimitive;
 use rust_decimal::Decimal;
 use serde::{de, Deserialize as _, Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
