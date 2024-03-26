@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Write},
 };
 
-use polars_core::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
+use polars::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};

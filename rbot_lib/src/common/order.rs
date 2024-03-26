@@ -11,10 +11,12 @@ use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
 use async_std::stream::Cloned;
-use polars_core::prelude::DataFrame;
-use polars_core::prelude::NamedFrom;
-use polars_core::prelude::TimeUnit;
-use polars_core::series::Series;
+
+use polars::prelude::DataFrame;    
+use polars::prelude::NamedFrom;
+use polars::prelude::TimeUnit;
+use polars::series::Series;
+
 use pyo3::pyclass;
 use pyo3::pymethods;
 use reqwest::Proxy;
