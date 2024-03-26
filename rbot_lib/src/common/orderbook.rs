@@ -33,8 +33,8 @@ pub struct OrderBookList {
 }
 
 impl OrderBookList {
-    pub fn make_path(exchange_name: &str, config: &MarketConfig) -> String {
-        Self::make_path_from_str(exchange_name, &config.trade_category, &config.trade_symbol)
+    pub fn make_path(config: &MarketConfig) -> String {
+        Self::make_path_from_str(&config.exchange_name, &config.trade_category, &config.trade_symbol)
     }
 
     pub fn make_path_from_str(
@@ -436,7 +436,7 @@ impl OrderBook {
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
-        let path = OrderBookList::make_path(&exchange_name, config);
+        let path = OrderBookList::make_path(config);
         let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
 
         ALL_BOARD.lock().unwrap().register(&path, board.clone());
@@ -462,11 +462,10 @@ impl OrderBook {
     }
 
     pub fn from_bin(
-        exchange_name: &str,
         config: &MarketConfig,
         bin: Vec<u8>,
     ) -> anyhow::Result<Self> {
-        let exchange_name = exchange_name.to_string();
+        let exchange_name = config.exchange_name.to_string();
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
