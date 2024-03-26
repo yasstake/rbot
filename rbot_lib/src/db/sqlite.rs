@@ -19,17 +19,15 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::task::spawn;
 use tokio::task::JoinHandle;
 
-//use std::thread::JoinHandle;
-//use std::thread::spawn;
-
-use crate::common::env_rbot_db_root;
 use crate::common::MarketStream;
 
-//use crossbeam_channel::Receiver;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Sender;
 
@@ -55,6 +53,9 @@ use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
 
+
+static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>>
+    = Lazy::new(|| Mutex::new(HashMap::new()));
 
 
 
@@ -415,6 +416,7 @@ impl TradeTableDb {
         Ok(db)
     }
 
+
     /// check if database file is exsit
     fn is_db_file_exsist(name: &str) -> bool {
         let path = std::path::Path::new(name);
@@ -656,6 +658,20 @@ impl TradeTable {
         return db_path.to_str().unwrap().to_string();
     }
 
+    pub fn get(db_path: &str) -> anyhow::Result<Arc<Mutex<Self>>> {
+        let mut db_cache = EXCHANGE_DB_CACHE.lock().unwrap();
+        let db_in_cache = db_cache.get(db_path);
+
+        if let Some(db) = db_in_cache {
+            return Ok(db.clone());
+        }
+
+        let db = Arc::new(Mutex::new(TradeTable::open(db_path)?));
+        db_cache.insert(db_path.to_string(), db.clone());
+
+        Ok(db)
+    }
+
     /// check if db thread is running.
     pub fn is_running(&self) -> bool {
         if self.handle.is_none() {
@@ -744,64 +760,6 @@ impl TradeTable {
 
         return self.tx.clone().unwrap();
     }
-
-    /*
-    pub fn start_thread(&mut self) -> Sender<Vec<Trade>> {
-        // check if the thread is already started
-        // check self.tx is valid and return clone of self.tx
-        log::debug!("start_thread");
-        if self.is_running() {
-            log::info!("DB Thread is already started, reuse tx");
-            return self.tx.clone().unwrap();
-        }
-
-        let (tx, rx) = unbounded();
-
-        let file_name = self.file_name.clone();
-
-        self.tx = Some(tx);
-
-        let handle = spawn(move || {
-            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
-            let rx = rx; // Move rx into the closure's environment
-            loop {
-                match rx.recv() {
-                    Ok(trades) => {
-                        let result = db.insert_records(&trades);
-
-                        if result.is_err() {
-                            log::error!("insert error {:?}", result);
-                            continue;
-                        }
-                        log::debug!("recv trades: {}", trades.len());
-                    }
-                    Err(e) => {
-                        log::error!("recv error(sender program died?) {:?}", e);
-                        break;
-                    }
-                }
-            }
-        });
-
-        self.handle = Some(handle);
-
-        return self.tx.clone().unwrap();
-    }
-    */
-
-    /*
-    pub fn stop_thread(&mut self) {
-        if self.handle.is_some() {
-            let handle = self.handle.take().unwrap();
-
-            handle.abort();
-            log::info!("DB Thread terminatted");
-
-            self.handle = None;
-            self.tx = None;
-        }
-    }
-    */
 
     pub fn validate_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
         self.connection.validate_by_date(date)
@@ -1975,4 +1933,12 @@ mod test_transaction_table {
             print!("table is not exist");
         }
     }
+
+    #[test]
+    fn test_get_db() {
+        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();        
+
+        println!("{:?}", db);        
+    }
 }
+
