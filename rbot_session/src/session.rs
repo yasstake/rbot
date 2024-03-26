@@ -68,7 +68,7 @@ pub struct Session {
     order_number: i64,
     transaction_number: i64,
 
-    position: Decimal,
+    psudo_position: Decimal,
     average_price: Decimal,
     profit: Decimal,
 
@@ -165,7 +165,7 @@ impl Session {
             order_number: 0,
             transaction_number: 0,
 
-            position: dec![0.0],
+            psudo_position: dec![0.0],
             average_price: dec![0.0],
             profit: dec![0.0],
 
@@ -361,7 +361,7 @@ impl Session {
 
     #[getter]
     pub fn get_position(&self) -> f64 {
-        self.position.to_f64().unwrap()
+        self.psudo_position.to_f64().unwrap()
     }
 
     #[getter]
@@ -760,7 +760,7 @@ impl Session {
 
         json += &format!("\"psudo_account\":{},", self.psudo_account.__repr__());
 
-        json += &format!("\"psudo_position\":{}", self.position);
+        json += &format!("\"psudo_position\":{}", self.psudo_position);
         json += "}";
         json
     }
@@ -991,7 +991,7 @@ impl Session {
 
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                if dec![0.0] <= self.position {
+                if dec![0.0] <= self.psudo_position {
                     self.open_position(order.execute_price, order.execute_size);
                     open_position = order.execute_size;
                 } else {
@@ -1001,7 +1001,7 @@ impl Session {
             }
         } else if order.order_side == OrderSide::Sell {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::PartiallyFilled {
-                if dec![0.0] <= self.position {
+                if dec![0.0] <= self.psudo_position {
                     (close_position, open_position, profit) =
                         self.close_position(order.execute_price, -order.execute_size);
                 } else {
@@ -1023,7 +1023,7 @@ impl Session {
 
         order.open_position = open_position;
         order.close_position = close_position;
-        order.position = self.position;
+        order.position = self.psudo_position;
         order.fee = fee;
         order.profit = profit;
         order.total_profit = total_profit;
@@ -1048,11 +1048,11 @@ impl Session {
 
     /// returns position change
     pub fn open_position(&mut self, price: Decimal, position: Decimal) {
-        let total_cost = (self.average_price * self.position) + (price * position);
-        let total_size = self.position + position;
+        let total_cost = (self.average_price * self.psudo_position) + (price * position);
+        let total_size = self.psudo_position + position;
 
         self.average_price = total_cost / total_size;
-        self.position += position;
+        self.psudo_position += position;
     }
 
     /// retruns position change, and profit change
@@ -1065,16 +1065,16 @@ impl Session {
         let close_position: Decimal;
         let mut open_position: Decimal = dec![0.0];
 
-        let profit = if position.abs() <= self.position.abs() {
+        let profit = if position.abs() <= self.psudo_position.abs() {
             close_position = -position;
-            self.position -= close_position;
+            self.psudo_position -= close_position;
 
             let profit = (price * close_position) - (self.average_price * close_position);
             self.profit += profit;
 
             profit
         } else {
-            close_position = self.position;
+            close_position = self.psudo_position;
             let new_position = close_position + position;
 
             // self.position += close_position;
@@ -1088,11 +1088,11 @@ impl Session {
             );
             log::debug!(
                 "close_position: old_pos={} / new_position={}",
-                self.position,
+                self.psudo_position,
                 new_position
             );
 
-            self.position = dec![0.0];
+            self.psudo_position = dec![0.0];
             self.average_price = dec![0.0];
             open_position = new_position;
             self.open_position(price, new_position);

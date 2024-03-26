@@ -9,7 +9,7 @@ use crossbeam_channel::Sender;
 use csv::StringRecord;
 
 use futures::StreamExt;
-use polars_core::export::num::FromPrimitive;
+use polars::export::num::FromPrimitive;
 use pyo3::ffi::getter;
 
 use std::sync::{Arc, Mutex, RwLock};
