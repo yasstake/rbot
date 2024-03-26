@@ -3,11 +3,11 @@
 use crossbeam_channel::Sender;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
-use rbot_lib::db::db_full_path;
+
 use rust_decimal_macros::dec;
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
-use std::iter::Filter;
+
+
+
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -16,7 +16,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
 
-use tokio::task::spawn;
+
 
 use anyhow::anyhow;
 #[allow(unused_imports)]
@@ -504,10 +504,10 @@ where
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
         }
 
-        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap();
-        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap();
+        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap().unwrap_or(0.0);
+        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap().unwrap_or(0.0);
 
-        if asks_edge < bids_edge {
+        if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
             self.reflesh_order_book();

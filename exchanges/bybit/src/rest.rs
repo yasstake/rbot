@@ -5,7 +5,7 @@ use std::convert;
 use std::fmt::format;
 
 use csv::StringRecord;
-use polars_core::export::num::FromPrimitive;
+use polars::export::num::FromPrimitive;
 use rbot_lib::common::time_string;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::AccountPair;
