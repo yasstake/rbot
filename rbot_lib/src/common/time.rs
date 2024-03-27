@@ -20,10 +20,11 @@ pub fn to_seconds(microsecond: MicroSec) -> f64 {
     return (microsecond as f64) / (MICRO_SECOND as f64);
 }
 
-pub fn to_naive_datetime(microsecond: MicroSec) -> NaiveDateTime {
+pub fn to_naive_datetime(microsecond: MicroSec) -> DateTime<Utc> {
     let sec = microsecond / MICRO_SECOND;
     let nano = ((microsecond % MICRO_SECOND) * 1_000) as u32;
-    let datetime = NaiveDateTime::from_timestamp_opt(sec, nano);
+    //let datetime = NaiveDateTime::from_timestamp_opt(sec, nano);
+    let datetime = DateTime::from_timestamp(sec, nano);    
 
     return datetime.unwrap();
 }
