@@ -49,8 +49,23 @@ pub struct UdpSender {
 impl UdpSender {
     pub fn open() -> Self {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
-        socket.set_reuse_address(true).unwrap();
-        socket.set_reuse_port(true).unwrap();
+
+        // Windowsの場合
+        #[cfg(target_os = "windows")]
+        {
+            socket.set_reuse_address(true).unwrap();
+            // socket.set_exclusive_address_use(false).unwrap();
+        }
+
+        // Windows以外の場合
+        #[cfg(not(target_os = "windows"))]
+        {
+            socket.set_reuse_address(true).unwrap();
+            // SO_REUSEPORTはLinuxとmacOSで利用可能ですが、Windowsでは利用できません。
+            // そのため、このオプションを設定するコードはWindows以外でのみコンパイルされます。
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            socket.set_reuse_port(true).unwrap();
+        }
 
         let multicast_addr = format!(
             "{}:{}",
