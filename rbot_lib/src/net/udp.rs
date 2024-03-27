@@ -17,7 +17,6 @@ use async_stream::stream;
 
 use crate::common::{env_rbot_multicast_addr, env_rbot_multicast_port, MarketMessage};
 
-
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BroadcastMessage {
@@ -121,17 +120,26 @@ impl UdpReceiver {
         let multicast_port = env_rbot_multicast_port();
 
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
-        socket.set_reuse_address(true).unwrap();
 
+        // Windowsの場合
         #[cfg(target_os = "windows")]
         {
+            socket.set_reuse_address(true).unwrap();
             socket.set_exclusive_address_use(false).unwrap();
         }
 
-        #[cfg (not (target_os = "windows"))]
+        // Windows以外の場合
+        #[cfg(not(target_os = "windows"))]
         {
+            socket.set_reuse_address(true).unwrap();
+            // SO_REUSEPORTはLinuxとmacOSで利用可能ですが、Windowsでは利用できません。
+            // そのため、このオプションを設定するコードはWindows以外でのみコンパイルされます。
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             socket.set_reuse_port(true).unwrap();
         }
+
+        #[cfg(not(target_os = "windows"))]
+        socket.set_reuse_port(true).unwrap();
 
         let addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, multicast_port as u16);
         let addr = SockAddr::from(addr);
