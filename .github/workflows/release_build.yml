@@ -1,0 +1,105 @@
+name: Release build (all os and sdists)
+
+on:
+  workflow_dispatch:    
+  
+env:
+  PYTHON_VERSION: '3.8'
+  
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+    - name: apt-get-update
+      run: sudo apt-get update
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - uses: actions/checkout@v4
+    - uses: PyO3/maturin-action@v1
+      with:
+        manylinux: auto
+        command: sdist
+        args: -o dist
+    - uses: PyO3/maturin-action@v1
+      with:
+        manylinux: auto
+        command: build
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
+        before-script-linux: |
+          # If we're running on rhel centos, install needed packages.
+          if command -v yum &> /dev/null; then
+            yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic perl-IPC-Cmd
+
+            # If we're running on i686 we need to symlink libatomic
+            # in order to build openssl with -latomic flag.
+            if [[ ! -d "/usr/lib64" ]]; then
+                ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+            fi
+          else
+            # If we're running on debian-based system.
+            apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd
+          fi
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
+
+  windows:
+    runs-on: windows-latest
+    steps:
+    - name: SQLITE install
+      run:  choco install sqlite -y
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
+
+
+  macos-intel:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
+
+  macos-arm:
+    runs-on: maxos-latest-xlarge
+    steps:
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist
+        
+        
+
+        
