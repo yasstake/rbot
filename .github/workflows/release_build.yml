@@ -19,11 +19,6 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         manylinux: auto
-        command: sdist
-        args: -o dist
-    - uses: PyO3/maturin-action@v1
-      with:
-        manylinux: auto
         command: build
         args: -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
@@ -76,7 +71,7 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter
+        args: -vv -m ./rbot/Cargo.toml --release --sdist -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
