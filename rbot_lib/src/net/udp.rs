@@ -125,7 +125,7 @@ impl UdpReceiver {
         #[cfg(target_os = "windows")]
         {
             socket.set_reuse_address(true).unwrap();
-            socket.set_exclusive_address_use(false).unwrap();
+            // socket.set_exclusive_address_use(false).unwrap();
         }
 
         // Windows以外の場合
