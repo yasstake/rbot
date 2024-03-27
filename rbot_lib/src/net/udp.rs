@@ -122,7 +122,16 @@ impl UdpReceiver {
 
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
         socket.set_reuse_address(true).unwrap();
-        socket.set_reuse_port(true).unwrap();
+
+        #[cfg(target_os = "windows")]
+        {
+            socket.set_exclusive_address_use(false).unwrap();
+        }
+
+        #[cfg (not (target_os = "windows"))]
+        {
+            socket.set_reuse_port(true).unwrap();
+        }
 
         let addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, multicast_port as u16);
         let addr = SockAddr::from(addr);
