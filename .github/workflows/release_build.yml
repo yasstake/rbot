@@ -60,7 +60,6 @@ jobs:
         name: wheels
         path: dist
 
-
   macos-intel:
     runs-on: macos-latest
     steps:
@@ -71,30 +70,14 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -vv -m ./rbot/Cargo.toml --release --sdist -o dist --find-interpreter
+        args: -v -m ./rbot/Cargo.toml --universal2 --release --sdist -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
         name: wheels
         path: dist
 
-  macos-arm:
-    runs-on: macos-latest-large
-    steps:
-    - uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    - uses: actions/checkout@v3
-    - uses: PyO3/maturin-action@v1
-      with:
-        command: build
-        args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter
-    - name: Upload wheels
-      uses: actions/upload-artifact@v3
-      with:
-        name: wheels
-        path: dist
-        
+       
         
 
         
