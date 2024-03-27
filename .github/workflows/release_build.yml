@@ -79,7 +79,7 @@ jobs:
         path: dist
 
   macos-arm:
-    runs-on: maxos-latest-xlarge
+    runs-on: macos-latest-large
     steps:
     - uses: actions/setup-python@v4
       with:
