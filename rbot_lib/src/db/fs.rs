@@ -37,7 +37,7 @@ pub fn project_dir() -> String {
     return proj_dir.data_dir().to_str().unwrap().to_string();
 }
 
-pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, base_dir: &str, test_net: bool) -> PathBuf {
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, test_net: bool) -> PathBuf {
     let project_dir = get_db_root();
     let project_dir = PathBuf::from(project_dir);
     
@@ -72,13 +72,13 @@ mod test_fs {
 
     #[test]
     fn test_db_full_path() {
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP",  false);
         println!("{:?}", db);
 
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp/", true);
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP",  true);
         println!("{:?}", db);
 
-        let db = db_full_path("FTX", "SPOT", "BTC-PERP", "./", false);
+        let db = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         println!("{:?}", db);
 
     }
