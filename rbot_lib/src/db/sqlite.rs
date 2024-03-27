@@ -653,7 +653,7 @@ impl TradeTable {
         test_net: bool,
     ) -> String {
 
-        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, "", test_net);
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, test_net);
 
         return db_path.to_str().unwrap().to_string();
     }
@@ -1706,7 +1706,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_gap_chunks() -> anyhow::Result<()> {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13)?;
@@ -1727,7 +1727,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_from() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "", false);
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
@@ -1741,7 +1741,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunk_to() {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
@@ -1755,7 +1755,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_time_chunks() -> anyhow::Result<()> {
-        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", "/tmp", false);
+        let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10)?;
@@ -1791,7 +1791,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_ohlcv_df() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
 
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
@@ -1833,7 +1833,7 @@ mod test_transaction_table {
     fn test_select_print() {
         init_log();
 
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
@@ -1844,7 +1844,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
@@ -1855,7 +1855,7 @@ mod test_transaction_table {
     #[test]
     fn test_update_cache() -> anyhow::Result<()> {
         init_log();
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false);
+        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW())?;
@@ -1866,7 +1866,7 @@ mod test_transaction_table {
     #[tokio::test]
     async fn test_start_thread() {
         let mut table = TradeTable::open(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
+            db_full_path("BN", "SPOT", "BTCBUSD", false)
                 .to_str()
                 .unwrap(),
         )
@@ -1913,7 +1913,7 @@ mod test_transaction_table {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
         TradeTableDb::set_wal_mode(
-            db_full_path("BN", "SPOT", "BTCBUSD", "/tmp", false)
+            db_full_path("BN", "SPOT", "BTCBUSD", false)
                 .to_str()
                 .unwrap(),
         )?;
