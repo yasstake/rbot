@@ -1,4 +1,4 @@
-name: Ubuntu simple build test
+name: Release build (all os and sdists)
 
 on:
   workflow_dispatch:    
