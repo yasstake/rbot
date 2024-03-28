@@ -432,6 +432,17 @@ impl Default for Coin {
     }
 }
 
+impl Coin {
+    fn new(symbol: &str) -> Self {
+        return Coin {
+            symbol: symbol.to_string(),
+            volume: dec![0.0],
+            free: dec![0.0],
+            locked: dec![0.0],
+        };
+    }
+}
+
 #[pymethods]
 impl Coin {
     #[getter]
@@ -571,7 +582,8 @@ impl AccountCoins {
                 return Ok(coin.clone());
             }
         }
-        Err(anyhow::anyhow!("Coin not found: {}", key))
+
+        return Ok(Coin::new(key));
     }
 
 }

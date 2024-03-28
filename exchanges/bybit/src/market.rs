@@ -466,7 +466,9 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
     fn reflesh_order_book(&mut self) -> anyhow::Result<()>{
-        todo!()
+        BLOCK_ON(async {
+            self.async_reflesh_order_book().await
+        })
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -670,6 +672,13 @@ impl BybitMarket {
         Ok(rec)
     }
 
+    async fn async_reflesh_order_book(&mut self) -> anyhow::Result<()> {
+        let board = BybitRestApi::get_board_snapshot(&self.server_config, &self.config).await?;
+        let mut b = self.board.write().unwrap();
+        b.update(&board);
+
+        Ok(())
+    }
 
 }
 
