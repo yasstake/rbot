@@ -1,7 +1,7 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use pyo3::pyclass;
+use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
@@ -68,6 +68,18 @@ pub struct MarketConfig {
     #[pyo3(set)]
     pub public_subscribe_channel: Vec<String>,
 }
+
+#[pymethods]
+impl MarketConfig {
+    pub fn __repr__(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
 
 impl MarketConfig {
     pub fn new(
@@ -157,47 +169,6 @@ impl Default for MarketConfig {
 
 }
 
-/*
-pub struct ServerConfigStruct {
-    exchange_name: String, 
-    trade_category: String,
-    home_currency: String,
-    foreign_currency: String,
-    price_scale: u32,
-    size_scale: u32,
-    board_depth: u32,
-}
-
-impl ServerConfig for ServerConfigStruct {
-    fn get_exchange_name(&self) -> String {
-        self.exchange_name.clone()
-    }
-
-    fn get_historical_web_base(&self) -> String {
-        todo!()
-    }
-
-    fn get_public_ws_server(&self) -> String {
-        todo!()
-    }
-
-    fn get_user_ws_server(&self) -> String {
-        todo!()
-    }
-
-    fn get_rest_server(&self) -> String {
-        todo!()
-    }
-
-    fn get_api_key(&self) -> SecretString {
-        todo!()
-    }
-
-    fn get_api_secret(&self) -> SecretString {
-        todo!()
-    }
-}
-*/
 
 
 pub trait ServerConfig : Send + Sync {

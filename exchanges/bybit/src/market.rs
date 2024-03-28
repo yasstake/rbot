@@ -326,7 +326,7 @@ impl BybitMarket {
     }
 
     #[getter]
-    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
+    fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
         MarketImpl::get_edge_price(self)
     }
 
@@ -616,24 +616,38 @@ impl BybitMarket {
         let gap_result = self.find_latest_gap(force);
         if gap_result.is_err() {
             log::warn!("no gap found: {:?}", gap_result);
+
+            if verbose {
+                println!("no gap found: {:?}", gap_result);
+                flush_log();
+            }
+
             return Ok(0);
         }
 
-        let (unfix_start, unfix_end) = gap_result.unwrap();
+        let (unfix_start, unfix_end) = gap_result?;
+
+
         //let (unfix_start, unfix_end) = self.find_latest_gap();
         log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
 
-        if unfix_end - unfix_start <= HHMM(0, 1) {
+        if verbose {
+            println!("unfix_start: {:?}({:?}), unfix_end: {:?}({:?})"
+                , time_string(unfix_start), unfix_start, time_string(unfix_end), unfix_end);
+            flush_log();
+        }
+
+        if unfix_end != 0 && unfix_end - unfix_start <= HHMM(0, 1) {
             log::info!("no need to download");
             return Ok(0);
         }
 
-        let klines = BLOCK_ON(BybitRestApi::get_trade_klines(
+        let klines = BybitRestApi::get_trade_klines(
             &self.server_config,
             &self.get_config(),
             unfix_start,
             unfix_end,
-        ))?;
+        ).await?;
 
         let trades: Vec<Trade> = convert_klines_to_trades(klines);
         let rec = trades.len() as i64;
@@ -647,6 +661,11 @@ impl BybitMarket {
 
         tx.send(expire_message)?;
         tx.send(trades)?;
+
+        if verbose {
+            println!("rec: {}", rec);
+            flush_log();
+        }
 
         Ok(rec)
     }
