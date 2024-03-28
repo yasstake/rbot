@@ -551,15 +551,21 @@ where
         Ok((bids, asks))
     }
 
-    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
+    fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
         let orderbook = self.get_order_book();
 
-        let edge_price = {
+        let mut edge_price = {
             let lock = orderbook.read().unwrap();
             lock.get_edge_price()
         };
 
-        Ok(edge_price)
+        if edge_price.is_err() {
+            self.reflesh_order_book();
+            let lock = orderbook.read().unwrap();
+            edge_price = lock.get_edge_price();
+        }
+
+        Ok(edge_price.unwrap())
     }
 
     async fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
