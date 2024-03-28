@@ -38,11 +38,8 @@ where
     async fn get_board_snapshot(server: &T, config: &MarketConfig)
         -> anyhow::Result<BoardTransfer>;
 
-    async fn get_recent_trades(
-        server: &T,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Trade>>;
-    
+    async fn get_recent_trades(server: &T, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
+
     fn get_trade_klines(
         server: &T,
         config: &MarketConfig,
@@ -604,22 +601,13 @@ pub async fn do_rest_request(
         .await
         .with_context(|| format!("URL get error {url:}"))?;
 
-    log::debug!(
-        "Response code = {} / content size {:?} / method({:?}) / URL = {} ",
-        response.status().as_str(),
-        response.content_length(),
-        method,
-        url,
-    );
-
     if response.status().as_str() != "200" {
         return Err(anyhow!(
-            "Response code = {} / download size {:?} / method({:?}) / URL = {} / path = {}",
+            "Response code = {} / download size {:?} / method({:?}) /  response body = {}",
             response.status().as_str(),
             response.content_length(),
             method,
-            url,
-            body
+            &body,
         ));
     }
 
@@ -627,8 +615,6 @@ pub async fn do_rest_request(
         .text()
         .await
         .with_context(|| format!("response text error"))?;
-
-    log::debug!("body{}", body);
 
     Ok(body)
 }

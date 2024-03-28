@@ -381,14 +381,18 @@ impl OrderBookRaw {
         self.bids.to_dataframe()
     }
 
-    pub fn get_edge_price(&mut self) -> (Decimal, Decimal) {
+    pub fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
         let bids = self.bids.get();
         let asks = self.asks.get();
+
+        if bids.len() == 0 || asks.len() == 0 {
+            return Err(anyhow::anyhow!("board has no data"));
+        }
 
         let bid_price = bids.first().unwrap().price;
         let ask_price = asks.first().unwrap().price;
 
-        return (bid_price, ask_price);
+        return Ok((bid_price, ask_price));
     }
 
     pub fn get_asks(&self) -> Vec<BoardItem> {
@@ -533,7 +537,7 @@ impl OrderBook {
         Ok(json.to_string())
     }
 
-    pub fn get_edge_price(&self) -> (Decimal, Decimal) {
+    pub fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
         self.board.lock().unwrap().get_edge_price()
     }
 
