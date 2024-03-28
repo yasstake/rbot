@@ -302,7 +302,7 @@ impl BinanceMarket {
     }
 
     #[getter]
-    fn get_edge_price(&self) -> anyhow::Result<(Decimal, Decimal)> {
+    fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
         MarketImpl::get_edge_price(self)
     }
 
@@ -633,6 +633,7 @@ impl BinanceMarket {
             if let Some(t) = unfix_end.clone() {
                 println!("unfix_end  : {:?}", t.__str__());
             }
+            flush_log();
         }
 
         let unfix_start_id = if let Some(trade) = unfix_start {
@@ -687,6 +688,7 @@ impl BinanceMarket {
                     trades[l - 1].time,
                     trades[l - 1].id
                 );
+                flush_log();
             }
 
             let trade_id = trades[l - 1].id.parse::<i64>()?;
@@ -810,6 +812,19 @@ mod test_market_impl {
         let mut market = BinanceMarket::new(&server, &market_config);
 
         let rec = market.download_latest(true).unwrap();
+        assert!(rec > 0);
+    }
+
+    #[test]
+    fn test_download_gap() {
+
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server, &market_config);
+
+        let rec = market.download_gap(false, true).unwrap();
         assert!(rec > 0);
     }
 
