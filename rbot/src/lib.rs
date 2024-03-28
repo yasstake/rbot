@@ -58,7 +58,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Runner>()?;
     m.add_class::<ExecuteMode>()?;
 
-    m.add_class::<MarketMessage>()?;
+    //    m.add_class::<MarketMessage>()?;
     //m.add_class::<Broadcast>()?;
     //m.add_class::<BroadcastMessage>()?;
     
