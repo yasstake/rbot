@@ -1,12 +1,8 @@
-* BinanceMarket::download_gap
-    Add flush on each print progress.
+* Bybit::reflesh_order_book
+    implement
 
-* reflesh bord when start_market_stream
-    ->  for edge price
-
-* BybytMarket::download_gap
-    Add verbose print
-    Fix: when gap is end with now(time:0)
+* Coins 
+    残高０のコインは、エラーではなく０を返す。
 
 <TODO>
 * OHLC, OHLCVV, VAPの合計値をあわせる（おそらく小数点以下の誤差でずれが発生している）
