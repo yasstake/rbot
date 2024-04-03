@@ -1,3 +1,8 @@
+* add no_download flag to Runner.run
+
+* Fix: position 
+
+--
 * Binance::PrivateWS
     call extend key every 1 H.
 

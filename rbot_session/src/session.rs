@@ -901,6 +901,7 @@ impl Session {
         self.log_id += 1;
         order.log_id = self.log_id;
         order.update_balance(&self.market_config);
+        self.update_psudo_position(order);        
 
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
@@ -921,8 +922,6 @@ impl Session {
         if self.log(&order).is_err() {
             log::error!("log order error{:?}", order);
         };
-
-        self.update_psudo_position(order);
     }
 
     fn new_order_id(&mut self) -> String {
@@ -983,6 +982,9 @@ impl Session {
 
     // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
     pub fn update_psudo_position(&mut self, order: &mut Order) {
+        // TODO: DEBUG
+            println!("update_psudo_position: {:?}", order);
+
         let mut open_position = dec![0.0];
         let mut close_position = dec![0.0];
         let mut profit = dec![0.0];
@@ -1116,7 +1118,8 @@ impl Session {
         for o in orders {
             o.update_time = self.current_timestamp;
             o.update_balance(&self.market_config);
-            self.update_psudo_position(o);
+            // TODO: debug
+            // self.update_psudo_position(o);
 
             if o.status == OrderStatus::Filled || o.status == OrderStatus::PartiallyFilled {
                 o.transaction_id = self.dummy_transaction_id();

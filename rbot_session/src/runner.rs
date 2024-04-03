@@ -10,7 +10,8 @@ use futures::{Stream, StreamExt};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
+        flush_log, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec,
+        Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -128,7 +129,7 @@ impl Runner {
         self.run(exchange, market, &receiver, agent, false, true, log_file)
     }
 
-    #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false, no_download=false))]
     pub fn dry_run(
         &mut self,
         exchange: PyObject,
@@ -139,6 +140,7 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
         client: bool,
+        no_download: bool,
     ) -> anyhow::Result<Py<Session>> {
         self.execute_time = execute_time;
         self.verbose = verbose;
@@ -156,16 +158,21 @@ impl Runner {
             let receiver =
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
+            self.run(
+                exchange, market, &receiver, agent, client, log_memory, log_file,
+            )
         } else {
-            self.prepare_data(&exchange, &market)?;
+            self.prepare_data(&exchange, &market, no_download)?;
+
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
+            self.run(
+                exchange, market, &receiver, agent, client, log_memory, log_file,
+            )
         }
     }
 
-    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false))]
+    #[pyo3(signature = (*,exchange,  market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false, no_download=false))]
     pub fn real_run(
         &mut self,
         exchange: PyObject,
@@ -176,6 +183,7 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
         client: bool,
+        no_download: bool
     ) -> anyhow::Result<Py<Session>> {
         self.update_market_info(&market)?;
         self.update_agent_info(agent)?;
@@ -193,12 +201,16 @@ impl Runner {
             let receiver =
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
+            self.run(
+                exchange, market, &receiver, agent, client, log_memory, log_file,
+            )
         } else {
-            self.prepare_data(&exchange, &market)?;
+            self.prepare_data(&exchange, &market, no_download)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
-            self.run(exchange, market, &receiver, agent, client, log_memory, log_file)
+            self.run(
+                exchange, market, &receiver, agent, client, log_memory, log_file,
+            )
         }
     }
 
@@ -220,14 +232,14 @@ impl Runner {
     }
 }
 
-const WARMUP_STEPS: i64 = 10;
+const WARMUP_STEPS: i64 = 5;
 
 impl Runner {
     pub fn agent_id(&self) -> String {
         "".to_string()
     }
 
-    pub fn prepare_data(&self, exchange: &PyObject, market: &PyObject) -> anyhow::Result<()> {
+    pub fn prepare_data(&self, exchange: &PyObject, market: &PyObject, no_download: bool) -> anyhow::Result<()> {
         // prepare market data
         // 1. start market & user stream
         // 2. download market data
@@ -250,7 +262,7 @@ impl Runner {
                 }
             }
 
-            if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
+            if (! no_download) && self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
                 if self.verbose {
                     println!("--- start download log data ---");
                     flush_log();
@@ -356,7 +368,7 @@ impl Runner {
         &self,
         exchange: PyObject,
         market: PyObject,
-        client_mode: bool, 
+        client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
     ) -> Py<Session> {
@@ -442,6 +454,8 @@ impl Runner {
             print!("log_memory: {}, ", log_memory);
             println!("duration: {}[sec], ", self.execute_time);
 
+
+            println!("---- warm up start ----");
             flush_log();
         }
 
@@ -455,6 +469,10 @@ impl Runner {
         // warm up loop
         let mut warm_up_loop: i64 = WARMUP_STEPS;
         while let Some(message) = rec.next().await {
+            if self.verbose {
+                println!("warm up loop {:?}:{:?}", warm_up_loop, message);
+            }
+
             let mut message = message?;
             message.update_config(&self.config);
 
@@ -468,11 +486,15 @@ impl Runner {
             }
         }
 
+        if self.verbose {
+            println!("--- warm up loop end ---");
+            flush_log();
+        }
+
         let mut remain_time: i64 = 0;
 
         let loop_start_time = NOW();
         while let Some(message) = rec.next().await {
-
             let message = message?;
             self.execute_message(&py_session, agent, &message, interval_sec)?;
             self.loop_count += 1;
@@ -502,12 +524,6 @@ impl Runner {
         Ok(py_session)
     }
 
-
-
-
-
-
-
     pub fn run(
         &mut self,
         exchange: PyObject,
@@ -519,7 +535,6 @@ impl Runner {
         log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
-
         let production = Python::with_gil(|py| {
             let exchange_status = exchange.getattr(py, "production").unwrap();
             let status: bool = exchange_status.extract(py).unwrap();
@@ -528,18 +543,14 @@ impl Runner {
 
         if self.verbose {
             if production {
-                    println!("========= CONNECT PRODUCTION NET  ==========");
-            }
-            else {
-                    println!("--------- connect test net  ----------------");
+                println!("========= CONNECT PRODUCTION NET  ==========");
+            } else {
+                println!("--------- connect test net  ----------------");
             }
             match self.execute_mode {
-                ExecuteMode::Real => 
-                    println!("************   REAL MODE   ****************"),
-                ExecuteMode::Dry => 
-                    println!("------------   dry run mode   -------------"),
-                ExecuteMode::BackTest => 
-                    println!("///////////    backtest mode   ////////////"),
+                ExecuteMode::Real => println!("************   REAL MODE   ****************"),
+                ExecuteMode::Dry => println!("------------   dry run mode   -------------"),
+                ExecuteMode::BackTest => println!("///////////    backtest mode   ////////////"),
             }
 
             print!("market: {}, ", self.exchange_name);
@@ -567,7 +578,13 @@ impl Runner {
                     break;
                 }
             }
+
+            if self.verbose {
+                println!("warm up loop {:?}:{:?}", warm_up_loop, message);
+            }
         }
+
+        println!("------- warm up end ---------");
 
         let mut remain_time: i64 = 0;
 
@@ -919,7 +936,7 @@ impl Runner {
         let account = session.get_account();
 
         let account_pair = account.extract_pair(&self.config);
-       
+
         if session.log_account(&account_pair).is_err() {
             log::error!("call_agent_on_account_update_dummy: log_account failed");
         }
@@ -977,5 +994,4 @@ impl Runner {
             }
         }
     }
-
 }
