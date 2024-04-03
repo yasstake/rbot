@@ -5,9 +5,6 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
 use rust_decimal_macros::dec;
-
-
-
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -16,12 +13,9 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
 
-
-
 use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
-// use anyhow::Result;
 
 use rbot_lib::{
     common::{
@@ -313,7 +307,6 @@ where
 
     fn get_history_web_base_url(&self) -> String;
 
-
     /// Check if database is valid at the date
     fn validate_db_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
         let db = self.get_db();
@@ -327,7 +320,7 @@ where
         let start_time = NOW() - DAYS(2);
 
         let db = self.get_db();
-        
+
         let (fix_time, unfix_time) = {
             let mut lock = db.lock().unwrap();
             let fix_time = lock.latest_fix_time(start_time, force)?;
@@ -395,14 +388,6 @@ where
         let mut lock = db.lock().unwrap();
         lock.reset_cache_duration();
     }
-
-    /*
-    fn stop_db_thread(&mut self) {
-        let db = self.get_db();
-        let mut lock = db.lock().unwrap();
-        lock.stop_thread()
-    }
-    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
@@ -490,7 +475,7 @@ where
     ///
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>>;
 
-    fn reflesh_order_book(&mut self)-> anyhow::Result<()>;
+    fn reflesh_order_book(&mut self) -> anyhow::Result<()>;
 
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
@@ -504,13 +489,23 @@ where
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
         }
 
-        let bids_edge: f64 = bids.column(KEY::price).unwrap().max().unwrap().unwrap_or(0.0);
-        let asks_edge: f64 = asks.column(KEY::price).unwrap().min().unwrap().unwrap_or(0.0);
+        let bids_edge: f64 = bids
+            .column(KEY::price)
+            .unwrap()
+            .max()
+            .unwrap()
+            .unwrap_or(0.0);
+        let asks_edge: f64 = asks
+            .column(KEY::price)
+            .unwrap()
+            .min()
+            .unwrap()
+            .unwrap_or(0.0);
 
         if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.reflesh_order_book();
+            self.reflesh_order_book()?;
 
             let orderbook = self.get_order_book();
 
@@ -578,8 +573,7 @@ where
     async fn async_download_recent_trades(
         &self,
         market_config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Trade>>
-    {
+    ) -> anyhow::Result<Vec<Trade>> {
         T::get_recent_trades(&self.get_server_config(), market_config).await
     }
 
@@ -615,12 +609,12 @@ where
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream>{
+    ) -> anyhow::Result<MarketStream> {
         let (sender, market_stream) = MarketStream::open();
-        
+
         let db = self.get_db();
 
-        std::thread::spawn(move ||{
+        std::thread::spawn(move || {
             let mut table_db = db.lock().unwrap();
 
             let result = table_db.select(time_from, time_to, |trade| {
@@ -636,7 +630,6 @@ where
         });
 
         return Ok(market_stream);
-
     }
 
     /*------------   async ----------------*/
@@ -743,15 +736,41 @@ where
 
         log::debug!("rec: {}", rec);
 
+        if rec == 0 {
+            return Ok(0);
+        }
 
         if verbose {
+            println!("from rec: {:?}", trades[0].__str__());
+            println!("to   rec: {:?}", trades[(rec as usize) - 1].__str__());
             println!("rec: {}", rec);
             flush_log();
         }
-
         let tx = self.start_db_thread().await;
 
-        tx.send(trades)?;        
+        let start_time = trades.iter().map(|trade| trade.time).min();
+
+        if let Some(start_time) = start_time {
+            let expire_control = self
+                .get_db()
+                .lock()
+                .unwrap()
+                .make_expire_control_message(start_time, false);
+
+            if expire_control.is_err() {
+                println!("make_expire_control_message {:?}", expire_control.err());
+            } else {
+                let expire_control = expire_control.unwrap();                
+                if verbose {
+                    println!("expire control from {:?}", expire_control[0].__str__());
+                    println!("expire control to   {:?}", expire_control[1].__str__());
+                }
+
+                tx.send(expire_control)?;
+            }
+        }
+
+        tx.send(trades)?;
 
         Ok(rec)
     }
