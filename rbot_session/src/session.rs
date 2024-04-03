@@ -982,9 +982,6 @@ impl Session {
 
     // ポジションが変化したときは平均購入単価と仮想Profitを計算する。
     pub fn update_psudo_position(&mut self, order: &mut Order) {
-        // TODO: DEBUG
-            println!("update_psudo_position: {:?}", order);
-
         let mut open_position = dec![0.0];
         let mut close_position = dec![0.0];
         let mut profit = dec![0.0];
