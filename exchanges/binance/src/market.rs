@@ -238,11 +238,6 @@ impl BinanceMarket {
         MarketImpl::reset_cache_duration(self)
     }
 
-    /*
-    fn stop_db_thread(&mut self) {
-        MarketImpl::stop_db_thread(self)
-    }
-    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
@@ -763,10 +758,7 @@ mod binance_market_test {
 
         let mut market = BinanceMarket::new(&server_config, &config);
 
-        //market.download_archive(2, true, true, false);
-
         log::debug!("market build complete");
-        //let _ = market.expire_unfix_data();
 
         let r = market.download_gap(true, true);
 

@@ -83,6 +83,9 @@ polars = { version = "0.37.0", features = [
          "temporal",
          "pivot",
          "dynamic_group_by",
+         "polars-ops",
+         "polars-plan",
+         "cum_agg"
         ]}
 
 

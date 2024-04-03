@@ -502,6 +502,12 @@ impl Runner {
         Ok(py_session)
     }
 
+
+
+
+
+
+
     pub fn run(
         &mut self,
         exchange: PyObject,
@@ -513,8 +519,29 @@ impl Runner {
         log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
+
+        let production = Python::with_gil(|py| {
+            let exchange_status = exchange.getattr(py, "production").unwrap();
+            let status: bool = exchange_status.extract(py).unwrap();
+            status
+        });
+
         if self.verbose {
-            print!("--- run {:?} mode --- ", self.execute_mode);
+            if production {
+                    println!("========= CONNECT PRODUCTION NET  ==========");
+            }
+            else {
+                    println!("--------- connect test net  ----------------");
+            }
+            match self.execute_mode {
+                ExecuteMode::Real => 
+                    println!("************   REAL MODE   ****************"),
+                ExecuteMode::Dry => 
+                    println!("------------   dry run mode   -------------"),
+                ExecuteMode::BackTest => 
+                    println!("///////////    backtest mode   ////////////"),
+            }
+
             print!("market: {}, ", self.exchange_name);
             print!("agent_id: {}, ", self.agent_id);
             print!("log_memory: {}, ", log_memory);

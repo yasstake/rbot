@@ -5,9 +5,6 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
 use rust_decimal_macros::dec;
-
-
-
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -16,12 +13,9 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::net::RestApi;
 use rust_decimal::Decimal;
 
-
-
 use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
-// use anyhow::Result;
 
 use rbot_lib::{
     common::{
@@ -396,14 +390,6 @@ where
         lock.reset_cache_duration();
     }
 
-    /*
-    fn stop_db_thread(&mut self) {
-        let db = self.get_db();
-        let mut lock = db.lock().unwrap();
-        lock.stop_thread()
-    }
-    */
-
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
@@ -510,7 +496,7 @@ where
         if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.reflesh_order_book();
+            self.reflesh_order_book()?;
 
             let orderbook = self.get_order_book();
 
@@ -743,16 +729,34 @@ where
 
         log::debug!("rec: {}", rec);
 
+        if rec == 0 {
+            return Ok(0);
+        }
 
         if verbose {
+            println!("from rec: {:?}", trades[0].__str__());
+            println!("to   rec: {:?}", trades[(rec as usize) - 1].__str__());            
             println!("rec: {}", rec);
             flush_log();
         }
-
         let tx = self.start_db_thread().await;
+
+        let start_time = trades.iter().map(|trade| trade.time).min();
+        if let Some(start_time) = start_time {
+            let expire_control = self.get_db().lock().unwrap().make_expire_control_message(start_time, false)?;
+
+            if verbose {
+                println!("expire control from {:?}", expire_control[0].__str__());
+                println!("expire control to   {:?}", expire_control[1].__str__());                
+            }
+
+            tx.send(expire_control)?;
+        }
 
         tx.send(trades)?;        
 
         Ok(rec)
     }
+
 }
+

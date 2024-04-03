@@ -4,12 +4,11 @@ use std::{
     io::{BufRead, BufReader, Write},
 };
 
-use polars::{datatypes::TimeUnit, frame::DataFrame, prelude::NamedFrom, series::Series, export::num::ToPrimitive};
+use polars::{datatypes::TimeUnit, export::num::ToPrimitive, frame::DataFrame, lazy::{dsl::col, frame::IntoLazy}, prelude::NamedFrom, series::Series};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-
 use rbot_lib::common::{ordervec_to_dataframe, AccountPair, MicroSec, Order};
 
 #[skip_serializing_none]
@@ -386,8 +385,14 @@ impl Logger {
             .collect();
 
         let orders = ordervec_to_dataframe(orders);
-    
-        Ok(PyDataFrame(orders))
+
+        let cum_orders = orders.lazy().with_columns(
+            vec![
+               col("total_profit").cum_sum(false).alias("sum_profit")
+            ]
+        ).collect().unwrap();
+
+        Ok(PyDataFrame(cum_orders))
     }
 
 
