@@ -261,11 +261,11 @@ impl Session {
 
     #[getter]
     pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)>{
-        self.board(None)
+        self.select_board(None)
     }
 
     #[pyo3(signature = (market_config=None))]
-    pub fn board(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+    pub fn select_board(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let board_config = if let Some(config) = market_config {
             config
         } else {
@@ -1025,23 +1025,6 @@ impl Session {
         order.fee = fee;
         order.profit = profit;
         order.total_profit = total_profit;
-
-        /*
-        if self
-            .log_profit(
-                order.log_id,
-                open_position,
-                close_position,
-                self.position,
-                profit,
-                fee,
-                total_profit,
-            )
-            .is_err()
-        {
-            log::error!("log_profit error");
-        };
-        */
     }
 
     /// returns position change
@@ -1202,6 +1185,9 @@ impl Session {
 
 #[cfg(test)]
 mod session_tests {
+
+
+
     /*
     use rbot_lib::common::init_debug_log;
 

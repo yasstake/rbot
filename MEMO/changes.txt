@@ -1,8 +1,17 @@
+* Binance::PrivateWS
+    call extend key every 1 H.
+
 * Bybit::reflesh_order_book
     implement
 
 * Coins 
     残高０のコインは、エラーではなく０を返す。
 
+* Sessionのboard取得インターフェース追加
+    通常は Session.board
+    他の取引所を選択する場合は Session.select_board
+
 <TODO>
+
+
 * OHLC, OHLCVV, VAPの合計値をあわせる（おそらく小数点以下の誤差でずれが発生している）
