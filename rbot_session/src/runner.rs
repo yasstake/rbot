@@ -435,7 +435,7 @@ impl Runner {
 
         Ok(())
     }
-
+    /*
     pub async fn async_run(
         &mut self,
         exchange: PyObject,
@@ -523,6 +523,7 @@ impl Runner {
 
         Ok(py_session)
     }
+    */
 
     pub fn run(
         &mut self,
@@ -535,6 +536,8 @@ impl Runner {
         log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
+        self.start_timestamp = 0;
+
         let production = Python::with_gil(|py| {
             let exchange_status = exchange.getattr(py, "production").unwrap();
             let status: bool = exchange_status.extract(py).unwrap();
