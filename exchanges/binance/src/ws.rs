@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures::Stream;
 use futures::StreamExt;
 use rbot_lib::net::ReceiveMessage;
@@ -10,6 +12,7 @@ use rbot_lib::{
     common::{MarketConfig, MultiMarketMessage, ServerConfig, NOW},
     net::{AutoConnectClient, WsOpMessage},
 };
+use tokio::time::sleep;
 
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
@@ -31,7 +34,8 @@ use anyhow::anyhow;
 
 pub const PING_INTERVAL_SEC: i64 = 60 * 3; // every 3 min
 pub const SWITCH_INTERVAL_SEC: i64 = 60 * 60 * 12; // 12 hours
-const SYNC_WAIT_RECORDS: i64 = 3; // no overlap
+const SYNC_WAIT_RECORDS_FOR_PUBLIC: i64 = 3; // no overlap
+const SYNC_WAIT_RECORDS_FOR_PRIVATE: i64 = 0; // no overlap
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinanceWsOpMessage {
@@ -80,7 +84,7 @@ impl BinancePublicWsClient {
             &server.get_public_ws_server(),
             PING_INTERVAL_SEC,
             SWITCH_INTERVAL_SEC,
-            SYNC_WAIT_RECORDS,
+            SYNC_WAIT_RECORDS_FOR_PUBLIC,
             None,
             None,
         );
@@ -158,15 +162,18 @@ impl BinancePublicWsClient {
 
 pub struct BinancePrivateWsClient {
     ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
+    server: BinanceServerConfig,
     _handler: Option<JoinHandle<()>>,
-    _listen_key: String,
+    listen_key: String,
+    key_update_handler: Option<JoinHandle<()>>,
 }
 
 impl BinancePrivateWsClient {
     pub async fn new(server: &BinanceServerConfig) -> Self {
         let dummy_config = MarketConfig::new("dummy", "dummy", "dummy", 0, 0, 0);
 
-        let url = Self::make_connect_url(server).await.unwrap();
+        let listen_key = Self::make_listen_key(server).await.unwrap();
+        let url = Self::make_connect_url(server, &listen_key).unwrap();
 
         let private_ws = AutoConnectClient::new(
             server,
@@ -174,20 +181,38 @@ impl BinancePrivateWsClient {
             &url,
             PING_INTERVAL_SEC,
             SWITCH_INTERVAL_SEC,
-            SYNC_WAIT_RECORDS,
+            SYNC_WAIT_RECORDS_FOR_PRIVATE,
             None,
             None,
         );
 
         Self {
+            server: server.clone(),
             ws: private_ws,
             _handler: None,
-            _listen_key: "".to_string(),
+            listen_key: listen_key,
+            key_update_handler: None,
         }
     }
 
     pub async fn connect(&mut self) {
-        self.ws.connect().await
+        self.ws.connect().await;
+
+        let key = self.listen_key.clone();
+        let server = self.server.clone();
+
+        let hander = tokio::task::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(60*60)).await;
+                let r = BinanceRestApi::extend_listen_key(&server, &key).await;
+                log::info!("Extend listen key");
+                if r.is_err() {
+                    log::error!("Failed to extend listen key: {:?}", r);
+                }
+            }
+        });
+
+        self.key_update_handler = Some(hander);
     }
 
     pub async fn open_stream<'a>(
@@ -245,9 +270,13 @@ impl BinancePrivateWsClient {
         Ok(message.convert_multimarketmessage("SPOT"))
     }
 
-    async fn make_connect_url(server: &BinanceServerConfig) -> anyhow::Result<String> {
+    async fn make_listen_key(server: &BinanceServerConfig) -> anyhow::Result<String> {
         let key = BinanceRestApi::create_listen_key(server).await?;
 
+        Ok(key)
+    }
+
+    fn make_connect_url(server: &BinanceServerConfig, key: &str) -> anyhow::Result<String> {
         let url = format!("{}/ws/{}", server.get_user_ws_server(), key);
 
         Ok(url)
@@ -297,7 +326,8 @@ mod tests {
         let server = BinanceServerConfig::new(false);
         let _config = BinanceConfig::BTCUSDT();
 
-        let url = BinancePrivateWsClient::make_connect_url(&server).await;
+        let key = BinanceRestApi::create_listen_key(&server).await.unwrap();
+        let url = BinancePrivateWsClient::make_connect_url(&server, &key);
 
         println!("URL: {:?}", url);
     }
