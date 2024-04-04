@@ -17,6 +17,8 @@ In the backtest mode, you can run with Jupyter notebook. So, you can make such a
 ![backtest sample](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/backtest_sample.png?raw=true)
 
 
+
+
 ## Architecture
 
 The only you have to make is `Agent`. The other class will support you Agent will work.
@@ -326,3 +328,15 @@ log.restore("skelton_bot.log")
 
 ---
 
+## links
+
+[rbot github](https://github.com/yasstake/rbot)
+
+[Example github](https://github.com/yasstake/rusty-bot)
+[API manuals](https://github.com/yasstake/rusty-bot/blob/main/manual/manual.ipynb)
+
+---
+copyright(c) 2024 yasstake. 
+All rights reserved.
+Distributed under LGPL license.
+NOTE: For some echange, it may have a such kind of an affliate link.
