@@ -7,12 +7,26 @@ The feature is;
 * Calculate OHLCV data with any window sizefrom historical tick data
 * Provide bot framework that enables `backtest`, `dry_run` and `production`.
 
+### the execution sample
+
+In the backtest mode, you can run with Jupyter notebook. So, you can make such analysis below. This example is provided in the github, which can be executed on the Google colab!! Please try.
+
+[sample1: basil bot](https://github.com/yasstake/rusty-bot/blob/main/tutorial/basilbot/basilbot_backtest.ipynb)
+[sample2: breakout bot](https://github.com/yasstake/rusty-bot/blob/main/tutorial/channel_breakout/breakout_agent.ipynb)
+
 ![backtest sample](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/backtest_sample.png?raw=true)
 
 
 
 
 ## Architecture
+
+The only you have to make is `Agent`. The other class will support you Agent will work.
+
+* `Session` will provide abstruction layer to the Market. Agent only interact with `Session` for ordering, fetching market information and current order status.
+* `Market` is the API and DB wrapper for each trading pair in the exchange. At this version `Bybit` and `Biannce` exchange are supportd.
+* `Runner` makes session to run `back_test`, `dry_run` or `real_run`.
+* `Logger` stores the result of execution. That provide the result in polars `DataFrame`.
 
 ![architecture](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/rbot_outline.png?raw=true)
 
@@ -306,6 +320,7 @@ log.restore("skelton_bot.log")
 
 ---
 # Changes from release-0.2
+* Exchange and market is separated. So you must make Exchange(such as `Bybit`) first, then `open_market` to build market object.
 * `Market#download` is separated into three `Market#download_archive`, `Market#download_latest` and `Market#donwload_gap`
 * `Runner#real_run` and `Runner#dry_run` now have `no_download` optional flag.
 * Support `Bybit` exchange.
