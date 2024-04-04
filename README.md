@@ -7,13 +7,14 @@ The feature is;
 * Calculate OHLCV data with any window sizefrom historical tick data
 * Provide bot framework that enables `backtest`, `dry_run` and `production`.
 
-[backtest sample] (https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/backtest_sample.png)
+![backtest sample](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/backtest_sample.png?raw=true)
+
+
 
 
 ## Architecture
 
-[architecture](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/rbot_outline.png)
-
+![architecture](https://github.com/yasstake/rbot/blob/87fff10f16b364816f4c6281a07e0bc7d338e486/img/rbot_outline.png?raw=true)
 
 ## install
 ```shell
