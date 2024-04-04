@@ -328,3 +328,15 @@ log.restore("skelton_bot.log")
 
 ---
 
+## links
+
+[rbot github](https://github.com/yasstake/rbot)
+
+[Example github](https://github.com/yasstake/rusty-bot)
+[API manuals](https://github.com/yasstake/rusty-bot/blob/main/manual/manual.ipynb)
+
+---
+copyright(c) 2024 yasstake. 
+All rights reserved.
+Distributed under LGPL license.
+NOTE: For some echange, it may have a such kind of an affliate link.
