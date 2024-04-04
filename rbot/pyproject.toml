@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "rbot"
 authors = [{name="@yasstake"}]
-readme="../README.md"
+readme="README.md"
 
 requires-python = ">=3.8"
 classifiers = [
