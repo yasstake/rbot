@@ -82,7 +82,7 @@ ohlcv = market.ohlcv(
 )
 ```
 The OHLCV data is a polars data frames with the following columns:
-* timestamp
+* timestamp (in asc order)
 * open
 * high
 * low
@@ -153,11 +153,21 @@ In your `on_init`, `on_tick`, `on_clock`, and `on_update`, you can use `session`
 #### OHLCV data
 ```python
 ohlcv = session.ohlcv(
-    start_time=0,           # start time in unix timestamp(microseconds)
-    end_time=0,             # end time in unix timestamp(microseconds)
-    window_sec=60           # ohlc bar window size in seconds
+    interval=60,        # ohlc bar window size in seconds
+    count=10,           # number of bars to generate
 )
 ```
+
+The OHLCV data is a polars data frames with the following columns:
+* timestamp (in asc order)
+* open
+* high
+* low
+* close
+* volume (sum of volume in order size)
+* count (number of ticks)
+
+
 ### order book
 ```python
 bid, ask = session.board
@@ -166,6 +176,7 @@ bid, ask = session.board
 * price: price of the order
 * size: size of the order
 * sum: cumulative size of the order
+
 
 ### place order
 #### market order
