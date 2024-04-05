@@ -5,7 +5,10 @@ build-backend = "maturin"
 [project]
 name = "rbot"
 authors = [{name="@yasstake"}]
+description = "crypt trading framework, support back_test, dry_run and real_run"
 readme="README.md"
+license = { file = "LICENSE.txt" }
+
 
 requires-python = ">=3.8"
 classifiers = [
@@ -16,6 +19,9 @@ classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     ]
 
+[project.urls]
+Documentation = "https://github.com/yasstake/rusty-bot"
+Repository = "https://github.com/yasstake/rbot"
 
 
 [tool.maturin]
