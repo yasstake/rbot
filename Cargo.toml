@@ -74,7 +74,7 @@ tokio-stream = { version = "0.1.14" }
 
 rusqlite = { version = "0.31.0", features = ["bundled"] }
     
-polars = { version = "0.37.0", features = [
+polars = { version = "0.40.0", features = [
         "lazy", 
         "ndarray", 
         "dtype-time", 
@@ -85,7 +85,10 @@ polars = { version = "0.37.0", features = [
          "dynamic_group_by",
          "polars-ops",
          "polars-plan",
-         "cum_agg"
+         "cum_agg",
+         "serde",
+         "object",
+         "list_to_struct"
         ]}
 
 
@@ -103,18 +106,18 @@ polars = { version = "0.37.0", features = [
 #] }
 # polars-time = { version = "0.38.3" }
 # polars-ops = { version = "0.38.3" }
-pyo3-polars = { version = "0.11.3" }
+pyo3-polars = { version = "0.14.0" }
 
 
 ndarray = { version = "0.15" }
-numpy = { version = "0.20" }
+numpy = { version = "0.21.0" }
 
 reqwest = { version = "0.12.2", features = ["blocking", "gzip"] }
 futures = { version = "0.3" }
 flate2 = { version = "1.0.24" }
 
 csv = { version = "1.2.2" }
-zip = { version = "0.6.6" }
+zip = { version = "2.1.1" }
 
 tempfile = { version = "3.8.0" }
 
