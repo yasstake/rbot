@@ -10,11 +10,11 @@ use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
 use polars::prelude::NamedFrom;
 use polars::prelude::Series;
-use polars::prelude::SortOptions;
+use polars::prelude::SortMultipleOptions;
 
 use polars::lazy::frame::pivot::pivot;
-use polars::lazy::prelude::{col, LazyFrame};
 use polars::lazy::prelude::IntoLazy;
+use polars::lazy::prelude::{col, LazyFrame};
 use polars::time::ClosedWindow;
 
 #[allow(non_upper_case_globals)]
@@ -136,7 +136,7 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
             log::debug!("merge df1={:?}  df2={:?}", df1.shape(), df2.shape());
 
             let df = df.vstack(df2);
-            
+
             if df.is_err() {
                 log::error!("merge_df error {:?} and {:?}", df, df2);
                 df2.clone()
@@ -183,14 +183,40 @@ pub fn ohlcv_df(
 
     let result = df
         .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
                 nulls_last: false,
                 maintain_order: true,
                 multithreaded: true,
             },
         )
+        /*
+            .sort(
+                vec![SortDesc{
+                    column: KEY::time_stamp.into(),
+                    reverse: false,
+                    nulls_first: false,
+                }],
+                SortMultipleOptions {
+                    maintain_order: true,
+                    multithreaded: true,
+                    descending: false,
+                    nulls_last: false,
+                },
+            )
+            */
+        /*
+                .sort(
+                    KEY::time_stamp,
+                    SortOptions {
+                        descending: false,
+                        nulls_last: false,
+                        maintain_order: true,
+                        multithreaded: true,
+                    },
+                )
+                */
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -244,9 +270,9 @@ pub fn ohlcvv_df(
 
     let result = df
         .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
+            vec![KEY::time_stamp.to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
                 nulls_last: false,
                 maintain_order: true,
                 multithreaded: true,
@@ -307,24 +333,51 @@ pub fn ohlcv_from_ohlcvv_df(
 
     let result = df
         .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
                 nulls_last: false,
                 maintain_order: true,
                 multithreaded: true,
             },
         )
+        /*
+        .sort(
+                KEY::time_stamp,
+                SortOptions {
+                    descending: false,
+                    nulls_last: false,
+                    maintain_order: true,
+                    multithreaded: true,
+                },
+            )
+            */
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::open)
-                .sort_by([KEY::start_time], [false])
+                .sort_by(
+                    vec![col(KEY::start_time)],
+                    SortMultipleOptions{
+                        descending: vec![false],
+                        nulls_last: false,
+                        multithreaded: true,
+                        maintain_order: true
+                    }
+                )
                 .first()
                 .alias(KEY::open),
             col(KEY::high).max().alias(KEY::high),
             col(KEY::low).min().alias(KEY::low),
             col(KEY::close)
-                .sort_by([KEY::end_time], [false])
+                .sort_by(
+                    vec![col(KEY::end_time)],
+                    SortMultipleOptions{
+                        descending: vec![false],
+                        nulls_last: false,
+                        multithreaded: true,
+                        maintain_order: true
+                    }
+                    )
                 .last()
                 .alias(KEY::close),
             col(KEY::volume).sum().alias(KEY::volume),
@@ -369,14 +422,25 @@ pub fn ohlcvv_from_ohlcvv_df(
 
     let result = df
         .sort(
-            KEY::time_stamp,
-            SortOptions {
-                descending: false,
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
                 nulls_last: false,
                 maintain_order: true,
                 multithreaded: true,
             },
         )
+        /*
+        .sort(
+                KEY::time_stamp,
+                SortOptions {
+                    descending: false,
+                    nulls_last: false,
+                    maintain_order: true,
+                    multithreaded: true,
+                },
+            )
+            */
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -413,7 +477,6 @@ pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> D
 
     vap
 }
-
 
 /// Calc Value At Price
 /// group by unit price and order_side
@@ -457,21 +520,39 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
 
     let vap = pivot(
         &vap,
-        [KEY::volume],
+        vec![KEY::volume],
         [KEY::price],
-        [KEY::order_side],
+        Some([KEY::order_side]),
         false,
-        //Some(col(KEY::volume).sum()),
         None,
         None,
     )
     .unwrap();
 
-    let vap = vap.sort([KEY::price], false, true).unwrap();    
+    let vap = vap.sort(
+        vec![KEY::price.to_string()],
+         SortMultipleOptions { 
+            descending: vec![false], 
+            nulls_last: false, 
+            multithreaded: true, 
+            maintain_order: true}
+    ).unwrap();
 
     let price = vap.column(KEY::price).unwrap().clone();
-    let buy_vol = vap.column("true").unwrap().fill_null(FillNullStrategy::Zero).unwrap().rename(KEY::buy_volume).clone();
-    let sell_vol = vap.column("false").unwrap().fill_null(FillNullStrategy::Zero).unwrap().rename(KEY::sell_volume).clone();
+    let buy_vol = vap
+        .column("true")
+        .unwrap()
+        .fill_null(FillNullStrategy::Zero)
+        .unwrap()
+        .rename(KEY::buy_volume)
+        .clone();
+    let sell_vol = vap
+        .column("false")
+        .unwrap()
+        .fill_null(FillNullStrategy::Zero)
+        .unwrap()
+        .rename(KEY::sell_volume)
+        .clone();
     let total_vol = (&buy_vol + &sell_vol).rename(KEY::volume).clone();
 
     let df = DataFrame::new(vec![price, buy_vol, sell_vol, total_vol]).unwrap();
@@ -619,9 +700,9 @@ mod test_df {
         let groupby = df
             .lazy()
             .sort(
-                "date",
-                SortOptions {
-                    descending: false,
+                vec!["date".to_string()],
+                SortMultipleOptions {
+                    descending: vec![false],
                     nulls_last: false,
                     multithreaded: true,
                     maintain_order: false,
@@ -660,7 +741,13 @@ mod test_df {
             KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
         );
 
-        return df.unwrap().sort([KEY::time_stamp], false, true).unwrap();
+        return df.unwrap().sort([KEY::time_stamp], 
+            SortMultipleOptions{
+                descending: vec![false],
+                nulls_last: false,
+                multithreaded: true,
+                maintain_order: true
+            }).unwrap();
     }
 
     #[test]
@@ -713,7 +800,7 @@ mod test_df {
     }
 
     #[test]
-    fn test_make_ohlc_from_empty_ohlcv() -> anyhow::Result<()>{
+    fn test_make_ohlc_from_empty_ohlcv() -> anyhow::Result<()> {
         let r = make_empty_ohlcvv();
         let r2 = ohlcv_df(&r, 0, 0, 10)?;
         println!("{:?}", r2);
@@ -737,7 +824,6 @@ mod test_df {
     #[test]
     fn test_make_ohlcv_datetime() {
         use polars::datatypes::TimeUnit;
-
 
         let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
 

@@ -63,7 +63,7 @@ tempfile={workspace=true}
 
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]
-version = "0.20.3"
+version = "0.21.2"
 features = ["rust_decimal", "auto-initialize", "abi3-py38", "anyhow"]
 
 [features]
@@ -71,47 +71,3 @@ extension-module = ["pyo3/extension-module"]
 
 
 
-
-
-
-
-
-
-
-
-#rusqlite = {version = "0.30.0", features=["bundled"]}
-
-
-
-
-
-
-
-
-
-
-
-#openssl = { version = "0.10.59", features = ["vendored"] }
-
-
-
-
-
-#tungstenite = {version="0.21", features=["native-tls"]}
-
-
-
-
-
-
-#once_cell = {version="1.19.0"}
-
-
-# https://pyo3.rs/v0.13.2/faq
-
-#version = "0.20"
-#features = ["rust_decimal", "auto-initialize", "abi3-py38"]
-
-#[features]
-#extension-module = ["pyo3/extension-module"]
-#default = ["extension-module"]
