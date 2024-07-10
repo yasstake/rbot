@@ -7,7 +7,7 @@ use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use pyo3::pyfunction;
 
-use crate::common::env_rbot_db_root;
+use crate::common::{date_string, env_rbot_db_root, MicroSec, FLOOR_DAY};
 
 
 #[pyfunction]
@@ -37,21 +37,59 @@ pub fn project_dir() -> String {
     return proj_dir.data_dir().to_str().unwrap().to_string();
 }
 
-pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, test_net: bool) -> PathBuf {
+pub fn db_path_root(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
     let project_dir = get_db_root();
     let project_dir = PathBuf::from(project_dir);
     
     let db_dir = project_dir.join("DB");
     let exchange_dir = db_dir.join(exchange_name);
-    let _ = fs::create_dir_all(&exchange_dir);
+    let category_dir = exchange_dir.join(category);
+    let symbol_dir = category_dir.join(symbol);
 
-    let mut db_name = format!("{}-{}.db", category, symbol);
+    let db_root = if production {
+        symbol_dir.join("PRODUCTION")        
+    } else {
+        symbol_dir.join("TEST")
+    };
 
-    if test_net {
-        db_name = format!("TEST-{}", db_name);
-    }
+    let _ = fs::create_dir_all(&db_root);
+
+    return db_root;
+}
+
+pub fn archive_directory(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
+    let db_path_root = db_path_root(exchange_name, category, symbol, production);
+
+    let archive_dir = db_path_root.join("ARCHIVE");
+    let _ = fs::create_dir_all(&archive_dir);    
+
+    return archive_dir;
+}
+
+pub fn archive_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool, date: MicroSec) -> PathBuf {
+    let archive_dir = archive_directory(exchange_name, category, symbol, production);
+
+    let date = FLOOR_DAY(date);
+    let date = date_string(date);
+
+    let archive_name = format!("{}-{}-{}.csv.gz", date, category, symbol);
+    let archive_path = archive_dir.join(archive_name);
+
+    return archive_path;
+}
+
+pub fn has_archive_file(exchange_name: &str, category: &str, symbol: &str, production: bool, date: MicroSec) -> bool {
+    let archive_path = archive_full_path(exchange_name, category, symbol, production, date);
+
+    return archive_path.exists();
+}
+
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
+    let db_path_root = db_path_root(exchange_name, category, symbol, production);
+
+    let db_name = format!("{}-{}.db", category, symbol);
     
-    let db_path = exchange_dir.join(db_name);
+    let db_path = db_path_root.join(db_name);
 
     return db_path;
 }
@@ -81,5 +119,7 @@ mod test_fs {
         let db = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         println!("{:?}", db);
 
+        let archive = archive_directory("FTX", "SPOT", "BTC-PERP", false);
+        print!("{:?}", archive);
     }
 }

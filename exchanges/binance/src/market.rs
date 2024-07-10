@@ -204,7 +204,7 @@ impl BinanceMarket {
     pub fn new(server_config: &BinanceServerConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BybitMarket::new");
         BLOCK_ON(async { 
-            Self::async_new(server_config, config, ! server_config.production).await.unwrap() 
+            Self::async_new(server_config, config, server_config.production).await.unwrap() 
         })
     }
     #[getter]
@@ -440,13 +440,13 @@ impl BinanceMarket {
     async fn async_new(
         server_config: &BinanceServerConfig,
         config: &MarketConfig,
-        test_mode: bool,
+        production: bool,
     ) -> anyhow::Result<Self> {
         let db_path = TradeTable::make_db_path(
             &config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
-            test_mode
+            production
         );
 
         let db = TradeTable::open(&db_path)

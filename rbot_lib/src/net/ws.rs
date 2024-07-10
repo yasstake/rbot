@@ -679,6 +679,10 @@ mod test_exchange_ws {
         fn get_historical_web_base(&self) -> String {
             self.history_web_base.clone()
         }
+
+        fn is_production(&self) -> bool {
+            false
+        }
     }
 
     fn make_market_config() -> MarketConfig {
