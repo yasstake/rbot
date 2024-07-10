@@ -74,7 +74,7 @@ tokio-stream = { version = "0.1.14" }
 
 rusqlite = { version = "0.31.0", features = ["bundled"] }
     
-polars = { version = "0.40.0", features = [
+polars = { version = "0.41.3", features = [
         "lazy", 
         "ndarray", 
         "dtype-time", 
@@ -106,7 +106,7 @@ polars = { version = "0.40.0", features = [
 #] }
 # polars-time = { version = "0.38.3" }
 # polars-ops = { version = "0.38.3" }
-pyo3-polars = { version = "0.14.0" }
+pyo3-polars = { version = "0.15.0" }
 
 
 ndarray = { version = "0.15" }
@@ -133,7 +133,7 @@ sha2 = { version = "0.10.7" }
 hex = { version = "0.4.3" }
 
 #tungstenite = { version = "0.21", features = ["native-tls"] }
-tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.23.1", features = ["native-tls"] }
 
 async-std = { version = "1.12", features = ["attributes"] }
 

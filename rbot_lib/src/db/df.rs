@@ -175,7 +175,7 @@ pub fn ohlcv_df(
         include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
         start_by: StartBy::DataPoint,
-        check_sorted: false,
+        // check_sorted: false,
         ..Default::default()
     };
 
@@ -186,7 +186,7 @@ pub fn ohlcv_df(
             vec![(KEY::time_stamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
-                nulls_last: false,
+                nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
             },
@@ -273,7 +273,7 @@ pub fn ohlcvv_df(
             vec![KEY::time_stamp.to_string()],
             SortMultipleOptions {
                 descending: vec![false],
-                nulls_last: false,
+                nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
             },
@@ -336,7 +336,7 @@ pub fn ohlcv_from_ohlcvv_df(
             vec![(KEY::time_stamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
-                nulls_last: false,
+                nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
             },
@@ -359,7 +359,7 @@ pub fn ohlcv_from_ohlcvv_df(
                     vec![col(KEY::start_time)],
                     SortMultipleOptions{
                         descending: vec![false],
-                        nulls_last: false,
+                        nulls_last: vec![false],
                         multithreaded: true,
                         maintain_order: true
                     }
@@ -373,7 +373,7 @@ pub fn ohlcv_from_ohlcvv_df(
                     vec![col(KEY::end_time)],
                     SortMultipleOptions{
                         descending: vec![false],
-                        nulls_last: false,
+                        nulls_last: vec![false],
                         multithreaded: true,
                         maintain_order: true
                     }
@@ -425,7 +425,7 @@ pub fn ohlcvv_from_ohlcvv_df(
             vec![(KEY::time_stamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
-                nulls_last: false,
+                nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
             },
@@ -521,7 +521,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
     let vap = pivot(
         &vap,
         vec![KEY::volume],
-        [KEY::price],
+        Some([KEY::price]),
         Some([KEY::order_side]),
         false,
         None,
@@ -533,7 +533,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
         vec![KEY::price.to_string()],
          SortMultipleOptions { 
             descending: vec![false], 
-            nulls_last: false, 
+            nulls_last: vec![false], 
             multithreaded: true, 
             maintain_order: true}
     ).unwrap();
@@ -553,7 +553,8 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
         .unwrap()
         .rename(KEY::sell_volume)
         .clone();
-    let total_vol = (&buy_vol + &sell_vol).rename(KEY::volume).clone();
+
+        let total_vol = (&buy_vol + &sell_vol).unwrap().rename(KEY::volume).clone();
 
     let df = DataFrame::new(vec![price, buy_vol, sell_vol, total_vol]).unwrap();
 
@@ -676,7 +677,7 @@ mod test_df {
         let option = DynamicGroupOptions {
             every: Duration::new(DAYS(1)),
             index_column: "date".into(),
-            check_sorted: true,
+            // check_sorted: true,
             start_by: StartBy::DataPoint,
             period: Duration::new(DAYS(1)), // データ取得の幅（グループ間隔と同じでOK)
             offset: Duration::parse("0m"),
@@ -703,7 +704,7 @@ mod test_df {
                 vec!["date".to_string()],
                 SortMultipleOptions {
                     descending: vec![false],
-                    nulls_last: false,
+                    nulls_last: vec![false],
                     multithreaded: true,
                     maintain_order: false,
                 },
@@ -744,7 +745,7 @@ mod test_df {
         return df.unwrap().sort([KEY::time_stamp], 
             SortMultipleOptions{
                 descending: vec![false],
-                nulls_last: false,
+                nulls_last: vec![false],
                 multithreaded: true,
                 maintain_order: true
             }).unwrap();

@@ -2,9 +2,11 @@
 // All rights reserved. Absolutely NO warranty.
 
 
-use pyo3::{pymodule, types::PyModule, wrap_pyfunction, PyResult, Python};
+use pyo3::{pymodule, types::PyModule, wrap_pyfunction, Bound, PyResult};
 use rbot_lib::{common::{
-    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, BoardItem, MarketConfig, MarketMessage, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
+    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, 
+    FeeType, PriceType,
+    BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
 }, db::{get_db_root, set_db_root}};
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
@@ -14,7 +16,8 @@ use binance::{Binance, BinanceConfig};
 
 // use console_subscriber;
 #[pymodule]
-fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
+fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
+// fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // console_subscriber::init();  // for tokio thread debug
     //tracing_subscriber::fmt::init();
 
@@ -58,10 +61,9 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Runner>()?;
     m.add_class::<ExecuteMode>()?;
 
-    //    m.add_class::<MarketMessage>()?;
-    //m.add_class::<Broadcast>()?;
-    //m.add_class::<BroadcastMessage>()?;
-    
+    m.add_class::<FeeType>()?;
+    m.add_class::<PriceType>()?;
+
     // Binance
     m.add_class::<Binance>()?;
     m.add_class::<BinanceConfig>()?;
@@ -69,6 +71,7 @@ fn rbot(_py: Python, m: &PyModule) -> PyResult<()> {
     // ByBit
     m.add_class::<Bybit>()?;
     m.add_class::<BybitConfig>()?;    
+
 
     Ok(())
 }

@@ -27,6 +27,7 @@ use crate::message::BybitOrderStatus;
 use crate::message::BybitPublicWsMessage;
 use crate::message::BybitUserMessage;
 use crate::message::BybitUserWsMessage;
+use crate::BybitConfig;
 
 use super::config::BybitServerConfig;
 
@@ -178,7 +179,7 @@ pub struct BybitPrivateWsClient {
 
 impl BybitPrivateWsClient {
     pub async fn new(server: &BybitServerConfig) -> Self {
-        let dummy_config = MarketConfig::new("dummy", "dummy", "dummy", 0, 0, 0);
+        let dummy_config = BybitConfig::BTCUSDT();
 
         let mut private_ws = AutoConnectClient::new(
             server,

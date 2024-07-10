@@ -3,16 +3,16 @@
 
 use std::path::Display;
 
-use crate::common::time::time_string;
-use crate::db::get_db_root;
 use super::time::MicroSec;
 use super::FeeType;
 use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
+use crate::common::time::time_string;
+use crate::db::get_db_root;
 use async_std::stream::Cloned;
 
-use polars::prelude::DataFrame;    
+use polars::prelude::DataFrame;
 use polars::prelude::NamedFrom;
 use polars::prelude::TimeUnit;
 use polars::series::Series;
@@ -235,8 +235,8 @@ pub enum LogStatus {
     FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
     FixRestApiEnd,
     ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
-    ExpireControl, // 削除指示(通常：WSデータのみ削除)
-    Unknown,       // 未知のステータス / 未確定のステータス
+    ExpireControl,      // 削除指示(通常：WSデータのみ削除)
+    Unknown,            // 未知のステータス / 未確定のステータス
 }
 
 impl Default for LogStatus {
@@ -256,7 +256,7 @@ impl From<&str> for LogStatus {
             "a" => LogStatus::FixRestApiBlock,
             "e" => LogStatus::FixRestApiEnd,
             "X" => LogStatus::ExpireControlForce,
-            "x" => LogStatus::ExpireControl,            
+            "x" => LogStatus::ExpireControl,
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -275,7 +275,7 @@ impl LogStatus {
             LogStatus::FixRestApiStart => "s".to_string(),
             LogStatus::FixRestApiBlock => "a".to_string(),
             LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::ExpireControlForce => "X".to_string(),            
+            LogStatus::ExpireControlForce => "X".to_string(),
             LogStatus::ExpireControl => "x".to_string(),
             LogStatus::Unknown => "?".to_string(),
         }
@@ -329,7 +329,6 @@ impl Trade {
         )
     }
 
-
     pub fn __str__(&self) -> String {
         format!(
             "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status{:?}}}",
@@ -376,7 +375,6 @@ impl Default for Trade {
     }
 }
 
-
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountChange {
@@ -410,7 +408,6 @@ impl Default for AccountChange {
         return AccountChange::new();
     }
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -471,7 +468,7 @@ impl Coin {
 
     pub fn __str__(&self) -> String {
         self.__repr__()
-    }    
+    }
 }
 
 #[pyclass]
@@ -483,7 +480,7 @@ pub struct AccountCoins {
 impl Default for AccountCoins {
     fn default() -> Self {
         AccountCoins::new()
-    }    
+    }
 }
 
 #[pymethods]
@@ -554,7 +551,7 @@ impl AccountCoins {
 
     pub fn apply_order(&mut self, config: &MarketConfig, order: &Order) {
         self.diff_update(
-            &config.home_currency, 
+            &config.home_currency,
             order.home_change,
             order.free_home_change,
             order.lock_home_change,
@@ -585,9 +582,7 @@ impl AccountCoins {
 
         return Ok(Coin::new(key));
     }
-
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -602,15 +597,15 @@ impl Default for AccountPair {
             home: Coin::default(),
             foreign: Coin::default(),
         }
-            /*
-            home: dec![0.0],
-            home_free: dec![0.0],
-            home_locked: dec![0.0],
+        /*
+        home: dec![0.0],
+        home_free: dec![0.0],
+        home_locked: dec![0.0],
 
-            foreign: dec![0.0],
-            foreign_free: dec![0.0],
-            foreign_locked: dec![0.0],
-            */
+        foreign: dec![0.0],
+        foreign_free: dec![0.0],
+        foreign_locked: dec![0.0],
+        */
     }
 }
 
@@ -739,35 +734,35 @@ impl Order {
         size: Decimal,
     ) -> Self {
         Order {
-            category:category.to_string(),
-            symbol:symbol.to_string(),
+            category: category.to_string(),
+            symbol: symbol.to_string(),
             create_time,
-            status:order_status,
-            order_id:order_id.to_string(),
-            client_order_id:client_order_id.to_string(),
+            status: order_status,
+            order_id: order_id.to_string(),
+            client_order_id: client_order_id.to_string(),
             order_side,
             order_type,
-            order_price:price.clone(),
-            order_size:size.clone(),
-            remain_size:size.clone(),
-            transaction_id:"".to_string(),
-            update_time:0,
-            execute_price:dec![0.0],
-            execute_size:dec![0.0],
-            quote_vol:dec![0.0],
-            commission:dec![0.0],
-            commission_asset:"".to_string(),
-            is_maker:false,
-            message:"".to_string(),
-            commission_home:dec![0.0],
-            commission_foreign:dec![0.0],
-            home_change:dec![0.0],
-            foreign_change:dec![0.0],
-            free_home_change:dec![0.0],
-            free_foreign_change:dec![0.0],
-            lock_home_change:dec![0.0],
-            lock_foreign_change:dec![0.0],
-            log_id:0, 
+            order_price: price.clone(),
+            order_size: size.clone(),
+            remain_size: size.clone(),
+            transaction_id: "".to_string(),
+            update_time: 0,
+            execute_price: dec![0.0],
+            execute_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: false,
+            message: "".to_string(),
+            commission_home: dec![0.0],
+            commission_foreign: dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],
+            log_id: 0,
             open_position: dec![0.0],
             close_position: dec![0.0],
             position: dec![0.0],
@@ -1110,26 +1105,23 @@ impl Order {
                     self.commission_foreign = commission;
                     self.commission_asset = config.foreign_currency.clone();
                 }
-                FeeType::Both => {
-                    match self.order_side {
-                        OrderSide::Buy => {
-                            self.commission_home = commission;
-                            self.commission_foreign = dec![0.0];
-                            self.commission_asset = config.home_currency.clone();
-                        }
-                        OrderSide::Sell => {
-                            self.commission_home = dec![0.0];
-                            self.commission_foreign = commission;
-                            self.commission_asset = config.foreign_currency.clone();
-                        }
-                        _ => {
-                            log::error!("Unknown order side: {:?}", self.order_side);
-                        }
+                FeeType::Both => match self.order_side {
+                    OrderSide::Buy => {
+                        self.commission_home = commission;
+                        self.commission_foreign = dec![0.0];
+                        self.commission_asset = config.home_currency.clone();
                     }
-                }
+                    OrderSide::Sell => {
+                        self.commission_home = dec![0.0];
+                        self.commission_foreign = commission;
+                        self.commission_asset = config.foreign_currency.clone();
+                    }
+                    _ => {
+                        log::error!("Unknown order side: {:?}", self.order_side);
+                    }
+                },
             }
-        }
-        else if commission_asset == config.home_currency {
+        } else if commission_asset == config.home_currency {
             self.commission_home = commission;
             self.commission_foreign = dec![0.0];
         } else {
@@ -1330,8 +1322,7 @@ impl Kline {
     }
 }
 
-
-pub fn convert_klines_to_trades(klines: Vec<Kline>, ) -> Vec<Trade> {
+pub fn convert_klines_to_trades(klines: Vec<Kline>) -> Vec<Trade> {
     let mut trades = Vec::new();
     for kline in klines {
         let mut kline_trades = kline.extract_to_trades(KLINE_TIME_UNIT_SEC);
@@ -1340,20 +1331,30 @@ pub fn convert_klines_to_trades(klines: Vec<Kline>, ) -> Vec<Trade> {
     trades
 }
 
-
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]
 mod order_tests {
+    use crate::common::PriceType;
+
     use super::*;
 
     fn create_config() -> MarketConfig {
-        let mut config = MarketConfig::new("SPOT", "BTC", "USDT", 2, 4, 1000);
+        let config = MarketConfig::new(
+            "BINANCE",
+            "SPOT",
+            "BTC",
+            "USDT",
+            2,
+            PriceType::Home,
+            4,
+            1000,
+            0.0001,
+            0.001,
+            0.001,
+            FeeType::Home,
+            vec!["".to_string()],
+        );
 
-        config.taker_fee = dec![0.0001];
-        config.maker_fee = dec![0.0001];
-
-        config.trade_category = "SPOT".to_string();
-        config.trade_symbol = "BTCUSDT".to_string();
         config
     }
 

@@ -647,8 +647,6 @@ mod board_test {
 
     #[test]
     fn test_board_set() {
-        let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2, 1000);
-        config.price_unit = dec!(0.5);
 
         let mut b = Board::new(0, true);
 
@@ -687,8 +685,6 @@ mod board_test {
 
     #[test]
     fn serialize_board_transfer() {
-        let mut config = MarketConfig::new("SPOT", "USD", "JPY", 2, 2, 1000);
-        config.price_unit = dec!(0.5);
 
         let mut b = OrderBookRaw::new(0);
 
