@@ -10,8 +10,12 @@ use chrono::Datelike;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use flate2::bufread::GzDecoder;
+use polars::frame::DataFrame;
+use polars::io::csv::read::CsvReadOptions;
+use polars::io::SerReader;
 use reqwest::Method;
 use rust_decimal::Decimal;
+use std::path::PathBuf;
 use std::{
     fs::File,
     io::{copy, BufReader, Cursor, Write},
@@ -29,6 +33,8 @@ use crate::common::{
     flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
     OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
+use crate::db::archive_full_path;
+use crate::db::has_archive_file;
 //use crate::db::KEY::low;
 
 pub trait RestApi<T>
@@ -148,6 +154,87 @@ where
             .await
         }
     }
+
+    async fn has_archive(server: &T, config: &MarketConfig, date: MicroSec) -> bool {
+        has_archive(date, 
+            &|d| Self::history_web_url(server, config, d)).await
+    }
+
+    async fn archive_to_csv(
+        server: &T,
+        config: &MarketConfig,
+        date: MicroSec,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        let has_csv_file = has_archive_file(
+            &config.exchange_name,
+            &config.trade_category,
+            &config.trade_symbol,
+            server.is_production(),
+            date,
+        );
+
+        if has_csv_file && !force {
+            if verbose {
+                println!("archive csv file exist {}", time_string(date));
+            }
+            return Ok(0);
+        }
+
+        if ! Self::has_archive(server, config, date).await {
+            if verbose {
+                println!("archive NOT exist {}", time_string(date));
+            }
+
+            return Ok(0)
+        }
+
+        let date = FLOOR_DAY(date);
+        let url = Self::history_web_url(server, config, date);
+        let has_header = Self::archive_has_header();
+
+        log::debug!("Downloading ...[{}]", url);
+
+        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
+
+        let file_path = log_download_tmp(&url, tmp_dir.path())
+            .await
+            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
+
+        let gzip_csv_file = archive_full_path(
+            &config.exchange_name, &config.trade_category, &config.trade_symbol, server.is_production(), date);
+
+        let gzip_file = File::create(&gzip_csv_file)
+            .with_context(|| format!("gzip file create error {}", gzip_csv_file.to_str().unwrap()))?;
+        let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
+
+        let mut csv_writer = csv::Writer::from_writer(encoder);
+        csv_writer.write_record(&["timestamp", "side", "price", "size"]).unwrap();
+        let mut download_rec: i64 = 0;
+
+        read_csv_archive(&file_path, has_header, |rec| {
+            let trade = Self::rec_to_trade(&rec);
+
+            let time = trade.time;
+            let side = if trade.order_side == OrderSide::Buy {
+                1
+            } else {
+                0
+            };
+            let price = trade.price;
+            let size = trade.size;
+
+            csv_writer.write_record(&[time.to_string(), side.to_string(), price.to_string(), size.to_string()]).unwrap();
+            download_rec += 1;
+        });
+
+        csv_writer.flush().unwrap();
+
+        std::fs::remove_file(&file_path).with_context(|| format!("remove file error {}", file_path))?;
+
+        Ok(download_rec)
+    }
 }
 
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<String> {
@@ -200,48 +287,6 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<Strin
 
     Ok(file_name.to_string())
 }
-
-/*
-pub async fn log_download<T, F>(url: &str, sender: &mut Sender<T>, has_header: bool, f: F) -> Result<i64, String>
-where
-    F: FnMut(&StringRecord)->T,
-{
-    log::debug!("Downloading ...[{}]", url);
-
-    let tmp_dir = match tempdir() {
-        Ok(tmp) => tmp,
-        Err(e) => {
-            log::error!("create tmp dir error {}", e.to_string());
-            return Err(format!("create tmp dir error {}", e.to_string()));
-        }
-    };
-
-    let result = log_download_tmp(url, tmp_dir.path()).await;
-
-    let file_path = match result {
-        Ok(path) => path,
-        Err(e) => {
-            log::error!("download error {}", e.to_string());
-            return Err(format!("download error{}", e));
-        }
-    };
-
-    log::debug!("let's extract = {}", file_path);
-
-    if url.ends_with("gz") || url.ends_with("GZ") {
-        log::debug!("extract gzip = {}", file_path);
-        return extract_gzip_log(&file_path, has_header, f);
-    } else if url.ends_with("zip") || url.ends_with("ZIP") {
-        log::debug!("extract zip = {}", file_path);
-        return extract_zip_log(&file_path, has_header, f);
-    } else {
-        log::error!("unknown file suffix {}", url);
-        return Err(format!("unknown file suffix").to_string());
-    }
-
-    // remove tmp file
-}
-*/
 
 async fn download_archive_log<F>(
     url: &str,
@@ -310,6 +355,8 @@ where
         flush_log();
     }
 
+    std::fs::remove_file(&file_path).with_context(|| format!("remove file error {}", file_path))?;
+
     Ok(download_rec)
 }
 
@@ -374,91 +421,6 @@ where
     }
 }
 
-/*
-async fn extract_zip_log<T, F>(path: &String, sender: &Sender<T>, has_header: bool, mut f: F) -> Result<i64, String>
-where
-    F: FnMut(&StringRecord)->T,
-{
-    log::debug!("extract zip = {}", path);
-    let mut rec_count = 0;
-
-    let file_path = Path::new(path);
-
-    if file_path.exists() == false {
-        log::error!("File Not Found {}", path);
-        return Err(format!("File Not Found {}", path));
-    }
-
-    let tmp_file = File::open(file_path).unwrap();
-    let bufreader = BufReader::new(tmp_file);
-
-    let mut zip = match ZipArchive::new(bufreader) {
-        Ok(z) => z,
-        Err(e) => {
-            return Err(format!("extract zip log error {}", e.to_string()));
-        }
-    };
-
-    for i in 0..zip.len() {
-        let file = zip.by_index(i).unwrap();
-
-        if file.name().to_lowercase().ends_with("csv") == false {
-            log::debug!("Skip file {}", file.name());
-            continue;
-        } else {
-            log::debug!("processing {}", file.name());
-        }
-
-        let mut csv_reader = csv::Reader::from_reader(file);
-        if has_header {
-            csv_reader.has_headers();
-        }
-        for rec in csv_reader.records() {
-            if let Ok(string_rec) = rec {
-                sender.send(f(&string_rec)).await;
-                rec_count += 1;
-            }
-        }
-    }
-
-    Ok(rec_count)
-}
-
-async fn extract_gzip_log<T, F>(path: &String, sender: &Sender<T>, has_header: bool, mut f: F) -> Result<i64, String>
-where
-    F: FnMut(&StringRecord)->T,
-{
-    log::debug!("extract gzip = {}", path);
-    let mut rec_count = 0;
-
-    let file_path = Path::new(path);
-
-    if file_path.exists() == false {
-        log::error!("File Not Found {}", path);
-        return Err(format!("File Not Found {}", path));
-    }
-
-    let tmp_file = File::open(file_path).unwrap();
-    let bufreader = BufReader::new(tmp_file);
-    let gzip_reader = std::io::BufReader::new(GzDecoder::new(bufreader));
-
-    let mut csv_reader = csv::Reader::from_reader(gzip_reader);
-
-    if has_header {
-        csv_reader.has_headers();
-    }
-
-    for rec in csv_reader.records() {
-        if let Ok(string_rec) = rec {
-            sender.send(f(&string_rec)).await;
-            rec_count += 1;
-        }
-    }
-
-    Ok(rec_count)
-}
-*/
-
 pub fn make_download_url_list<F>(name: &str, days: Vec<i64>, f: F) -> Vec<String>
 where
     F: Fn(&str, i64) -> String,
@@ -471,107 +433,7 @@ where
 }
 
 const MAX_BUFFER_SIZE: usize = 4096;
-
 const LOW_QUEUE_SIZE: usize = 5;
-
-/*
-pub async fn download_archive_log<F>(
-    url: &String,
-    tx: &Sender<Vec<Trade>>,
-    has_header: bool,
-    low_priority: bool,
-    verbose: bool,
-    f: &F,
-) -> Result<i64, String>
-where
-    F: Fn(&StringRecord) -> Trade,
-{
-    let queue_capacity = tx.max_capacity();
-
-    // TODO:  レコードが割り切れる場合、最後のレコードのstatusをFixBlockEndにする。
-    if verbose {
-        print!("log download (url = {})", url);
-        flush_log();
-    }
-
-    let max_queue = if low_priority {
-        LOW_QUEUE_SIZE
-    } else {
-        MAX_QUEUE_SIZE
-    };
-
-    let mut download_rec = 0;
-
-    let mut buffer: Vec<Trade> = vec![];
-    let mut is_first_record = true;
-
-
-
-    let result = log_download::<Vec<Trade>>(url.as_str(), &mut tx, has_header, |rec| {
-        let mut trade = f(&rec);
-        trade.status = LogStatus::FixArchiveBlock;
-
-        buffer.push(trade);
-
-        if MAX_BUFFER_SIZE < buffer.len() {
-            if is_first_record {
-                buffer[0].status = LogStatus::FixBlockStart;
-                is_first_record = false;
-            }
-
-            while max_queue < queue_capacity - tx.capacity() {
-                sleep(Duration::from_millis(100));
-            }
-
-            let result = tx.send(buffer.to_vec()).await;
-
-            match result {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("{:?}", e);
-                }
-            }
-            buffer.clear();
-        }
-    })
-    .await;
-
-    let buffer_len = buffer.len();
-
-    if buffer_len != 0 {
-        buffer[buffer_len - 1].status = LogStatus::FixBlockEnd;
-
-        let result = tx.send(buffer.to_vec()).await;
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                log::error!("{:?}", e);
-            }
-        }
-
-        buffer.clear();
-    }
-
-    match result {
-        Ok(count) => {
-            log::debug!("Downloaded rec = {} ", count);
-            download_rec += count;
-        }
-        Err(e) => {
-            log::error!("extract err = {}", e.as_str());
-            return Err(format!("extract err = {}", e.as_str()));
-        }
-    }
-
-    log::debug!("download rec = {}", download_rec);
-    if verbose {
-        println!(" download complete rec = {}", download_rec);
-        flush_log();
-    }
-
-    return Ok(download_rec);
-}
-*/
 
 pub async fn do_rest_request(
     method: Method,

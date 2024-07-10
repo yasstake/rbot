@@ -6,6 +6,7 @@ use std::fmt::format;
 
 use csv::StringRecord;
 use polars::export::num::FromPrimitive;
+use polars::frame::DataFrame;
 use rbot_lib::common::time_string;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::AccountPair;
@@ -640,7 +641,7 @@ impl BybitRestApi {
 mod bybit_rest_test {
     use super::*;
     use std::{any, thread::sleep, time::Duration};
-    use rbot_lib::common::{init_log};
+    use rbot_lib::common::{init_log, DAYS};
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;
@@ -779,4 +780,21 @@ mod bybit_rest_test {
         println!("{:?}", r);
         assert!(r.is_ok());
     }
+
+
+    #[tokio::test]
+    async fn test_store_archive_csv() {
+        init_debug_log();
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::BTCUSDT();
+
+        let date = NOW() - DAYS(1);
+        let count = BybitRestApi::archive_to_csv(&server_config, &config, date, true, true).await;
+
+        println!("{:?}", count);
+    }
+
+
+
+
 }

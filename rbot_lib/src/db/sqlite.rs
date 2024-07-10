@@ -650,10 +650,10 @@ impl TradeTable {
         exchange_name: &str,
         trade_category: &str,
         trade_symbol: &str,
-        test_net: bool,
+        production: bool,
     ) -> String {
 
-        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, test_net);
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, production);
 
         return db_path.to_str().unwrap().to_string();
     }

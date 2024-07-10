@@ -4,6 +4,7 @@ use crossbeam_channel::Sender;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::net::log_download_tmp;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
