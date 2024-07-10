@@ -2,22 +2,24 @@
 // ABUSOLUTELY NO WARRANTY.
 
 use pyo3::{pyclass, pymethods};
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
+
+use crate::db::KEY::price;
 
 use super::SecretString;
 
 
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FeeType {
     Home,
     Foreign,
     Both,
 }
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PriceType {
     Home,
     Foreign,
@@ -25,7 +27,7 @@ pub enum PriceType {
 }
 
 #[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketConfig {
     #[pyo3(set)]
     pub exchange_name: String,
@@ -78,38 +80,48 @@ impl MarketConfig {
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
-}
 
-
-impl MarketConfig {
+    #[new]
     pub fn new(
+        exchange_name: &str,
         trade_category: &str,
         home_currency: &str,
         foreign_currency: &str,
         price_scale: u32,
+        price_type: PriceType,
         size_scale: u32,
         board_depth: u32,
+        market_order_price_slip: f64,
+        maker_fee: f64,
+        taker_fee: f64,
+        fee_type: FeeType,
+        public_subscribe_channel: Vec<String>,
     ) -> Self {
+        let maker_fee = Decimal::from_f64(maker_fee).unwrap();
+        let taker_fee = Decimal::from_f64(taker_fee).unwrap();
+
         Self {
-            exchange_name: "DUMMY".to_string(),
+            exchange_name: exchange_name.to_string(),
             price_unit: Decimal::new(1, price_scale),
             price_scale,
             size_unit: Decimal::new(1, size_scale),
             size_scale,
-            maker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            taker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            price_type: PriceType::Foreign,
-            fee_type: FeeType::Home,
+            maker_fee,
+            taker_fee,
+            price_type,
+            fee_type,
             home_currency: home_currency.to_string(),
             foreign_currency: foreign_currency.to_string(),
-            market_order_price_slip: dec![0.0],
-            board_depth: board_depth,
+            market_order_price_slip: Decimal::from_f64(market_order_price_slip).unwrap(),
+            board_depth,
             trade_category: trade_category.to_string(),
             trade_symbol: format!("{}{}", foreign_currency, home_currency),
-            public_subscribe_channel: vec![],
+            public_subscribe_channel: public_subscribe_channel
         }
     }
+}
 
+impl MarketConfig {
     pub fn new_bitflyer(
         trade_category: &str,
         home_currency: &str,

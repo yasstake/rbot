@@ -95,10 +95,16 @@ where
         } else {
             self.url.clone()
         };
-
+/*
         log::debug!("start connect: {}", url);
-        let url = Url::parse(&url).unwrap();
+        let url = reqwest::Url::parse(&url);
 
+        if url.is_err() {
+            log::error!("Invalid URL: {}", self.url);
+        }
+
+        let url = url.unwrap();
+*/
         let client = connect_async(url).await;
         if client.is_err() {
             log::error!("Can't connect to {}", self.url);
