@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use futures::Stream;
 use futures::StreamExt;
+use rbot_lib::common::PriceType;
+use rbot_lib::common::FeeType;
 use rbot_lib::net::ReceiveMessage;
 // use serde::{Deserialize as _, Serialize as _};
 use tokio::task::JoinHandle;
@@ -170,7 +172,21 @@ pub struct BinancePrivateWsClient {
 
 impl BinancePrivateWsClient {
     pub async fn new(server: &BinanceServerConfig) -> Self {
-        let dummy_config = MarketConfig::new("dummy", "dummy", "dummy", 0, 0, 0);
+        let dummy_config = MarketConfig::new(
+            "dummy",
+            "dummy",
+            "dummy",
+            "dummy",
+            0,
+            PriceType::Home,
+            0,
+            0,
+            0.1,
+            0.0,
+            0.0,
+            FeeType::Home,
+            vec!["dummy".to_string()],
+        );
 
         let listen_key = Self::make_listen_key(server).await.unwrap();
         let url = Self::make_connect_url(server, &listen_key).unwrap();
@@ -203,7 +219,7 @@ impl BinancePrivateWsClient {
 
         let hander = tokio::task::spawn(async move {
             loop {
-                sleep(Duration::from_secs(60*60)).await;
+                sleep(Duration::from_secs(60 * 60)).await;
                 let r = BinanceRestApi::extend_listen_key(&server, &key).await;
                 log::info!("Extend listen key");
                 if r.is_err() {
@@ -335,7 +351,7 @@ mod tests {
     #[tokio::test]
     async fn test_binance_private_ws_client() {
         init_debug_log();
-        
+
         let server = BinanceServerConfig::new(false);
         let mut client = BinancePrivateWsClient::new(&server).await;
 
