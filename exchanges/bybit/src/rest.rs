@@ -788,7 +788,7 @@ mod bybit_rest_test {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        let date = NOW() - DAYS(1);
+        let date = NOW() - DAYS(2);
         let count = BybitRestApi::archive_to_csv(&server_config, &config, date, true, true).await;
 
         println!("{:?}", count);
