@@ -10,11 +10,18 @@ use chrono::Datelike;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use flate2::bufread::GzDecoder;
+use polars::prelude::DataType as dtype;
+use polars::prelude::Series;
 use polars::frame::DataFrame;
 use polars::io::csv::read::CsvReadOptions;
+use polars::io::parquet::write::ParquetWriteOptions;
+use polars::io::parquet::write::ParquetWriter;
 use polars::io::SerReader;
+use polars::series::IntoSeries;
 use reqwest::Method;
 use rust_decimal::Decimal;
+use core::time;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::{
     fs::File,
@@ -35,6 +42,7 @@ use crate::common::{
 };
 use crate::db::archive_full_path;
 use crate::db::has_archive_file;
+use crate::db::KEY;
 //use crate::db::KEY::low;
 
 pub trait RestApi<T>
@@ -202,10 +210,22 @@ where
             .await
             .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
 
-        let gzip_csv_file = archive_full_path(
-            &config.exchange_name, &config.trade_category, &config.trade_symbol, server.is_production(), date);
+        log::debug!("read into DataFrame");
+        let df = Self::logfile_to_df(&file_path)?;
+        log::debug!("file_path = {}", file_path);
 
-        let gzip_file = File::create(&gzip_csv_file)
+        let logdf = Self::logdf_to_archivedf(&df)?;
+
+        Self::archivedf_to_file(logdf, "/tmp/archive_file.parquet")?;
+
+        log::debug!("convert to csv.gz file");
+
+        let gzip_csv_file = archive_full_path(
+        &config.exchange_name, &config.trade_category, &config.trade_symbol, server.is_production(), date);
+
+        let gzip_csv_tmp = gzip_csv_file.with_extension("tmp");
+
+        let gzip_file = File::create(&gzip_csv_tmp)
             .with_context(|| format!("gzip file create error {}", gzip_csv_file.to_str().unwrap()))?;
         let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
 
@@ -232,10 +252,75 @@ where
         csv_writer.flush().unwrap();
 
         std::fs::remove_file(&file_path).with_context(|| format!("remove file error {}", file_path))?;
+        let r = std::fs::rename(gzip_csv_tmp, gzip_csv_file);
+        if r.is_err() {
+            if verbose {
+                println!("rename error {:?}", r);
+            }
+            log::error!("rename error {:?}", r);
+        }
+
+        log::debug!("download rec = {}", download_rec);
 
         Ok(download_rec)
     }
+
+    /// read csv.gz file and convert to DataFrame
+    fn logfile_to_df(logfile: &str) -> anyhow::Result<DataFrame> {
+        let has_header = Self::archive_has_header();
+
+        log::debug!("read into DataFrame {}", logfile);
+
+        let df = 
+        CsvReadOptions::default()
+        .with_has_header(has_header)
+        .try_into_reader_with_file_path(Some(logfile.into()))
+        .with_context(|| format!("polars csv read error {}", logfile))?        
+        .finish()
+        .with_context(|| format!("polars error {}", logfile))?;
+
+        log::debug!("read into DataFrame complete");
+        log::debug!("{:?}", df);
+
+        Ok(df)
+    }
+
+    /// create DataFrame with columns;
+    ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
+    fn logdf_to_archivedf(df: &DataFrame) -> anyhow::Result<DataFrame> {
+        // bybit はデータをタイムスタンプでソートしてはいけない。
+        let mut df = df.clone();
+
+        let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
+        let timestamp = Series::from(timestamp);
+
+        let side = df.column("side")?;
+        let side = df.column("side")?;
+        let price = df.column("price")?;
+        let size = df.column("size")?;
+
+        let df = DataFrame::new(vec![
+            timestamp,
+            side.clone(),
+            price.clone(),
+            side.clone(),
+        ])?;
+
+        Ok(df)
+    }
+
+    fn archivedf_to_file(mut df: DataFrame, archive_file: &str) -> anyhow::Result<()> {
+        log::debug!("write to parquet file {}", archive_file);
+
+        let file = BufWriter::new(File::create(archive_file).with_context(|| format!("file create error {}", archive_file))?);
+
+        ParquetWriter::new(file)
+            .finish(&mut df)?;
+
+        Ok(())
+    }
 }
+
 
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
