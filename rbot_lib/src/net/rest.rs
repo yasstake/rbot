@@ -40,8 +40,6 @@ use crate::common::{
     flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
     OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
 };
-use crate::db::archive_full_path;
-use crate::db::has_archive_file;
 use crate::db::KEY;
 //use crate::db::KEY::low;
 
@@ -168,102 +166,6 @@ where
             &|d| Self::history_web_url(server, config, d)).await
     }
 
-    async fn archive_to_csv(
-        server: &T,
-        config: &MarketConfig,
-        date: MicroSec,
-        force: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        let has_csv_file = has_archive_file(
-            &config.exchange_name,
-            &config.trade_category,
-            &config.trade_symbol,
-            server.is_production(),
-            date,
-        );
-
-        if has_csv_file && !force {
-            if verbose {
-                println!("archive csv file exist {}", time_string(date));
-            }
-            return Ok(0);
-        }
-
-        if ! Self::has_archive(server, config, date).await {
-            if verbose {
-                println!("archive NOT exist {}", time_string(date));
-            }
-
-            return Ok(0)
-        }
-
-        let date = FLOOR_DAY(date);
-        let url = Self::history_web_url(server, config, date);
-        let has_header = Self::archive_has_header();
-
-        log::debug!("Downloading ...[{}]", url);
-
-        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
-
-        let file_path = log_download_tmp(&url, tmp_dir.path())
-            .await
-            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
-
-        log::debug!("read into DataFrame");
-        let df = Self::logfile_to_df(&file_path)?;
-        log::debug!("file_path = {}", file_path);
-
-        let logdf = Self::logdf_to_archivedf(&df)?;
-
-        Self::archivedf_to_file(logdf, "/tmp/archive_file.parquet")?;
-
-        log::debug!("convert to csv.gz file");
-
-        let gzip_csv_file = archive_full_path(
-        &config.exchange_name, &config.trade_category, &config.trade_symbol, server.is_production(), date);
-
-        let gzip_csv_tmp = gzip_csv_file.with_extension("tmp");
-
-        let gzip_file = File::create(&gzip_csv_tmp)
-            .with_context(|| format!("gzip file create error {}", gzip_csv_file.to_str().unwrap()))?;
-        let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
-
-        let mut csv_writer = csv::Writer::from_writer(encoder);
-        csv_writer.write_record(&["timestamp", "side", "price", "size"]).unwrap();
-        let mut download_rec: i64 = 0;
-
-        read_csv_archive(&file_path, has_header, |rec| {
-            let trade = Self::rec_to_trade(&rec);
-
-            let time = trade.time;
-            let side = if trade.order_side == OrderSide::Buy {
-                1
-            } else {
-                0
-            };
-            let price = trade.price;
-            let size = trade.size;
-
-            csv_writer.write_record(&[time.to_string(), side.to_string(), price.to_string(), size.to_string()]).unwrap();
-            download_rec += 1;
-        });
-
-        csv_writer.flush().unwrap();
-
-        std::fs::remove_file(&file_path).with_context(|| format!("remove file error {}", file_path))?;
-        let r = std::fs::rename(gzip_csv_tmp, gzip_csv_file);
-        if r.is_err() {
-            if verbose {
-                println!("rename error {:?}", r);
-            }
-            log::error!("rename error {:?}", r);
-        }
-
-        log::debug!("download rec = {}", download_rec);
-
-        Ok(download_rec)
-    }
 
     /// read csv.gz file and convert to DataFrame
     fn logfile_to_df(logfile: &str) -> anyhow::Result<DataFrame> {
@@ -289,21 +191,22 @@ where
     ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
     fn logdf_to_archivedf(df: &DataFrame) -> anyhow::Result<DataFrame> {
         // bybit はデータをタイムスタンプでソートしてはいけない。
-        let mut df = df.clone();
+        let df = df.clone();
 
         let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
         let timestamp = Series::from(timestamp);
 
-        let side = df.column("side")?;
+        let id = df.column("id")?;
         let side = df.column("side")?;
         let price = df.column("price")?;
         let size = df.column("size")?;
 
         let df = DataFrame::new(vec![
+            id.clone(),
             timestamp,
             side.clone(),
             price.clone(),
-            side.clone(),
+            size.clone(),
         ])?;
 
         Ok(df)
@@ -445,7 +348,7 @@ where
     Ok(download_rec)
 }
 
-fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F)
+pub fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F)
 where
     F: FnMut(&StringRecord),
 {
@@ -646,6 +549,8 @@ pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+
+// TODO: remove this function
 async fn has_archive<F>(date: MicroSec, f: &F) -> bool
 where
     F: Fn(MicroSec) -> String,
@@ -661,6 +566,7 @@ where
     result.unwrap()
 }
 
+// TODO: remove this function (move to )
 pub async fn latest_archive_date<F>(f: &F) -> Result<MicroSec, String>
 where
     F: Fn(MicroSec) -> String,
