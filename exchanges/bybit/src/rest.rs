@@ -780,21 +780,4 @@ mod bybit_rest_test {
         println!("{:?}", r);
         assert!(r.is_ok());
     }
-
-
-    #[tokio::test]
-    async fn test_store_archive_csv() {
-        init_debug_log();
-        let server_config = BybitServerConfig::new(false);
-        let config = BybitConfig::BTCUSDT();
-
-        let date = NOW() - DAYS(2);
-        let count = BybitRestApi::archive_to_csv(&server_config, &config, date, true, true).await;
-
-        println!("{:?}", count);
-    }
-
-
-
-
 }

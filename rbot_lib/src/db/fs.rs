@@ -57,32 +57,7 @@ pub fn db_path_root(exchange_name: &str, category: &str, symbol: &str, productio
     return db_root;
 }
 
-pub fn archive_directory(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
-    let db_path_root = db_path_root(exchange_name, category, symbol, production);
 
-    let archive_dir = db_path_root.join("ARCHIVE");
-    let _ = fs::create_dir_all(&archive_dir);    
-
-    return archive_dir;
-}
-
-pub fn archive_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool, date: MicroSec) -> PathBuf {
-    let archive_dir = archive_directory(exchange_name, category, symbol, production);
-
-    let date = FLOOR_DAY(date);
-    let date = date_string(date);
-
-    let archive_name = format!("{}-{}-{}.csv.gz", date, category, symbol);
-    let archive_path = archive_dir.join(archive_name);
-
-    return archive_path;
-}
-
-pub fn has_archive_file(exchange_name: &str, category: &str, symbol: &str, production: bool, date: MicroSec) -> bool {
-    let archive_path = archive_full_path(exchange_name, category, symbol, production, date);
-
-    return archive_path.exists();
-}
 
 pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
     let db_path_root = db_path_root(exchange_name, category, symbol, production);
@@ -119,7 +94,5 @@ mod test_fs {
         let db = db_full_path("FTX", "SPOT", "BTC-PERP", false);
         println!("{:?}", db);
 
-        let archive = archive_directory("FTX", "SPOT", "BTC-PERP", false);
-        print!("{:?}", archive);
     }
 }
