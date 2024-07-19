@@ -17,7 +17,6 @@ use tokio::sync::RwLock;
 //use tokio::task::JoinHandle;
 
 use std::sync::Arc;
-use url::Url;
 
 use crate::common::MarketConfig;
 //use crate::common::MultiMarketMessage;

@@ -7,24 +7,18 @@ use anyhow::Context;
 use chrono::Datelike;
 
 // use crossbeam_channel::Receiver;
-use core::time;
-use std::io::Read;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use flate2::read::GzDecoder;
 use polars::frame::DataFrame;
 use polars::io::csv::read::CsvReadOptions;
-use polars::io::parquet::write::ParquetWriteOptions;
 use polars::io::parquet::write::ParquetWriter;
 use polars::io::SerReader;
-use polars::prelude::DataType as dtype;
 use polars::prelude::Series;
-use polars::series::IntoSeries;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::io::BufRead;
 use std::io::BufWriter;
-use std::path::PathBuf;
 use std::{
     fs::File,
     io::{copy, BufReader, Cursor, Write},

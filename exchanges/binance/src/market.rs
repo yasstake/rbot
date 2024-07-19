@@ -449,7 +449,7 @@ impl BinanceMarket {
             production
         );
 
-        let db = TradeTable::open(&db_path)
+        let db = TradeTable::get(&db_path)
             .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         // let public_ws = BinancePublicWsClient::new(&server_config, &config).await;
@@ -457,7 +457,7 @@ impl BinanceMarket {
         let market = BinanceMarket {
             server_config: server_config.clone(),
             config: config.clone(),
-            db: Arc::new(Mutex::new(db)),
+            db: db,
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
             public_handler: None,
         };

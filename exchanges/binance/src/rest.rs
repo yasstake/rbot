@@ -198,7 +198,7 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         Trade::default()
     }
 
-    fn convert_archive_line(line: &str) -> String {
+    fn convert_archive_line(_line: &str) -> String {
         println!("NOT IMPLEMENTED convert_archive_line");
         "".to_string()
     }

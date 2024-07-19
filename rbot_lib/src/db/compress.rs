@@ -1,23 +1,7 @@
-use anyhow::Context;
-use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
-use async_std::io::BufReader;
-use async_std::stream::StreamExt;
-use futures::TryStreamExt;
-use std::io::Cursor;
-use url::Url;
-use std::path::{Path, PathBuf};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, Lines};
-use reqwest::Client;
-
-//use futures::io::AsyncBufReadExt;
-//use futures::io::AsyncWriteExt;
-//use std::io::BufReader;
-//use tokio::fs::File;
-//use tokio::io::AsyncReadExt;
-//use tokio::io::BufWriter;
-
+use std::path::PathBuf;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 
 pub async fn log_convert<F>(source_file: PathBuf, target_file: PathBuf, has_header: bool, f: F) -> anyhow::Result<()>
@@ -49,7 +33,11 @@ where
         // println!("length = {}", line.len());
     }
 
-    encoder.flush().await;
+    let r = encoder.flush().await;
+    if r.is_err() {
+        log::warn!("encoder close err {:?}", r);
+    }
+
     encoder.shutdown().await?;
 
     Ok(())

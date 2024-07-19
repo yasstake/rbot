@@ -406,7 +406,7 @@ impl BybitMarket {
             production
         );
 
-        let db = TradeTable::open(&db_path)
+        let db = TradeTable::get(&db_path)
             .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
@@ -414,7 +414,7 @@ impl BybitMarket {
         let mut market = BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
-            db: Arc::new(Mutex::new(db)),
+            db: db,
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
             public_handler: None,
         };
@@ -736,11 +736,15 @@ mod bybit_test {
 
 #[cfg(test)]
 mod market_test {
+    use rbot_lib::common::init_debug_log;
+
     use crate::BybitConfig;
 
     #[test]
     fn test_create() {
         use super::*;
+
+        init_debug_log();
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 

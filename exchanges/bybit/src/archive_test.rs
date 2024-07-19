@@ -29,7 +29,7 @@ mod archive_test {
     fn test_archive_craet() {
         let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
-        let archive = TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
+        let _archive = TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
     }
 
 
@@ -133,9 +133,56 @@ mod archive_test {
 
         let dates = archive.list_dates()?;
 
-        log::debug!("{:?}", dates);
+        log::debug!("data dates = {:?}", dates);
 
         Ok(())
+       }
+
+       #[tokio::test]
+       async fn test_download() -> anyhow::Result<()> {
+        init_debug_log();
+        let mut archive = create_archive();
+        log::debug!("start={:?}({:?})", archive.start_time(), date_string(archive.start_time()));
+        log::debug!("end={:?}({:?})", archive.end_time(), date_string(archive.end_time()));
+
+        log::debug!("download first");
+
+        archive.download(4, false, true).await?;
+        log::debug!("start={:?}({:?})", archive.start_time(), date_string(archive.start_time()));
+        log::debug!("end={:?}({:?})", archive.end_time(), date_string(archive.end_time()));
+
+        log::debug!("download with cache");
+
+        archive.download(6, false, true).await?;
+        log::debug!("start={:?}({:?})", archive.start_time(), date_string(archive.start_time()));
+        log::debug!("end={:?}({:?})", archive.end_time(), date_string(archive.end_time()));
+
+
+        Ok(())
+       }
+
+       #[tokio::test]
+       async fn test_load_df() -> anyhow::Result<()> {
+        init_debug_log();
+        let mut archive = create_archive();
+
+        archive.download(2, false, true).await?;
+
+        log::debug!("start={:?}({:?})", archive.start_time(), date_string(archive.start_time()));
+        log::debug!("end={:?}({:?})", archive.end_time(), date_string(archive.end_time()));
+
+        let df = archive.load_df(NOW()-DAYS(2))?;
+        log::debug!("{:?}", df);
+
+        let df = archive.load_df(NOW()-DAYS(100))?;
+        log::debug!("{:?}", df);
+
+        let df = archive.load_df(NOW()-DAYS(0))?;
+        log::debug!("{:?}", df);
+
+
+
+            Ok(())
        }
 
 

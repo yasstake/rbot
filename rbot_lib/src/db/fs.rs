@@ -7,7 +7,7 @@ use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use pyo3::pyfunction;
 
-use crate::common::{date_string, env_rbot_db_root, MicroSec, FLOOR_DAY};
+use crate::common::env_rbot_db_root;
 
 
 #[pyfunction]

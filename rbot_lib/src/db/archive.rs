@@ -1,19 +1,19 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, ServerConfig,
-        Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY,
-    },
-    net::{check_exist, log_download_tmp, read_csv_archive, read_line_archive, RestApi},
+        date_string, parse_date, time_string, MarketConfig, MicroSec, ServerConfig, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+    }, db::KEY, net::{check_exist, log_download_tmp, read_csv_archive, RestApi}
 };
 use anyhow::{anyhow, Context};
 // Import the `anyhow` crate and the `Result` type.
-use polars::prelude::DataFrame;
+use polars::io::{csv::read::CsvReadOptions, SerReader};
+use polars::lazy::{dsl::{col, lit}, frame::IntoLazy};
+use polars::prelude::{AsString, DataFrame, NamedFrom};
+use polars::series::Series;
 use std::{
-    fs::{self, File}, io::{BufWriter, Write}, path::PathBuf, str::FromStr, vec
+    fs::{self, File}, io::BufWriter, path::PathBuf, str::FromStr, vec
 };
 use tempfile::tempdir;
-
-use super::{db_path_root, log_convert};
+use super::db_path_root;
 
 ///
 ///Archive CSV format
@@ -57,6 +57,9 @@ where
         if r.is_err() {
             log::debug!("Archive analyze error {:?}", r);
         }
+
+        log::debug!("S: {} ({})", my.start_time(), time_string(my.start_time()));
+        log::debug!("E: {} ({})", my.end_time(), time_string(my.end_time()));
 
         return my;
     }
@@ -113,19 +116,80 @@ where
     pub fn has_archive_file(&self, date: MicroSec) -> bool {
         let archive_path = self.file_path(date);
 
+        log::debug!("check file exists {:?}", archive_path);
+
         return archive_path.exists();
     }
 
     /// download historical data from the web and store csv in the Archive directory
-    pub fn download(ndays: i64) -> i64 {
-        0
+    pub async fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        let mut date = FLOOR_DAY(NOW());
+        log::debug!("download log from {:?}({:?})", date_string(date), date);
+
+        let mut count  = 0;
+        let mut i = 0;
+
+        while i <= ndays {
+            count += self.archive_to_csv(date, force, verbose).await?;            
+            date -= DAYS(1);
+
+            i += 1;
+        }
+
+        self.analyze()?;
+
+        Ok(count)
+    }
+
+    pub fn make_empty_logdf() -> DataFrame {
+        let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+        let price = Series::new(KEY::price, Vec::<f64>::new());
+        let size = Series::new(KEY::size, Vec::<f64>::new());
+        let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
+
+        let df = DataFrame::new(vec![
+            time, price, size, order_side
+        ]).unwrap();
+        
+        return df;
     }
 
     pub fn load_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
-        Err(anyhow!("Not implemented"))
+        let date = FLOOR_DAY(date);
+
+        if date < self.start_time() {
+            log::warn!("Not found in archive[too early] query={:?} < start_time{:?}", date_string(date), date_string(self.start_time()));
+            return Ok(Self::make_empty_logdf());
+        }
+
+        if self.end_time() <= date {
+            log::warn!("Not found in archive[too new] query={:?} >= end_time{:?}", date_string(date), date_string(self.end_time()));
+            return Ok(Self::make_empty_logdf());
+        }
+
+
+        let logfile = self.file_path(date);
+        log::debug!("read into DataFrame {:?}", logfile);
+
+        let df = CsvReadOptions::default()
+            .with_has_header(true)
+            .try_into_reader_with_file_path(Some(logfile.into()))?
+            .finish()?;
+
+        let df = df.lazy()
+                                .with_column(
+                                    col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side)
+                                    
+                                )
+                                .select([col(KEY::time_stamp), col(KEY::price), col(KEY::size), col(KEY::order_side)])
+                                .collect()?;
+
+        log::debug!("read into DataFrame complete");
+
+        Ok(df)
     }
 
-    pub fn select_df(&self, start: MicroSec, end: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn select_df(&self, _start: MicroSec, _end: MicroSec) -> anyhow::Result<DataFrame> {
         Err(anyhow!("Not implemented"))
     }
 
@@ -155,6 +219,7 @@ where
     /// if there is fragmented date, delete it.
     pub fn analyze(&mut self) -> anyhow::Result<()> {
         let dates = self.list_dates()?;
+        log::debug!("analyze dates = {:?}", dates);
 
         let number_of_entry = dates.len();
 
@@ -170,23 +235,26 @@ where
 
         for i in 0..number_of_entry {
             let d = dates[i];
+            log::debug!("{:?}({:?})", date_string(d), d);
 
             if i == 0 {
-                self.end_time = d;
+                log::debug!("setup first");
+                self.end_time = d + DAYS(1);
                 self.start_time = d;
             }
             else {
-                if detect_gap {
-                    self.delete(d)?;
-                }
                 if last_time - d == DAYS(1)  {
+                    log::debug!("next day OK{:?}", date_string(d));
                     self.start_time = d;
                 }
                 else {
+                    log::debug!("have gap   {:?}", date_string(d));
                     detect_gap = true;
-                    self.delete(d)?;
                 }
 
+                if detect_gap {
+                    self.delete(d)?;
+                }
             } 
 
             last_time = d;        
@@ -218,38 +286,14 @@ where
             }
         }
 
+        dates.sort();
         dates.reverse();
         
         Ok(dates)
     }
 
-    /// select files that are within the start and end time
-    fn select_files(&self, start: MicroSec, end: MicroSec) -> Vec<PathBuf> {
-        let mut files: Vec<PathBuf> = vec![];
 
-        let directory = self.archive_directory();
-
-        if let Ok(entries) = std::fs::read_dir(&directory) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("gz")
-                        && path
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .map_or(false, |s| s.ends_with(".csv.gz"))
-                    {
-                        files.push(path);
-                    }
-                }
-            }
-        }
-
-        files.sort();
-        files
-    }
-
-    fn select<F>(&self, start: MicroSec, end: MicroSec, f: F) -> anyhow::Result<()>
+    fn select<F>(&self, _start: MicroSec, _end: MicroSec, _f: F) -> anyhow::Result<()>
     where
         F: Fn(&DataFrame) -> Vec<(MicroSec, f64, f64, bool)>,
     {
@@ -286,7 +330,7 @@ where
     pub fn delete(&self, date: MicroSec) -> anyhow::Result<()> {
         let path = self.file_path(date);
 
-        log::debug!("delete archive file date{:?}({:?}) = {:?}", date, time_string(date), path);
+        log::warn!("delete old archive file date{:?}({:?}) = {:?}", date, time_string(date), path);
 
         std::fs::remove_file(&path).with_context(|| format!("remove file error {:?}", path))?;
 
@@ -307,8 +351,13 @@ where
         if has_csv_file && !force {
             if verbose {
                 println!("archive csv file exist {}", time_string(date));
+                return Ok(0);
             }
-            return Ok(0);
+
+        }
+
+        if verbose && force {
+            println!("force download")
         }
 
         if !T::has_archive(server, config, date).await {
@@ -353,35 +402,6 @@ where
         Ok(download_rec)
     }
 
-    /*/
-
-    fn dump_csv(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
-        let now = NOW();
-        log::debug!("dump start");
-
-        log::debug!("read into DataFrame");
-        let mut df = T::logfile_to_df(&src_file.to_str().unwrap())?;
-        log::debug!("file_path = {:?}", src_file);
-
-        let mut archivedf = T::logdf_to_archivedf(&df)?;
-        log::debug!("converted\n {:?}", df);
-
-        let gzip_file = File::create(&target_file).with_context(|| {
-            format!("gzip file create error {}", target_file.to_str().unwrap())
-        })?;
-        let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
-
-        let writer = CsvWriter::new(encoder);
-        let mut writer = writer.include_header(true);
-
-        let r = writer.finish(&mut archivedf)?;
-        log::debug!("write file done{:?}", r);
-
-        log::debug!("Dump end {}[usec]", NOW() - now);
-
-        Ok(archivedf.shape().0 as i64)
-    }
-    */
 
     fn write_csv(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
         let now = NOW();
@@ -394,7 +414,7 @@ where
 
         let mut csv_writer = csv::Writer::from_writer(encoder);
         csv_writer
-            .write_record(&["timestamp", "side", "price", "size", "id"])
+            .write_record(&[KEY::time_stamp, KEY::order_side, KEY::price, KEY::size, KEY::id])
             .unwrap();
         let mut download_rec: i64 = 0;
 
@@ -402,11 +422,7 @@ where
             let trade = T::rec_to_trade(&rec);
 
             let time = trade.time;
-            let side = if trade.order_side == OrderSide::Buy {
-                1
-            } else {
-                0
-            };
+            let side = trade.order_side.to_string();
             let price = trade.price;
             let size = trade.size;
             let id = trade.id;
@@ -414,7 +430,7 @@ where
             csv_writer
                 .write_record(&[
                     time.to_string(),
-                    side.to_string(),
+                    side,
                     price.to_string(),
                     size.to_string(),
                     id.to_string(),
@@ -428,49 +444,5 @@ where
         log::debug!("write done {}[usec]", NOW() - now);
 
         Ok(download_rec)
-    }
-
-    fn write_csv2(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
-        let now = NOW();
-        log::debug!("write2 start");
-
-        let gzip_file = File::create(&target_file)
-            .with_context(|| format!("gzip file create error {}", target_file.to_str().unwrap()))?;
-        let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
-        let mut writer = BufWriter::new(encoder);
-        let r = writer.write_all(Trade::csv_header().as_bytes());
-
-        let mut download_rec: i64 = 0;
-
-        read_line_archive(src_file.to_str().unwrap(), true, |rec| {
-            let line = T::convert_archive_line(rec);
-
-            let r = writer.write_all(line.as_bytes());
-            download_rec += 1;
-        })?;
-
-        writer.flush().unwrap();
-
-        log::debug!("write2 done {}[usec]", NOW() - now);
-
-        Ok(download_rec)
-    }
-
-    async fn write_csv3(
-        &self,
-        source_file: &PathBuf,
-        target_file: &PathBuf,
-    ) -> anyhow::Result<i64> {
-        let now = NOW();
-        log::debug!("write3 start");
-
-        log_convert(source_file.clone(), target_file.clone(), true, |line| {
-            T::convert_archive_line(&line)
-        })
-        .await?;
-
-        log::debug!("write3 end {}[usec]", NOW() - now);
-
-        Ok(0)
     }
 }
