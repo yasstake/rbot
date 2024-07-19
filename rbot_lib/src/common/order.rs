@@ -1,6 +1,7 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
+use core::time;
 use std::path::Display;
 
 use super::time::MicroSec;
@@ -13,6 +14,7 @@ use crate::db::get_db_root;
 use crate::db::KEY;
 use async_std::stream::Cloned;
 
+use csv::StringRecord;
 use polars::prelude::DataFrame;
 use polars::prelude::NamedFrom;
 use polars::prelude::TimeUnit;
@@ -373,6 +375,24 @@ impl Trade {
         }
     }
 
+    pub fn from_record(rec: &StringRecord) -> Trade{
+        let time_stamp: MicroSec = rec.get(0).unwrap().parse().unwrap();
+        
+        let order_side = rec.get(1).unwrap();
+        let order_side = OrderSide::from(order_side);
+
+        let price: f64 = rec.get(2).unwrap().parse().unwrap();
+        let price = Decimal::from_f64(price).unwrap();
+
+        let size: f64 = rec.get(3).unwrap().parse().unwrap();
+        let size = Decimal::from_f64(size).unwrap();
+
+        let id = rec.get(4).unwrap();
+
+        Trade::new(time_stamp, order_side, price, size, LogStatus::FixArchiveBlock, id)
+    }
+
+
     pub fn csv_header() -> String {
         format!(
             "{},{},{},{},{}\n",
@@ -383,6 +403,7 @@ impl Trade {
             KEY::id
         )
     }
+
 }
 
 

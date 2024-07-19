@@ -19,6 +19,8 @@ use reqwest::Method;
 use rust_decimal::Decimal;
 use std::io::BufRead;
 use std::io::BufWriter;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::{
     fs::File,
     io::{copy, BufReader, Cursor, Write},
@@ -297,6 +299,8 @@ where
     let mut is_first_record = true;
     let mut download_rec = 0;
 
+    let file_path = PathBuf::from_str(&file_path)?;
+
     read_csv_archive(&file_path, has_header, |rec| {
         let mut trade = f(&rec);
         download_rec += 1;
@@ -341,18 +345,18 @@ where
         flush_log();
     }
 
-    std::fs::remove_file(&file_path).with_context(|| format!("remove file error {}", file_path))?;
+    std::fs::remove_file(&file_path).with_context(|| format!("remove file error {:?}", file_path))?;
 
     Ok(download_rec)
 }
 
-pub fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F) -> anyhow::Result<()>
+pub fn read_csv_archive<F>(file_path: &PathBuf, has_header: bool, mut f: F) -> anyhow::Result<()>
 where
     F: FnMut(&StringRecord),
 {
-    log::debug!("read_csv_archive = {}", file_path);
+    log::debug!("read_csv_archive = {:?}", file_path);
 
-    let file_path = Path::new(file_path);
+//    let file_path = Path::new(file_path);
     let file = File::open(file_path)?;
 
     match file_path.extension().unwrap().to_str().unwrap() {
@@ -665,7 +669,8 @@ mod test_exchange {
 
         let tmp_dir = tempdir()?;
         let path = log_download_tmp(url, tmp_dir.path()).await?;
-        log::debug!("log_download_temp: {}", path);
+        let path = PathBuf::from_str(&path)?;
+        log::debug!("log_download_temp: {:?}", path);
 
         let mut rec_no = 0;
 

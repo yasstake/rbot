@@ -189,4 +189,44 @@ mod archive_test {
        }
 
 
+    #[test]
+    fn test_select_dates() {
+        init_debug_log();
+        let archive = create_archive();
+
+        let dates = archive.select_dates(0, 0);
+        log::debug!("{:?}", dates);
+
+        let dates = archive.select_dates(0, NOW() - DAYS(2));
+        log::debug!("{:?}", dates);
+
+        let dates = archive.select_dates(NOW() - DAYS(3), NOW() - DAYS(2));
+        log::debug!("{:?}", dates);
+    }
+
+    #[test]
+    fn test_foe_each_rec() -> anyhow::Result<()>{
+        init_debug_log();
+        let archive = create_archive();
+
+        let count = archive.for_each_record(0, 0, 
+            &mut |trade|{}
+        )?;
+
+        log::debug!("process count= {}", count);
+
+        Ok(())
+    } 
+
+    #[test]
+    fn test_select_df() -> anyhow::Result<()> {
+        init_debug_log();
+        let archive = create_archive();
+
+        let df = archive.select_df(0, 0)?;
+
+        log::debug!("{:?}", df);
+
+        Ok(())
+    }
 }
