@@ -7,20 +7,22 @@ use anyhow::Context;
 use chrono::Datelike;
 
 // use crossbeam_channel::Receiver;
+use core::time;
+use std::io::Read;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
-use flate2::bufread::GzDecoder;
-use polars::prelude::DataType as dtype;
-use polars::prelude::Series;
+use flate2::read::GzDecoder;
 use polars::frame::DataFrame;
 use polars::io::csv::read::CsvReadOptions;
 use polars::io::parquet::write::ParquetWriteOptions;
 use polars::io::parquet::write::ParquetWriter;
 use polars::io::SerReader;
+use polars::prelude::DataType as dtype;
+use polars::prelude::Series;
 use polars::series::IntoSeries;
 use reqwest::Method;
 use rust_decimal::Decimal;
-use core::time;
+use std::io::BufRead;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::{
@@ -108,6 +110,8 @@ where
     /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
     /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
     fn rec_to_trade(rec: &StringRecord) -> Trade;
+    fn line_to_trade(rec: &str) -> Trade;
+    fn convert_archive_line(line: &str) -> String;
     fn archive_has_header() -> bool;
 
     async fn latest_archive_date(server: &T, config: &MarketConfig) -> anyhow::Result<MicroSec> {
@@ -162,10 +166,8 @@ where
     }
 
     async fn has_archive(server: &T, config: &MarketConfig, date: MicroSec) -> bool {
-        has_archive(date, 
-            &|d| Self::history_web_url(server, config, d)).await
+        has_archive(date, &|d| Self::history_web_url(server, config, d)).await
     }
-
 
     /// read csv.gz file and convert to DataFrame
     fn logfile_to_df(logfile: &str) -> anyhow::Result<DataFrame> {
@@ -173,13 +175,12 @@ where
 
         log::debug!("read into DataFrame {}", logfile);
 
-        let df = 
-        CsvReadOptions::default()
-        .with_has_header(has_header)
-        .try_into_reader_with_file_path(Some(logfile.into()))
-        .with_context(|| format!("polars csv read error {}", logfile))?        
-        .finish()
-        .with_context(|| format!("polars error {}", logfile))?;
+        let df = CsvReadOptions::default()
+            .with_has_header(has_header)
+            .try_into_reader_with_file_path(Some(logfile.into()))
+            .with_context(|| format!("polars csv read error {}", logfile))?
+            .finish()
+            .with_context(|| format!("polars error {}", logfile))?;
 
         log::debug!("read into DataFrame complete");
         log::debug!("{:?}", df);
@@ -196,17 +197,19 @@ where
         let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
         let timestamp = Series::from(timestamp);
 
-        let id = df.column("id")?;
+        let mut id = df.column("trdMatchID")?.clone();
+        id.rename(KEY::id);
+
         let side = df.column("side")?;
         let price = df.column("price")?;
         let size = df.column("size")?;
 
         let df = DataFrame::new(vec![
-            id.clone(),
             timestamp,
             side.clone(),
             price.clone(),
             size.clone(),
+            id,
         ])?;
 
         Ok(df)
@@ -215,15 +218,16 @@ where
     fn archivedf_to_file(mut df: DataFrame, archive_file: &str) -> anyhow::Result<()> {
         log::debug!("write to parquet file {}", archive_file);
 
-        let file = BufWriter::new(File::create(archive_file).with_context(|| format!("file create error {}", archive_file))?);
+        let file = BufWriter::new(
+            File::create(archive_file)
+                .with_context(|| format!("file create error {}", archive_file))?,
+        );
 
-        ParquetWriter::new(file)
-            .finish(&mut df)?;
+        ParquetWriter::new(file).finish(&mut df)?;
 
         Ok(())
     }
 }
-
 
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
@@ -348,18 +352,19 @@ where
     Ok(download_rec)
 }
 
-pub fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F)
+pub fn read_csv_archive<F>(file_path: &str, has_header: bool, mut f: F) -> anyhow::Result<()>
 where
     F: FnMut(&StringRecord),
 {
     log::debug!("read_csv_archive = {}", file_path);
 
     let file_path = Path::new(file_path);
+    let file = File::open(file_path)?;
+
     match file_path.extension().unwrap().to_str().unwrap() {
         "gz" | "GZ" => {
-            let file = File::open(file_path).unwrap();
-            let bufreader = BufReader::new(file);
-            let gzip_reader = std::io::BufReader::new(GzDecoder::new(bufreader));
+            let gzip_reader = BufReader::new(file);
+            let gzip_reader = GzDecoder::new(gzip_reader);
             let mut csv_reader = csv::Reader::from_reader(gzip_reader);
             if has_header {
                 csv_reader.has_headers();
@@ -369,18 +374,12 @@ where
                 let rec = csv_rec.unwrap();
                 f(&rec);
             }
+
+            Ok(())
         }
 
         "zip" | "ZIP" => {
-            let file = File::open(file_path).unwrap();
-            let bufreader = BufReader::new(file);
-            let mut zip = match ZipArchive::new(bufreader) {
-                Ok(z) => z,
-                Err(e) => {
-                    log::error!("extract zip log error {}", e.to_string());
-                    return;
-                }
-            };
+            let mut zip = ZipArchive::new(file)?;
 
             let file = zip.by_index(0).unwrap();
             let mut csv_reader = csv::Reader::from_reader(file);
@@ -392,11 +391,10 @@ where
                 let rec = csv_rec.unwrap();
                 f(&rec);
             }
+            Ok(())
         }
         _ => {
-            let file = File::open(file_path).unwrap();
-            let bufreader = BufReader::new(file);
-            let mut csv_reader = csv::Reader::from_reader(bufreader);
+            let mut csv_reader = csv::Reader::from_reader(file);
             if has_header {
                 csv_reader.has_headers();
             }
@@ -405,6 +403,62 @@ where
                 let rec = csv_rec.unwrap();
                 f(&rec);
             }
+            Ok(())
+        }
+    }
+}
+
+pub fn read_line_archive<F>(file_path: &str, has_header: bool, mut f: F) -> anyhow::Result<()>
+where
+    F: FnMut(&str),
+{
+    log::debug!("read_csv_archive = {}", file_path);
+
+    let file_path = Path::new(file_path);
+    let file = File::open(file_path)?;
+
+    match file_path.extension().unwrap().to_str().unwrap() {
+        "gz" | "GZ" => {
+            let gzip_reader = GzDecoder::new(file);
+            let mut reader = BufReader::new(gzip_reader);
+            if has_header {
+                let mut buf = String::new();
+                reader.read_line(&mut buf);
+                log::debug!("csv header\n{}",buf);
+            }
+            for line in reader.lines() {
+                let line = line?;
+                f(&line);
+            }
+            Ok(())
+        }
+        "zip" | "ZIP" => {
+            let mut zip = ZipArchive::new(file)?;
+            let zip_file = zip.by_index(0).unwrap();
+            let mut reader = BufReader::new(zip_file);
+            if has_header {
+                let mut buf = String::new();
+                reader.read_line(&mut buf);
+                log::debug!("csv header\n{}",buf);
+            }
+            for line in reader.lines() {
+                let line = line?;
+                f(&line);
+            }
+            Ok(())
+        }
+        _ => {
+            let mut reader = BufReader::new(file);
+            if has_header {
+                let mut buf = String::new();
+                reader.read_line(&mut buf);
+                log::debug!("csv header\n{}",buf);
+            }
+            for line in reader.lines() {
+                let line = line?;
+                f(&line);
+            }
+            Ok(())
         }
     }
 }
@@ -548,7 +602,6 @@ pub async fn check_exist(url: &str) -> anyhow::Result<bool> {
 
     Ok(true)
 }
-
 
 // TODO: remove this function
 async fn has_archive<F>(date: MicroSec, f: &F) -> bool

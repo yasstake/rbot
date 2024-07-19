@@ -57,8 +57,6 @@ pub fn db_path_root(exchange_name: &str, category: &str, symbol: &str, productio
     return db_root;
 }
 
-
-
 pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
     let db_path_root = db_path_root(exchange_name, category, symbol, production);
 
