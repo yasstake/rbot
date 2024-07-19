@@ -99,14 +99,12 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             config.board_depth
         );
 
-        let r = Self::get(&server, path, &params)
-            .await
-            .with_context(|| {
-                format!(
-                    "get_board_snapshot: server={:?} / path={:?} / params={:?}",
-                    server, path, params
-                )
-            })?;
+        let r = Self::get(&server, path, &params).await.with_context(|| {
+            format!(
+                "get_board_snapshot: server={:?} / path={:?} / params={:?}",
+                server, path, params
+            )
+        })?;
 
         let message = r.body;
 
@@ -129,23 +127,19 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             1000 // max records.
         );
 
-
-        let r = Self::get(server, path, &params)
-            .await
-            .with_context(|| {
-                format!(
-                    "get_recent_trades: server={:?} / path={:?} / params={:?}",
-                    server, path, params
-                )
-            })?;
+        let r = Self::get(server, path, &params).await.with_context(|| {
+            format!(
+                "get_recent_trades: server={:?} / path={:?} / params={:?}",
+                server, path, params
+            )
+        })?;
 
         let result = serde_json::from_value::<BybitTradeResponse>(r.body)
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
         Ok(result.into())
 
-
-//        Err(anyhow!("not implemented"))
+        //        Err(anyhow!("not implemented"))
     }
 
     async fn get_trade_klines(
@@ -172,10 +166,14 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
                 time_string(end_time),
                 end_time
             );
-            let mut klines = Self::try_get_trade_klines(server, config, start_time, end_time).await
-            .with_context(|| {
-                format!("get_trade_klines: start_time={:?} / end_time={:?}", start_time, end_time)
-            })?;
+            let mut klines = Self::try_get_trade_klines(server, config, start_time, end_time)
+                .await
+                .with_context(|| {
+                    format!(
+                        "get_trade_klines: start_time={:?} / end_time={:?}",
+                        start_time, end_time
+                    )
+                })?;
 
             let klines_len = klines.len();
             if klines_len == 0 {
@@ -194,7 +192,13 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             klines_buf.append(&mut klines);
 
             if (end_time != 0) && (end_time <= start_time) {
-                log::debug!("end fetching data: end_time {}({}) <= start_time {}({})", time_string(end_time), end_time, time_string(start_time), start_time);
+                log::debug!(
+                    "end fetching data: end_time {}({}) <= start_time {}({})",
+                    time_string(end_time),
+                    end_time,
+                    time_string(start_time),
+                    start_time
+                );
                 break;
             }
         }
@@ -368,7 +372,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     // TODO: implement paging.
     async fn open_orders(
         server: &BybitServerConfig,
-config: &MarketConfig,
+        config: &MarketConfig,
     ) -> anyhow::Result<Vec<Order>> {
         let query_string = format!(
             "category={}&symbol={}&limit=50",
@@ -403,10 +407,7 @@ config: &MarketConfig,
         Ok(orders)
     }
 
-    async fn get_account(
-        server: &BybitServerConfig
-    ) -> anyhow::Result<AccountCoins> {
-
+    async fn get_account(server: &BybitServerConfig) -> anyhow::Result<AccountCoins> {
         let path = "/v5/account/wallet-balance";
         // TODO: implement otherthn accountType=UNIFIED(e.g.inverse)
         let query_string = format!("accountType=UNIFIED");
@@ -414,9 +415,23 @@ config: &MarketConfig,
 
         let response = Self::get_sign(&server, path, &query_string)
             .await
-            .with_context(|| format!("get_account error: {}/{}/{}", &server.get_rest_server(), path, &query_string))?;
+            .with_context(|| {
+                format!(
+                    "get_account error: {}/{}/{}",
+                    &server.get_rest_server(),
+                    path,
+                    &query_string
+                )
+            })?;
 
-        ensure!(response.is_success(), format!("return_code = {}, msg={}", response.is_success(), response.return_message));
+        ensure!(
+            response.is_success(),
+            format!(
+                "return_code = {}, msg={}",
+                response.is_success(),
+                response.return_message
+            )
+        );
 
         let account_status = serde_json::from_value::<BybitAccountResponse>(response.body)?;
         let coins: AccountCoins = account_status.into();
@@ -487,12 +502,60 @@ config: &MarketConfig,
         return trade;
     }
 
+    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
+    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
+
+    fn line_to_trade(line: &str) -> Trade {
+        let col: Vec<&str> = line.split(",").collect();
+
+        let timestamp: f64 = col[0].parse().unwrap();
+        let timestamp = timestamp * 1_000_000.0;
+        let timestamp = timestamp as MicroSec;
+
+        let order_side = col[2];
+        let order_side = OrderSide::from(order_side);
+
+        let size: f64 = col[3].parse().unwrap();
+        let size = Decimal::from_f64(size).unwrap();
+
+        let price: f64 = col[4].parse().unwrap();
+        let price = Decimal::from_f64(price).unwrap();
+
+        let id = col[6];
+
+        let trade = Trade::new(
+            timestamp,
+            order_side,
+            price,
+            size,
+            LogStatus::FixArchiveBlock,
+            id,
+        );
+
+        return trade;
+    }
+
+    fn convert_archive_line(line: &str) -> String {
+        let col: Vec<&str> = line.split(",").collect();
+
+        let timestamp: f64 = col[0].parse().unwrap();
+        let timestamp = timestamp * 1_000_000.0;
+        let timestamp = timestamp as MicroSec;
+
+        let order_side = col[2];
+        let size = col[3];
+        let price = col[4];
+        let id = col[6];
+
+        format!("{},{},{},{},{}", timestamp, order_side, size, price, id)
+    }
+
     fn archive_has_header() -> bool {
         true
     }
 }
 
-use tracing::instrument;    
+use tracing::instrument;
 
 impl BybitRestApi {
     async fn get(
@@ -519,7 +582,13 @@ impl BybitRestApi {
         let api_secret = server.get_api_secret().extract();
         let recv_window = "5000";
 
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, query_string);
+        let param_to_sign = format!(
+            "{}{}{}{}",
+            timestamp,
+            api_key.clone(),
+            recv_window,
+            query_string
+        );
         let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
@@ -531,7 +600,12 @@ impl BybitRestApi {
 
         let result = rest_get(&server.rest_server, path, headers, Some(query_string), None)
             .await
-            .with_context(|| format!("get_sign error: {}/{}/{}", &server.rest_server, path, query_string))?;
+            .with_context(|| {
+                format!(
+                    "get_sign error: {}/{}/{}",
+                    &server.rest_server, path, query_string
+                )
+            })?;
 
         Self::parse_rest_response(result)
     }
@@ -632,7 +706,6 @@ impl BybitRestApi {
     }
 }
 
-
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[allow(unused_imports)]
@@ -640,17 +713,16 @@ impl BybitRestApi {
 #[allow(unused_variables)]
 mod bybit_rest_test {
     use super::*;
-    use std::{any, thread::sleep, time::Duration};
     use rbot_lib::common::{init_log, DAYS};
+    use std::{any, thread::sleep, time::Duration};
 
     use crate::config::BybitConfig;
     use pyo3::ffi::Py_Initialize;
     use rbot_lib::common::{init_debug_log, time_string, HHMM};
     use rust_decimal_macros::dec;
 
-
     #[tokio::test]
-    async fn get_board_snapshot_test()  -> anyhow::Result<()> {
+    async fn get_board_snapshot_test() -> anyhow::Result<()> {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
@@ -779,5 +851,15 @@ mod bybit_rest_test {
         let r = BybitRestApi::get_account(&server_config).await;
         println!("{:?}", r);
         assert!(r.is_ok());
+    }
+
+    #[test]
+    fn test_line_2_trade() {
+        let line = "1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99";
+        let r = BybitRestApi::line_to_trade(&line.to_string());
+
+        init_debug_log();
+
+        log::debug!("{:?}", r);
     }
 }

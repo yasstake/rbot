@@ -3,8 +3,12 @@
 
 #![allow(non_snake_case)]
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use std::str::FromStr;
+
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use pyo3::prelude::*;
+
+use anyhow::anyhow;
 
 pub const MICRO_SECOND: i64 = 1_000_000;
 pub const NANO_SECOND: i64 = 1_000_000_000;
@@ -79,11 +83,31 @@ pub fn min_string(t: MicroSec) -> String {
     return datetime.format("%M").to_string();
 }
 
+/// convert time to YYYYMMDD format
 #[pyfunction]
 pub fn date_string(t: MicroSec) -> String {
     let datetime = to_naive_datetime(t);
 
     return datetime.format("%Y%m%d").to_string();
+}
+
+///  convert YYYYMMDD format date to MicroSec,
+///  return 0 in error.
+#[pyfunction]
+pub fn parse_date(date: &str) -> anyhow::Result<MicroSec> {
+    if date.len() != 8 {
+        return Err(anyhow!("illeagal format {:?}", date));
+    }
+
+    let yyyy: i32 = date[0..4].parse()?;
+    let mm: u32 = date[4..6].parse()?;
+    let dd: u32 = date[6..8].parse()?;
+
+    log::debug!{"{} -> {} {} {}", date, yyyy, mm, dd};
+
+    let date = Utc.with_ymd_and_hms(yyyy, mm, dd, 0, 0, 0).unwrap();
+
+    Ok(date.timestamp_micros() as MicroSec)
 }
 
 #[pyfunction]
@@ -131,6 +155,8 @@ pub fn NOW() -> MicroSec {
 
 #[cfg(test)]
 mod time_test {
+    use crate::common::init_debug_log;
+
     use super::*;
     #[test]
     fn test_floor() {
@@ -199,5 +225,15 @@ mod time_test {
         assert_eq!(1_000_000, CEIL(999_999, 1));
         assert_eq!(1_000_000, CEIL(1_000_000, 1));
         assert_eq!(2_000_000, CEIL(1_000_001, 1));
+    }
+
+    #[test]
+    fn test_yymmdd() -> anyhow::Result<()>{
+        init_debug_log();
+
+        assert_eq!(0,       parse_date("19700101")?);
+        assert_eq!(DAYS(9), parse_date("19700110")?);
+    
+        Ok(())
     }
 }

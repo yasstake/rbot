@@ -10,6 +10,7 @@ use super::MarketMessage;
 use super::SEC;
 use crate::common::time::time_string;
 use crate::db::get_db_root;
+use crate::db::KEY;
 use async_std::stream::Cloned;
 
 use polars::prelude::DataFrame;
@@ -20,6 +21,7 @@ use polars::series::Series;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use reqwest::Proxy;
+use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -322,12 +324,6 @@ impl Trade {
         };
     }
 
-    pub fn to_csv(&self) -> String {
-        format!(
-            "{:?}, {:?}, {:?}, {:?}, {:?}, {:?}\n",
-            self.time, self.order_side, self.price, self.size, self.status, self.id
-        )
-    }
 
     pub fn __str__(&self) -> String {
         format!(
@@ -349,6 +345,46 @@ impl Trade {
         )
     }
 }
+
+impl Trade {
+    pub fn to_csv(&self) -> String {
+        format!(
+            "{},{},{},{},{}\n",
+            self.time, self.order_side, self.price, self.size, self.id
+        )
+    }
+
+    pub fn from_csv(csv: String) -> Self {
+        let csv: Vec<&str> = csv.split(",").collect();
+
+        let timestamp: MicroSec = csv[0].parse().unwrap();
+        let order_side = csv[1];
+        let price: f64 = csv[2].parse().unwrap();
+        let size: f64 = csv[3].parse().unwrap();
+        let id = csv[4];
+
+        Self {
+            time: timestamp,
+            order_side: OrderSide::from(order_side),
+            price: Decimal::from_f64(price).unwrap(),
+            size: Decimal::from_f64(size).unwrap(),
+            status: LogStatus::FixArchiveBlock,
+            id: id.to_string()
+        }
+    }
+
+    pub fn csv_header() -> String {
+        format!(
+            "{},{},{},{},{}\n",
+            KEY::time_stamp,
+            KEY::order_side,
+            KEY::price,
+            KEY::size,
+            KEY::id
+        )
+    }
+}
+
 
 impl Into<String> for &Trade {
     fn into(self) -> String {
@@ -1334,7 +1370,7 @@ pub fn convert_klines_to_trades(klines: Vec<Kline>) -> Vec<Trade> {
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]
 mod order_tests {
-    use crate::common::PriceType;
+    use crate::common::{init_debug_log, PriceType};
 
     use super::*;
 
@@ -1496,5 +1532,28 @@ mod order_tests {
 
         assert_eq!(order.lock_home_change, dec![0.0]);
         assert_eq!(order.lock_foreign_change, dec![-0.0001]);
+    }
+
+
+    #[test]
+    fn test_csv() {
+        init_debug_log();
+
+        let price: f64 = "0.0".parse().unwrap();
+        log::debug!("price {}", price);
+
+        let header = Trade::csv_header();
+        log::debug!("header = {}", header);
+
+        let mut trade = Trade::default();
+        trade.id = "test id".to_string();
+
+        let csv = trade.to_csv();
+
+        log::debug!("trade= {}", csv);
+        
+        let csv2 = Trade::from_csv(csv);
+        log::debug!("csv= {} {:?}", csv2.to_csv(), csv2);
+
     }
 }

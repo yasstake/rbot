@@ -94,30 +94,15 @@ polars = { version = "0.41.3", features = [
          "parquet"
         ]}
 
-
-#polars-core = { version = "0.38.3", features = [
-##    "ndarray",
-#    "temporal",
-#    "dtype-time",
-#    "object",
-#    "round_series",#
-#] }
-#polars-lazy = { version = "0.38.3", features = [
-#    "dynamic_group_by",
-#    "round_series",
-#    "pivot",
-#] }
-# polars-time = { version = "0.38.3" }
-# polars-ops = { version = "0.38.3" }
 pyo3-polars = { version = "0.15.0" }
-
 
 ndarray = { version = "0.15" }
 numpy = { version = "0.21.0" }
 
-reqwest = { version = "0.12.2", features = ["blocking", "gzip"] }
+reqwest = { version = "0.12.2", features = ["blocking", "gzip", "stream"] }
 futures = { version = "0.3" }
 flate2 = { version = "1.0.24" }
+async-compression = {version="0.4.11", features = ["all"] }
 
 csv = { version = "1.2.2" }
 zip = { version = "2.1.1" }

@@ -53,11 +53,8 @@ use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
 
-
-static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>>
-    = Lazy::new(|| Mutex::new(HashMap::new()));
-
-
+static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug)]
 pub struct TradeTableDb {
@@ -416,7 +413,6 @@ impl TradeTableDb {
         Ok(db)
     }
 
-
     /// check if database file is exsit
     fn is_db_file_exsist(name: &str) -> bool {
         let path = std::path::Path::new(name);
@@ -652,7 +648,6 @@ impl TradeTable {
         trade_symbol: &str,
         production: bool,
     ) -> String {
-
         let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, production);
 
         return db_path.to_str().unwrap().to_string();
@@ -696,8 +691,18 @@ impl TradeTable {
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
-        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap().unwrap_or(0);
-        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap().unwrap_or(0);
+        let start_time: MicroSec = df
+            .column(KEY::time_stamp)
+            .unwrap()
+            .min()
+            .unwrap()
+            .unwrap_or(0);
+        let end_time: MicroSec = df
+            .column(KEY::time_stamp)
+            .unwrap()
+            .max()
+            .unwrap()
+            .unwrap_or(0);
 
         let head = select_df(&self.cache_ohlcvv, 0, start_time);
         let tail = select_df(&self.cache_ohlcvv, end_time, 0);
@@ -770,7 +775,7 @@ impl TradeTable {
     }
 
     pub fn ohlcv_floor_fix_time(t: MicroSec, unit_sec: i64) -> MicroSec {
-        return FLOOR_SEC(t, unit_sec)
+        return FLOOR_SEC(t, unit_sec);
     }
 
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
@@ -1837,7 +1842,7 @@ mod test_transaction_table {
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
-        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| {Ok(())});
+        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| Ok(()));
 
         println!("{:?} / {} microsec", ohlcv, NOW() - start);
     }
@@ -1936,9 +1941,8 @@ mod test_transaction_table {
 
     #[test]
     fn test_get_db() {
-        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();        
+        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();
 
-        println!("{:?}", db);        
+        println!("{:?}", db);
     }
 }
-

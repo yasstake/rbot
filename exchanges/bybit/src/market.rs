@@ -492,41 +492,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 }
 
 impl BybitMarket {
-    /*
-    async fn async_download_lastest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        if verbose {
-            print!("async_download_lastest");
-            flush_log();
-        }
-
-        let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
-        let rec = trades.len() as i64;
-
-        if verbose {
-            println!("rec: {}", rec);
-            flush_log();
-        }
-
-        {
-            log::debug!("get db");
-            flush_log();
-            let tx = self.db.lock();
-
-            if tx.is_err() {
-                log::error!("Error in self.db.lock: {:?}", tx);
-                return Err(anyhow::anyhow!("Error in self.db.lock: {:?}", tx));
-            }
-            let mut lock = tx.unwrap();
-            let tx = lock.start_thread();
-
-            log::debug!("start thread done");
-            tx.send(trades)?;
-        }
-
-        Ok(rec)
-    }
-    */
-
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
