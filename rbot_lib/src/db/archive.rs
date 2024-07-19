@@ -124,6 +124,7 @@ where
     /// download historical data from the web and store csv in the Archive directory
     pub async fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> anyhow::Result<i64> {
         let mut date = FLOOR_DAY(NOW());
+
         log::debug!("download log from {:?}({:?})", date_string(date), date);
 
         let mut count  = 0;
@@ -189,8 +190,13 @@ where
         Ok(df)
     }
 
-    pub fn select_df(&self, _start: MicroSec, _end: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn select_df(&self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
         Err(anyhow!("Not implemented"))
+    }
+
+    pub fn for_each_record(&self, start: MicroSec, end_time: MicroSec) -> anyhow::Result<i64> {
+
+        Ok(0)
     }
 
     /// get the date of the file. 0 if the file does not exist
@@ -293,13 +299,6 @@ where
     }
 
 
-    fn select<F>(&self, _start: MicroSec, _end: MicroSec, _f: F) -> anyhow::Result<()>
-    where
-        F: Fn(&DataFrame) -> Vec<(MicroSec, f64, f64, bool)>,
-    {
-        Err(anyhow!("Not implemented"))
-    }
-
     pub fn archive_directory(&self) -> PathBuf {
         let db_path_root = db_path_root(
             &self.config.exchange_name,
@@ -338,13 +337,15 @@ where
     }
 
     pub async fn archive_to_csv(
-        &self,
+        &mut self,
         date: MicroSec,
         force: bool,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        let server = &self.server;
-        let config = &self.config;
+        let server = &self.server.clone();
+        let config = &self.config.clone();
+
+        let date = FLOOR_DAY(date);
 
         let has_csv_file = self.has_archive_file(date);
 
@@ -353,22 +354,21 @@ where
                 println!("archive csv file exist {}", time_string(date));
                 return Ok(0);
             }
+        }
 
+        let latest = {
+            self.latest_archive_date().await?
+        };
+
+        if latest < date {
+            log::warn!("no data {} (archive latest={})", date_string(date), date_string(latest));
+            return Ok(0);
         }
 
         if verbose && force {
             println!("force download")
         }
 
-        if !T::has_archive(server, config, date).await {
-            if verbose {
-                println!("archive NOT exist {}", time_string(date));
-            }
-
-            return Ok(0);
-        }
-
-        let date = FLOOR_DAY(date);
         let url = T::history_web_url(server, config, date);
 
         log::debug!("Downloading ...[{}]", url);

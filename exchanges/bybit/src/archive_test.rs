@@ -52,11 +52,14 @@ mod archive_test {
 
     #[tokio::test]
     async fn test_archive_to_csv() {
-        let archive = create_archive();
+        let mut archive = create_archive();
 
         init_debug_log();
 
         let r = archive.archive_to_csv(NOW()-DAYS(2), true, true).await;
+        log::debug!("archive_to_csv result={:?}", r);
+
+        let r = archive.archive_to_csv(NOW()-DAYS(2), false, true).await;
         log::debug!("archive_to_csv result={:?}", r);
     }
 
@@ -122,7 +125,7 @@ mod archive_test {
        #[tokio::test]
        async fn test_list_dates() -> anyhow::Result<()> {
         init_debug_log();
-        let archive = create_archive();
+        let mut archive = create_archive();
 
         archive.archive_to_csv(NOW() - DAYS(2), false, true).await?;
         archive.archive_to_csv(NOW() - DAYS(3), false, true).await?;
