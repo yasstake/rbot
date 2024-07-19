@@ -1,22 +1,35 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, ServerConfig, DAYS, FLOOR_DAY, MIN, NOW, TODAY
-    }, db::KEY, net::{check_exist, log_download_tmp, read_csv_archive, RestApi}
+        date_string, parse_date, time_string, MarketConfig, MicroSec, ServerConfig, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+    },
+    db::{merge_df, KEY},
+    net::{check_exist, log_download_tmp, read_csv_archive, RestApi},
 };
 use anyhow::{anyhow, Context};
 // Import the `anyhow` crate and the `Result` type.
+use super::db_path_root;
 use polars::io::{csv::read::CsvReadOptions, SerReader};
-use polars::lazy::{dsl::{col, lit}, frame::IntoLazy};
+use polars::lazy::{
+    dsl::{col, lit},
+    frame::IntoLazy,
+};
 use polars::prelude::{AsString, DataFrame, NamedFrom};
 use polars::series::Series;
 use std::{
-    fs::{self, File}, io::BufWriter, path::PathBuf, str::FromStr, vec
+    fs::{self, File},
+    io::BufWriter,
+    path::PathBuf,
+    str::FromStr,
+    vec,
 };
 use tempfile::tempdir;
-use super::db_path_root;
 
 ///
 ///Archive CSV format
+/// 
+///│ timestamp ┆ order_side  | price ┆ size │ id      |
+///
+///Archive DataFrame
 ///┌───────────┬───────┬──────┬────────────┐
 ///│ timestamp ┆ price ┆ size ┆ order_side │ id      |
 ///│ ---       ┆ ---   ┆ ---  ┆ ---        │         |
@@ -122,16 +135,21 @@ where
     }
 
     /// download historical data from the web and store csv in the Archive directory
-    pub async fn download(&mut self, ndays: i64, force: bool, verbose: bool) -> anyhow::Result<i64> {
+    pub async fn download(
+        &mut self,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
         let mut date = FLOOR_DAY(NOW());
 
         log::debug!("download log from {:?}({:?})", date_string(date), date);
 
-        let mut count  = 0;
+        let mut count = 0;
         let mut i = 0;
 
         while i <= ndays {
-            count += self.archive_to_csv(date, force, verbose).await?;            
+            count += self.archive_to_csv(date, force, verbose).await?;
             date -= DAYS(1);
 
             i += 1;
@@ -148,10 +166,8 @@ where
         let size = Series::new(KEY::size, Vec::<f64>::new());
         let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
 
-        let df = DataFrame::new(vec![
-            time, price, size, order_side
-        ]).unwrap();
-        
+        let df = DataFrame::new(vec![time, price, size, order_side]).unwrap();
+
         return df;
     }
 
@@ -159,15 +175,22 @@ where
         let date = FLOOR_DAY(date);
 
         if date < self.start_time() {
-            log::warn!("Not found in archive[too early] query={:?} < start_time{:?}", date_string(date), date_string(self.start_time()));
+            log::warn!(
+                "Not found in archive[too early] query={:?} < start_time{:?}",
+                date_string(date),
+                date_string(self.start_time())
+            );
             return Ok(Self::make_empty_logdf());
         }
 
         if self.end_time() <= date {
-            log::warn!("Not found in archive[too new] query={:?} >= end_time{:?}", date_string(date), date_string(self.end_time()));
+            log::warn!(
+                "Not found in archive[too new] query={:?} >= end_time{:?}",
+                date_string(date),
+                date_string(self.end_time())
+            );
             return Ok(Self::make_empty_logdf());
         }
-
 
         let logfile = self.file_path(date);
         log::debug!("read into DataFrame {:?}", logfile);
@@ -177,13 +200,16 @@ where
             .try_into_reader_with_file_path(Some(logfile.into()))?
             .finish()?;
 
-        let df = df.lazy()
-                                .with_column(
-                                    col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side)
-                                    
-                                )
-                                .select([col(KEY::time_stamp), col(KEY::price), col(KEY::size), col(KEY::order_side)])
-                                .collect()?;
+        let df = df
+            .lazy()
+            .with_column(col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side))
+            .select([
+                col(KEY::time_stamp),
+                col(KEY::price),
+                col(KEY::size),
+                col(KEY::order_side),
+            ])
+            .collect()?;
 
         log::debug!("read into DataFrame complete");
 
@@ -191,12 +217,70 @@ where
     }
 
     pub fn select_df(&self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
-        Err(anyhow!("Not implemented"))
+        let dates = self.select_dates(start_time, end_time)?;
+
+        let mut df = Self::make_empty_logdf();
+
+        for date in dates {
+            log::debug!("{:?}", date_string(date));
+
+            let new_df = self.load_df(date)?;
+
+            df = merge_df(&df, &new_df);
+        }
+
+        Ok(df)
     }
 
-    pub fn for_each_record(&self, start: MicroSec, end_time: MicroSec) -> anyhow::Result<i64> {
+    pub fn for_each_record<F>(&self, start_time: MicroSec, end_time: MicroSec, f: &mut F) -> anyhow::Result<i64> 
+    where
+        F: FnMut(Trade)
+    {
+        let mut count = 0;
 
-        Ok(0)
+        let dates = self.select_dates(start_time, end_time)?;
+
+        for date in dates {
+            let file_path = self.file_path(date);
+            log::debug!("{:?} {:?}", date_string(date), file_path);
+
+            read_csv_archive(&file_path, true, |rec| {
+                let trade = Trade::from_record(rec);
+                f(trade);
+                count += 1;
+            });
+        }
+
+        Ok(count)
+    }
+
+    pub fn select_dates(
+        &self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<Vec<MicroSec>> {
+        let start_time = if start_time == 0 || start_time < self.start_time() {
+            self.start_time()
+        } else {
+            FLOOR_DAY(start_time)
+        };
+
+        let end_time = if end_time == 0 || self.end_time() <= end_time {
+            FLOOR_DAY(self.end_time() - 1)
+        } else {
+            FLOOR_DAY(end_time)
+        };
+
+        let all_dates = self.list_dates()?;
+
+        let mut dates: Vec<MicroSec> = all_dates
+            .into_iter()
+            .filter(|date| start_time <= *date && *date <= end_time)
+            .collect();
+
+        dates.sort();
+
+        return Ok(dates);
     }
 
     /// get the date of the file. 0 if the file does not exist
@@ -213,8 +297,8 @@ where
         }
 
         let date: Vec<&str> = file_stem.split("-").collect();
-   
-        let date = date[date.len()-1];
+
+        let date = date[date.len() - 1];
 
         let timestamp = parse_date(date)?;
 
@@ -224,7 +308,8 @@ where
     /// analyze archive directory, find start_time, end_time
     /// if there is fragmented date, delete it.
     pub fn analyze(&mut self) -> anyhow::Result<()> {
-        let dates = self.list_dates()?;
+        let mut dates = self.list_dates()?;
+        dates.reverse();
         log::debug!("analyze dates = {:?}", dates);
 
         let number_of_entry = dates.len();
@@ -247,13 +332,11 @@ where
                 log::debug!("setup first");
                 self.end_time = d + DAYS(1);
                 self.start_time = d;
-            }
-            else {
-                if last_time - d == DAYS(1)  {
+            } else {
+                if last_time - d == DAYS(1) {
                     log::debug!("next day OK{:?}", date_string(d));
                     self.start_time = d;
-                }
-                else {
+                } else {
                     log::debug!("have gap   {:?}", date_string(d));
                     detect_gap = true;
                 }
@@ -261,14 +344,13 @@ where
                 if detect_gap {
                     self.delete(d)?;
                 }
-            } 
+            }
 
-            last_time = d;        
+            last_time = d;
         }
 
         Ok(())
     }
-    
 
     /// get list of archive date in reverse order(newer first)
     pub fn list_dates(&self) -> anyhow::Result<Vec<MicroSec>> {
@@ -293,11 +375,9 @@ where
         }
 
         dates.sort();
-        dates.reverse();
-        
+
         Ok(dates)
     }
-
 
     pub fn archive_directory(&self) -> PathBuf {
         let db_path_root = db_path_root(
@@ -329,7 +409,12 @@ where
     pub fn delete(&self, date: MicroSec) -> anyhow::Result<()> {
         let path = self.file_path(date);
 
-        log::warn!("delete old archive file date{:?}({:?}) = {:?}", date, time_string(date), path);
+        log::warn!(
+            "delete old archive file date{:?}({:?}) = {:?}",
+            date,
+            time_string(date),
+            path
+        );
 
         std::fs::remove_file(&path).with_context(|| format!("remove file error {:?}", path))?;
 
@@ -356,12 +441,14 @@ where
             }
         }
 
-        let latest = {
-            self.latest_archive_date().await?
-        };
+        let latest = { self.latest_archive_date().await? };
 
         if latest < date {
-            log::warn!("no data {} (archive latest={})", date_string(date), date_string(latest));
+            log::warn!(
+                "no data {} (archive latest={})",
+                date_string(date),
+                date_string(latest)
+            );
             return Ok(0);
         }
 
@@ -402,7 +489,6 @@ where
         Ok(download_rec)
     }
 
-
     fn write_csv(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
         let now = NOW();
         log::debug!("write start");
@@ -414,11 +500,17 @@ where
 
         let mut csv_writer = csv::Writer::from_writer(encoder);
         csv_writer
-            .write_record(&[KEY::time_stamp, KEY::order_side, KEY::price, KEY::size, KEY::id])
+            .write_record(&[
+                KEY::time_stamp,
+                KEY::order_side,
+                KEY::price,
+                KEY::size,
+                KEY::id,
+            ])
             .unwrap();
         let mut download_rec: i64 = 0;
 
-        read_csv_archive(src_file.to_str().unwrap(), true, |rec| {
+        read_csv_archive(src_file, true, |rec| {
             let trade = T::rec_to_trade(&rec);
 
             let time = trade.time;
