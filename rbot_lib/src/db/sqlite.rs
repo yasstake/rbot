@@ -661,7 +661,17 @@ impl TradeTable {
             return Ok(db.clone());
         }
 
-        let db = Arc::new(Mutex::new(TradeTable::open(db_path)?));
+        let db = TradeTable::open(db_path)?;
+
+        log::debug!("vaccum start {:?}", db_path);
+        let r = db.vacuum();
+        if r.is_err() {
+            log::warn!("db vaccum error {:?}", r);
+        }
+        log::debug!("vaccum end");
+
+
+        let db = Arc::new(Mutex::new(db));
         db_cache.insert(db_path.to_string(), db.clone());
 
         Ok(db)
@@ -806,6 +816,7 @@ impl TradeTable {
         return Ok(buffer.to_dataframe());
     }
 
+    // アーカイブにある場合は、アーカイブから取得する
     pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<()> {
         self.cache_df = self.select_df_from_db(start_time, end_time)?;
 
@@ -816,6 +827,7 @@ impl TradeTable {
         self.update_cache_df(0, 0)
     }
 
+    // TODO: 日付単位に変更する。
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
         log::debug!("Expire cache {}", time_string(forget_before));
         let cache_timing = TradeTable::ohlcv_start(forget_before);
@@ -1516,7 +1528,7 @@ impl TradeTable {
 }
 
 impl TradeTable {
-    pub fn open(name: &str) -> anyhow::Result<Self> {
+    fn open(name: &str) -> anyhow::Result<Self> {
         let conn = TradeTableDb::open(name)?;
 
         log::debug!("db open success{}", name);
@@ -1941,6 +1953,7 @@ mod test_transaction_table {
 
     #[test]
     fn test_get_db() {
+        init_debug_log();
         let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();
 
         println!("{:?}", db);
