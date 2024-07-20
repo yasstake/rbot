@@ -29,15 +29,13 @@ crossbeam-channel = {workspace = true}
 csv = {workspace = true}
 
 polars = {workspace = true}
+polars-io = {workspace=true}
+
 pyo3-polars = {workspace = true}
 
 tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
-
-
-
-
 
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]

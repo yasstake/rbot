@@ -92,6 +92,10 @@ impl ServerConfig for BinanceServerConfig {
     fn get_api_secret(&self) -> SecretString {
         self.api_secret.clone() 
     }
+
+    fn is_production(&self) -> bool {
+        self.production
+    }
 }
 
 
@@ -114,7 +118,7 @@ impl BinanceConfig {
             price_unit: dec![0.5],
             price_scale: 2,
             size_unit: dec![0.001],
-            size_scale: 4,
+            size_scale: 3,
             maker_fee: dec![0.00_01],
             taker_fee: dec![0.00_01],
             price_type: PriceType::Home,

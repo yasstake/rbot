@@ -632,6 +632,20 @@ where
         return Ok(market_stream);
     }
 
+    fn for_each_record<F>(&self, time_from: MicroSec, time_to: MicroSec, f: &mut F) -> anyhow::Result<()> 
+    where
+        F: FnMut(&Trade) -> anyhow::Result<()>
+    {
+        let db = self.get_db();
+        let mut table_db = db.lock().unwrap();
+
+        table_db.select(time_from, time_to, |trade| {
+            f(trade)
+        })?;
+
+        Ok(())
+    }
+
     /*------------   async ----------------*/
     async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
         let server_config = self.get_server_config();

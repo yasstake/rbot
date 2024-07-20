@@ -89,6 +89,10 @@ impl ServerConfig for BybitServerConfig {
     fn get_historical_web_base(&self) -> String {
         self.history_web_base.clone()
     }
+
+    fn is_production(&self) -> bool {
+        self.production
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -2,6 +2,7 @@
 // ABUSOLUTELY NO WARRANTY.
 
 use pyo3::{pyclass, pymethods};
+use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
@@ -190,5 +191,6 @@ pub trait ServerConfig : Send + Sync {
     fn get_rest_server(&self) -> String;
     fn get_api_key(&self) -> SecretString;
     fn get_api_secret(&self) -> SecretString;
+    fn is_production(&self) -> bool;
 }
 

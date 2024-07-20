@@ -193,6 +193,16 @@ impl RestApi<BinanceServerConfig> for BinanceRestApi {
         }
     }
 
+    fn line_to_trade(_line: &str) -> Trade {
+        println!("NOT IMPLEMENTED line_to_trade");
+        Trade::default()
+    }
+
+    fn convert_archive_line(_line: &str) -> String {
+        println!("NOT IMPLEMENTED convert_archive_line");
+        "".to_string()
+    }
+
     /// binance csv Formatter
     /// example;
     ///  630277243,16681.46000000,0.00298000,49.71075080,1668816000029,True,True

@@ -37,21 +37,32 @@ pub fn project_dir() -> String {
     return proj_dir.data_dir().to_str().unwrap().to_string();
 }
 
-pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, test_net: bool) -> PathBuf {
+pub fn db_path_root(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
     let project_dir = get_db_root();
     let project_dir = PathBuf::from(project_dir);
     
     let db_dir = project_dir.join("DB");
     let exchange_dir = db_dir.join(exchange_name);
-    let _ = fs::create_dir_all(&exchange_dir);
+    let category_dir = exchange_dir.join(category);
+    let symbol_dir = category_dir.join(symbol);
 
-    let mut db_name = format!("{}-{}.db", category, symbol);
+    let db_root = if production {
+        symbol_dir.join("PRODUCTION")        
+    } else {
+        symbol_dir.join("TEST")
+    };
 
-    if test_net {
-        db_name = format!("TEST-{}", db_name);
-    }
+    let _ = fs::create_dir_all(&db_root);
+
+    return db_root;
+}
+
+pub fn db_full_path(exchange_name: &str, category: &str, symbol: &str, production: bool) -> PathBuf {
+    let db_path_root = db_path_root(exchange_name, category, symbol, production);
+
+    let db_name = format!("{}-{}.db", category, symbol);
     
-    let db_path = exchange_dir.join(db_name);
+    let db_path = db_path_root.join(db_name);
 
     return db_path;
 }

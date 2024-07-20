@@ -191,32 +191,6 @@ pub fn ohlcv_df(
                 multithreaded: true,
             },
         )
-        /*
-            .sort(
-                vec![SortDesc{
-                    column: KEY::time_stamp.into(),
-                    reverse: false,
-                    nulls_first: false,
-                }],
-                SortMultipleOptions {
-                    maintain_order: true,
-                    multithreaded: true,
-                    descending: false,
-                    nulls_last: false,
-                },
-            )
-            */
-        /*
-                .sort(
-                    KEY::time_stamp,
-                    SortOptions {
-                        descending: false,
-                        nulls_last: false,
-                        maintain_order: true,
-                        multithreaded: true,
-                    },
-                )
-                */
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -341,17 +315,6 @@ pub fn ohlcv_from_ohlcvv_df(
                 multithreaded: true,
             },
         )
-        /*
-        .sort(
-                KEY::time_stamp,
-                SortOptions {
-                    descending: false,
-                    nulls_last: false,
-                    maintain_order: true,
-                    multithreaded: true,
-                },
-            )
-            */
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::open)
