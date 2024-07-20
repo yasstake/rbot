@@ -89,15 +89,17 @@ polars = { version = "0.41.3", features = [
          "serde",
          "object",
          "list_to_struct",
-         "polars-io",
          "decompress",
          "parquet"
         ]}
 
 pyo3-polars = { version = "0.15.0" }
+polars-io = {version = "0.41.3", features=["avro", "parquet"]}
 
 ndarray = { version = "0.15" }
 numpy = { version = "0.21.0" }
+
+apache-avro = "0.16.0"
 
 reqwest = { version = "0.12.2", features = ["blocking", "gzip", "stream"] }
 futures = { version = "0.3" }

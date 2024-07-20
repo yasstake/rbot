@@ -327,6 +327,8 @@ where
             buffer.clear();
         }
         buffer.push(trade);
+
+        Ok(())
     });
 
     let buffer_len = buffer.len();
@@ -352,7 +354,7 @@ where
 
 pub fn read_csv_archive<F>(file_path: &PathBuf, has_header: bool, mut f: F) -> anyhow::Result<()>
 where
-    F: FnMut(&StringRecord),
+    F: FnMut(&StringRecord) -> anyhow::Result<()>,
 {
     log::debug!("read_csv_archive = {:?}", file_path);
 
@@ -676,6 +678,7 @@ mod test_exchange {
 
         read_csv_archive(&path, true, |_rec| {
             rec_no += 1;
+            Ok(())
         });
 
         log::debug!("rec_no = {}", rec_no);
@@ -715,27 +718,4 @@ mod test_exchange {
         Ok(())
     }
 
-    /*
-    use crate::exchange::binance::BinanceMarket;
-
-    #[test]
-    fn test_has_archive() {
-        init_debug_log();
-
-        let date = NOW() - DAYS(1);
-        let config = crate::exchange::binance::config::BinanceConfig::BTCUSDT();
-
-        let f = |date: MicroSec| -> String {
-            BinanceMarket::make_historical_data_url_timestamp(&config, date)
-        };
-
-        let result = has_archive(date, &f);
-
-        assert!(result.is_ok());
-
-        let result = result.unwrap();
-
-        assert_eq!(result, true);
-    }
-    */
 }
