@@ -147,7 +147,7 @@ impl Session {
             &config.exchange_name, 
             &category, 
             &config.trade_symbol, 
-            ! production);
+            production);
 
         let mut session = Self {
             session_id: Self::int_to_base64(now_time),
@@ -776,7 +776,7 @@ impl Session {
             &market.exchange_name,
             &market.trade_category,
             &market.trade_symbol,
-            false,      // use only production db for reference
+            true,      // use only production db for reference
         );
 
         TradeTable::get(&db_path)

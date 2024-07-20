@@ -53,11 +53,8 @@ use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
 
-
-static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>>
-    = Lazy::new(|| Mutex::new(HashMap::new()));
-
-
+static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug)]
 pub struct TradeTableDb {
@@ -416,7 +413,6 @@ impl TradeTableDb {
         Ok(db)
     }
 
-
     /// check if database file is exsit
     fn is_db_file_exsist(name: &str) -> bool {
         let path = std::path::Path::new(name);
@@ -650,10 +646,9 @@ impl TradeTable {
         exchange_name: &str,
         trade_category: &str,
         trade_symbol: &str,
-        test_net: bool,
+        production: bool,
     ) -> String {
-
-        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, test_net);
+        let db_path = db_full_path(&exchange_name, &trade_category, trade_symbol, production);
 
         return db_path.to_str().unwrap().to_string();
     }
@@ -666,7 +661,17 @@ impl TradeTable {
             return Ok(db.clone());
         }
 
-        let db = Arc::new(Mutex::new(TradeTable::open(db_path)?));
+        let db = TradeTable::open(db_path)?;
+
+        log::debug!("vaccum start {:?}", db_path);
+        let r = db.vacuum();
+        if r.is_err() {
+            log::warn!("db vaccum error {:?}", r);
+        }
+        log::debug!("vaccum end");
+
+
+        let db = Arc::new(Mutex::new(db));
         db_cache.insert(db_path.to_string(), db.clone());
 
         Ok(db)
@@ -696,8 +701,18 @@ impl TradeTable {
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
-        let start_time: MicroSec = df.column(KEY::time_stamp).unwrap().min().unwrap().unwrap_or(0);
-        let end_time: MicroSec = df.column(KEY::time_stamp).unwrap().max().unwrap().unwrap_or(0);
+        let start_time: MicroSec = df
+            .column(KEY::time_stamp)
+            .unwrap()
+            .min()
+            .unwrap()
+            .unwrap_or(0);
+        let end_time: MicroSec = df
+            .column(KEY::time_stamp)
+            .unwrap()
+            .max()
+            .unwrap()
+            .unwrap_or(0);
 
         let head = select_df(&self.cache_ohlcvv, 0, start_time);
         let tail = select_df(&self.cache_ohlcvv, end_time, 0);
@@ -770,7 +785,7 @@ impl TradeTable {
     }
 
     pub fn ohlcv_floor_fix_time(t: MicroSec, unit_sec: i64) -> MicroSec {
-        return FLOOR_SEC(t, unit_sec)
+        return FLOOR_SEC(t, unit_sec);
     }
 
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
@@ -801,6 +816,7 @@ impl TradeTable {
         return Ok(buffer.to_dataframe());
     }
 
+    // アーカイブにある場合は、アーカイブから取得する
     pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<()> {
         self.cache_df = self.select_df_from_db(start_time, end_time)?;
 
@@ -811,6 +827,7 @@ impl TradeTable {
         self.update_cache_df(0, 0)
     }
 
+    // TODO: 日付単位に変更する。
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
         log::debug!("Expire cache {}", time_string(forget_before));
         let cache_timing = TradeTable::ohlcv_start(forget_before);
@@ -1511,7 +1528,7 @@ impl TradeTable {
 }
 
 impl TradeTable {
-    pub fn open(name: &str) -> anyhow::Result<Self> {
+    fn open(name: &str) -> anyhow::Result<Self> {
         let conn = TradeTableDb::open(name)?;
 
         log::debug!("db open success{}", name);
@@ -1837,7 +1854,7 @@ mod test_transaction_table {
         let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
-        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| {Ok(())});
+        let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| Ok(()));
 
         println!("{:?} / {} microsec", ohlcv, NOW() - start);
     }
@@ -1936,9 +1953,9 @@ mod test_transaction_table {
 
     #[test]
     fn test_get_db() {
-        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();        
+        init_debug_log();
+        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();
 
-        println!("{:?}", db);        
+        println!("{:?}", db);
     }
 }
-

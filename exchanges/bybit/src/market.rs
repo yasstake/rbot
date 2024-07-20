@@ -57,7 +57,7 @@ pub const BYBIT: &str = "BYBIT";
 #[pyclass]
 #[derive(Debug)]
 pub struct Bybit {
-    test_net: bool,
+    production: bool,
     enable_order: bool,
     server_config: BybitServerConfig,
     user_handler: Option<JoinHandle<()>>,
@@ -71,7 +71,7 @@ impl Bybit {
         let server_config = BybitServerConfig::new(production);
 
         return Bybit {
-            test_net: !production,
+            production: production,
             enable_order: false,
             server_config: server_config,
             user_handler: None,
@@ -84,7 +84,7 @@ impl Bybit {
     }
 
     pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
-        return BybitMarket::new(&self.server_config, config, self.test_net);
+        return BybitMarket::new(&self.server_config, config, self.production);
     }
 
     //--- OrderInterfaceImpl ----
@@ -225,10 +225,10 @@ pub struct BybitMarket {
 #[pymethods]
 impl BybitMarket {
     #[new]
-    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig, test_net: bool) -> Self {
+    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig, production: bool) -> Self {
         log::debug!("open market BybitMarket::new");
         BLOCK_ON(async { 
-            Self::async_new(server_config, config, test_net).await.unwrap() 
+            Self::async_new(server_config, config, production).await.unwrap() 
         })
     }
     #[getter]
@@ -397,16 +397,16 @@ impl BybitMarket {
     pub async fn async_new(
         server_config: &BybitServerConfig,
         config: &MarketConfig,
-        test_mode: bool,
+        production: bool,
     ) -> anyhow::Result<Self> {
         let db_path = TradeTable::make_db_path(
             &config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
-            test_mode    
+            production
         );
 
-        let db = TradeTable::open(&db_path)
+        let db = TradeTable::get(&db_path)
             .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
@@ -414,7 +414,7 @@ impl BybitMarket {
         let mut market = BybitMarket {
             server_config: server_config.clone(),
             config: config.clone(),
-            db: Arc::new(Mutex::new(db)),
+            db: db,
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
             public_handler: None,
         };
@@ -492,41 +492,6 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
 }
 
 impl BybitMarket {
-    /*
-    async fn async_download_lastest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        if verbose {
-            print!("async_download_lastest");
-            flush_log();
-        }
-
-        let trades = BybitRestApi::get_recent_trades(&self.server_config, &self.config).await?;
-        let rec = trades.len() as i64;
-
-        if verbose {
-            println!("rec: {}", rec);
-            flush_log();
-        }
-
-        {
-            log::debug!("get db");
-            flush_log();
-            let tx = self.db.lock();
-
-            if tx.is_err() {
-                log::error!("Error in self.db.lock: {:?}", tx);
-                return Err(anyhow::anyhow!("Error in self.db.lock: {:?}", tx));
-            }
-            let mut lock = tx.unwrap();
-            let tx = lock.start_thread();
-
-            log::debug!("start thread done");
-            tx.send(trades)?;
-        }
-
-        Ok(rec)
-    }
-    */
-
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
@@ -771,11 +736,15 @@ mod bybit_test {
 
 #[cfg(test)]
 mod market_test {
+    use rbot_lib::common::init_debug_log;
+
     use crate::BybitConfig;
 
     #[test]
     fn test_create() {
         use super::*;
+
+        init_debug_log();
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
