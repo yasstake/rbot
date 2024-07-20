@@ -8,7 +8,7 @@ use crate::{
 use anyhow::{anyhow, Context};
 // Import the `anyhow` crate and the `Result` type.
 use super::db_path_root;
-use polars::io::{csv::read::CsvReadOptions, SerReader};
+use polars::io::{csv::read::CsvReadOptions, parquet::write::ParquetWriter, SerReader};
 use polars::lazy::{
     dsl::{col, lit},
     frame::IntoLazy,
@@ -23,6 +23,9 @@ use std::{
     vec,
 };
 use tempfile::tempdir;
+
+const PARQUET: bool = true;
+const EXTENSION: &str = "parquet";
 
 ///
 ///Archive CSV format
@@ -234,7 +237,7 @@ where
 
     pub fn for_each_record<F>(&self, start_time: MicroSec, end_time: MicroSec, f: &mut F) -> anyhow::Result<i64> 
     where
-        F: FnMut(Trade)
+        F: FnMut(Trade) -> anyhow::Result<()>
     {
         let mut count = 0;
 
@@ -246,9 +249,11 @@ where
 
             read_csv_archive(&file_path, true, |rec| {
                 let trade = Trade::from_record(rec);
-                f(trade);
+                f(trade)?;
                 count += 1;
-            });
+
+                Ok(())
+            })?;
         }
 
         Ok(count)
@@ -421,6 +426,76 @@ where
         Ok(())
     }
 
+    pub async fn archive_to_parquet(
+        &mut self,
+        date: MicroSec,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64>
+    {
+        let server = &self.server.clone();
+        let config = &self.config.clone();
+
+        let date = FLOOR_DAY(date);
+
+        let has_csv_file = self.has_archive_file(date);
+
+        if has_csv_file && !force {
+            if verbose {
+                println!("archive csv file exist {}", time_string(date));
+                return Ok(0);
+            }
+        }
+
+        let latest = { self.latest_archive_date().await? };
+
+        if latest < date {
+            log::warn!(
+                "no data {} (archive latest={})",
+                date_string(date),
+                date_string(latest)
+            );
+            return Ok(0);
+        }
+
+        if verbose && force {
+            println!("force download")
+        }
+
+        let url = T::history_web_url(server, config, date);
+
+        log::debug!("Downloading ...[{}]", url);
+
+        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
+
+        let file_path = log_download_tmp(&url, tmp_dir.path())
+            .await
+            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
+
+        let file_path = PathBuf::from(file_path);
+
+        // load to paquet
+        log::debug!("convert to csv.gz file");
+        let gzip_csv_file = self.file_path(date);
+        let gzip_csv_tmp = gzip_csv_file.with_extension("tmp");
+
+        let download_rec = self.write_csv(&file_path, &gzip_csv_tmp)?;
+
+        std::fs::remove_file(&file_path)
+            .with_context(|| format!("remove file error {:?}", file_path))?;
+        let r = std::fs::rename(gzip_csv_tmp, gzip_csv_file);
+        if r.is_err() {
+            if verbose {
+                println!("rename error {:?}", r);
+            }
+            log::error!("rename error {:?}", r);
+        }
+
+        log::debug!("download rec = {}", download_rec);
+
+        Ok(download_rec)
+    }
+
     pub async fn archive_to_csv(
         &mut self,
         date: MicroSec,
@@ -489,6 +564,41 @@ where
         Ok(download_rec)
     }
 
+    fn convert_parquet(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
+        let df = self.load_raw_log(src_file)?;
+        let mut df = T::logdf_to_archivedf(&df)?;
+        let size = df.shape().0;
+        self.dump_parquet(target_file, &mut df)?;
+
+        Ok(size as i64)
+    }
+
+    fn load_raw_log(&self, src_file: &PathBuf) -> anyhow::Result<DataFrame> {
+        let has_header = T::archive_has_header();
+
+        let df = CsvReadOptions::default()
+        .with_has_header(has_header)
+        .try_into_reader_with_file_path(Some(src_file.clone()))?
+        .finish()?;
+
+        Ok(df)
+    }
+
+    fn dump_parquet(&self, target_file: &PathBuf, mut df: &mut DataFrame) -> anyhow::Result<()> {
+        let tmp_file = target_file.clone();
+        tmp_file.with_extension("tmp");
+
+        let mut file = File::create(&tmp_file).expect("could not create file");
+
+        ParquetWriter::new(&mut file)
+            .finish(&mut df)?;
+
+        std::fs::rename(tmp_file, target_file)?;
+
+        Ok(())
+    }
+
+
     fn write_csv(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
         let now = NOW();
         log::debug!("write start");
@@ -526,9 +636,10 @@ where
                     price.to_string(),
                     size.to_string(),
                     id.to_string(),
-                ])
-                .unwrap();
+                ])?;
             download_rec += 1;
+
+            Ok(())
         })?;
 
         csv_writer.flush().unwrap();
