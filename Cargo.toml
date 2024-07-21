@@ -96,6 +96,9 @@ polars = { version = "0.41.3", features = [
 pyo3-polars = { version = "0.15.0" }
 polars-io = {version = "0.41.3", features=["avro", "parquet"]}
 
+arrow = "52.1.0"
+parquet = "52.1.0"
+
 ndarray = { version = "0.15" }
 numpy = { version = "0.21.0" }
 
