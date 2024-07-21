@@ -27,6 +27,9 @@ polars = {workspace=true}
 # polars-ops = {workspace=true}
 pyo3-polars = {workspace=true}
 
+arrow = {workspace=true}
+parquet = {workspace=true}
+
 apache-avro = {workspace=true}
 
 strum_macros = {workspace=true}
