@@ -1,19 +1,23 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, ServerConfig, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, ServerConfig, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
     },
-    db::{merge_df, KEY},
+    db::{csv_to_df, df_to_parquet, merge_df, parquet_to_df, KEY},
     net::{check_exist, log_download_tmp, read_csv_archive, RestApi},
 };
 use anyhow::{anyhow, Context};
+use parquet::{
+    file::reader::{FileReader, SerializedFileReader},
+    record::RowAccessor,
+};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 // Import the `anyhow` crate and the `Result` type.
 use super::db_path_root;
-use polars::io::{csv::read::CsvReadOptions, parquet::write::ParquetWriter, SerReader};
 use polars::lazy::{
     dsl::{col, lit},
     frame::IntoLazy,
 };
-use polars::prelude::{AsString, DataFrame, NamedFrom};
+use polars::prelude::{DataFrame, NamedFrom};
 use polars::series::Series;
 use std::{
     fs::{self, File},
@@ -24,12 +28,15 @@ use std::{
 };
 use tempfile::tempdir;
 
+use parquet::record::Row;
+use std::sync::Arc;
+
 const PARQUET: bool = true;
 const EXTENSION: &str = "parquet";
 
 ///
 ///Archive CSV format
-/// 
+///
 ///│ timestamp ┆ order_side  | price ┆ size │ id      |
 ///
 ///Archive DataFrame
@@ -38,6 +45,11 @@ const EXTENSION: &str = "parquet";
 ///│ ---       ┆ ---   ┆ ---  ┆ ---        │         |
 ///│ i64       ┆ f64   ┆ f64  ┆ bool       │string   |
 ///└───────────┴───────┴──────┴────────────┘
+///
+///
+/// log_df    ->   raw archvie file it may be different from exchanges.
+/// archive_df -> archvie file that is stored in the local directory
+/// chache_df -> df to use TradeTable's cache.
 #[derive(Debug)]
 pub struct TradeTableArchive<T, U>
 where
@@ -88,6 +100,8 @@ where
         self.end_time
     }
 
+    /// check the lates date in archive web site
+    /// check the latest check time, within 60 min call this function, reuse cache value.
     pub async fn latest_archive_date(&mut self) -> anyhow::Result<MicroSec> {
         let now = NOW();
         if now - self.last_archive_check_time < MIN(60) {
@@ -101,7 +115,7 @@ where
         loop {
             log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-            if self.has_archive_web(latest).await? {
+            if self.has_web_archive(latest).await? {
                 self.latest_archive_date = latest;
                 return Ok(latest);
             }
@@ -118,7 +132,8 @@ where
         }
     }
 
-    async fn has_archive_web(&self, date: MicroSec) -> anyhow::Result<bool> {
+    /// check if achive date is avairable at specified date
+    async fn has_web_archive(&self, date: MicroSec) -> anyhow::Result<bool> {
         let url = T::history_web_url(&self.server, &self.config, date);
         let result = check_exist(url.as_str()).await;
 
@@ -129,7 +144,8 @@ where
         Ok(result.unwrap())
     }
 
-    pub fn has_archive_file(&self, date: MicroSec) -> bool {
+    // check if the log data is already stored in local.
+    pub fn has_local_archive(&self, date: MicroSec) -> bool {
         let archive_path = self.file_path(date);
 
         log::debug!("check file exists {:?}", archive_path);
@@ -152,7 +168,7 @@ where
         let mut i = 0;
 
         while i <= ndays {
-            count += self.archive_to_csv(date, force, verbose).await?;
+            count += self.web_archive_to_parquet(date, force, verbose).await?;
             date -= DAYS(1);
 
             i += 1;
@@ -163,18 +179,33 @@ where
         Ok(count)
     }
 
-    pub fn make_empty_logdf() -> DataFrame {
+    /// generate 0 row empty cache(stored in memory) df
+    pub fn make_empty_cachedf() -> DataFrame {
         let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
         let price = Series::new(KEY::price, Vec::<f64>::new());
         let size = Series::new(KEY::size, Vec::<f64>::new());
         let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
 
-        let df = DataFrame::new(vec![time, price, size, order_side]).unwrap();
+        let df = DataFrame::new(vec![time, order_side, price, size]).unwrap();
 
         return df;
     }
 
-    pub fn load_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
+    /// generate 0 row empty archive(stored in disk) df
+    pub fn load_archive_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
+        let parquet_file = self.file_path(date);
+        log::debug!(
+            "read archive file into DataFrame {} ({})",
+            date_string(date),
+            date
+        );
+        let df = parquet_to_df(&parquet_file)?;
+
+        Ok(df)
+    }
+
+    /// load from parquet file and retrive as cachedf.
+    pub fn load_cache_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
         let date = FLOOR_DAY(date);
 
         if date < self.start_time() {
@@ -183,7 +214,7 @@ where
                 date_string(date),
                 date_string(self.start_time())
             );
-            return Ok(Self::make_empty_logdf());
+            return Ok(Self::make_empty_cachedf());
         }
 
         if self.end_time() <= date {
@@ -192,25 +223,21 @@ where
                 date_string(date),
                 date_string(self.end_time())
             );
-            return Ok(Self::make_empty_logdf());
+            return Ok(Self::make_empty_cachedf());
         }
 
-        let logfile = self.file_path(date);
-        log::debug!("read into DataFrame {:?}", logfile);
+        let df = self.load_archive_df(date)?;
 
-        let df = CsvReadOptions::default()
-            .with_has_header(true)
-            .try_into_reader_with_file_path(Some(logfile.into()))?
-            .finish()?;
+        log::debug!("{:?}", df);
 
         let df = df
             .lazy()
             .with_column(col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side))
             .select([
                 col(KEY::time_stamp),
+                col(KEY::order_side),
                 col(KEY::price),
                 col(KEY::size),
-                col(KEY::order_side),
             ])
             .collect()?;
 
@@ -219,15 +246,20 @@ where
         Ok(df)
     }
 
-    pub fn select_df(&self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
+    /// load from archived paquet file retrive specifed time frame.
+    pub fn select_cache_df(
+        &self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
         let dates = self.select_dates(start_time, end_time)?;
 
-        let mut df = Self::make_empty_logdf();
+        let mut df = Self::make_empty_cachedf();
 
         for date in dates {
             log::debug!("{:?}", date_string(date));
 
-            let new_df = self.load_df(date)?;
+            let new_df = self.load_cache_df(date)?;
 
             df = merge_df(&df, &new_df);
         }
@@ -235,30 +267,60 @@ where
         Ok(df)
     }
 
-    pub fn for_each_record<F>(&self, start_time: MicroSec, end_time: MicroSec, f: &mut F) -> anyhow::Result<i64> 
+    /// execute f for each rec in archive within specifed time frame.
+    pub fn foreach<F>(&self, start_time: MicroSec, end_time: MicroSec, f: &mut F) -> anyhow::Result<i64>
     where
-        F: FnMut(Trade) -> anyhow::Result<()>
+    F: FnMut(&Trade) -> anyhow::Result<()>
+    {
+        let dates = self.select_dates(start_time, end_time)?;
+
+        let mut count: i64 = 0;
+        for d in dates {
+            count += self.foreach_paquet(d, f)?;
+        }
+
+        Ok(count)
+    }
+    
+    /// execite f for each rec(trade) specifed a date.
+    pub fn foreach_paquet<F>(&self, date: MicroSec, f: &mut F) -> anyhow::Result<i64> 
+    where
+    F: FnMut(&Trade) -> anyhow::Result<()>
     {
         let mut count = 0;
 
-        let dates = self.select_dates(start_time, end_time)?;
+        let file = self.file_path(date);
+        let file = File::open(file)?;
+        let reader = SerializedFileReader::new(file)?;
 
-        for date in dates {
-            let file_path = self.file_path(date);
-            log::debug!("{:?} {:?}", date_string(date), file_path);
+        // スキーマを取得
+        let schema = reader.metadata().file_metadata().schema();
+        println!("File Schema: {:?}", schema);
 
-            read_csv_archive(&file_path, true, |rec| {
-                let trade = Trade::from_record(rec);
-                f(trade)?;
-                count += 1;
+        for row in reader {
+            let row = row?;
 
-                Ok(())
-            })?;
+            let timestamp = row.get_long(0)?;
+            let order_side = row.get_string(1)?;
+            let price = row.get_double(2)?;
+            let size = row.get_double(3)?;
+            let id = row.get_string(4)?;
+
+            let trade = Trade::new(timestamp, 
+                OrderSide::from(order_side.as_str()), 
+                Decimal::from_f64(price).unwrap(), 
+                Decimal::from_f64(size).unwrap(), crate::common::LogStatus::FixArchiveBlock, id);
+
+                f(&trade)?;
+            // log::debug!("{:?}" , trade);
+
+            count += 1;
         }
 
         Ok(count)
     }
 
+    /// 
     pub fn select_dates(
         &self,
         start_time: MicroSec,
@@ -291,15 +353,7 @@ where
     /// get the date of the file. 0 if the file does not exist
     /// File name
     pub fn file_date(&self, path: &PathBuf) -> anyhow::Result<MicroSec> {
-        let mut file_stem = path.file_stem().unwrap().to_str().unwrap();
-
-        if file_stem.ends_with(".csv") {
-            file_stem = file_stem.trim_end_matches(".csv");
-        }
-
-        if file_stem.ends_with(".csv.gz") {
-            file_stem = file_stem.trim_end_matches(".csv.gz");
-        }
+        let file_stem = path.file_stem().unwrap().to_str().unwrap();
 
         let date: Vec<&str> = file_stem.split("-").collect();
 
@@ -357,7 +411,7 @@ where
         Ok(())
     }
 
-    /// get list of archive date in reverse order(newer first)
+    /// get list of archive date in order(older first)
     pub fn list_dates(&self) -> anyhow::Result<Vec<MicroSec>> {
         let mut dates: Vec<MicroSec> = vec![];
 
@@ -369,7 +423,7 @@ where
                     let ent = ent.path();
                     let path = ent.file_name().unwrap();
                     let path_str = path.to_str().unwrap();
-                    if path_str.ends_with(".csv.gz") {
+                    if path_str.ends_with(EXTENSION) {
                         log::debug!("entry= {:?}", path_str);
                         if let Ok(date) = self.file_date(&PathBuf::from_str(&path_str)?) {
                             dates.push(date);
@@ -384,7 +438,8 @@ where
         Ok(dates)
     }
 
-    pub fn archive_directory(&self) -> PathBuf {
+    /// get archive directory for each exchagen and trading pair.
+    fn archive_directory(&self) -> PathBuf {
         let db_path_root = db_path_root(
             &self.config.exchange_name,
             &self.config.trade_category,
@@ -398,20 +453,22 @@ where
         return archive_dir;
     }
 
+    /// get file path for the date
     pub fn file_path(&self, date: MicroSec) -> PathBuf {
         let archive_directory = self.archive_directory();
 
         let date = FLOOR_DAY(date);
         let date = date_string(date);
 
-        let archive_name = format!("{}-{}.csv.gz", self.config.trade_symbol, date);
+        let archive_name = format!("{}-{}.{}", self.config.trade_symbol, date, EXTENSION);
 
         let archive_path = archive_directory.join(archive_name);
 
         return archive_path;
     }
 
-    pub fn delete(&self, date: MicroSec) -> anyhow::Result<()> {
+    /// delete archive file at date
+    fn delete(&self, date: MicroSec) -> anyhow::Result<()> {
         let path = self.file_path(date);
 
         log::warn!(
@@ -426,19 +483,18 @@ where
         Ok(())
     }
 
-    pub async fn archive_to_parquet(
+    pub async fn web_archive_to_parquet(
         &mut self,
         date: MicroSec,
         force: bool,
         verbose: bool,
-    ) -> anyhow::Result<i64>
-    {
+    ) -> anyhow::Result<i64> {
         let server = &self.server.clone();
         let config = &self.config.clone();
 
         let date = FLOOR_DAY(date);
 
-        let has_csv_file = self.has_archive_file(date);
+        let has_csv_file = self.has_local_archive(date);
 
         if has_csv_file && !force {
             if verbose {
@@ -475,177 +531,20 @@ where
         let file_path = PathBuf::from(file_path);
 
         // load to paquet
-        log::debug!("convert to csv.gz file");
-        let gzip_csv_file = self.file_path(date);
-        let gzip_csv_tmp = gzip_csv_file.with_extension("tmp");
-
-        let download_rec = self.write_csv(&file_path, &gzip_csv_tmp)?;
-
-        std::fs::remove_file(&file_path)
-            .with_context(|| format!("remove file error {:?}", file_path))?;
-        let r = std::fs::rename(gzip_csv_tmp, gzip_csv_file);
-        if r.is_err() {
-            if verbose {
-                println!("rename error {:?}", r);
-            }
-            log::error!("rename error {:?}", r);
-        }
-
-        log::debug!("download rec = {}", download_rec);
-
-        Ok(download_rec)
-    }
-
-    pub async fn archive_to_csv(
-        &mut self,
-        date: MicroSec,
-        force: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        let server = &self.server.clone();
-        let config = &self.config.clone();
-
-        let date = FLOOR_DAY(date);
-
-        let has_csv_file = self.has_archive_file(date);
-
-        if has_csv_file && !force {
-            if verbose {
-                println!("archive csv file exist {}", time_string(date));
-                return Ok(0);
-            }
-        }
-
-        let latest = { self.latest_archive_date().await? };
-
-        if latest < date {
-            log::warn!(
-                "no data {} (archive latest={})",
-                date_string(date),
-                date_string(latest)
-            );
-            return Ok(0);
-        }
-
-        if verbose && force {
-            println!("force download")
-        }
-
-        let url = T::history_web_url(server, config, date);
-
-        log::debug!("Downloading ...[{}]", url);
-
-        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
-
-        let file_path = log_download_tmp(&url, tmp_dir.path())
-            .await
-            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
-
-        let file_path = PathBuf::from(file_path);
-
-        log::debug!("convert to csv.gz file");
-        let gzip_csv_file = self.file_path(date);
-        let gzip_csv_tmp = gzip_csv_file.with_extension("tmp");
-
-        let download_rec = self.write_csv(&file_path, &gzip_csv_tmp)?;
-
-        std::fs::remove_file(&file_path)
-            .with_context(|| format!("remove file error {:?}", file_path))?;
-        let r = std::fs::rename(gzip_csv_tmp, gzip_csv_file);
-        if r.is_err() {
-            if verbose {
-                println!("rename error {:?}", r);
-            }
-            log::error!("rename error {:?}", r);
-        }
-
-        log::debug!("download rec = {}", download_rec);
-
-        Ok(download_rec)
-    }
-
-    fn convert_parquet(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
-        let df = self.load_raw_log(src_file)?;
-        let mut df = T::logdf_to_archivedf(&df)?;
-        let size = df.shape().0;
-        self.dump_parquet(target_file, &mut df)?;
-
-        Ok(size as i64)
-    }
-
-    fn load_raw_log(&self, src_file: &PathBuf) -> anyhow::Result<DataFrame> {
+        log::debug!("read log csv to df");
         let has_header = T::archive_has_header();
+        let df = csv_to_df(&file_path, has_header)?;
+        log::debug!("load to df {:?}", df.shape());
 
-        let df = CsvReadOptions::default()
-        .with_has_header(has_header)
-        .try_into_reader_with_file_path(Some(src_file.clone()))?
-        .finish()?;
+        let mut archive_df = T::logdf_to_archivedf(&df)?;
+        log::debug!("archive df shape={:?}", archive_df.shape());
 
-        Ok(df)
-    }
+        log::debug!("store paquet");
+        let paquet_file = self.file_path(date);
+        let rec = df_to_parquet(&mut archive_df, &paquet_file)?;
+        log::debug!("done {} [rec]", rec);
 
-    fn dump_parquet(&self, target_file: &PathBuf, mut df: &mut DataFrame) -> anyhow::Result<()> {
-        let tmp_file = target_file.clone();
-        tmp_file.with_extension("tmp");
-
-        let mut file = File::create(&tmp_file).expect("could not create file");
-
-        ParquetWriter::new(&mut file)
-            .finish(&mut df)?;
-
-        std::fs::rename(tmp_file, target_file)?;
-
-        Ok(())
-    }
-
-
-    fn write_csv(&self, src_file: &PathBuf, target_file: &PathBuf) -> anyhow::Result<i64> {
-        let now = NOW();
-        log::debug!("write start");
-
-        let gzip_file = File::create(&target_file)
-            .with_context(|| format!("gzip file create error {}", target_file.to_str().unwrap()))?;
-        let encoder = flate2::write::GzEncoder::new(gzip_file, flate2::Compression::default());
-        let encoder = BufWriter::new(encoder);
-
-        let mut csv_writer = csv::Writer::from_writer(encoder);
-        csv_writer
-            .write_record(&[
-                KEY::time_stamp,
-                KEY::order_side,
-                KEY::price,
-                KEY::size,
-                KEY::id,
-            ])
-            .unwrap();
-        let mut download_rec: i64 = 0;
-
-        read_csv_archive(src_file, true, |rec| {
-            let trade = T::rec_to_trade(&rec);
-
-            let time = trade.time;
-            let side = trade.order_side.to_string();
-            let price = trade.price;
-            let size = trade.size;
-            let id = trade.id;
-
-            csv_writer
-                .write_record(&[
-                    time.to_string(),
-                    side,
-                    price.to_string(),
-                    size.to_string(),
-                    id.to_string(),
-                ])?;
-            download_rec += 1;
-
-            Ok(())
-        })?;
-
-        csv_writer.flush().unwrap();
-
-        log::debug!("write done {}[usec]", NOW() - now);
-
-        Ok(download_rec)
+        Ok(rec)
     }
 }
+
