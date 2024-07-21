@@ -1,5 +1,8 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::fs::File;
+use std::path::PathBuf;
+
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
 use polars::prelude::BooleanType;
@@ -47,6 +50,42 @@ pub mod KEY {
     pub const start_time: &str = "start_time";
     pub const end_time: &str = "end_time";
     pub const count: &str = "count";
+}
+
+/// Convert DataFrame to Parquet format and save it to the specified path.
+pub fn df_to_parquet(df: &mut DataFrame, target_path: &PathBuf) -> anyhow::Result<i64>{
+    let mut target_path = target_path.clone();
+    target_path.set_extension("parquet");
+    let tmp = target_path.clone();
+    tmp.with_extension("tmp");
+
+    let mut file = File::create(&tmp).expect("could not create file");
+
+    ParquetWriter::new(&mut file)
+        .finish(df)?;
+
+    std::fs::rename(&tmp, &target_path)?;
+
+    Ok(df.shape().0 as i64)
+}
+
+/// This function reads a Parquet file and converts it into a DataFrame.
+pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame>{
+    let file = File::open(path).expect("file not found");
+
+    let df = ParquetReader::new(file)
+            .finish()?;    
+
+    Ok(df)    
+}
+
+pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
+        let df = CsvReadOptions::default()
+        .with_has_header(has_header)
+        .try_into_reader_with_file_path(Some(source_path.clone()))?
+        .finish()?;
+
+        Ok(df)
 }
 
 /// Cutoff start_time to end_time(not include)

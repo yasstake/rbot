@@ -10,6 +10,8 @@ use chrono::Datelike;
 use crossbeam_channel::Sender;
 use csv::StringRecord;
 use flate2::read::GzDecoder;
+use polars::chunked_array::ops::ChunkCast;
+use polars::datatypes::DataType;
 use polars::frame::DataFrame;
 use polars::io::csv::read::CsvReadOptions;
 use polars::io::parquet::write::ParquetWriter;
@@ -165,63 +167,40 @@ where
         has_archive(date, &|d| Self::history_web_url(server, config, d)).await
     }
 
-    /// read csv.gz file and convert to DataFrame
-    fn logfile_to_df(logfile: &str) -> anyhow::Result<DataFrame> {
-        let has_header = Self::archive_has_header();
-
-        log::debug!("read into DataFrame {}", logfile);
-
-        let df = CsvReadOptions::default()
-            .with_has_header(has_header)
-            .try_into_reader_with_file_path(Some(logfile.into()))
-            .with_context(|| format!("polars csv read error {}", logfile))?
-            .finish()
-            .with_context(|| format!("polars error {}", logfile))?;
-
-        log::debug!("read into DataFrame complete");
-        log::debug!("{:?}", df);
-
-        Ok(df)
-    }
 
     /// create DataFrame with columns;
     ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
     fn logdf_to_archivedf(df: &DataFrame) -> anyhow::Result<DataFrame> {
-        // bybit はデータをタイムスタンプでソートしてはいけない。
         let df = df.clone();
 
         let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
-        let timestamp = Series::from(timestamp);
+        let timestamp = timestamp.cast(&DataType::Int64)?;
+
+        let timestamp = timestamp.clone();
+        let mut timestamp = Series::from(timestamp.clone());
+        timestamp.rename(KEY::time_stamp);
 
         let mut id = df.column("trdMatchID")?.clone();
         id.rename(KEY::id);
 
-        let side = df.column("side")?;
-        let price = df.column("price")?;
-        let size = df.column("size")?;
+        let mut side = df.column("side")?.clone();
+        side.rename(KEY::order_side);
+
+        let mut price = df.column("price")?.clone();
+        price.rename(KEY::price);
+
+        let mut size = df.column("size")?.clone();
+        size.rename(KEY::size);
 
         let df = DataFrame::new(vec![
             timestamp,
-            side.clone(),
-            price.clone(),
-            size.clone(),
+            side, 
+            price,
+            size,
             id,
         ])?;
 
         Ok(df)
-    }
-
-    fn archivedf_to_file(mut df: DataFrame, archive_file: &str) -> anyhow::Result<()> {
-        log::debug!("write to parquet file {}", archive_file);
-
-        let file = BufWriter::new(
-            File::create(archive_file)
-                .with_context(|| format!("file create error {}", archive_file))?,
-        );
-
-        ParquetWriter::new(file).finish(&mut df)?;
-
-        Ok(())
     }
 }
 
