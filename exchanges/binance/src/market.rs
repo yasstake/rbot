@@ -20,7 +20,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
-use rbot_lib::db::TradeTable;
+use rbot_lib::db::TradeDataFrame;
 use rbot_lib::net::{BroadcastMessage, RestApi};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
@@ -193,7 +193,7 @@ impl OrderInterfaceImpl<BinanceRestApi, BinanceServerConfig> for Binance {
 pub struct BinanceMarket {
     server_config: BinanceServerConfig,
     config: MarketConfig,
-    pub db: Arc<Mutex<TradeTable>>,
+    pub db: Arc<Mutex<TradeDataFrame>>,
     pub board: Arc<RwLock<OrderBook>>,
     pub public_handler: Option<tokio::task::JoinHandle<()>>,
 }
@@ -319,15 +319,16 @@ impl BinanceMarket {
         MarketImpl::_repr_html_(self)
     }
 
-    #[pyo3(signature = (ndays, force=false, verbose=false, low_priority=true))]
+    #[pyo3(signature = (ndays, force=false, verbose=false))]
     fn download_archive(
         &mut self,
         ndays: i64,
         force: bool,
         verbose: bool,
-        low_priority: bool,
     ) -> anyhow::Result<i64> {
-        MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
+        BLOCK_ON(async{
+            MarketImpl::async_download_archives(self, ndays, force, verbose).await
+        })
     }
 
     #[pyo3(signature = (verbose=false))]
@@ -395,7 +396,7 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         BLOCK_ON(async { self.async_download_latest(verbose).await })
     }
 
-    fn get_db(&self) -> Arc<Mutex<TradeTable>> {
+    fn get_db(&self) -> Arc<Mutex<TradeDataFrame>> {
         self.db.clone()
     }
 
@@ -421,19 +422,6 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
             self.async_download_gap(force, verbose).await
         })
     }
-
-    fn download_archives(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-        low_priority: bool,
-    ) -> anyhow::Result<i64> {
-        BLOCK_ON(async {
-            self.async_download_archives(ndays, force, verbose, low_priority)
-                .await
-        })
-    }
 }
 
 impl BinanceMarket {
@@ -442,14 +430,14 @@ impl BinanceMarket {
         config: &MarketConfig,
         production: bool,
     ) -> anyhow::Result<Self> {
-        let db_path = TradeTable::make_db_path(
+        let db_path = TradeDataFrame::make_db_path(
             &config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
             production
         );
 
-        let db = TradeTable::get(&db_path)
+        let db = TradeDataFrame::get(&db_path)
             .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         // let public_ws = BinancePublicWsClient::new(&server_config, &config).await;

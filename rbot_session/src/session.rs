@@ -14,7 +14,7 @@ use super::{Logger, OrderList};
 use pyo3::prelude::*;
 use rbot_lib::{common::{
     date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
-}, db::TradeTable};
+}, db::TradeDataFrame};
 
 use anyhow;
 
@@ -143,7 +143,7 @@ impl Session {
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
 
-        let db_path = TradeTable::make_db_path(
+        let db_path = TradeDataFrame::make_db_path(
             &config.exchange_name, 
             &category, 
             &config.trade_symbol, 
@@ -765,21 +765,21 @@ impl Session {
 }
 
 impl Session {
-    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeTable>>> {
+    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeDataFrame>>> {
         if market_config.is_none() {
-            return TradeTable::get(&self.db_path);
+            return TradeDataFrame::get(&self.db_path);
         }
 
         let market = market_config.unwrap();
 
-        let db_path = TradeTable::make_db_path(
+        let db_path = TradeDataFrame::make_db_path(
             &market.exchange_name,
             &market.trade_category,
             &market.trade_symbol,
             true,      // use only production db for reference
         );
 
-        TradeTable::get(&db_path)
+        TradeDataFrame::get(&db_path)
     }
 
     /// Message処理
