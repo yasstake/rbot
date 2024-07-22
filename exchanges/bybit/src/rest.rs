@@ -13,7 +13,7 @@ use rbot_lib::common::AccountPair;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
 use rbot_lib::common::LogStatus;
-use rbot_lib::db::TradeTable;
+use rbot_lib::db::TradeDataFrame;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
@@ -150,12 +150,12 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     ) -> anyhow::Result<Vec<Kline>> {
         let mut klines_buf: Vec<Kline> = vec![];
 
-        let start_time = TradeTable::ohlcv_start(start_time);
+        let start_time = TradeDataFrame::ohlcv_start(start_time);
 
         let mut end_time = if end_time == 0 {
-            TradeTable::ohlcv_end(NOW()) - 1
+            TradeDataFrame::ohlcv_end(NOW()) - 1
         } else {
-            TradeTable::ohlcv_end(end_time) - 1
+            TradeDataFrame::ohlcv_end(end_time) - 1
         };
 
         loop {

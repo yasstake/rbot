@@ -27,6 +27,7 @@ use tokio::task::spawn;
 use tokio::task::JoinHandle;
 
 use crate::common::MarketStream;
+use crate::db::append_df;
 
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Sender;
@@ -53,26 +54,16 @@ use super::db_full_path;
 use super::df::convert_timems_to_datetime;
 use super::df::vap_df;
 
-static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeTable>>>>> =
+static EXCHANGE_DB_CACHE: Lazy<Mutex<HashMap<String, Arc<Mutex<TradeDataFrame>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug)]
-pub struct TradeTableDb {
+pub struct TradeDb {
     pub file_name: String,
     connection: Connection,
 }
 
-impl TradeTableDb {
-    pub fn clone_connection(&self) -> TradeTableDb {
-        let conn = Connection::open(&self.file_name).unwrap();
-        let db = TradeTableDb {
-            file_name: self.file_name.clone(),
-            connection: conn,
-        };
-
-        return db;
-    }
-
+impl TradeDb {
     /// delete unstable data, include both edge.
     /// start_time <= (time_stamp) <= end_time
     pub fn delete_unstable_data(
@@ -172,7 +163,7 @@ impl TradeTableDb {
 
         let trade = trade.unwrap();
 
-        Ok(TradeTable::ohlcv_end(trade.time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
+        Ok(TradeDataFrame::ohlcv_end(trade.time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
     }
 
     pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
@@ -194,7 +185,7 @@ impl TradeTableDb {
 
         let trade = trade.unwrap();
 
-        Ok(TradeTable::ohlcv_end(trade.time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
+        Ok(TradeDataFrame::ohlcv_end(trade.time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
     }
 
     /// 2日以内のUnstableデータを削除するメッセージを作成する。
@@ -338,40 +329,9 @@ impl TradeTableDb {
 
         return Ok(true);
     }
-
-    pub fn validate_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
-        let start_time = FLOOR_DAY(date);
-        let end_time = start_time + DAYS(1);
-
-        // startからendまでのレコードにS,Eが1つづつあるかどうかを確認する。
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 and (status = "S" or status = "E") order by time_stamp"#;
-        let trades = self.select_query(sql, vec![start_time, end_time])?;
-
-        if trades.len() != 2 {
-            log::debug!("S,E is not 2 {}", trades.len());
-            return Ok(false);
-        }
-
-        let first = trades[0].clone();
-        let last = trades[1].clone();
-
-        // Sから始まりEでおわることを確認
-        if first.status != LogStatus::FixBlockStart && last.status != LogStatus::FixBlockEnd {
-            log::debug!("S,E is not S,E");
-            return Ok(false);
-        }
-
-        // S, Eのレコードの間が十分にあること（トラフィックにもよるが２２時間を想定）
-        if last.time - first.time < HHMM(20, 0) {
-            log::debug!("batch is too short");
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
 }
 
-impl TradeTableDb {
+impl TradeDb {
     /// create new database
     fn create(name: &str) -> anyhow::Result<Self> {
         let conn = Connection::open(name)?;
@@ -380,7 +340,7 @@ impl TradeTableDb {
 
         conn.pragma_update(None, "journal_mode", "wal")?;
 
-        let db = TradeTableDb {
+        let db = TradeDb {
             file_name: name.to_string(),
             connection: conn,
         };
@@ -393,7 +353,7 @@ impl TradeTableDb {
 
         if Self::is_db_file_exsist(name) == false {
             log::debug!("database file is not exsit. create new database");
-            let mut db = TradeTableDb::create(name)?;
+            let mut db = TradeDb::create(name)?;
             db.create_table_if_not_exists()?;
             return Ok(db);
         }
@@ -405,7 +365,7 @@ impl TradeTableDb {
         // TODO: set timeout parameter
         conn.busy_timeout(Duration::from_secs(10)).unwrap();
 
-        let db = TradeTableDb {
+        let db = TradeDb {
             file_name: name.to_string(),
             connection: conn,
         };
@@ -503,6 +463,22 @@ impl TradeTableDb {
 
         Ok(())
     }
+
+    pub fn select_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec) -> anyhow::Result<DataFrame>
+        {
+            let mut buffer = TradeBuffer::new();
+
+            self.select(start_time, end_time, |trade| {
+                buffer.push_trade(trade);
+    
+                Ok(())
+            })?;
+    
+            return Ok(buffer.to_dataframe());
+        }
 
     // 時間選択は左側は含み、右側は含まない。
     // 0をいれたときは全件検索
@@ -604,34 +580,12 @@ impl TradeTableDb {
 
         return Ok(trades);
     }
-
-    pub fn select_stream(&mut self, time_from: MicroSec, time_to: MicroSec) -> MarketStream {
-        let (sender, stream) = MarketStream::open();
-
-        let mut table_db = self.clone_connection();
-
-        tokio::task::spawn(async move {
-            // let mut channel = sender.lock().unwrap();
-            let r = table_db.select(time_from, time_to, |trade| {
-                let message: MarketMessage = trade.into();
-                let r = sender.send(message)?;
-
-                Ok(())
-            });
-
-            if r.is_err() {
-                log::error!("select_stream error {:?}", r);
-            }
-        });
-
-        stream
-    }
 }
 
 #[derive(Debug)]
-pub struct TradeTable {
+pub struct TradeDataFrame {
     file_name: String,
-    pub connection: TradeTableDb,
+    pub connection: TradeDb,
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
     cache_duration: MicroSec,
@@ -639,7 +593,7 @@ pub struct TradeTable {
     handle: Option<JoinHandle<()>>,
 }
 
-impl TradeTable {
+impl TradeDataFrame {
     const OHLCV_WINDOW_SEC: i64 = 60; // min
 
     pub fn make_db_path(
@@ -661,7 +615,7 @@ impl TradeTable {
             return Ok(db.clone());
         }
 
-        let db = TradeTable::open(db_path)?;
+        let db = TradeDataFrame::open(db_path)?;
 
         log::debug!("vaccum start {:?}", db_path);
         let r = db.vacuum();
@@ -728,8 +682,8 @@ impl TradeTable {
         log::debug!("head {:?}", head.head(Some(2)));
         log::debug!("tail {:?}", tail.head(Some(2)));
 
-        let df = merge_df(&head, &df);
-        let df = merge_df(&df, &tail);
+        let df = append_df(&head, &df);
+        let df = append_df(&df, &tail);
 
         self.cache_ohlcvv = df;
     }
@@ -750,7 +704,7 @@ impl TradeTable {
         self.tx = Some(tx);
 
         let handle = spawn(async move {
-            let mut db = TradeTableDb::open(file_name.as_str()).unwrap();
+            let mut db = TradeDb::open(file_name.as_str()).unwrap();
             let rx = rx; // Move rx into the closure's environment
             loop {
                 match rx.recv() {
@@ -776,10 +730,6 @@ impl TradeTable {
         return self.tx.clone().unwrap();
     }
 
-    pub fn validate_by_date(&mut self, date: MicroSec) -> anyhow::Result<bool> {
-        self.connection.validate_by_date(date)
-    }
-
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.cache_duration;
     }
@@ -789,38 +739,23 @@ impl TradeTable {
     }
 
     pub fn ohlcv_start(t: MicroSec) -> MicroSec {
-        return FLOOR_SEC(t, TradeTable::OHLCV_WINDOW_SEC);
+        return FLOOR_SEC(t, TradeDataFrame::OHLCV_WINDOW_SEC);
     }
 
     pub fn ohlcv_end(t: MicroSec) -> MicroSec {
-        return CEIL(t, TradeTable::OHLCV_WINDOW_SEC);
+        return CEIL(t, TradeDataFrame::OHLCV_WINDOW_SEC);
     }
 
     pub fn reset_cache_duration(&mut self) {
         self.cache_duration = 0;
     }
 
-    pub fn select_df_from_db(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<DataFrame> {
-        let mut buffer = TradeBuffer::new();
-
-        self.select(start_time, end_time, |trade| {
-            buffer.push_trade(trade);
-
-            Ok(())
-        })?;
-
-        return Ok(buffer.to_dataframe());
-    }
-
     // アーカイブにある場合は、アーカイブから取得する
-    pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<()> {
-        self.cache_df = self.select_df_from_db(start_time, end_time)?;
+    pub fn load_df(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<i64> {
+        // TODO: load from archive also
+        self.cache_df = self.connection.select_df(start_time, end_time)?;
 
-        Ok(())
+        Ok(self.cache_df.shape().0 as i64)
     }
 
     pub fn update_cache_all(&mut self) -> anyhow::Result<()> {
@@ -830,7 +765,7 @@ impl TradeTable {
     // TODO: 日付単位に変更する。
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
         log::debug!("Expire cache {}", time_string(forget_before));
-        let cache_timing = TradeTable::ohlcv_start(forget_before);
+        let cache_timing = TradeDataFrame::ohlcv_start(forget_before);
         self.cache_df = select_df(&self.cache_df, cache_timing, 0);
         self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
     }
@@ -882,9 +817,9 @@ impl TradeTable {
                 // update ohlcv
                 self.cache_ohlcvv = ohlcvv_df(
                     &self.cache_df,
-                    TradeTable::ohlcv_start(df_start_time),
+                    TradeDataFrame::ohlcv_start(df_start_time),
                     df_end_time,
-                    TradeTable::OHLCV_WINDOW_SEC,
+                    TradeDataFrame::OHLCV_WINDOW_SEC,
                 )?;
                 return Ok(()); // update cache all.
             }
@@ -894,8 +829,7 @@ impl TradeTable {
 
         // load data and merge cache
         if start_time < df_start_time {
-            // TODO: ロードされた範囲内でのUpdateに変更する。
-            let df1 = &self.select_df_from_db(start_time, df_start_time)?;
+            let df1 = &self.connection.select_df(start_time, df_start_time)?;
 
             let len = df1.shape().0;
             // データがあった場合のみ更新
@@ -903,11 +837,11 @@ impl TradeTable {
                 let new_df_start_time = start_time_df(&df1).unwrap();
                 let new_df_end_time = end_time_df(&df1).unwrap();
 
-                self.cache_df = merge_df(&df1, &self.cache_df);
+                self.cache_df = merge_df(&df1, &self.cache_df)?;
 
                 // update ohlcv
-                let ohlcv1_start = TradeTable::ohlcv_start(new_df_start_time);
-                let ohlcv1_end = TradeTable::ohlcv_start(new_df_end_time);
+                let ohlcv1_start = TradeDataFrame::ohlcv_start(new_df_start_time);
+                let ohlcv1_end = TradeDataFrame::ohlcv_start(new_df_end_time);      // only use fixed data
 
                 log::debug!(
                     "ohlcVV cache update diff before {} -> {}",
@@ -918,12 +852,12 @@ impl TradeTable {
                     &self.cache_df,
                     ohlcv1_start,
                     ohlcv1_end,
-                    TradeTable::OHLCV_WINDOW_SEC,
+                    TradeDataFrame::OHLCV_WINDOW_SEC,
                 )?;
 
                 if ohlcv1.shape().0 != 0 {
                     let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
-                    self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+                    self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2)?;
                 }
             }
         } else {
@@ -935,7 +869,7 @@ impl TradeTable {
 
         if df_end_time < end_time {
             // 2日先までキャッシュを先読み
-            let df2 = &self.select_df_from_db(df_end_time, end_time + DAYS(2))?;
+            let df2 = &self.connection.select_df(df_end_time, end_time + DAYS(2))?;
 
             log::debug!(
                 "load data after cache(2days) df1={:?} df2={:?}",
@@ -947,15 +881,15 @@ impl TradeTable {
                 let new_df_start_time = start_time_df(&df2).unwrap();
                 let new_df_end_time = end_time_df(&df2).unwrap();
                 // update ohlcv
-                let ohlcv2_start = TradeTable::ohlcv_start(new_df_start_time);
-                let ohlcv2_end = TradeTable::ohlcv_start(new_df_end_time);
+                let ohlcv2_start = TradeDataFrame::ohlcv_start(new_df_start_time);
+                let ohlcv2_end = TradeDataFrame::ohlcv_start(new_df_end_time);      // use only fix data
 
                 log::debug!(
                     "load data AFTER cache df1={:?} df2={:?}",
                     self.cache_df.shape(),
                     df2.shape()
                 );
-                self.cache_df = merge_df(&self.cache_df, &df2);
+                self.cache_df = merge_df(&self.cache_df, &df2)?;
 
                 log::debug!(
                     "ohlcVV cache update diff after {} ",
@@ -966,10 +900,10 @@ impl TradeTable {
                     &self.cache_df,
                     ohlcv2_start,
                     ohlcv2_end,
-                    TradeTable::OHLCV_WINDOW_SEC,
+                    TradeDataFrame::OHLCV_WINDOW_SEC,
                 )?;
 
-                self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2);
+                self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2)?;
             }
         }
 
@@ -982,11 +916,11 @@ impl TradeTable {
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
-        start_time = TradeTable::ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeDataFrame::ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
         self.update_cache_df(start_time, end_time)?;
 
-        if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
+        if time_window_sec % TradeDataFrame::OHLCV_WINDOW_SEC == 0 {
             ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
         } else {
             ohlcvv_df(&self.cache_df, start_time, end_time, time_window_sec)
@@ -999,7 +933,7 @@ impl TradeTable {
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<ndarray::Array2<f64>> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeDataFrame::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
         let df = self.ohlcvv_df(start_time, end_time, time_window_sec)?;
 
@@ -1023,30 +957,13 @@ impl TradeTable {
         Ok(array)
     }
 
-    pub fn py_ohlcvv(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> anyhow::Result<Py<PyArray2<f64>>> {
-        let array = self.ohlcvv_array(start_time, end_time, window_sec)?;
-
-        let r = Python::with_gil(|py| {
-            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
-
-            return py_array2.to_owned();
-        });
-
-        return Ok(r);
-    }
-
     pub fn py_ohlcvv_polars(
         &mut self,
         mut start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = TradeTable::ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeDataFrame::ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcvv_df(start_time, end_time, window_sec)?;
 
@@ -1061,60 +978,17 @@ impl TradeTable {
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeDataFrame::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
         self.update_cache_df(start_time, end_time)?;
 
-        if time_window_sec % TradeTable::OHLCV_WINDOW_SEC == 0 {
+        if time_window_sec % TradeDataFrame::OHLCV_WINDOW_SEC == 0 {
             ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
         } else {
             ohlcv_df(&self.cache_df, start_time, end_time, time_window_sec)
         }
     }
 
-    pub fn ohlcv_array(
-        &mut self,
-        mut start_time: MicroSec,
-        end_time: MicroSec,
-        time_window_sec: i64,
-    ) -> anyhow::Result<ndarray::Array2<f64>> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
-
-        let df = self.ohlcv_df(start_time, end_time, time_window_sec)?;
-
-        let array: ndarray::Array2<f64> = df
-            .select(&[
-                KEY::time_stamp,
-                KEY::open,
-                KEY::high,
-                KEY::low,
-                KEY::close,
-                KEY::volume,
-                // KEY::count,
-            ])
-            .unwrap()
-            .to_ndarray::<Float64Type>(IndexOrder::C)
-            .unwrap();
-
-        Ok(array)
-    }
-
-    pub fn py_ohlcv(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-        window_sec: i64,
-    ) -> anyhow::Result<Py<PyArray2<f64>>> {
-        let array = self.ohlcv_array(start_time, end_time, window_sec)?;
-
-        let r = Python::with_gil(|py| {
-            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
-
-            return py_array2.to_owned();
-        });
-
-        return Ok(r);
-    }
 
     pub fn py_ohlcv_polars(
         &mut self,
@@ -1122,7 +996,7 @@ impl TradeTable {
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = TradeTable::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
+        start_time = TradeDataFrame::ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
         let mut df = self.ohlcv_df(start_time, end_time, window_sec)?;
         let df = convert_timems_to_datetime(&mut df).clone();
@@ -1161,44 +1035,11 @@ impl TradeTable {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<PyDataFrame> {
-        let mut df = self.select_df_from_db(start_time, end_time)?;
+        let mut df = self.connection.select_df(start_time, end_time)?;
         let df = convert_timems_to_datetime(&mut df).clone();
         let df = PyDataFrame(df);
 
         return Ok(df);
-    }
-
-    pub fn py_select_trades(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<Py<PyArray2<f64>>> {
-        let array = self.select_array(start_time, end_time)?;
-
-        let r = Python::with_gil(|py| {
-            let py_array2: &PyArray2<f64> = array.into_pyarray(py);
-
-            return py_array2.to_owned();
-        });
-
-        return Ok(r);
-    }
-
-    pub fn select_array(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<ndarray::Array2<f64>> {
-        self.update_cache_df(start_time, end_time)?;
-
-        let trades = self.select_df_from_db(start_time, end_time)?;
-
-        let array: ndarray::Array2<f64> = trades
-            .select(&[KEY::time_stamp, KEY::price, KEY::size, KEY::order_side])
-            .unwrap()
-            .to_ndarray::<Float64Type>(IndexOrder::C)?;
-
-        Ok(array)
     }
 
     pub fn info(&self) -> String {
@@ -1482,7 +1323,7 @@ impl TradeTable {
             time_chunk
         };
 
-        let days_gap = TradeTable::time_chunks_to_days(&time_gap);
+        let days_gap = TradeDataFrame::time_chunks_to_days(&time_gap);
         log::debug!("GAP TIME: {:?}", time_gap);
         log::debug!("GAP DAYS: {:?}", days_gap);
 
@@ -1527,16 +1368,16 @@ impl TradeTable {
     }
 }
 
-impl TradeTable {
+impl TradeDataFrame {
     fn open(name: &str) -> anyhow::Result<Self> {
-        let conn = TradeTableDb::open(name)?;
+        let conn = TradeDb::open(name)?;
 
         log::debug!("db open success{}", name);
         let df = TradeBuffer::new().to_dataframe();
         // let ohlcv = ohlcv_df(&df, 0, 0, TradeTable::OHLCV_WINDOW_SEC);
         let ohlcv = make_empty_ohlcvv();
 
-        Ok(TradeTable {
+        Ok(TradeDataFrame {
             file_name: name.to_string(),
             connection: conn,
             cache_df: df,
@@ -1625,14 +1466,14 @@ mod test_transaction_table {
 
     #[test]
     fn test_open() {
-        let result = TradeTable::open("test.db");
+        let result = TradeDataFrame::open("test.db");
 
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_create_table_and_drop() {
-        let mut tr = TradeTable::open("test.db").unwrap();
+        let mut tr = TradeDataFrame::open("test.db").unwrap();
 
         let r = tr.create_table_if_not_exists();
         assert!(r.is_ok());
@@ -1644,7 +1485,7 @@ mod test_transaction_table {
     #[test]
     fn test_insert_table() {
         init_debug_log();
-        let mut tr = TradeTable::open("test.db").unwrap();
+        let mut tr = TradeDataFrame::open("test.db").unwrap();
         let r = tr.recreate_table();
         assert!(r.is_ok());
 
@@ -1678,29 +1519,16 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_select_array() {
-        init_debug_log();
-
-        let db = TradeTable::open("test.db");
-        assert!(db.is_ok());
-        let mut db = db.unwrap();
-
-        let array = db.select_array(0, 0);
-
-        println!("{:?}", array);
-    }
-
-    #[test]
     fn test_info() {
         init_debug_log();
-        let db = TradeTable::open("test.db").unwrap();
+        let db = TradeDataFrame::open("test.db").unwrap();
         println!("{}", db.info());
     }
 
     #[test]
     fn test_start_time() {
         init_debug_log();
-        let db = TradeTable::open("test.db").unwrap();
+        let db = TradeDataFrame::open("test.db").unwrap();
 
         let start_time = db.start_time();
 
@@ -1712,7 +1540,7 @@ mod test_transaction_table {
     #[test]
     fn test_end_time() {
         init_debug_log();
-        let db = TradeTable::open("test.db").unwrap();
+        let db = TradeDataFrame::open("test.db").unwrap();
 
         let end_time = db.end_time(0);
 
@@ -1724,7 +1552,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_gap_chunks() -> anyhow::Result<()> {
         let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_gap_chunks(NOW() - DAYS(1), NOW(), 1_000_000 * 13)?;
 
@@ -1745,7 +1573,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_time_chunk_from() {
         let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_from(NOW() - DAYS(1), NOW(), 1_000_000 * 10);
 
@@ -1759,7 +1587,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_time_chunk_to() {
         let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.find_time_chunk_to(NOW() - DAYS(1), NOW(), 1_000_000 * 120);
 
@@ -1773,7 +1601,7 @@ mod test_transaction_table {
     #[test]
     fn test_select_time_chunks() -> anyhow::Result<()> {
         let db_name = db_full_path("FTX", "SPOT", "BTC-PERP", false);
-        let db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let chunks = db.select_time_chunks_in_db(NOW() - DAYS(1), NOW(), 1_000_000 * 10)?;
 
@@ -1792,7 +1620,7 @@ mod test_transaction_table {
             end: DAYS(1) + 100,
         }];
 
-        assert_eq!(TradeTable::time_chunks_to_days(&chunks), vec![DAYS(1)]);
+        assert_eq!(TradeDataFrame::time_chunks_to_days(&chunks), vec![DAYS(1)]);
 
         let chunks = vec![TimeChunk {
             start: DAYS(1),
@@ -1800,7 +1628,7 @@ mod test_transaction_table {
         }];
 
         assert_eq!(
-            TradeTable::time_chunks_to_days(&chunks),
+            TradeDataFrame::time_chunks_to_days(&chunks),
             vec![DAYS(1), DAYS(2), DAYS(3)]
         );
     }
@@ -1810,7 +1638,7 @@ mod test_transaction_table {
         init_log();
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
 
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let mut db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let start_timer = NOW();
         let now = NOW();
@@ -1851,7 +1679,7 @@ mod test_transaction_table {
         init_log();
 
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let mut db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         let start = NOW();
         let ohlcv = db.select(NOW() - DAYS(2), NOW(), |_trade| Ok(()));
@@ -1860,20 +1688,10 @@ mod test_transaction_table {
     }
 
     #[test]
-    fn test_select_df() {
-        let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
-
-        let df = db.select_df_from_db(NOW() - DAYS(2), NOW());
-
-        println!("{:?}", df);
-    }
-
-    #[test]
     fn test_update_cache() -> anyhow::Result<()> {
         init_log();
         let db_name = db_full_path("BN", "SPOT", "BTCBUSD", false);
-        let mut db = TradeTable::open(db_name.to_str().unwrap()).unwrap();
+        let mut db = TradeDataFrame::open(db_name.to_str().unwrap()).unwrap();
 
         db.update_cache_df(NOW() - DAYS(2), NOW())?;
 
@@ -1882,7 +1700,7 @@ mod test_transaction_table {
 
     #[tokio::test]
     async fn test_start_thread() {
-        let mut table = TradeTable::open(
+        let mut table = TradeDataFrame::open(
             db_full_path("BN", "SPOT", "BTCBUSD", false)
                 .to_str()
                 .unwrap(),
@@ -1929,7 +1747,7 @@ mod test_transaction_table {
     fn test_wal_mode() -> anyhow::Result<()> {
         //let table = TradeTable::open(db_full_path("BN", "SPOT", "BTCBUSD").to_str().unwrap()).unwrap();
 
-        TradeTableDb::set_wal_mode(
+        TradeDb::set_wal_mode(
             db_full_path("BN", "SPOT", "BTCBUSD", false)
                 .to_str()
                 .unwrap(),
@@ -1942,7 +1760,7 @@ mod test_transaction_table {
     fn test_table_is_exsit() {
         //let db_name = db_full_path("BN", "SPOT", "BTCUSDT");
 
-        let mut db = TradeTableDb::open("/tmp/rbottest.db").unwrap();
+        let mut db = TradeDb::open("/tmp/rbottest.db").unwrap();
 
         if db.is_table_exsit() {
             print!("table is exist");
@@ -1954,7 +1772,7 @@ mod test_transaction_table {
     #[test]
     fn test_get_db() {
         init_debug_log();
-        let mut db = TradeTable::get("/tmp/rbottest.db").unwrap();
+        let mut db = TradeDataFrame::get("/tmp/rbottest.db").unwrap();
 
         println!("{:?}", db);
     }

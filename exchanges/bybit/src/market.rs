@@ -24,7 +24,7 @@ use rbot_lib::common::{
     ServerConfig, Trade, DAYS, FLOOR_DAY, HHMM, MARKET_HUB, NOW, SEC,
 };
 
-use rbot_lib::db::{db_full_path, TradeTable, TradeTableDb, KEY};
+use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
 use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, UdpSender};
 
 use rbot_market::MarketImpl;
@@ -212,7 +212,7 @@ impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
 pub struct BybitMarket {
     pub server_config: BybitServerConfig,
     pub config: MarketConfig,
-    pub db: Arc<Mutex<TradeTable>>,
+    pub db: Arc<Mutex<TradeDataFrame>>,
     pub board: Arc<RwLock<OrderBook>>,
     pub public_handler: Option<tokio::task::JoinHandle<()>>,
     // pub user_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
@@ -348,15 +348,16 @@ impl BybitMarket {
         MarketImpl::_repr_html_(self)
     }
 
-    #[pyo3(signature = (ndays, force=false, verbose=false, low_priority=true))]    
+    #[pyo3(signature = (ndays, force=false, verbose=false))]    
     fn download_archive(
         &mut self,
         ndays: i64,
         force: bool,
         verbose: bool,
-        low_priority: bool,
     ) -> anyhow::Result<i64> {
-            MarketImpl::download_archives(self, ndays, force, verbose, low_priority)
+        BLOCK_ON(async{
+            MarketImpl::async_download_archives(self, ndays, force, verbose).await
+        })
     }
 
     #[pyo3(signature = (verbose=false))]    
@@ -399,14 +400,14 @@ impl BybitMarket {
         config: &MarketConfig,
         production: bool,
     ) -> anyhow::Result<Self> {
-        let db_path = TradeTable::make_db_path(
+        let db_path = TradeDataFrame::make_db_path(
             &config.exchange_name,
             &config.trade_category,
             &config.trade_symbol,
             production
         );
 
-        let db = TradeTable::get(&db_path)
+        let db = TradeDataFrame::get(&db_path)
             .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
@@ -453,7 +454,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
     }
 
 
-    fn get_db(&self) -> Arc<Mutex<TradeTable>> {
+    fn get_db(&self) -> Arc<Mutex<TradeDataFrame>> {
         self.db.clone()
     }
 
@@ -476,19 +477,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
             self.async_start_market_stream().await
         })
     }
-    
-    fn download_archives(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-        low_priority: bool,
-    ) -> anyhow::Result<i64> {
-        BLOCK_ON(async {
-            self.async_download_archives(ndays, force, verbose, low_priority).await
-        })
-    }
-
+   
 }
 
 impl BybitMarket {
@@ -619,7 +608,7 @@ impl BybitMarket {
         let trades: Vec<Trade> = convert_klines_to_trades(klines);
         let rec = trades.len() as i64;
 
-        let expire_message = TradeTableDb::expire_control_message(unfix_start, unfix_end, false);
+        let expire_message = TradeDb::expire_control_message(unfix_start, unfix_end, false);
 
         let tx = {
             let mut lock = self.db.lock().unwrap();
@@ -752,15 +741,16 @@ mod market_test {
     }
 
     #[ignore]
-    #[tokio::test]
-    async fn test_download_archive() {
+    #[test]
+    fn test_download_archive() {
         use super::*;
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
+        init_debug_log();
         let mut market = BybitMarket::new(&server_config, &market_config, true);
 
-        let rec = market.async_download_archives(1, true, true, false).await;
+        let rec = market.download_archive(10, false, true);
         assert!(rec.is_ok());
     }
 

@@ -1,29 +1,12 @@
-use anyhow::anyhow;
-use polars_io::avro::AvroReader;
-use polars_io::avro::AvroWriter;
-use polars_io::parquet::read::ParquetReader;
-use polars_io::parquet::write::ParquetWriter;
-use polars_io::SerReader;
-use polars_io::SerWriter;
-use std::fs::File;
-use std::path::PathBuf;
-
-use polars::prelude::DataFrame;
 
 #[cfg(test)]
 
 mod archive_test {
-    use std::path::Path;
-    use std::path::PathBuf;
-
     use rbot_lib::common::date_string;
     use rbot_lib::common::init_debug_log;
     use rbot_lib::common::DAYS;
-    use rbot_lib::common::FLOOR_DAY;
     use rbot_lib::common::NOW;
-    use rbot_lib::db::log_foreach;
-    use rbot_lib::db::TradeTableArchive;
-    use rbot_lib::net::log_download_tmp;
+    use rbot_lib::db::TradeArchive;
     use rbot_market::MarketImpl;
 
     use crate::config::BybitConfig;
@@ -31,14 +14,13 @@ mod archive_test {
     use crate::rest::BybitRestApi;
     use crate::Bybit;
 
-    use super::*;
 
-    fn create_archive() -> TradeTableArchive<BybitRestApi, BybitServerConfig> {
+    fn create_archive() -> TradeArchive<BybitRestApi, BybitServerConfig> {
         let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
         let archive =
-            TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
+            TradeArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
 
         archive
     }
@@ -49,7 +31,7 @@ mod archive_test {
         let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
         let archive =
-            TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
+            TradeArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
 
         log::debug!("start->{}({}) end->{}({})",
             archive.start_time(), date_string(archive.start_time()),
@@ -266,30 +248,6 @@ mod archive_test {
         log::debug!(
             "Polarsによる読み込み {}[rec]  {}[msec]",
             df.shape().0,
-            (NOW() - now) / 1_000 as i64
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_select_db_perf() -> anyhow::Result<()> {
-        let mut market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
-        init_debug_log();
-
-        market.download_archives(7, false, true, false);
-
-        let now = NOW();
-
-        let mut count = 0;
-        market.for_each_record(0, 0, &mut |trade| {
-            count += 1;
-            Ok(())
-        });
-
-        log::debug!(
-            "Sqliteによる読み込み {}[rec]  {}[msec]",
-            count,
             (NOW() - now) / 1_000 as i64
         );
 

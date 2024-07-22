@@ -51,7 +51,7 @@ const EXTENSION: &str = "parquet";
 /// archive_df -> archvie file that is stored in the local directory
 /// chache_df -> df to use TradeTable's cache.
 #[derive(Debug)]
-pub struct TradeTableArchive<T, U>
+pub struct TradeArchive<T, U>
 where
     T: RestApi<U>,
     U: ServerConfig + Clone,
@@ -65,7 +65,7 @@ where
     _dummy: Option<T>,
 }
 
-impl<T, U> TradeTableArchive<T, U>
+impl<T, U> TradeArchive<T, U>
 where
     T: RestApi<U>,
     U: ServerConfig + Clone,
@@ -261,7 +261,7 @@ where
 
             let new_df = self.load_cache_df(date)?;
 
-            df = merge_df(&df, &new_df);
+            df = merge_df(&df, &new_df)?;
         }
 
         Ok(df)
