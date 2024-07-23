@@ -2,55 +2,47 @@
 #[cfg(test)]
 
 mod archive_test {
+    use std::path::PathBuf;
+    use std::str::FromStr;
+
     use rbot_lib::common::date_string;
     use rbot_lib::common::init_debug_log;
     use rbot_lib::common::DAYS;
     use rbot_lib::common::NOW;
+    use rbot_lib::db::log_download_tmp;
     use rbot_lib::db::TradeArchive;
-    use rbot_market::MarketImpl;
-
+    use rbot_lib::net::RestApi;
+    
     use crate::config::BybitConfig;
     use crate::config::BybitServerConfig;
     use crate::rest::BybitRestApi;
-    use crate::Bybit;
+    
 
-
-    fn create_archive() -> TradeArchive<BybitRestApi, BybitServerConfig> {
+    fn create_archive() -> TradeArchive {
         let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
         let archive =
-            TradeArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
+            TradeArchive::new(&config, server_config.production);
 
         archive
     }
 
-    #[test]
-    fn test_archive_create() {
-        init_debug_log();
-        let server_config = BybitServerConfig::new(true);
-        let config = BybitConfig::BTCUSDT();
-        let archive =
-            TradeArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
-
-        log::debug!("start->{}({}) end->{}({})",
-            archive.start_time(), date_string(archive.start_time()),
-            archive.end_time(), date_string(archive.end_time())
-        );
-    }
 
     #[tokio::test]
     async fn test_archive_latest() -> anyhow::Result<()> {
         let mut archive = create_archive();
 
         init_debug_log();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
         log::debug!("first try, access web archive");
-        let latest = archive.latest_archive_date().await?;
+        let latest = archive.latest_archive_date(&api).await?;
         log::debug!("date = {}({})", date_string(latest), latest);
 
         log::debug!("second try, use cached data");
-        let latest = archive.latest_archive_date().await?;
+        let latest = archive.latest_archive_date(&api).await?;
         log::debug!("date = {}({})", date_string(latest), latest);
 
 
@@ -76,12 +68,35 @@ mod archive_test {
     }
 
     #[tokio::test]
+    async fn test_test_download_tmp() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = BybitServerConfig::new(true);
+        let config = BybitConfig::BTCUSDT();
+
+        let api = BybitRestApi::new(&server);
+
+        let url = api.history_web_url(&config, NOW() - DAYS(2));
+        log::debug!("url={:?}", url);
+
+        let tmp_dir = PathBuf::from_str("/tmp/")?;
+
+        let file = log_download_tmp(&url, &tmp_dir).await?;    
+
+        log::debug!("download complete {:?}", file);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_web_archive_to_parquet() {
         let mut archive = create_archive();
 
         init_debug_log();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.web_archive_to_parquet(NOW() - DAYS(2), false, true).await.unwrap();
+
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await.unwrap();
     }
 
     #[test]
@@ -102,7 +117,7 @@ mod archive_test {
         let archive = create_archive();
         init_debug_log();
 
-        let df = archive.select_cache_df(0, 0)?;
+        let df = archive.select_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
 
@@ -116,10 +131,14 @@ mod archive_test {
         init_debug_log();
         let mut archive = create_archive();
 
-        archive.web_archive_to_parquet(NOW() - DAYS(2), false, true).await?;
-        archive.web_archive_to_parquet(NOW() - DAYS(3), false, true).await?;
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
+
+
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await?;
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(3), false, true).await?;
         archive
-            .web_archive_to_parquet(NOW() - DAYS(10), false, true)
+            .web_archive_to_parquet(&api, NOW() - DAYS(10), false, true)
             .await?;
 
         log::debug!(
@@ -156,8 +175,11 @@ mod archive_test {
         );
 
         log::debug!("download first");
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.download(4, false, true).await?;
+
+        archive.download(&api, 4, false, true).await?;
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
@@ -171,7 +193,7 @@ mod archive_test {
 
         log::debug!("download with cache");
 
-        archive.download(7, false, true).await?;
+        archive.download(&api, 7, false, true).await?;
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
@@ -191,8 +213,10 @@ mod archive_test {
     async fn test_load_df() -> anyhow::Result<()> {
         init_debug_log();
         let mut archive = create_archive();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.download(2, false, true).await?;
+        archive.download(&api, 2, false, true).await?;
 
         log::debug!(
             "start={:?}({:?})",
@@ -239,7 +263,7 @@ mod archive_test {
 
         let now = NOW();
 
-        let df = archive.select_cache_df(0, 0)?;
+        let df = archive.select_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
         log::debug!("{:?}", df.shape());
