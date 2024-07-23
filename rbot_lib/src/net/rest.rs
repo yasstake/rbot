@@ -42,219 +42,63 @@ use crate::common::{
 };
 use crate::db::KEY;
 //use crate::db::KEY::low;
+use async_trait::async_trait;
 
-pub trait RestApi<T>
-where
-    T: ServerConfig,
-{
-    async fn get_board_snapshot(server: &T, config: &MarketConfig)
-        -> anyhow::Result<BoardTransfer>;
+pub trait RestApi {
+    async fn get_board_snapshot(
+        &self,
+        config: &MarketConfig,
+    ) -> anyhow::Result<BoardTransfer>;
 
-    async fn get_recent_trades(server: &T, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
+    async fn get_recent_trades(
+        &self,
+        config: &MarketConfig,
+    ) -> anyhow::Result<Vec<Trade>>;
 
-    fn get_trade_klines(
-        server: &T,
+    async fn get_trade_klines(
+        &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Kline>>> + Send;
-    fn new_order(
-        server: &T,
+    ) -> anyhow::Result<Vec<Kline>>;
+
+    async fn new_order(
+        &self,
         config: &MarketConfig,
         side: OrderSide,
         price: Decimal, // when order_type is Market, this value is ignored.
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
-    fn cancel_order(
-        server: &T,
+    ) -> anyhow::Result<Vec<Order>>;
+    async fn cancel_order(
+        &self,
         config: &MarketConfig,
         order_id: &str,
-    ) -> impl std::future::Future<Output = anyhow::Result<Order>> + Send;
-    fn open_orders(
-        server: &T,
+    ) -> anyhow::Result<Order>;
+    async fn open_orders(
+        &self,
         config: &MarketConfig,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<Order>>> + Send;
+    ) -> anyhow::Result<Vec<Order>>;
 
-    fn get_account(
-        server: &T,
-    ) -> impl std::future::Future<Output = anyhow::Result<AccountCoins>> + Send;
+    async fn get_account(&self)
+        -> anyhow::Result<AccountCoins>;
 
-    fn history_web_url(server: &T, config: &MarketConfig, date: MicroSec) -> String {
-        let history_web_base = server.get_historical_web_base();
-        let category = &config.trade_category;
-        let symbol = &config.trade_symbol;
-
-        let timestamp = to_naive_datetime(date);
-
-        let yyyy = timestamp.year() as i64;
-        let mm = timestamp.month() as i64;
-        let dd = timestamp.day() as i64;
-
-        Self::format_historical_data_url(&history_web_base, &category, &symbol, yyyy, mm, dd)
-    }
-
-    fn format_historical_data_url(
-        history_web_base: &str,
-        category: &str,
-        symbol: &str,
-        yyyy: i64,
-        mm: i64,
-        dd: i64,
-    ) -> String;
-
-    /// Convert archived CSV trade log record to Trade struct
-    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
-    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
-    fn rec_to_trade(rec: &StringRecord) -> Trade;
-    fn line_to_trade(rec: &str) -> Trade;
-    fn convert_archive_line(line: &str) -> String;
-    fn archive_has_header() -> bool;
-
-    async fn latest_archive_date(server: &T, config: &MarketConfig) -> anyhow::Result<MicroSec> {
-        let f = |date: MicroSec| -> String { Self::history_web_url(server, config, date) };
-        let mut latest = TODAY();
-        let mut i = 0;
-
-        loop {
-            log::debug!("check log exist = {}({})", time_string(latest), latest);
-
-            if has_archive(latest, &f).await {
-                return Ok(latest);
-            }
-
-            latest -= DAYS(1);
-            i += 1;
-
-            if 5 < i {
-                return Err(anyhow!(
-                    "Find archive retry over {}/{}/{}",
-                    i,
-                    latest,
-                    f(latest)
-                ));
-            }
-        }
-    }
-
-    fn download_archive(
-        server: &T,
+    async fn has_archive(
+        &self,
         config: &MarketConfig,
-        tx: &Sender<Vec<Trade>>,
         date: MicroSec,
-        low_priority: bool,
-        verbose: bool,
-    ) -> impl std::future::Future<Output = anyhow::Result<i64>> {
-        async move {
-            let date = FLOOR_DAY(date);
-            let url = Self::history_web_url(server, config, date);
-            let has_header = Self::archive_has_header();
+    ) -> anyhow::Result<bool>;
 
-            download_archive_log(
-                &url,
-                tx,
-                has_header,
-                low_priority,
-                verbose,
-                &Self::rec_to_trade,
-            )
-            .await
-        }
-    }
-
-    async fn has_archive(server: &T, config: &MarketConfig, date: MicroSec) -> bool {
-        has_archive(date, &|d| Self::history_web_url(server, config, d)).await
-    }
-
-
-    /// create DataFrame with columns;
-    ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
-    fn logdf_to_archivedf(df: &DataFrame) -> anyhow::Result<DataFrame> {
-        let df = df.clone();
-
-        let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
-        let timestamp = timestamp.cast(&DataType::Int64)?;
-
-        let timestamp = timestamp.clone();
-        let mut timestamp = Series::from(timestamp.clone());
-        timestamp.rename(KEY::time_stamp);
-
-        let mut id = df.column("trdMatchID")?.clone();
-        id.rename(KEY::id);
-
-        let mut side = df.column("side")?.clone();
-        side.rename(KEY::order_side);
-
-        let mut price = df.column("price")?.clone();
-        price.rename(KEY::price);
-
-        let mut size = df.column("size")?.clone();
-        size.rename(KEY::size);
-
-        let df = DataFrame::new(vec![
-            timestamp,
-            side, 
-            price,
-            size,
-            id,
-        ])?;
-
-        Ok(df)
-    }
+    fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String;
+    fn archive_has_header(&self) -> bool;
+    fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame>;
 }
 
-pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<String> {
-    let client = reqwest::Client::new();
+#[async_trait]
+pub trait RestTrait: RestApi + Send + Sync + Clone {}
 
-    let response = client
-        .get(url)
-        .header("User-Agent", "Mozilla/5.0")
-        .header("Accept", "text/html")
-        .send()
-        .await
-        .with_context(|| format!("URL get error {}", url))?;
-
-    log::debug!(
-        "Response code = {} / download size {}",
-        response.status().as_str(),
-        response.content_length().unwrap_or_default() // if error, return 0
-    );
-
-    if !response.status().is_success() {
-        return Err(anyhow!("Err: response code {}", response.status().as_str()));
-    }
-
-    let fname = response
-        .url()
-        .path_segments()
-        .and_then(|segments| segments.last())
-        .and_then(|name| if name.is_empty() { None } else { Some(name) })
-        .unwrap_or("tmp.bin");
-
-    let fname = tmp_dir.join(fname);
-    let file_name = fname.to_str().unwrap();
-
-    let mut target = File::create(&fname)
-        .with_context(|| format!("file create error {}", fname.to_str().unwrap()))?;
-
-    let content = response
-        .bytes()
-        .await
-        .with_context(|| format!("response bytes error {}", url))?;
-    let mut cursor = Cursor::new(content);
-
-    let size =
-        copy(&mut cursor, &mut target).with_context(|| format!("write error {}", file_name))?;
-    ensure!(size > 0, "file is empty {}", file_name);
-
-    let _r = target.flush();
-
-    log::debug!("download size {}", target.metadata().unwrap().len());
-
-    Ok(file_name.to_string())
-}
-
+/*
 async fn download_archive_log<F>(
     url: &str,
     tx: &Sender<Vec<Trade>>,
@@ -452,6 +296,7 @@ where
     }
     urls
 }
+*/
 
 const MAX_BUFFER_SIZE: usize = 4096;
 const LOW_QUEUE_SIZE: usize = 5;
@@ -625,61 +470,7 @@ where
 
 #[cfg(test)]
 mod test_exchange {
-    // const MAX_QUEUE_SIZE: usize = 100;
-
-    use super::*;
-    use crate::common::init_debug_log;
-    // use crossbeam_channel::bounded;
-
-    #[tokio::test]
-    async fn log_download_temp_test() -> anyhow::Result<()> {
-        init_debug_log();
-        let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
-        let tmp_dir = tempdir().unwrap();
-        let _r = log_download_tmp(url, tmp_dir.path()).await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_log_download() -> anyhow::Result<()> {
-        init_debug_log();
-
-        let url = "https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip";
-        // let (tx, rx) = bounded::<StringRecord>(MAX_QUEUE_SIZE);
-
-        let tmp_dir = tempdir()?;
-        let path = log_download_tmp(url, tmp_dir.path()).await?;
-        let path = PathBuf::from_str(&path)?;
-        log::debug!("log_download_temp: {:?}", path);
-
-        let mut rec_no = 0;
-
-        read_csv_archive(&path, true, |_rec| {
-            rec_no += 1;
-            Ok(())
-        });
-
-        log::debug!("rec_no = {}", rec_no);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_rest_get() -> anyhow::Result<()> {
-        let r = rest_get(
-            "https://api.binance.com",
-            "/api/v3/trades?symbol=BTCBUSD&limit=5",
-            vec![],
-            None,
-            None,
-        )
-        .await?;
-
-        println!("{}", r);
-
-        Ok(())
-    }
+    use crate::net::rest_get;
 
     #[tokio::test]
     async fn test_rest_get_err() -> anyhow::Result<()> {
@@ -696,5 +487,4 @@ mod test_exchange {
 
         Ok(())
     }
-
 }

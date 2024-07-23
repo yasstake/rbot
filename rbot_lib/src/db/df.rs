@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
+use log::kv::source;
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -80,6 +81,8 @@ pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame> {
 }
 
 pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
+    log::debug!("reading csv file = {:?}", source_path);
+
     let df = CsvReadOptions::default()
         .with_has_header(has_header)
         .try_into_reader_with_file_path(Some(source_path.clone()))?
@@ -618,7 +621,7 @@ impl TradeBuffer {
         let size = Series::new(KEY::size, self.size.to_vec());
         let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
 
-        let df = DataFrame::new(vec![time_stamp, price, size, order_side]).unwrap();
+        let df = DataFrame::new(vec![time_stamp, order_side, price, size]).unwrap();
 
         return df;
     }

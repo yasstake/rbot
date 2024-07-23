@@ -5,7 +5,7 @@
 
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike as _, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use pyo3::prelude::*;
 
 use anyhow::anyhow;
@@ -142,6 +142,17 @@ pub fn SEC(sec: i64) -> MicroSec {
     return sec * MICRO_SECOND as MicroSec;
 }
 
+pub fn split_yyyymmdd(t: MicroSec) -> (i64, i64, i64)
+{
+    let timestamp = to_naive_datetime(t);
+
+    let yyyy = timestamp.year() as i64;
+    let mm = timestamp.month() as i64;
+    let dd = timestamp.day() as i64;
+
+    (yyyy, mm, dd)
+}
+
 ///
 /// 現在時刻を返す(Microsecond)
 /// ```
@@ -235,5 +246,13 @@ mod time_test {
         assert_eq!(DAYS(9), parse_date("19700110")?);
     
         Ok(())
+    }
+
+    #[test]
+    fn test_split_yyyymmdd() {
+        let (yyyy, mm, dd)  = split_yyyymmdd(0);
+        assert_eq!(yyyy, 1970);
+        assert_eq!(mm, 1);
+        assert_eq!(dd, 1);
     }
 }
