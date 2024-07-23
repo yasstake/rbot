@@ -53,6 +53,8 @@ impl ExecuteMode {
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
+    production: bool,
+
     session_id: String,
 
     execute_mode: ExecuteMode,
@@ -95,7 +97,6 @@ pub struct Session {
     client_mode: bool,
 
     log: Logger,
-    db_path: String,
 }
 
 #[pymethods]
@@ -143,13 +144,8 @@ impl Session {
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
 
-        let db_path = TradeDataFrame::make_db_path(
-            &config.exchange_name, 
-            &category, 
-            &config.trade_symbol, 
-            production);
-
         let mut session = Self {
+            production: production,
             session_id: Self::int_to_base64(now_time),
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
@@ -191,7 +187,6 @@ impl Session {
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
-            db_path: db_path,
         };
 
         session.load_order_list().unwrap();
@@ -766,20 +761,14 @@ impl Session {
 
 impl Session {
     pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeDataFrame>>> {
+
         if market_config.is_none() {
-            return TradeDataFrame::get(&self.db_path);
+            return TradeDataFrame::get(&self.market_config, self.production);
         }
 
-        let market = market_config.unwrap();
+        let market_config = market_config.unwrap();
 
-        let db_path = TradeDataFrame::make_db_path(
-            &market.exchange_name,
-            &market.trade_category,
-            &market.trade_symbol,
-            true,      // use only production db for reference
-        );
-
-        TradeDataFrame::get(&db_path)
+        TradeDataFrame::get(&market_config, true)       // always use production other than primary market.
     }
 
     /// Message処理

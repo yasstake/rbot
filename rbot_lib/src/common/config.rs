@@ -39,13 +39,9 @@ pub struct MarketConfig {
 
     #[pyo3(set)]
     pub price_unit: Decimal,
-    #[pyo3(set)]    
-    pub price_scale: u32,
     
     #[pyo3(set)]
     pub size_unit: Decimal,
-    #[pyo3(set)]    
-    pub size_scale: u32,
 
     #[pyo3(set)]
     pub maker_fee: Decimal,
@@ -86,11 +82,11 @@ impl MarketConfig {
     pub fn new(
         exchange_name: &str,
         trade_category: &str,
-        home_currency: &str,
         foreign_currency: &str,
-        price_scale: u32,
+        home_currency: &str,
+        price_unit: Decimal,
         price_type: PriceType,
-        size_scale: u32,
+        size_unit: Decimal,
         board_depth: u32,
         market_order_price_slip: f64,
         maker_fee: f64,
@@ -103,10 +99,8 @@ impl MarketConfig {
 
         Self {
             exchange_name: exchange_name.to_string(),
-            price_unit: Decimal::new(1, price_scale),
-            price_scale,
-            size_unit: Decimal::new(1, size_scale),
-            size_scale,
+            price_unit: price_unit,
+            size_unit: size_unit,
             maker_fee,
             taker_fee,
             price_type,
@@ -120,68 +114,16 @@ impl MarketConfig {
             public_subscribe_channel: public_subscribe_channel
         }
     }
-}
 
-impl MarketConfig {
-    pub fn new_bitflyer(
-        trade_category: &str,
-        home_currency: &str,
-        foreign_currency: &str,
-        price_scale: u32,
-        size_scale: u32,
-    ) -> Self {
-        let symbol = if trade_category == "FX" {
-            format!("FX_{}_{}", foreign_currency, home_currency)
+    pub fn key_string(&self, production: bool) -> String {
+        if production {
+            format!("{}/{}/{}", self.exchange_name, self.trade_category, self.trade_symbol)
         }
         else {
-            format!("{}_{}", foreign_currency, home_currency)
-        };
-
-        Self {
-            exchange_name: "DUMMY".to_string(),
-            price_unit: Decimal::new(1, price_scale),
-            price_scale,
-            size_unit: Decimal::new(1, size_scale),
-            size_scale,
-            maker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            taker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            price_type: PriceType::Foreign,
-            fee_type: FeeType::Home,
-            home_currency: home_currency.to_string(),
-            foreign_currency: foreign_currency.to_string(),
-            market_order_price_slip: dec![0.0],
-            board_depth: 1000,
-            trade_category: trade_category.to_string(),
-            trade_symbol: symbol,
-            public_subscribe_channel: vec![],
+            format!("{}/{}/{}/test", self.exchange_name, self.trade_category, self.trade_symbol)
         }
     }
 }
-
-impl Default for MarketConfig {
-    fn default() -> Self {
-        Self {
-            exchange_name: "DUMMY".to_string(),
-            trade_category: "DUMMY".to_string(),
-            trade_symbol: "DUMMY".to_string(),
-            price_unit: dec![0.01],
-            price_scale: 2,
-            size_unit: dec![1000.0],
-            size_scale: 0,
-            maker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            taker_fee: dec![0.0], // dec![0.00_015],  // 0.015%
-            price_type: PriceType::Foreign,
-            fee_type: FeeType::Home,
-            home_currency: "DUMMY".to_string(),
-            foreign_currency: "DUMMY".to_string(),
-            market_order_price_slip: dec![0.0],
-            board_depth: 1000,
-            public_subscribe_channel: vec![],
-        }
-    }
-
-}
-
 
 
 pub trait ServerConfig : Send + Sync {

@@ -210,7 +210,7 @@ mod test_market_hub {
                 exchange: "a".to_string(),
                 category: "b".to_string(),
                 symbol: "c".to_string(),
-                msg: MarketMessage::make_message(&format!("message {}", i)),
+                msg: MarketMessage::make_message(&format!("{}", i)),
             };
             let r = tx.send(msg.clone());
             if r.is_err() {
@@ -220,9 +220,15 @@ mod test_market_hub {
 
         log::debug!("send message done");
 
-        for _i in 0..10 {
+        for i in 0..10 {
             if let Some(r) = rx.next().await {
-                println!("ch: m.essage: {:?}", r);
+                let m = r.unwrap();
+                if let MarketMessage::Message(message) = m {
+                    assert_eq!(message, i.to_string());
+                }
+                else {
+                    assert!(false);
+                }
             }
         }
     }
@@ -230,10 +236,10 @@ mod test_market_hub {
     #[test]
     fn test_market_hub() {
         init_debug_log();
-        let tx = MARKET_HUB.open_channel();
-        let rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
-        let rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
 
+        let tx = MARKET_HUB.open_channel();
+
+        // first make channel full
         for i in 0..CHANNEL_SIZE * 2 {
             let msg = BroadcastMessage {
                 exchange: "a".to_string(),
@@ -243,48 +249,64 @@ mod test_market_hub {
             };
             let r = tx.send(msg.clone());
             if r.is_err() {
-                println!("error: {:?}", r);
+                log::debug!("send error: {:?}", r);
+                assert!(false, "send error{:?}", r);
             }
         }
 
+        // then subscribe channel
+        let rx = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
+        let rx2 = MARKET_HUB.subscribe("a", "b", "c", "").unwrap();
 
+        // send 10 message
         for i in 10..20 {
             let msg = BroadcastMessage {
                 exchange: "a".to_string(),
                 category: "b".to_string(),
                 symbol: "c".to_string(),
-                msg: MarketMessage::make_message(&format!("message {}", i)),
+                msg: MarketMessage::make_message(&format!("{}", i)),
             };
 
             let r = tx.send(msg.clone());
             if r.is_err() {
-                println!("error: {:?}", r);
+                log::debug!("receive1 error: {:?}", r);
             }
         }
 
         log::debug!("-------rx1--------");
-
-        for _i in 10..20 {
+        for i in 10..20 {
             let r = rx.recv();
             if r.is_err() {
-                println!("error: {:?}", r);
+                log::debug!("error: {:?}", r);
             } else {
                 let r = r.unwrap();
-                println!("message: {:?}", r);
+                if let MarketMessage::Message(m) = r {
+                    assert_eq!(m, i.to_string());
+                    log::debug!("message: {:?}", m);
+                }
+                else {
+                    assert!(false, "unexpected message type");
+                }
             }
         }
 
         log::debug!("-------rx2--------");
-
-        for _i in 10..20 {
+        for i in 10..20 {
             let r = rx2.recv();
             if r.is_err() {
-                println!("error: {:?}", r);
+                log::debug!("error: {:?}", r);
             } else {
                 let r = r.unwrap();
-                println!("message: {:?}", r);
+                if let MarketMessage::Message(m) = r {
+                    assert_eq!(m, i.to_string());
+                    log::debug!("message: {:?}", m);
+                }
+                else {
+                    assert!(false, "unexpected message type");
+                }
             }
         }
+
     }
 
     #[tokio::test]
@@ -300,7 +322,7 @@ mod test_market_hub {
                 exchange: "a".to_string(),
                 category: "b".to_string(),
                 symbol: "c".to_string(),
-                msg: MarketMessage::make_message(&format!("message {}", i)),
+                msg: MarketMessage::make_message(&format!("{}", i)),
             };
             let r = tx.send(msg.clone());
             if r.is_err() {

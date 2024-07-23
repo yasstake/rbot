@@ -4,7 +4,6 @@ use crossbeam_channel::Sender;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
-use rbot_lib::db::TradeArchive;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -18,10 +17,11 @@ use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
 
+
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountPair, MarketConfig, MarketStream, MicroSec, Order,
-        OrderSide, OrderType, ServerConfig, Trade, DAYS, NOW,
+        flush_log, AccountPair, MarketConfig, MarketStream, MicroSec, Order,
+        OrderSide, OrderType, Trade, DAYS, NOW,
     },
     db::{df::KEY, sqlite::TradeDataFrame},
 };
@@ -34,6 +34,23 @@ macro_rules! check_if_enable_order {
         }
     };
 }
+
+fn price_dp(market_config: &MarketConfig, price: Decimal) -> Decimal {
+    let unit = market_config.price_unit;
+    let scale = unit.scale();
+    
+    let price = (price / unit).floor() * unit; // price_unitで切り捨て
+    price.round_dp(scale)
+}
+
+fn size_dp(market_config: &MarketConfig, size: Decimal) -> Decimal {
+    let unit = market_config.price_unit;
+    let scale = unit.scale();
+    
+    let size = (size / unit).floor() * unit; // price_unitで切り捨て
+    size.round_dp(scale)
+}
+
 
 pub trait OrderInterface {
     fn set_enable_order_feature(&mut self, enable_order: bool);
@@ -71,31 +88,16 @@ pub trait OrderInterface {
     fn get_account(&self, market_config: &MarketConfig) -> anyhow::Result<AccountPair>;
 }
 
-pub trait OrderInterfaceImpl<T, U>
+pub trait OrderInterfaceImpl<T>
 where
-    T: RestApi<U>,
-    U: ServerConfig,
+    T: RestApi
 {
+    fn get_restapi(&self) -> &T;
+    fn get_server_config(&self) -> &T;
+
     fn set_enable_order_feature(&mut self, enable_order: bool);
     fn get_enable_order_feature(&self) -> bool;
 
-    fn get_server_config(&self) -> &U;
-
-    fn price_dp(&self, market_config: &MarketConfig, price: Decimal) -> Decimal {
-        let price_scale = market_config.price_scale;
-        let price_dp = price.round_dp(price_scale);
-        price_dp
-    }
-
-    fn size_dp(&self, market_config: &MarketConfig, size: Decimal) -> Decimal {
-        let size_scale = market_config.size_scale;
-        let size_dp = size.round_dp(size_scale);
-        size_dp
-    }
-
-    fn order_side(side: &str) -> OrderSide {
-        OrderSide::from(side)
-    }
 
     async fn make_order(
         &self,
@@ -106,12 +108,12 @@ where
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        let price = self.price_dp(&market_config, price);
-        let size = self.size_dp(&market_config, size);
-        let order_side = Self::order_side(side);
+        let price = price_dp(&market_config, price);
+        let size = size_dp(&market_config, size);
+        let order_side = OrderSide::from(side);
 
-        T::new_order(
-            &self.get_server_config(),
+        let api = self.get_restapi();
+        api.new_order(
             &market_config,
             order_side,
             price,
@@ -175,7 +177,9 @@ where
     ) -> anyhow::Result<Order> {
         check_if_enable_order!(self);
 
-        T::cancel_order(&self.get_server_config(), &market_config, order_id)
+        let api = self.get_restapi();
+
+        api.cancel_order(market_config, order_id)
             .await
             .with_context(|| {
                 format!(
@@ -186,13 +190,17 @@ where
     }
 
     async fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        T::open_orders(&self.get_server_config(), market_config)
+        let api = self.get_restapi();
+
+        api.open_orders(market_config)
             .await
             .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
     }
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
-        T::get_account(&self.get_server_config())
+        let api = self.get_restapi();
+        
+        api.get_account()
             .await
             .with_context(|| format!("Error in get_account"))
     }
@@ -203,11 +211,7 @@ where
 pub trait MarketInterface {
     // --- GET CONFIG INFO ----
     fn get_production(&self) -> bool;
-
     fn get_config(&self) -> MarketConfig;
-    fn get_exchange_name(&self) -> String;
-    fn get_trade_category(&self) -> String;
-    fn get_trade_symbol(&self) -> String;
 
     fn get_market_config(&self) -> MarketConfig;
 
@@ -277,33 +281,16 @@ pub trait MarketInterface {
     ) -> anyhow::Result<MarketStream>;
 }
 
-pub trait MarketImpl<T, U>
+pub trait MarketImpl<T>
 where
-    T: RestApi<U>,
-    U: ServerConfig + Clone,
+    T: RestApi
 {
-    fn get_server_config(&self) -> U;
     // --- GET CONFIG INFO ----
+    fn get_restapi(&self) -> &T;
     fn get_config(&self) -> MarketConfig;
-    fn get_exchange_name(&self) -> String;
-    fn get_trade_category(&self) -> String;
-    fn get_trade_symbol(&self) -> String;
 
     /// Download historical log from REST API
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
-
-    async fn async_download_archives(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        let mut archive = TradeArchive::<T, U>::new(&self.get_server_config(), &self.get_config());
-
-        let count = archive.download(ndays, force, verbose).await?;
-
-        Ok(count)
-    }
 
     /// Download historical log from REST API, between the latest data and the latest FIX data.
     /// If the latest FIX data is not found, generate psudo data from klines.
@@ -442,18 +429,6 @@ where
         lock.info()
     }
 
-    fn get_file_name(&self) -> String {
-        let db = self.get_db();
-        let lock = db.lock().unwrap();
-        lock.get_file_name()
-    }
-
-    fn get_running(&self) -> bool {
-        let db = self.get_db();
-        let lock = db.lock().unwrap();
-        lock.is_running()
-    }
-
     fn vacuum(&self) {
         let db = self.get_db();
         let lock = db.lock().unwrap();
@@ -561,18 +536,18 @@ where
         Ok(edge_price.unwrap())
     }
 
-    async fn start_db_thread(&mut self) -> Sender<Vec<Trade>> {
+    async fn start_db_thread(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        lock.start_thread().await
+        lock.start_thread()
     }
 
     async fn async_download_recent_trades(
         &self,
         market_config: &MarketConfig,
     ) -> anyhow::Result<Vec<Trade>> {
-        T::get_recent_trades(&self.get_server_config(), market_config).await
+        self.get_restapi().get_recent_trades(market_config).await
     }
 
     async fn async_expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
@@ -590,7 +565,7 @@ where
 
         let expire_message = expire_message.unwrap();
 
-        let tx = self.start_db_thread().await;
+        let tx = self.start_db_thread().await?;
         let r = tx.send(expire_message);
         if r.is_err() {
             log::error!("Error in tx.send: {:?}", r.err().unwrap());
@@ -630,34 +605,22 @@ where
         return Ok(market_stream);
     }
 
-    /*------------   async ----------------*/
-    async fn async_get_latest_archive_date(&self) -> anyhow::Result<MicroSec> {
-        let server_config = self.get_server_config();
-        let config = self.get_config().clone();
 
-        let r = T::latest_archive_date(&server_config, &config).await;
-        r
-    }
-
-    async fn async_download_archive(
+    async fn async_download_archive   
+    (
         &self,
-        tx: &Sender<Vec<Trade>>,
-        date: MicroSec,
-        low_priority: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        T::download_archive(
-            &self.get_server_config(),
-            &self.get_config(),
-            tx,
-            date,
-            low_priority,
-            verbose,
-        )
-        .await
-        .with_context(|| format!("Error in download_archive: {:?}", date))
+        ndays: i64,
+        force: bool,
+        verbose: bool
+    ) -> anyhow::Result<i64> 
+    {
+        let db = self.get_db();
+        let api = self.get_restapi();
+        let mut lock =  db.lock().unwrap();
+        lock.download_archive(api, ndays, force, verbose).await
     }
 
+    /*
     async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         if verbose {
             println!("async_download_lastest");
@@ -710,4 +673,5 @@ where
 
         Ok(rec)
     }
+    */
 }
