@@ -2,6 +2,7 @@
 use std::env;
 
 use pyo3::prelude::*;
+use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
 use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
@@ -109,42 +110,17 @@ impl BybitConfig {
         return BybitConfig {};
     }
 
-    /*
-    #[classattr]
-    pub fn SPOT_BTCUSDT() -> MarketConfig {
-        MarketConfig {
-            price_unit: dec![0.05],
-            price_scale: 3,
-            size_unit: dec![0.001],
-            size_scale: 4,
-            maker_fee: dec![0.00_01],
-            taker_fee: dec![0.00_01],
-            price_type: PriceType::Home,
-            fee_type: FeeType::Home,
-            home_currency: "USDT".to_string(),
-            foreign_currency: "BTC".to_string(),
-            market_order_price_slip: dec![0.01],
-            board_depth: 200,
-            trade_category: "spot".to_string(),
-            trade_symbol: "BTCUSDT".to_string(),
-            public_subscribe_channel: vec![
-                "publicTrade.BTCUSDT".to_string(),
-                "orderbook.200.BTCUSDT".to_string(),
-            ],
-        }
-    }
-    */
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
         MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",
             "BTC",
-            1,
+            "USDT",
+            dec![0.1],
             PriceType::Home,
-            3,
+            dec![0.001],
             200,
             0.1,
             0.00_01,
@@ -162,11 +138,11 @@ impl BybitConfig {
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
-            "USDC",
             "BTC",
-            1,
+            "USDC",
+            dec![0.1],
             PriceType::Home,
-            3,
+            dec![0.001],
             200,
             0.1,
             0.00_01,
@@ -188,11 +164,11 @@ impl BybitConfig {
         let config = MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",            
             "ETH",
-            2,
+            "USDT",            
+            dec![0.01],
             PriceType::Home,
-            2,
+            dec![0.01],
             200,
             0.1,
             0.00_01,
@@ -212,11 +188,11 @@ impl BybitConfig {
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
-            "USDC",            
             "ETH",
-            2,
+            "USDC",            
+            dec![0.01],
             PriceType::Home,
-            2,
+            dec![0.01],
             200,
             0.1,
             0.00_01,
@@ -237,11 +213,11 @@ impl BybitConfig {
         MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",            
             "MNT",
-            1,
+            "USDT",            
+            dec![0.0001],
             PriceType::Home,
-            0,
+            dec![1],
             200,
             0.1,
             0.00_01,
@@ -254,17 +230,39 @@ impl BybitConfig {
         )
     }
 
+    #[classattr]
+    pub fn MNTUSDC() -> MarketConfig {
+        MarketConfig::new(
+            BYBIT,
+            "linear",
+            "MNT",
+            "USDT",            
+            dec![0.0001],
+            PriceType::Home,
+            dec![0.1],
+            200,
+            0.1,
+            0.00_01,
+            0.00_01,
+            FeeType::Home,
+            vec![
+                "publicTrade.MNT-PERP".to_string(),
+                "orderbook.200.MNT-PERP".to_string(),
+            ],
+        )
+    }
+
 
     #[classattr]
     pub fn SOLUSDT() -> MarketConfig {
         MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",            
             "SOL",
-            2,
+            "USDT",            
+            dec![0.0001],
             PriceType::Home,
-            1,
+            dec![0.1],
             200,
             0.1,
             0.00_01,
@@ -277,17 +275,39 @@ impl BybitConfig {
         )
     }
 
+    #[classattr]
+    pub fn SOLUSDC() -> MarketConfig {
+        MarketConfig::new(
+            BYBIT,
+            "linear",
+            "SOL",
+            "USDC",            
+            dec![0.01],
+            PriceType::Home,
+            dec![0.1],
+            200,
+            0.1,
+            0.00_01,
+            0.00_01,
+            FeeType::Home,
+            vec![
+                "publicTrade.SOLPERP".to_string(),
+                "orderbook.200.SOLPERP".to_string(),
+            ],
+        )
+    }
+
 
     #[classattr]
     pub fn USDCUSDT() -> MarketConfig {
         MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",            
             "USDC",
-            4,
+            "USDT",            
+            dec![0.0001],
             PriceType::Home,
-            1,
+            dec![0.1],
             200,
             0.1,
             0.00_01,
@@ -330,11 +350,11 @@ mod test_bybit_config {
         let new_config = MarketConfig::new(
             BYBIT,
             "linear",
-            "USDT",
             "BTC",
-            1,
+            "USDT",
+            dec![0.1],
             PriceType::Home,
-            3,
+            dec![0.001],
             200,
             0.1,
             0.00_01,

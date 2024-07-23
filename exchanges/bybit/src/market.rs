@@ -51,6 +51,7 @@ use anyhow::Context;
 use rbot_blockon::BLOCK_ON;
 
 use tokio::task::JoinHandle;
+use anyhow::anyhow;
 
 pub const BYBIT: &str = "BYBIT";
 
@@ -90,11 +91,11 @@ impl Bybit {
     //--- OrderInterfaceImpl ----
     #[setter]
     pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
-        OrderInterfaceImpl::set_enable_order_feature(self, enable_order)
+        self.enable_order = enable_order;
     }
     #[getter]
     pub fn get_enable_order_with_my_own_risk(&self) -> bool {
-        OrderInterfaceImpl::get_enable_order_feature(self)
+        self.enable_order
     }
 
     pub fn limit_order(
@@ -145,17 +146,21 @@ impl Bybit {
     }
 }
 
-impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
+impl OrderInterfaceImpl<BybitRestApi> for Bybit {
+    fn get_restapi(&self) -> &BybitRestApi {
+        todo!()
+    }
+    fn get_server_config(&self) -> &BybitRestApi {
+        todo!()
+    }
+
+
     fn set_enable_order_feature(&mut self, enable_order: bool) {
         self.enable_order = enable_order;
     }
 
     fn get_enable_order_feature(&self) -> bool {
         self.enable_order
-    }
-
-    fn get_server_config(&self) -> &BybitServerConfig {
-        &self.server_config
     }
 
     async fn async_start_user_stream(&mut self) -> anyhow::Result<()> {
@@ -205,12 +210,14 @@ impl OrderInterfaceImpl<BybitRestApi, BybitServerConfig> for Bybit {
 
         Ok(())
     }
+    
+    
 }
 
-#[derive(Debug)]
 #[pyclass]
 pub struct BybitMarket {
     pub server_config: BybitServerConfig,
+    pub api: BybitRestApi,
     pub config: MarketConfig,
     pub db: Arc<Mutex<TradeDataFrame>>,
     pub board: Arc<RwLock<OrderBook>>,
@@ -235,23 +242,6 @@ impl BybitMarket {
     fn get_config(&self) -> MarketConfig {
         MarketImpl::get_config(self)
     }
-    #[getter]
-    fn get_exchange_name(&self) -> String {
-        MarketImpl::get_exchange_name(self)
-    }
-    #[getter]
-    fn get_trade_category(&self) -> String {
-        MarketImpl::get_trade_category(self)
-    }
-
-    #[getter]
-    fn get_trade_symbol(&self) -> String {
-        MarketImpl::get_trade_symbol(self)
-    }
-
-    fn drop_table(&mut self) -> anyhow::Result<()> {
-        MarketImpl::drop_table(self)
-    }
 
     #[getter]
     fn get_cache_duration(&self) -> MicroSec {
@@ -262,11 +252,6 @@ impl BybitMarket {
         MarketImpl::reset_cache_duration(self)
     }
 
-    /*
-    fn stop_db_thread(&mut self) {
-        MarketImpl::stop_db_thread(self)
-    }
-    */
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
@@ -330,16 +315,6 @@ impl BybitMarket {
         MarketImpl::get_edge_price(self)
     }
 
-    #[getter]
-    fn get_file_name(&self) -> String {
-        MarketImpl::get_file_name(self)
-    }
-
-    #[getter]
-    fn get_running(&self) -> bool {
-        MarketImpl::get_running(self)
-    }
-
     fn vacuum(&self) {
         MarketImpl::vacuum(self)
     }
@@ -356,7 +331,10 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async{
-            MarketImpl::async_download_archives(self, ndays, force, verbose).await
+            //
+            //MarketImpl::async_download_archives(self, ndays, force, verbose).await
+
+            Err(anyhow!("not implemented"))
         })
     }
 
@@ -400,20 +378,15 @@ impl BybitMarket {
         config: &MarketConfig,
         production: bool,
     ) -> anyhow::Result<Self> {
-        let db_path = TradeDataFrame::make_db_path(
-            &config.exchange_name,
-            &config.trade_category,
-            &config.trade_symbol,
-            production
-        );
 
-        let db = TradeDataFrame::get(&db_path)
-            .with_context(|| format!("Error in TradeTable::open: {:?}", db_path))?;
+        let db = TradeDataFrame::get(config, server_config.production)
+            .with_context(|| format!("Error in TradeTable::open: {:?}", config))?;
 
         let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
         let mut market = BybitMarket {
             server_config: server_config.clone(),
+            api: BybitRestApi::new(server_config),
             config: config.clone(),
             db: db,
             board: Arc::new(RwLock::new(OrderBook::new(&config))),
@@ -424,29 +397,19 @@ impl BybitMarket {
     }
 }
 
-impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
+impl MarketImpl<BybitRestApi> for BybitMarket {
+    fn get_restapi(&self) -> &BybitRestApi {
+        &self.api
+    }
+
     fn get_config(&self) -> MarketConfig {
         self.config.clone()
     }
 
-    fn get_server_config(&self) -> BybitServerConfig {
-        self.server_config.clone()
-    }
-
-    fn get_exchange_name(&self) -> String {
-        self.config.exchange_name.clone()
-    }
-
-    fn get_trade_category(&self) -> String {
-        self.config.trade_category.clone()
-    }
-
-    fn get_trade_symbol(&self) -> String {
-        self.config.trade_symbol.clone()
-    }
-
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { self.async_download_latest(verbose).await })
+    //    BLOCK_ON(async { self.async_download_latest(verbose).await })
+
+        Err(anyhow!("not implmented"))
     }
 
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
@@ -477,6 +440,7 @@ impl MarketImpl<BybitRestApi, BybitServerConfig> for BybitMarket {
             self.async_start_market_stream().await
         })
     }
+    
    
 }
 
@@ -489,7 +453,7 @@ impl BybitMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread().await
+            lock.start_thread()?
         };
 
         let orderbook = self.board.clone();
@@ -598,8 +562,8 @@ impl BybitMarket {
             return Ok(0);
         }
 
-        let klines = BybitRestApi::get_trade_klines(
-            &self.server_config,
+        let api = self.get_restapi();
+        let klines = api.get_trade_klines(
             &self.get_config(),
             unfix_start,
             unfix_end,
@@ -612,7 +576,7 @@ impl BybitMarket {
 
         let tx = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread().await
+            lock.start_thread()?
         };
 
         tx.send(expire_message)?;
@@ -627,7 +591,8 @@ impl BybitMarket {
     }
 
     async fn async_reflesh_order_book(&mut self) -> anyhow::Result<()> {
-        let board = BybitRestApi::get_board_snapshot(&self.server_config, &self.config).await?;
+        let api = self.get_restapi();
+        let board = api.get_board_snapshot(&self.config).await?;
         let mut b = self.board.write().unwrap();
         b.update(&board);
 

@@ -38,6 +38,8 @@ use crate::BinanceServerConfig;
 
 use pyo3::prelude::*;
 
+use anyhow::anyhow;
+
 pub const BINANCE:&str = "BINANCE";
 
 #[pyclass]
@@ -327,7 +329,10 @@ impl BinanceMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async{
-            MarketImpl::async_download_archives(self, ndays, force, verbose).await
+            
+            
+            //MarketImpl::async_download_archives(self, ndays, force, verbose).await
+            Err(anyhow!("not implemented"))
         })
     }
 
