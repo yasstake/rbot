@@ -56,12 +56,12 @@ use anyhow::anyhow;
 pub const BYBIT: &str = "BYBIT";
 
 #[pyclass]
-#[derive(Debug)]
 pub struct Bybit {
     production: bool,
     enable_order: bool,
     server_config: BybitServerConfig,
     user_handler: Option<JoinHandle<()>>,
+    api: BybitRestApi
 }
 
 #[pymethods]
@@ -70,12 +70,14 @@ impl Bybit {
     #[pyo3(signature = (production=false))]
     pub fn new(production: bool) -> Self {
         let server_config = BybitServerConfig::new(production);
+        let api = BybitRestApi::new(&server_config);
 
         return Bybit {
             production: production,
             enable_order: false,
             server_config: server_config,
             user_handler: None,
+            api: api
         };
     }
 
@@ -148,12 +150,8 @@ impl Bybit {
 
 impl OrderInterfaceImpl<BybitRestApi> for Bybit {
     fn get_restapi(&self) -> &BybitRestApi {
-        todo!()
-    }
-    fn get_server_config(&self) -> &BybitRestApi {
-        todo!()
-    }
-
+        &self.api
+    }    
 
     fn set_enable_order_feature(&mut self, enable_order: bool) {
         self.enable_order = enable_order;
@@ -327,10 +325,7 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async{
-            //
-            //MarketImpl::async_download_archives(self, ndays, force, verbose).await
-
-            Err(anyhow!("not implemented"))
+            MarketImpl::async_download_archive(self, ndays, force, verbose).await
         })
     }
 
@@ -403,9 +398,7 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-    //    BLOCK_ON(async { self.async_download_latest(verbose).await })
-
-        Err(anyhow!("not implmented"))
+       BLOCK_ON(async { self.async_download_latest(verbose).await })
     }
 
     fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
@@ -436,8 +429,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
             self.async_start_market_stream().await
         })
     }
-    
-   
 }
 
 impl BybitMarket {
@@ -599,6 +590,7 @@ impl BybitMarket {
 
 #[cfg(test)]
 mod bybit_test {
+    use rbot_lib::common::init_debug_log;
     use rust_decimal_macros::dec;
 
     use crate::{Bybit, BybitConfig};
@@ -618,6 +610,7 @@ mod bybit_test {
 
     #[test]
     fn test_limit_order() {
+        init_debug_log();
         let mut bybit = Bybit::new(false);
         let config = BybitConfig::BTCUSDT();
 
@@ -635,6 +628,8 @@ mod bybit_test {
     fn test_market_order() {
         let mut bybit = Bybit::new(false);
         let config = BybitConfig::BTCUSDT();
+
+        init_debug_log();
 
         let rec = bybit.market_order(&config, "Buy", dec![0.001], None);
         println!("{:?}", rec);
@@ -711,7 +706,7 @@ mod market_test {
         init_debug_log();
         let mut market = BybitMarket::new(&server_config, &market_config, true);
 
-        let rec = market.download_archive(10, false, true);
+        let rec = market.download_archive(3, false, true);
         assert!(rec.is_ok());
     }
 

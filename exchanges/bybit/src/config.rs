@@ -46,8 +46,23 @@ impl BybitServerConfig {
         }
         .to_string();
 
-        let api_key = env::var("BYBIT_API_KEY").unwrap_or_default();
-        let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
+        let api_key = if let Ok(key) = env::var("BYBIT_API_KEY") {
+            key
+        }
+        else {
+            println!("API KEY environment variable [BYBIT_API_KEY] is not set");
+            log::warn!("API KEY environment variable [BYBIT_API_KEY] is not set");
+            "".to_string()
+        };
+
+        let api_secret = if let Ok(secret) = env::var("BYBIT_API_SECRET") {
+            secret
+        }
+        else {
+            println!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
+            log::warn!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
+            "".to_string()
+        };
 
         return BybitServerConfig {
             production,

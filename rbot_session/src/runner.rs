@@ -1,7 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use crossbeam_channel::Receiver;
-use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
+use pyo3::{marker, pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
@@ -293,13 +293,12 @@ impl Runner {
 
     pub fn update_market_info(&mut self, market: &PyObject) -> Result<(), PyErr> {
         let r = Python::with_gil(|py| {
-            let exchange_name = market.getattr(py, "exchange_name").unwrap();
-            let category = market.getattr(py, "trade_category").unwrap();
-            let symbol = market.getattr(py, "trade_symbol").unwrap();
+            let market_config = market.getattr(py, "config")?;
+            let market_config = market_config.extract::<MarketConfig>(py)?;
 
-            self.exchange_name = exchange_name.extract::<String>(py).unwrap();
-            self.category = category.extract::<String>(py).unwrap();
-            self.symbol = symbol.extract::<String>(py).unwrap();
+            self.exchange_name = market_config.exchange_name;
+            self.category = market_config.trade_category;
+            self.symbol = market_config.trade_symbol;
 
             Ok(())
         });
