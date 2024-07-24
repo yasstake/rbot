@@ -14,7 +14,7 @@ use parquet::{
 };
 use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncWriteExt as _, BufWriter};
 // Import the `anyhow` crate and the `Result` type.
 use super::{db_path_root, select_df};
 use polars::lazy::{
@@ -587,6 +587,8 @@ impl TradeArchive {
     }
 }
 
+const BUFFER_SIZE: usize = 8 * 1024 * 1024; 
+
 pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathBuf> {
     let client = Client::new();
 
@@ -608,8 +610,6 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
         return Err(anyhow!("Download error response={:?}", response));
     }
 
-    let total_size = response.content_length().unwrap_or(0);
-
     let fname = response
         .url()
         .path_segments()
@@ -618,24 +618,23 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
         .unwrap_or("tmp.bin");
 
     let path = tmp_dir.join(fname);
-
-    let mut file = tokio::fs::File::create(path.clone()).await?;
-    let mut downloaded: u64 = 0;
+    let file = tokio::fs::File::create(path.clone()).await?;
+    let mut file_buffer = BufWriter::with_capacity(BUFFER_SIZE, file);
     let mut stream = response.bytes_stream();
 
     log::debug!("start reading from web");
 
     while let Some(item) = stream.next().await {
         let chunk = item?;
-        file.write_all(&chunk).await?;
-        let new = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-        downloaded = new;
+        file_buffer.write_all(&chunk).await?;
     }
 
-    file.flush().await?;
+    file_buffer.flush().await?;
 
     Ok(path)
 }
+
+
 
 /// check if achive date is avairable at specified date
 async fn has_web_archive<T>(api: &T, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>
@@ -650,4 +649,32 @@ where
     }
 
     Ok(result.unwrap())
+}
+
+#[cfg(test)]
+mod archive_test {
+    use std::{path::PathBuf, str::FromStr};
+
+    use crate::common::{init_debug_log, NOW};
+
+    use super::log_download_tmp;
+
+    #[tokio::test]
+    async fn test_download() -> anyhow::Result<()> {
+        let path_buf = PathBuf::from_str("/tmp")?;
+        let path = path_buf.as_path();
+
+        init_debug_log();
+
+        log::debug!("start download");
+        let now = NOW();
+        let file = log_download_tmp(
+            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2024-07-16.csv.gz"
+            , path).await?;
+
+            log::debug!("done");
+            log::debug!("file={:?} :  {}[msec]", file, (NOW()-now)/1_000);
+    
+        Ok(())
+    }
 }

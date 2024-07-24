@@ -55,7 +55,7 @@ class SkeltonAgent:      # クラス名は任意です
     
 from rbot import Bybit, BybitConfig
 
-from rbot import init_debug_log
+from rbot import init_log
 
 
 bybit  = Bybit(production=False)
@@ -70,9 +70,9 @@ agent = SkeltonAgent()
 runner = Runner()
 
 from rbot import init_debug_log
-#init_debug_log()
+#init_log()
 
-market.download_archive(10)
+market.download_archive(13, verbose=True)
 
 
 session = runner.back_test(
