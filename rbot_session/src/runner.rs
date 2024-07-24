@@ -6,7 +6,7 @@ use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
 use async_stream::stream;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 
 use rbot_lib::{
     common::{

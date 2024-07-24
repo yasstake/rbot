@@ -20,7 +20,7 @@ use anyhow::Context;
 
 use rbot_lib::{
     common::{
-        flush_log, AccountPair, MarketConfig, MarketStream, MicroSec, Order,
+        AccountPair, MarketConfig, MarketStream, MicroSec, Order,
         OrderSide, OrderType, Trade, DAYS, NOW,
     },
     db::{df::KEY, sqlite::TradeDataFrame},
@@ -34,23 +34,6 @@ macro_rules! check_if_enable_order {
         }
     };
 }
-
-fn price_dp(market_config: &MarketConfig, price: Decimal) -> Decimal {
-    let unit = market_config.price_unit;
-    let scale = unit.scale();
-    
-    let price = (price / unit).floor() * unit; // price_unitで切り捨て
-    price.round_dp(scale)
-}
-
-fn size_dp(market_config: &MarketConfig, size: Decimal) -> Decimal {
-    let unit = market_config.price_unit;
-    let scale = unit.scale();
-    
-    let size = (size / unit).floor() * unit; // price_unitで切り捨て
-    size.round_dp(scale)
-}
-
 
 pub trait OrderInterface {
     fn set_enable_order_feature(&mut self, enable_order: bool);
@@ -108,8 +91,8 @@ where
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        let price = price_dp(&market_config, price);
-        let size = size_dp(&market_config, size);
+        let price = market_config.round_price(price)?;
+        let size = market_config.round_size(size)?;
         let order_side = OrderSide::from(side);
 
         let api = self.get_restapi();
