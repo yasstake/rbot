@@ -233,15 +233,6 @@ pub fn ohlcv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![(KEY::time_stamp).to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -251,6 +242,15 @@ pub fn ohlcv_df(
             col(KEY::size).sum().alias(KEY::volume),
             col(KEY::price).count().alias(KEY::count),
         ])
+        .sort(
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -294,15 +294,6 @@ pub fn ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![KEY::time_stamp.to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -314,6 +305,15 @@ pub fn ohlcvv_df(
             col(KEY::time_stamp).min().alias(KEY::start_time),
             col(KEY::time_stamp).max().alias(KEY::end_time),
         ])
+        .sort(
+            vec![KEY::time_stamp.to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -357,15 +357,6 @@ pub fn ohlcv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![(KEY::time_stamp).to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::open)
@@ -397,6 +388,15 @@ pub fn ohlcv_from_ohlcvv_df(
             col(KEY::volume).sum().alias(KEY::volume),
             col(KEY::count).sum().alias(KEY::count),
         ])
+        .sort(
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -435,15 +435,6 @@ pub fn ohlcvv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![(KEY::time_stamp).to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -455,6 +446,15 @@ pub fn ohlcvv_from_ohlcvv_df(
             col(KEY::start_time).min().alias(KEY::start_time),
             col(KEY::end_time).max().alias(KEY::end_time),
         ])
+        .sort(
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -531,9 +531,9 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
 
 pub struct TradeBuffer {
     pub time_stamp: Vec<MicroSec>,
+    pub order_side: Vec<bool>,
     pub price: Vec<f64>,
     pub size: Vec<f64>,
-    pub order_side: Vec<bool>,
 }
 
 impl TradeBuffer {
@@ -570,9 +570,9 @@ impl TradeBuffer {
 
     pub fn to_dataframe(&self) -> DataFrame {
         let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
+        let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
         let price = Series::new(KEY::price, self.price.to_vec());
         let size = Series::new(KEY::size, self.size.to_vec());
-        let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
 
         let df = DataFrame::new(vec![time_stamp, order_side, price, size]).unwrap();
 
@@ -582,13 +582,13 @@ impl TradeBuffer {
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
-    let order_side = Series::new(KEY::order_side, Vec::<f64>::new());
+    let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
     let open = Series::new(KEY::open, Vec::<f64>::new());
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
     let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<f64>::new());
+    let count = Series::new(KEY::count, Vec::<i64>::new());
     let start_time = Series::new(KEY::start_time, Vec::<MicroSec>::new());
     let end_time = Series::new(KEY::end_time, Vec::<MicroSec>::new());
 
@@ -607,7 +607,7 @@ pub fn make_empty_ohlcv() -> DataFrame {
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
     let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<f64>::new());
+    let count = Series::new(KEY::count, Vec::<i64>::new());
 
     let df = DataFrame::new(vec![time, open, high, low, close, vol, count]).unwrap();
 
@@ -624,12 +624,12 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
     }
 }
 
-pub fn convert_timems_to_datetime(df: &mut DataFrame) -> &DataFrame {
-    let time = df.column(KEY::time_stamp).unwrap().i64().unwrap().clone();
+pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
+    let time = df.column(KEY::time_stamp)?.i64()?.clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    let df = df.with_column(date_time).unwrap();
+    df.with_column(date_time)?;
 
-    df
+    Ok(())
 }
 
 use polars::prelude::*;
@@ -740,15 +740,6 @@ mod test_df {
 
         let groupby = df
             .lazy()
-            .sort(
-                vec!["date".to_string()],
-                SortMultipleOptions {
-                    descending: vec![false],
-                    nulls_last: vec![false],
-                    multithreaded: true,
-                    maintain_order: false,
-                },
-            )
             .group_by_dynamic(
                 col("date"),
                 //[col("category")],
@@ -759,6 +750,15 @@ mod test_df {
                 col("value").mean().alias("mean"),
                 col("value").sum().alias("sum"),
             ])
+            .sort(
+                vec!["date".to_string()],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![false],
+                    multithreaded: true,
+                    maintain_order: false,
+                },
+            )
             .collect()
             .unwrap();
 
@@ -770,16 +770,16 @@ mod test_df {
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(
-            KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3)],
-            KEY::order_side => &[0, 1, 0],
-            KEY::open => &[1.0, 2.0, 3.0],
-            KEY::high => &[1.0, 2.0, 3.0],
-            KEY::low => &[1.0, 2.0, 3.0],
-            KEY::close => &[1.0, 2.0, 3.0],
-            KEY::volume => &[1.0, 2.0, 3.0],
-            KEY::count => &[1.0, 2.0, 3.0],
-            KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3)],
-            KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
+            KEY::order_side => &[false, true, false, true],
+            KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
+            KEY::open => &[1.0, 2.0, 3.0, 4.0],
+            KEY::high => &[1.0, 2.0, 3.0, 4.0],
+            KEY::low => &[1.0, 2.0, 3.0, 4.0],
+            KEY::close => &[1.0, 2.0, 3.0, 4.0],
+            KEY::volume => &[1.0, 2.0, 3.0, 4.0],
+            KEY::count => &[1, 2, 3, 4],
+            KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
+            KEY::end_time => &[DAYS(2), DAYS(3), DAYS(4), DAYS(4)]
         );
 
         return df
@@ -801,22 +801,33 @@ mod test_df {
         let ohlc = make_ohlcv_df();
 
         println!("{:?}", ohlc);
+        assert_eq!(ohlc.shape().0, 4);
+        assert_eq!(ohlc.shape().1, 10);
     }
 
     #[test]
-    fn test_make_ohlcv_from_ohclv() {
+    fn test_make_ohlcvv_from_ohclv() -> anyhow::Result<()>{
         let ohlcv = make_ohlcv_df();
 
-        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
         println!("{:?}", ohlcv2);
+
+        assert_eq!(ohlcv, ohlcv2);
+
+        Ok(())
     }
 
     #[test]
-    fn test_make_ohlc_from_ohclv() {
+    fn test_make_ohlcv_from_ohclv() -> anyhow::Result<()>{
         let ohlcv = make_ohlcv_df();
 
-        let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
         println!("{:?}", ohlcv2);
+
+        assert_eq!(ohlcv2.shape().0, 3);
+        assert_eq!(ohlcv2.shape().1, 7);
+
+        Ok(())
     }
 
     #[test]
@@ -890,15 +901,15 @@ mod test_df {
     }
 
     #[test]
-    fn test_convert_ohlc_datetime() {
+    fn test_convert_ohlc_datetime() -> anyhow::Result<()>{
         let mut df = make_empty_ohlcv();
 
         println!("{:?}", df);
 
-        let time = df.column("time_stamp").unwrap().i64().unwrap().clone();
-        let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-        let df = df.with_column(date_time).unwrap();
+        convert_timems_to_datetime(&mut df)?;
 
         println!("{:?}", df);
+
+        Ok(())
     }
 }

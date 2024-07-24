@@ -315,10 +315,6 @@ impl BybitMarket {
         MarketImpl::get_edge_price(self)
     }
 
-    fn vacuum(&self) {
-        MarketImpl::vacuum(self)
-    }
-
     fn _repr_html_(&self) -> String {
         MarketImpl::_repr_html_(self)
     }

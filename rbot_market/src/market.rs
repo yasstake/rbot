@@ -4,6 +4,7 @@ use crossbeam_channel::Sender;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::db::TradeDataFrame;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -23,7 +24,7 @@ use rbot_lib::{
         AccountPair, MarketConfig, MarketStream, MicroSec, Order,
         OrderSide, OrderType, Trade, DAYS, NOW,
     },
-    db::{df::KEY, sqlite::TradeDataFrame},
+    db::df::KEY
 };
 
 macro_rules! check_if_enable_order {
@@ -335,15 +336,6 @@ where
         Ok((latest_trade, first_unfix_trade))
     }
 
-    // --- DB ----
-    fn drop_table(&mut self) -> anyhow::Result<()> {
-        let db = self.get_db();
-        let lock = db.lock().unwrap();
-
-        lock.drop_table()?;
-
-        Ok(())
-    }
 
     fn get_cache_duration(&self) -> MicroSec {
         let db = self.get_db();
@@ -410,14 +402,6 @@ where
         let db = self.get_db();
         let lock = db.lock().unwrap();
         lock.info()
-    }
-
-    fn vacuum(&self) {
-        let db = self.get_db();
-        let lock = db.lock().unwrap();
-        if lock.vacuum().is_err() {
-            log::error!("Error in vacuum");
-        }
     }
 
     fn _repr_html_(&self) -> String {
@@ -568,12 +552,14 @@ where
     ) -> anyhow::Result<MarketStream> {
         let (sender, market_stream) = MarketStream::open();
 
-        let db = self.get_db();
+        let archive = {
+            let db = self.get_db();
+            let trade_dataframe = db.lock().unwrap();
+            trade_dataframe.get_archive()
+        };
 
         std::thread::spawn(move || {
-            let mut table_db = db.lock().unwrap();
-
-            let result = table_db.select(time_from, time_to, |trade| {
+            let result = archive.foreach(time_from, time_to, &mut |trade| {
                 let message: MarketMessage = trade.into();
                 sender.send(message)?;
 
