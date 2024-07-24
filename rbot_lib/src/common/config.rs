@@ -6,11 +6,20 @@ use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use serde_derive::{Serialize, Deserialize};
-
-use crate::db::KEY::price;
-
+use zip::read::Config;
 use super::SecretString;
+use anyhow::anyhow;
 
+
+pub trait ServerConfig : Send + Sync {
+    fn get_historical_web_base(&self) -> String;
+    fn get_public_ws_server(&self) -> String;
+    fn get_user_ws_server(&self) -> String;
+    fn get_rest_server(&self) -> String;
+    fn get_api_key(&self) -> SecretString;
+    fn get_api_secret(&self) -> SecretString;
+    fn is_production(&self) -> bool;
+}
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -68,6 +77,20 @@ pub struct MarketConfig {
     pub public_subscribe_channel: Vec<String>,
 }
 
+fn round(unit: Decimal, value: Decimal) -> anyhow::Result<Decimal> {
+    let scale = unit.scale();
+    
+    let v = (value / unit).floor() * unit; // price_unitで切り捨て
+    let v = v.round_dp(scale);
+
+    if v == dec![0.0] {
+        log::warn!("Trunc into zero value= {} / unit= {} => {}", value, unit, v);
+        return Err(anyhow!("Trunc into zero value= {} / unit= {} => {}", value, unit, v))
+    }
+    Ok(v)
+}
+
+
 #[pymethods]
 impl MarketConfig {
     pub fn __repr__(&self) -> String {
@@ -77,6 +100,15 @@ impl MarketConfig {
     pub fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    pub fn round_price(&self, price: Decimal) -> anyhow::Result<Decimal> {
+        round(self.price_unit, price)
+    }
+
+    pub fn round_size(&self, size: Decimal) -> anyhow::Result<Decimal> {
+        round(self.size_unit, size)
+    }
+
 
     #[new]
     pub fn new(
@@ -125,14 +157,69 @@ impl MarketConfig {
     }
 }
 
+impl Default for MarketConfig {
+    fn default() -> Self {
+        MarketConfig::new(
+            "default_exchange",
+            "default_trade_category",
+            "default_foreign_currency",
+            "default_home_currency",
+            Decimal::from_f64(0.01).unwrap(),
+            PriceType::Home,
+            Decimal::from_f64(0.01).unwrap(),
+            10,
+            0.0,
+            0.0,
+            0.0,
+            FeeType::Home,
+            vec![],
+        )
+    }
+}
 
-pub trait ServerConfig : Send + Sync {
-    fn get_historical_web_base(&self) -> String;
-    fn get_public_ws_server(&self) -> String;
-    fn get_user_ws_server(&self) -> String;
-    fn get_rest_server(&self) -> String;
-    fn get_api_key(&self) -> SecretString;
-    fn get_api_secret(&self) -> SecretString;
-    fn is_production(&self) -> bool;
+
+
+
+#[cfg(test)]
+mod test_market_config {
+    use rust_decimal_macros::dec;
+
+    use crate::common::init_debug_log;
+
+    use super::MarketConfig;
+
+    #[test]
+    fn round_price() -> anyhow::Result<()>{
+        let mut config = MarketConfig::default();
+        config.price_unit = dec![0.5];
+
+        let price = dec![0.51];
+        let round = config.round_price(price)?;
+        assert_eq!(round, dec![0.5]);
+
+        let price = dec![0.6];
+        let round = config.round_price(price)?;
+        assert_eq!(round, dec![0.5]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn round_size() -> anyhow::Result<()> {
+        init_debug_log();
+        let mut config = MarketConfig::default();
+        config.price_unit = dec![0.001];
+
+        // when trunc into zero, receive err.
+        let price = dec![0.0001];
+        let round = config.round_price(price);
+        assert!(round.is_err());
+
+        let price = dec![0.11];
+        let round = config.round_price(price)?;
+        assert_eq!(round, dec![0.11]);
+
+        Ok(())
+    }
 }
 

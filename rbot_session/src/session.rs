@@ -476,9 +476,7 @@ impl Session {
 
     pub fn real_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         log::debug!("market_order: side={:}, size={}", &side, size);
-
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
 
@@ -511,8 +509,7 @@ impl Session {
     }
 
     pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -542,8 +539,7 @@ impl Session {
     }
 
     pub fn dummy_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -599,11 +595,8 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        let price_scale = self.market_config.price_scale;
-        let pricedp = price.round_dp(price_scale);
-
-        let size_scale = self.market_config.size_scale;
-        let sizedp = size.round_dp(size_scale);
+        let price = self.market_config.round_price(price)?;
+        let size = self.market_config.round_size(size)?;
 
         // first push order to order list
         let local_id = self.new_order_id();
@@ -611,8 +604,8 @@ impl Session {
         log::debug!(
             "limit_order: side={:?}, size={}, price={}",
             side,
-            sizedp,
-            pricedp
+            size,
+            price
         );
 
         // then call market.limit_order
@@ -620,7 +613,7 @@ impl Session {
             let result = self.exchange.call_method1(
                 py,
                 "limit_order",
-                (self.market_config.clone(), side, pricedp, sizedp, local_id),
+                (self.market_config.clone(), side, price, size, local_id),
             );
 
             match result {
@@ -661,11 +654,8 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        let price_scale = self.market_config.price_scale;
-        let pricedp = price.round_dp(price_scale);
-
-        let size_scale = self.market_config.size_scale;
-        let sizedp = size.round_dp(size_scale);
+        let price = self.market_config.round_price(price)?;
+        let size = self.market_config.round_size(size)?;
 
         // first push order to order list
         let local_id = self.new_order_id();
@@ -675,8 +665,8 @@ impl Session {
         log::debug!(
             "dummuy_limit_order: side={:?}, size={}, price={}",
             side,
-            sizedp,
-            pricedp
+            size,
+            price
         );
 
         let mut order = Order::new(
@@ -688,8 +678,8 @@ impl Session {
             order_side,
             OrderType::Limit,
             OrderStatus::New,
-            pricedp,
-            sizedp,
+            price,
+            size,
         );
 
         order.is_maker = true;

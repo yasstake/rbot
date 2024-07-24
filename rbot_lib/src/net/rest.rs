@@ -2,45 +2,18 @@
 // Abloultely no warranty.
 
 use anyhow::anyhow;
-use anyhow::ensure;
 use anyhow::Context;
-use chrono::Datelike;
 
 // use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
-use csv::StringRecord;
-use flate2::read::GzDecoder;
-use polars::chunked_array::ops::ChunkCast;
-use polars::datatypes::DataType;
 use polars::frame::DataFrame;
-use polars::io::csv::read::CsvReadOptions;
-use polars::io::parquet::write::ParquetWriter;
-use polars::io::SerReader;
-use polars::prelude::Series;
 use reqwest::Method;
 use rust_decimal::Decimal;
-use std::io::BufRead;
-use std::io::BufWriter;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::{
-    fs::File,
-    io::{copy, BufReader, Cursor, Write},
-    path::Path,
-    thread::sleep,
-    time::Duration,
-};
-use tempfile::tempdir;
-//use tokio::spawn;
-use zip::ZipArchive;
-
 use crate::common::time_string;
 use crate::common::AccountCoins;
 use crate::common::{
-    flush_log, to_naive_datetime, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order,
-    OrderSide, OrderType, ServerConfig, Trade, DAYS, FLOOR_DAY, TODAY,
+    BoardTransfer, Kline, MarketConfig, MicroSec, Order,
+    OrderSide, OrderType, Trade, DAYS, TODAY,
 };
-use crate::db::KEY;
 //use crate::db::KEY::low;
 use async_trait::async_trait;
 
@@ -297,9 +270,6 @@ where
     urls
 }
 */
-
-const MAX_BUFFER_SIZE: usize = 4096;
-const LOW_QUEUE_SIZE: usize = 5;
 
 pub async fn do_rest_request(
     method: Method,
