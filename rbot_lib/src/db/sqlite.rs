@@ -674,8 +674,6 @@ impl TradeDb {
 }
 
 pub struct TradeDataFrame {
-    config: MarketConfig,
-    production: bool,
     db: TradeDb,
     archive: TradeArchive,
 
@@ -718,7 +716,7 @@ impl TradeDataFrame {
         self.db.make_expire_control_message(now, force)
     }
 
-    pub fn set_cache_ohlcvv(&mut self, df: DataFrame) {
+    pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()>{
         let start_time: MicroSec = df
             .column(KEY::time_stamp)
             .unwrap()
@@ -746,10 +744,12 @@ impl TradeDataFrame {
         log::debug!("head {:?}", head.head(Some(2)));
         log::debug!("tail {:?}", tail.head(Some(2)));
 
-        let df = append_df(&head, &df);
-        let df = append_df(&df, &tail);
+        let df = append_df(&head, &df)?;
+        let df = append_df(&df, &tail)?;
 
         self.cache_ohlcvv = df;
+
+        Ok(())
     }
 
     pub fn start_thread(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
@@ -1424,9 +1424,6 @@ impl TradeDataFrame {
         let archive = TradeArchive::new(config, production);
 
         Ok(TradeDataFrame {
-            config: config.clone(),
-            production: production,
-
             db: conn,
             archive: archive,
 

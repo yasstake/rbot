@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
-use log::kv::source;
 use polars::prelude::BooleanType;
 use polars::prelude::ChunkCompare;
 use polars::prelude::ChunkedArray;
@@ -80,6 +79,7 @@ pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame> {
     Ok(df)
 }
 
+/// import csv format into dataframe
 pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
     log::debug!("reading csv file = {:?}", source_path);
 
@@ -127,6 +127,7 @@ pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> Da
     return df;
 }
 
+/// select df with lazy dataframe
 pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> LazyFrame {
     log::debug!(
         "Select from {} -> {}",
@@ -164,10 +165,11 @@ pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
     df.column(KEY::time_stamp).unwrap().max().unwrap()
 }
 
-
-pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
-    let df = df1.vstack(df2).unwrap();
-    df
+/// append df2 after df1
+pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
+    let df = df1.vstack(df2)?;
+    
+    Ok(df)
 }
 
 /// merge 2 dataframe, if overlap df2 on df1, df1 will be trimmed(overritten by df2)
@@ -442,17 +444,6 @@ pub fn ohlcvv_from_ohlcvv_df(
                 multithreaded: true,
             },
         )
-        /*
-        .sort(
-                KEY::time_stamp,
-                SortOptions {
-                    descending: false,
-                    nulls_last: false,
-                    maintain_order: true,
-                    multithreaded: true,
-                },
-            )
-            */
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -476,44 +467,6 @@ pub fn ohlcvv_from_ohlcvv_df(
     }
 }
 
-/// Calc Value At Price
-/// group by unit price and order_side
-pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
-    let df = select_df_lazy(df, start_time, end_time);
-
-    let vap = df
-        .group_by([KEY::price, KEY::order_side])
-        .agg([col(KEY::size).sum().alias(KEY::size)])
-        .collect()
-        .unwrap();
-
-    vap
-}
-
-/// Calc Value At Price
-/// group by unit price and order_side
-pub fn vap_df_bak2(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
-    let df = select_df_lazy(df, start_time, end_time);
-
-    //    let floor_price = col(KEY::price)
-    //    .map(|v: f64| (v / 10.0).floor() * 10.0, Arc::new(DataType::Float64) as Arc<dyn FunctionOutputField>);
-
-    //.div(10.0).alias("floor_price").cast(&DataType::Float64);
-
-    //    let floor_price =
-    //col(KEY::price).div(10.0).alias("floor_price").cast(&DataType::Float64);
-
-    let floor_price = col(KEY::price).floor();
-
-    let vap_gb = df.group_by([floor_price, col(KEY::order_side)]);
-
-    let vap = vap_gb
-        .agg([col(KEY::size).sum().alias(KEY::size)])
-        .collect()
-        .unwrap();
-
-    vap
-}
 
 /// Calc Value At Price
 /// group by unit price and order_side
@@ -688,7 +641,7 @@ mod test_df {
     use crate::common::{init_debug_log, DAYS};
 
     #[test]
-    fn test_merge_df() -> anyhow::Result<()> {
+    fn test_merge_and_append_df() -> anyhow::Result<()> {
         init_debug_log();
 
         let df1 = df![
@@ -735,6 +688,26 @@ mod test_df {
                 "value" => [11, 12, 25,26]
             ]?
         );
+
+        assert_eq!(
+            append_df(
+                &df![
+                    KEY::time_stamp => [1, 2],
+                    "value" => [11, 12]
+                ]?,
+                &df![
+                    KEY::time_stamp => [2, 3],
+                    "value" => [25, 26]
+                ]?,
+            )?,
+            df![
+                KEY::time_stamp => [1,2,2,3],
+                "value" => [11, 12, 25,26]
+            ]?
+        );
+
+
+
 
         Ok(())
     }
