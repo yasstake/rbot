@@ -1,37 +1,37 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, ServerConfig, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, Trade, DAYS,
+        FLOOR_DAY, MIN, NOW, TODAY,
     },
-    db::{csv_to_df, df_to_parquet, merge_df, parquet_to_df, KEY},
-    net::{check_exist, log_download_tmp, read_csv_archive, RestApi},
+    db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
+    net::{check_exist, RestApi},
 };
 use anyhow::{anyhow, Context};
+use futures::StreamExt;
 use parquet::{
     file::reader::{FileReader, SerializedFileReader},
     record::RowAccessor,
 };
+use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
+use tokio::io::AsyncWriteExt as _;
 // Import the `anyhow` crate and the `Result` type.
-use super::db_path_root;
+use super::{db_path_root, select_df};
 use polars::lazy::{
     dsl::{col, lit},
     frame::IntoLazy,
 };
 use polars::prelude::{DataFrame, NamedFrom};
 use polars::series::Series;
+
 use std::{
     fs::{self, File},
-    io::BufWriter,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     vec,
 };
 use tempfile::tempdir;
 
-use parquet::record::Row;
-use std::sync::Arc;
-
-const PARQUET: bool = true;
 const EXTENSION: &str = "parquet";
 
 ///
@@ -50,35 +50,44 @@ const EXTENSION: &str = "parquet";
 /// log_df    ->   raw archvie file it may be different from exchanges.
 /// archive_df -> archvie file that is stored in the local directory
 /// chache_df -> df to use TradeTable's cache.
-#[derive(Debug)]
-pub struct TradeTableArchive<T, U>
-where
-    T: RestApi<U>,
-    U: ServerConfig + Clone,
-{
-    server: U,
+pub struct TradeArchive {
     config: MarketConfig,
+    production: bool,
     last_archive_check_time: MicroSec,
     latest_archive_date: MicroSec,
     start_time: MicroSec,
     end_time: MicroSec,
-    _dummy: Option<T>,
 }
 
-impl<T, U> TradeTableArchive<T, U>
-where
-    T: RestApi<U>,
-    U: ServerConfig + Clone,
-{
-    pub fn new(server: &U, config: &MarketConfig) -> Self {
+impl Clone for TradeArchive {
+    fn clone(&self) -> Self {
+        let mut archive = Self {
+            config: self.config.clone(),
+            production: self.production.clone(),
+            last_archive_check_time: self.last_archive_check_time.clone(),
+            latest_archive_date: self.latest_archive_date.clone(),
+            start_time: self.start_time.clone(),
+            end_time: self.end_time.clone(),
+        };
+
+        let r = archive.analyze();
+        if r.is_err() {
+            log::warn!("trade archive analyze error");
+        }
+
+        archive
+    }
+}
+
+impl TradeArchive {
+    pub fn new(config: &MarketConfig, production: bool) -> Self {
         let mut my = Self {
-            server: server.clone(),
             config: config.clone(),
+            production: production,
             last_archive_check_time: 0,
             latest_archive_date: 0,
             start_time: 0,
             end_time: 0,
-            _dummy: None,
         };
 
         let r = my.analyze();
@@ -86,23 +95,83 @@ where
             log::debug!("Archive analyze error {:?}", r);
         }
 
-        log::debug!("S: {} ({})", my.start_time(), time_string(my.start_time()));
-        log::debug!("E: {} ({})", my.end_time(), time_string(my.end_time()));
+        log::debug!(
+            "S: {:?} ({:?})",
+            my.start_time(),
+            time_string(my.start_time().unwrap_or_default())
+        );
+        log::debug!(
+            "E: {:?} ({:?})",
+            my.end_time(),
+            time_string(my.end_time().unwrap_or_default())
+        );
 
         return my;
     }
 
-    pub fn start_time(&self) -> MicroSec {
-        self.start_time
+    pub fn start_time(&self) -> anyhow::Result<MicroSec> {
+        if self.start_time == 0 {
+            return Err(anyhow!("no data in archive"));
+        }
+
+        Ok(self.start_time)
     }
 
-    pub fn end_time(&self) -> MicroSec {
-        self.end_time
+    pub fn end_time(&self) -> anyhow::Result<MicroSec> {
+        if self.end_time == 0 {
+            return Err(anyhow!("no data in archive"));
+        }
+
+        Ok(self.end_time)
+    }
+
+    // check if the log data is already stored in local.
+    pub fn has_local_archive(&self, date: MicroSec) -> bool {
+        let archive_path = self.file_path(date);
+
+        log::debug!("check file exists {:?}", archive_path);
+
+        return archive_path.exists();
+    }
+
+    /// download historical data from the web and store csv in the Archive directory
+    pub async fn download<T>(
+        &mut self,
+        api: &T,
+        ndays: i64,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<i64>
+    where
+        T: RestApi,
+    {
+        let mut date = FLOOR_DAY(NOW());
+
+        log::debug!("download log from {:?}({:?})", date_string(date), date);
+
+        let mut count = 0;
+        let mut i = 0;
+
+        while i <= ndays {
+            count += self
+                .web_archive_to_parquet(api, date, force, verbose)
+                .await?;
+            date -= DAYS(1);
+
+            i += 1;
+        }
+
+        self.analyze()?;
+
+        Ok(count)
     }
 
     /// check the lates date in archive web site
     /// check the latest check time, within 60 min call this function, reuse cache value.
-    pub async fn latest_archive_date(&mut self) -> anyhow::Result<MicroSec> {
+    pub async fn latest_archive_date<T>(&mut self, api: &T) -> anyhow::Result<MicroSec>
+    where
+        T: RestApi,
+    {
         let now = NOW();
         if now - self.last_archive_check_time < MIN(60) {
             return Ok(self.latest_archive_date);
@@ -115,7 +184,7 @@ where
         loop {
             log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-            if self.has_web_archive(latest).await? {
+            if has_web_archive(api, &self.config, latest).await? {
                 self.latest_archive_date = latest;
                 return Ok(latest);
             }
@@ -130,53 +199,6 @@ where
                 ));
             }
         }
-    }
-
-    /// check if achive date is avairable at specified date
-    async fn has_web_archive(&self, date: MicroSec) -> anyhow::Result<bool> {
-        let url = T::history_web_url(&self.server, &self.config, date);
-        let result = check_exist(url.as_str()).await;
-
-        if result.is_err() {
-            return Ok(false);
-        }
-
-        Ok(result.unwrap())
-    }
-
-    // check if the log data is already stored in local.
-    pub fn has_local_archive(&self, date: MicroSec) -> bool {
-        let archive_path = self.file_path(date);
-
-        log::debug!("check file exists {:?}", archive_path);
-
-        return archive_path.exists();
-    }
-
-    /// download historical data from the web and store csv in the Archive directory
-    pub async fn download(
-        &mut self,
-        ndays: i64,
-        force: bool,
-        verbose: bool,
-    ) -> anyhow::Result<i64> {
-        let mut date = FLOOR_DAY(NOW());
-
-        log::debug!("download log from {:?}({:?})", date_string(date), date);
-
-        let mut count = 0;
-        let mut i = 0;
-
-        while i <= ndays {
-            count += self.web_archive_to_parquet(date, force, verbose).await?;
-            date -= DAYS(1);
-
-            i += 1;
-        }
-
-        self.analyze()?;
-
-        Ok(count)
     }
 
     /// generate 0 row empty cache(stored in memory) df
@@ -204,24 +226,47 @@ where
         Ok(df)
     }
 
+    /// load from archived paquet file retrive specifed time frame.
+    pub fn select_cachedf(
+        &self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
+        let dates = self.select_dates(start_time, end_time)?;
+
+        let mut df = Self::make_empty_cachedf();
+
+        for date in dates {
+            log::debug!("{:?}", date_string(date));
+
+            let new_df = self.load_cache_df(date)?;
+
+            df = append_df(&df, &new_df)?;
+        }
+
+        df = select_df(&df, start_time, end_time);
+
+        Ok(df)
+    }
+
     /// load from parquet file and retrive as cachedf.
     pub fn load_cache_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
         let date = FLOOR_DAY(date);
 
-        if date < self.start_time() {
+        if date < self.start_time()? {
             log::warn!(
                 "Not found in archive[too early] query={:?} < start_time{:?}",
                 date_string(date),
-                date_string(self.start_time())
+                date_string(self.start_time()?)
             );
             return Ok(Self::make_empty_cachedf());
         }
 
-        if self.end_time() <= date {
+        if self.end_time()? <= date {
             log::warn!(
                 "Not found in archive[too new] query={:?} >= end_time{:?}",
                 date_string(date),
-                date_string(self.end_time())
+                date_string(self.end_time()?)
             );
             return Ok(Self::make_empty_cachedf());
         }
@@ -246,31 +291,15 @@ where
         Ok(df)
     }
 
-    /// load from archived paquet file retrive specifed time frame.
-    pub fn select_cache_df(
+    /// execute f for each rec in archive within specifed time frame.
+    pub fn foreach<F>(
         &self,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> anyhow::Result<DataFrame> {
-        let dates = self.select_dates(start_time, end_time)?;
-
-        let mut df = Self::make_empty_cachedf();
-
-        for date in dates {
-            log::debug!("{:?}", date_string(date));
-
-            let new_df = self.load_cache_df(date)?;
-
-            df = merge_df(&df, &new_df);
-        }
-
-        Ok(df)
-    }
-
-    /// execute f for each rec in archive within specifed time frame.
-    pub fn foreach<F>(&self, start_time: MicroSec, end_time: MicroSec, f: &mut F) -> anyhow::Result<i64>
+        f: &mut F,
+    ) -> anyhow::Result<i64>
     where
-    F: FnMut(&Trade) -> anyhow::Result<()>
+        F: FnMut(&Trade) -> anyhow::Result<()>,
     {
         let dates = self.select_dates(start_time, end_time)?;
 
@@ -281,11 +310,11 @@ where
 
         Ok(count)
     }
-    
+
     /// execite f for each rec(trade) specifed a date.
-    pub fn foreach_paquet<F>(&self, date: MicroSec, f: &mut F) -> anyhow::Result<i64> 
+    pub fn foreach_paquet<F>(&self, date: MicroSec, f: &mut F) -> anyhow::Result<i64>
     where
-    F: FnMut(&Trade) -> anyhow::Result<()>
+        F: FnMut(&Trade) -> anyhow::Result<()>,
     {
         let mut count = 0;
 
@@ -306,12 +335,16 @@ where
             let size = row.get_double(3)?;
             let id = row.get_string(4)?;
 
-            let trade = Trade::new(timestamp, 
-                OrderSide::from(order_side.as_str()), 
-                Decimal::from_f64(price).unwrap(), 
-                Decimal::from_f64(size).unwrap(), crate::common::LogStatus::FixArchiveBlock, id);
+            let trade = Trade::new(
+                timestamp,
+                OrderSide::from(order_side.as_str()),
+                Decimal::from_f64(price).unwrap(),
+                Decimal::from_f64(size).unwrap(),
+                crate::common::LogStatus::FixArchiveBlock,
+                id,
+            );
 
-                f(&trade)?;
+            f(&trade)?;
             // log::debug!("{:?}" , trade);
 
             count += 1;
@@ -320,20 +353,20 @@ where
         Ok(count)
     }
 
-    /// 
+    ///
     pub fn select_dates(
         &self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<Vec<MicroSec>> {
-        let start_time = if start_time == 0 || start_time < self.start_time() {
-            self.start_time()
+        let start_time = if start_time == 0 || start_time < self.start_time()? {
+            self.start_time()?
         } else {
             FLOOR_DAY(start_time)
         };
 
-        let end_time = if end_time == 0 || self.end_time() <= end_time {
-            FLOOR_DAY(self.end_time() - 1)
+        let end_time = if end_time == 0 || self.end_time()? <= end_time {
+            FLOOR_DAY(self.end_time()? - 1)
         } else {
             FLOOR_DAY(end_time)
         };
@@ -366,6 +399,7 @@ where
 
     /// analyze archive directory, find start_time, end_time
     /// if there is fragmented date, delete it.
+    /// Note: endday means next day's begining(archive date 24:00 = next day 00:00)
     pub fn analyze(&mut self) -> anyhow::Result<()> {
         let mut dates = self.list_dates()?;
         dates.reverse();
@@ -444,7 +478,7 @@ where
             &self.config.exchange_name,
             &self.config.trade_category,
             &self.config.trade_symbol,
-            self.server.is_production(),
+            self.production,
         );
 
         let archive_dir = db_path_root.join("ARCHIVE");
@@ -483,13 +517,16 @@ where
         Ok(())
     }
 
-    pub async fn web_archive_to_parquet(
+    pub async fn web_archive_to_parquet<T>(
         &mut self,
+        api: &T,
         date: MicroSec,
         force: bool,
         verbose: bool,
-    ) -> anyhow::Result<i64> {
-        let server = &self.server.clone();
+    ) -> anyhow::Result<i64>
+    where
+        T: RestApi,
+    {
         let config = &self.config.clone();
 
         let date = FLOOR_DAY(date);
@@ -498,12 +535,13 @@ where
 
         if has_csv_file && !force {
             if verbose {
+                log::debug!("archive csv file exist {}", time_string(date));
                 println!("archive csv file exist {}", time_string(date));
                 return Ok(0);
             }
         }
 
-        let latest = { self.latest_archive_date().await? };
+        let latest = { self.latest_archive_date(api).await? };
 
         if latest < date {
             log::warn!(
@@ -515,10 +553,11 @@ where
         }
 
         if verbose && force {
-            println!("force download")
+            log::debug!("force download");
+            println!("force download");
         }
 
-        let url = T::history_web_url(server, config, date);
+        let url = api.history_web_url(config, date);
 
         log::debug!("Downloading ...[{}]", url);
 
@@ -532,11 +571,11 @@ where
 
         // load to paquet
         log::debug!("read log csv to df");
-        let has_header = T::archive_has_header();
+        let has_header = api.archive_has_header();
         let df = csv_to_df(&file_path, has_header)?;
         log::debug!("load to df {:?}", df.shape());
 
-        let mut archive_df = T::logdf_to_archivedf(&df)?;
+        let mut archive_df = api.logdf_to_archivedf(&df)?;
         log::debug!("archive df shape={:?}", archive_df.shape());
 
         log::debug!("store paquet");
@@ -548,3 +587,67 @@ where
     }
 }
 
+pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathBuf> {
+    let client = Client::new();
+
+    let response = client
+        .get(url)
+        .header("User-Agent", "Mozilla/5.0")
+        .header("Accept", "text/html")
+        .send()
+        .await
+        .with_context(|| format!("URL get error {}", url))?;
+
+    log::debug!(
+        "Response code = {} / download size {}",
+        response.status().as_str(),
+        response.content_length().unwrap_or_default() // if error, return 0
+    );
+
+    if !response.status().is_success() {
+        return Err(anyhow!("Download error response={:?}", response));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+
+    let fname = response
+        .url()
+        .path_segments()
+        .and_then(|segments| segments.last())
+        .and_then(|name| if name.is_empty() { None } else { Some(name) })
+        .unwrap_or("tmp.bin");
+
+    let path = tmp_dir.join(fname);
+
+    let mut file = tokio::fs::File::create(path.clone()).await?;
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    log::debug!("start reading from web");
+
+    while let Some(item) = stream.next().await {
+        let chunk = item?;
+        file.write_all(&chunk).await?;
+        let new = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
+        downloaded = new;
+    }
+
+    file.flush().await?;
+
+    Ok(path)
+}
+
+/// check if achive date is avairable at specified date
+async fn has_web_archive<T>(api: &T, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>
+where
+    T: RestApi,
+{
+    let url = api.history_web_url(config, date);
+    let result = check_exist(url.as_str()).await;
+
+    if result.is_err() {
+        return Ok(false);
+    }
+
+    Ok(result.unwrap())
+}

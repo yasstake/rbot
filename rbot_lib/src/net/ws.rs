@@ -688,9 +688,7 @@ mod test_exchange_ws {
         MarketConfig {
             exchange_name: "BYBIT".to_string(),            
             price_unit: dec![0.1],
-            price_scale: 3,
             size_unit: dec![0.001],
-            size_scale: 4,
             maker_fee: dec![0.00_01],
             taker_fee: dec![0.00_01],
             price_type: PriceType::Home,

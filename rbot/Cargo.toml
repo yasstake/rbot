@@ -1,6 +1,6 @@
 [package]
 name = "rbot"
-version = "0.3.7"
+version = "0.4.0"
 edition = "2021"
 exclude = ["test/**"]
 
@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bybit = {path = "../exchanges/bybit"}
-binance = {path = "../exchanges/binance"}
+# binance = {path = "../exchanges/binance"}
 
 rbot_lib = {path="../rbot_lib"}
 rbot_session = {path="../rbot_session"}

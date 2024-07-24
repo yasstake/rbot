@@ -39,7 +39,7 @@ class SkeltonAgent:      # クラス名は任意です
             clock: 現在時刻です。エポック時間からのマイクロ秒で表されます。
         """
         # 現在の時刻をプリントします。
-        print("on_clock: ", clock, ": ", time_string(clock))
+#        print("on_clock: ", clock, ": ", time_string(clock))
         session.market_order("Buy", 0.001)
     
     def on_update(self, session, updated_order):
@@ -50,7 +50,7 @@ class SkeltonAgent:      # クラス名は任意です
             updated_order: 注文状態が変化した注文情報です。
         """
         # 注文状態が変化した注文情報をプリントします。オーダーを発行しない限り呼び出されません。
-        print("on_update", updated_order)    
+#        print("on_update", updated_order)    
 
     
 from rbot import Bybit, BybitConfig
@@ -58,9 +58,8 @@ from rbot import Bybit, BybitConfig
 from rbot import init_debug_log
 
 
-
 bybit  = Bybit(production=False)
-bybit.enable_order_with_my_own_risk = True
+#bybit.enable_order_with_my_own_risk = True
 
 market = bybit.open_market(BybitConfig.BTCUSDT)
 
@@ -71,8 +70,22 @@ agent = SkeltonAgent()
 runner = Runner()
 
 from rbot import init_debug_log
-init_debug_log()
+#init_debug_log()
 
+market.download_archive(10)
+
+
+session = runner.back_test(
+                exchange=bybit,
+                market=market,
+                agent=agent, 
+#                execute_time = 10,
+                verbose=True,
+                log_file="skelton_bot.log",
+            )
+
+
+"""
 session = runner.real_run(
                 exchange=bybit,
                 market=market,
@@ -80,7 +93,6 @@ session = runner.real_run(
 #                execute_time = 10,
                 verbose=True,
                 log_file="skelton_bot.log",
-                client= True
             )
-
+"""
     

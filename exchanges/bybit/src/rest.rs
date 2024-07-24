@@ -4,16 +4,26 @@
 use std::convert;
 use std::fmt::format;
 
+use chrono::Datelike as _;
 use csv::StringRecord;
+use polars::chunked_array::ops::ChunkCast as _;
+use polars::datatypes::DataType;
 use polars::export::num::FromPrimitive;
 use polars::frame::DataFrame;
+use polars::series::Series;
+use rbot_lib::common::split_yyyymmdd;
 use rbot_lib::common::time_string;
+use rbot_lib::common::to_naive_datetime;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::AccountPair;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
 use rbot_lib::common::LogStatus;
-use rbot_lib::db::TradeTable;
+use rbot_lib::db::ohlcv_end;
+use rbot_lib::db::ohlcv_start;
+use rbot_lib::db::TradeDataFrame;
+use rbot_lib::db::KEY;
+use rbot_lib::net::check_exist;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
@@ -83,13 +93,24 @@ struct CancelOrderMessage {
     order_id: String,
 }
 
-pub struct BybitRestApi {}
 
-impl RestApi<BybitServerConfig> for BybitRestApi {
-    async fn get_board_snapshot(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
-    ) -> anyhow::Result<BoardTransfer> {
+
+pub struct BybitRestApi {
+    server_config: BybitServerConfig
+}
+
+impl BybitRestApi {
+    pub fn new(server_config: &BybitServerConfig) -> Self {
+        Self {
+            server_config: server_config.clone()
+        }
+    }
+}
+
+impl RestApi for BybitRestApi {
+    async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
+        let server = &self.server_config;
+
         let path = "/v5/market/orderbook";
 
         let params = format!(
@@ -99,7 +120,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             config.board_depth
         );
 
-        let r = Self::get(&server, path, &params).await.with_context(|| {
+        let r = Self::get(server, path, &params).await.with_context(|| {
             format!(
                 "get_board_snapshot: server={:?} / path={:?} / params={:?}",
                 server, path, params
@@ -114,10 +135,9 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         Ok(result.into())
     }
 
-    async fn get_recent_trades(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Trade>> {
+    async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
+        let server = &self.server_config;
+
         let path = "/v5/market/recent-trade";
 
         let params = format!(
@@ -138,24 +158,24 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
         Ok(result.into())
-
-        //        Err(anyhow!("not implemented"))
     }
 
     async fn get_trade_klines(
-        server: &BybitServerConfig,
+        &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<Vec<Kline>> {
+        let server = &self.server_config;
+
         let mut klines_buf: Vec<Kline> = vec![];
 
-        let start_time = TradeTable::ohlcv_start(start_time);
+        let start_time = ohlcv_start(start_time);
 
         let mut end_time = if end_time == 0 {
-            TradeTable::ohlcv_end(NOW()) - 1
+            ohlcv_end(NOW()) - 1
         } else {
-            TradeTable::ohlcv_end(end_time) - 1
+            ohlcv_end(end_time) - 1
         };
 
         loop {
@@ -207,7 +227,7 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
     }
 
     async fn new_order(
-        server: &BybitServerConfig,
+        &self,
         config: &MarketConfig,
         side: OrderSide,
         price: Decimal, // when order_type is Market, this value is ignored.
@@ -215,6 +235,8 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
+        let server = &self.server_config;
+
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
@@ -296,16 +318,18 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
             total_profit: dec![0.0],
         };
 
-        order.update_balance(config);
+        order.update_balance(&config);
 
         return Ok(vec![order]);
     }
 
     async fn cancel_order(
-        server: &BybitServerConfig,
+        &self,
         config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
+        let server = &self.server_config;
+
         let category = config.trade_category.clone();
         let message = CancelOrderMessage {
             category: category.clone(),
@@ -369,11 +393,12 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         return Ok(order);
     }
 
-    // TODO: implement paging.
     async fn open_orders(
-        server: &BybitServerConfig,
+        &self,
         config: &MarketConfig,
     ) -> anyhow::Result<Vec<Order>> {
+        let server = &self.server_config;
+
         let query_string = format!(
             "category={}&symbol={}&limit=50",
             config.trade_category, config.trade_symbol
@@ -407,7 +432,11 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         Ok(orders)
     }
 
-    async fn get_account(server: &BybitServerConfig) -> anyhow::Result<AccountCoins> {
+    async fn get_account(
+        &self,
+    ) -> anyhow::Result<AccountCoins> {
+        let server = &self.server_config;
+
         let path = "/v5/account/wallet-balance";
         // TODO: implement otherthn accountType=UNIFIED(e.g.inverse)
         let query_string = format!("accountType=UNIFIED");
@@ -439,123 +468,58 @@ impl RestApi<BybitServerConfig> for BybitRestApi {
         Ok(coins)
     }
 
-    fn format_historical_data_url(
-        history_web_base: &str,
-        category: &str,
-        symbol: &str,
-        yyyy: i64,
-        mm: i64,
-        dd: i64,
-    ) -> String {
+    fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
+        let web_base = self.server_config.get_historical_web_base();
+
+        let (yyyy, mm, dd) = split_yyyymmdd(date);
+
         format!(
             "{}/trading/{}/{}{:04}-{:02}-{:02}.csv.gz",
-            history_web_base, symbol, symbol, yyyy, mm, dd
+            web_base, config.trade_symbol, config.trade_symbol, yyyy, mm, dd
         )
     }
 
-    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
-    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
-
-    fn rec_to_trade(rec: &StringRecord) -> Trade {
-        let timestamp = rec
-            .get(0)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default()
-            * 1_000_000.0;
-
-        let timestamp = timestamp as MicroSec;
-
-        let order_side = match rec.get(2).unwrap_or_default() {
-            "Buy" => OrderSide::Buy,
-            "Sell" => OrderSide::Sell,
-            _ => OrderSide::Unknown,
-        };
-
-        let id = rec.get(6).unwrap_or_default().to_string();
-
-        let price = rec
-            .get(4)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let price: Decimal = Decimal::from_f64(price).unwrap();
-
-        let size = rec
-            .get(3)
-            .unwrap_or_default()
-            .parse::<f64>()
-            .unwrap_or_default();
-
-        let size = Decimal::from_f64(size).unwrap();
-
-        let trade = Trade::new(
-            timestamp,
-            order_side,
-            price,
-            size,
-            LogStatus::FixArchiveBlock,
-            &id,
-        );
-
-        return trade;
-    }
-
-    /// timestamp,      symbol,side,size,price,  tickDirection,trdMatchID,                          grossValue,  homeNotional,foreignNotional
-    /// 1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99    
-
-    fn line_to_trade(line: &str) -> Trade {
-        let col: Vec<&str> = line.split(",").collect();
-
-        let timestamp: f64 = col[0].parse().unwrap();
-        let timestamp = timestamp * 1_000_000.0;
-        let timestamp = timestamp as MicroSec;
-
-        let order_side = col[2];
-        let order_side = OrderSide::from(order_side);
-
-        let size: f64 = col[3].parse().unwrap();
-        let size = Decimal::from_f64(size).unwrap();
-
-        let price: f64 = col[4].parse().unwrap();
-        let price = Decimal::from_f64(price).unwrap();
-
-        let id = col[6];
-
-        let trade = Trade::new(
-            timestamp,
-            order_side,
-            price,
-            size,
-            LogStatus::FixArchiveBlock,
-            id,
-        );
-
-        return trade;
-    }
-
-    fn convert_archive_line(line: &str) -> String {
-        let col: Vec<&str> = line.split(",").collect();
-
-        let timestamp: f64 = col[0].parse().unwrap();
-        let timestamp = timestamp * 1_000_000.0;
-        let timestamp = timestamp as MicroSec;
-
-        let order_side = col[2];
-        let size = col[3];
-        let price = col[4];
-        let id = col[6];
-
-        format!("{},{},{},{},{}", timestamp, order_side, size, price, id)
-    }
-
-    fn archive_has_header() -> bool {
+    fn archive_has_header(&self) -> bool {
         true
     }
-}
 
-use tracing::instrument;
+    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
+        let url = self.history_web_url(config, date);
+
+        let result = check_exist(&url).await?;
+
+        Ok(result)
+    }
+
+    /// create DataFrame with columns;
+    ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
+    fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame> {
+        let df = df.clone();
+
+        let timestamp = df.column("timestamp")?.f64()? * 1_000_000.0;
+        let timestamp = timestamp.cast(&DataType::Int64)?;
+
+        let timestamp = timestamp.clone();
+        let mut timestamp = Series::from(timestamp.clone());
+        timestamp.rename(KEY::time_stamp);
+
+        let mut id = df.column("trdMatchID")?.clone();
+        id.rename(KEY::id);
+
+        let mut side = df.column("side")?.clone();
+        side.rename(KEY::order_side);
+
+        let mut price = df.column("price")?.clone();
+        price.rename(KEY::price);
+
+        let mut size = df.column("size")?.clone();
+        size.rename(KEY::size);
+
+        let df = DataFrame::new(vec![timestamp, side, price, size, id])?;
+
+        Ok(df)
+    }
+}
 
 impl BybitRestApi {
     async fn get(
@@ -726,7 +690,9 @@ mod bybit_rest_test {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
 
-        let r = BybitRestApi::get_board_snapshot(&server_config, &config).await?;
+        let api = BybitRestApi::new(&server_config);
+
+        let r = api.get_board_snapshot(&config).await?;
         println!("{:?}", r);
 
         Ok(())
@@ -736,8 +702,9 @@ mod bybit_rest_test {
     async fn test_recent_trades() {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::get_recent_trades(&server_config, &config).await;
+        let r = api.get_recent_trades(&config).await;
         assert!(r.is_ok());
         println!("{:?}", r);
     }
@@ -747,11 +714,12 @@ mod bybit_rest_test {
         init_debug_log();
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
         let now = NOW();
         let start_time = now - HHMM(24, 0);
 
-        let r = BybitRestApi::get_trade_klines(&server_config, &config, start_time, now).await;
+        let r = api.get_trade_klines(&config, start_time, now).await;
         assert!(r.is_ok());
 
         let r = r.unwrap();
@@ -768,17 +736,18 @@ mod bybit_rest_test {
     async fn test_new_limit_order() {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::new_order(
-            &server_config,
-            &config,
-            OrderSide::Buy,
-            dec![40000.0],
-            dec![0.001],
-            OrderType::Limit,
-            None,
-        )
-        .await;
+        let r = api
+            .new_order(
+                &config,
+                OrderSide::Buy,
+                dec![40000.0],
+                dec![0.001],
+                OrderType::Limit,
+                None,
+            )
+            .await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
@@ -788,17 +757,18 @@ mod bybit_rest_test {
     async fn test_new_market_order() {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::new_order(
-            &server_config,
-            &config,
-            OrderSide::Sell,
-            dec![0.0],
-            dec![0.001],
-            OrderType::Market,
-            None,
-        )
-        .await;
+        let r = api
+            .new_order(
+                &config,
+                OrderSide::Sell,
+                dec![0.0],
+                dec![0.001],
+                OrderType::Market,
+                None,
+            )
+            .await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
@@ -808,22 +778,23 @@ mod bybit_rest_test {
     async fn test_cancel_order() {
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::new_order(
-            &server_config,
-            &config,
-            OrderSide::Buy,
-            dec![40000.0],
-            dec![0.001],
-            OrderType::Limit,
-            None,
-        )
-        .await;
+        let r = api
+            .new_order(
+                &config,
+                OrderSide::Buy,
+                dec![40000.0],
+                dec![0.001],
+                OrderType::Limit,
+                None,
+            )
+            .await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
 
-        let r = BybitRestApi::cancel_order(&server_config, &config, &r.unwrap()[0].order_id).await;
+        let r = api.cancel_order(&config, &r.unwrap()[0].order_id).await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
@@ -835,8 +806,9 @@ mod bybit_rest_test {
 
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::open_orders(&server_config, &config).await;
+        let r = api.open_orders(&config).await;
 
         assert!(r.is_ok());
         println!("{:?}", r);
@@ -847,19 +819,10 @@ mod bybit_rest_test {
         init_debug_log();
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
 
-        let r = BybitRestApi::get_account(&server_config).await;
+        let r = api.get_account().await;
         println!("{:?}", r);
         assert!(r.is_ok());
-    }
-
-    #[test]
-    fn test_line_2_trade() {
-        let line = "1620086396.8268,BTCUSDT,Buy,0.02,57199.5,ZeroMinusTick,224061a0-e105-508c-9696-b53ab4b5bb03,114399000000.0,0.02,1143.99";
-        let r = BybitRestApi::line_to_trade(&line.to_string());
-
-        init_debug_log();
-
-        log::debug!("{:?}", r);
     }
 }
