@@ -11,7 +11,8 @@ use rbot_lib::{common::{
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
-use binance::{Binance, BinanceConfig};
+
+// use binance::{Binance, BinanceConfig};
 
 
 // use console_subscriber;
@@ -65,8 +66,8 @@ fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PriceType>()?;
 
     // Binance
-    m.add_class::<Binance>()?;
-    m.add_class::<BinanceConfig>()?;
+//    m.add_class::<Binance>()?;
+//    m.add_class::<BinanceConfig>()?;
     
     // ByBit
     m.add_class::<Bybit>()?;
