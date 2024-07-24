@@ -1,6 +1,7 @@
 // Copyright(c) 2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Sender;
+use rbot_lib::common::flush_log;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
@@ -31,7 +32,7 @@ macro_rules! check_if_enable_order {
     ($s: expr) => {
         if !$s.get_enable_order_feature() {
             log::error!("Order feature is disabled.");
-            anyhow::bail!("Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True");
+            return Err(anyhow!("Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True"));
         }
     };
 }
@@ -77,7 +78,6 @@ where
     T: RestApi
 {
     fn get_restapi(&self) -> &T;
-    fn get_server_config(&self) -> &T;
 
     fn set_enable_order_feature(&mut self, enable_order: bool);
     fn get_enable_order_feature(&self) -> bool;
@@ -92,8 +92,6 @@ where
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        let price = market_config.round_price(price)?;
-        let size = market_config.round_size(size)?;
         let order_side = OrderSide::from(side);
 
         let api = self.get_restapi();
@@ -106,12 +104,6 @@ where
             client_order_id,
         )
         .await
-        .with_context(|| {
-            format!(
-                "Error in make_order: {:?} {:?} {:?} {:?} {:?} {:?}",
-                &market_config, &side, &price, &size, &order_type, &client_order_id
-            )
-        })
     }
 
     //------ REST API ----
@@ -124,6 +116,9 @@ where
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         check_if_enable_order!(self);
+        let price = market_config.round_price(price)?;
+        let size = market_config.round_size(size)?;
+
         self.make_order(
             &market_config,
             side,
@@ -143,6 +138,8 @@ where
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         check_if_enable_order!(self);
+        let size = market_config.round_size(size)?;
+
         self.make_order(
             market_config,
             side,
@@ -178,7 +175,6 @@ where
 
         api.open_orders(market_config)
             .await
-            .with_context(|| format!("Error in get_open_orders: {:?}", &market_config))
     }
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
@@ -186,7 +182,6 @@ where
         
         api.get_account()
             .await
-            .with_context(|| format!("Error in get_account"))
     }
 
     async fn async_start_user_stream(&mut self) -> anyhow::Result<()>;
@@ -495,7 +490,7 @@ where
         };
 
         if edge_price.is_err() {
-            self.reflesh_order_book();
+            self.reflesh_order_book()?;
             let lock = orderbook.read().unwrap();
             edge_price = lock.get_edge_price();
         }
@@ -589,17 +584,16 @@ where
         lock.download_archive(api, ndays, force, verbose).await
     }
 
-    /*
     async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
         if verbose {
             println!("async_download_lastest");
             flush_log();
         }
 
-        let server_config = self.get_server_config();
+        let api = self.get_restapi();
         let config = self.get_config().clone();
 
-        let trades = T::get_recent_trades(&server_config, &config).await?;
+        let trades = api.get_recent_trades(&config).await?;
         let rec = trades.len() as i64;
 
         log::debug!("rec: {}", rec);
@@ -614,7 +608,7 @@ where
             println!("rec: {}", rec);
             flush_log();
         }
-        let tx = self.start_db_thread().await;
+        let tx = self.start_db_thread().await?;
 
         let start_time = trades.iter().map(|trade| trade.time).min();
 
@@ -642,5 +636,4 @@ where
 
         Ok(rec)
     }
-    */
 }

@@ -84,8 +84,8 @@ fn round(unit: Decimal, value: Decimal) -> anyhow::Result<Decimal> {
     let v = v.round_dp(scale);
 
     if v == dec![0.0] {
-        log::warn!("Trunc into zero value= {} / unit= {} => {}", value, unit, v);
-        return Err(anyhow!("Trunc into zero value= {} / unit= {} => {}", value, unit, v))
+        log::warn!("Price or size becomes zero value= {} / unit= {} => {}", value, unit, v);
+        return Err(anyhow!("Price or size becomes zero value= {} / unit= {} => {}", value, unit, v))
     }
     Ok(v)
 }

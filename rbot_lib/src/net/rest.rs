@@ -3,30 +3,24 @@
 
 use anyhow::anyhow;
 use anyhow::Context;
+use reqwest::StatusCode;
 
 // use crossbeam_channel::Receiver;
-use polars::frame::DataFrame;
-use reqwest::Method;
-use rust_decimal::Decimal;
 use crate::common::time_string;
 use crate::common::AccountCoins;
 use crate::common::{
-    BoardTransfer, Kline, MarketConfig, MicroSec, Order,
-    OrderSide, OrderType, Trade, DAYS, TODAY,
+    BoardTransfer, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, DAYS, TODAY,
 };
+use polars::frame::DataFrame;
+use reqwest::Method;
+use rust_decimal::Decimal;
 //use crate::db::KEY::low;
 use async_trait::async_trait;
 
 pub trait RestApi {
-    async fn get_board_snapshot(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<BoardTransfer>;
+    async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer>;
 
-    async fn get_recent_trades(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Trade>>;
+    async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
 
     async fn get_trade_klines(
         &self,
@@ -44,24 +38,12 @@ pub trait RestApi {
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>>;
-    async fn cancel_order(
-        &self,
-        config: &MarketConfig,
-        order_id: &str,
-    ) -> anyhow::Result<Order>;
-    async fn open_orders(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Order>>;
+    async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order>;
+    async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>>;
 
-    async fn get_account(&self)
-        -> anyhow::Result<AccountCoins>;
+    async fn get_account(&self) -> anyhow::Result<AccountCoins>;
 
-    async fn has_archive(
-        &self,
-        config: &MarketConfig,
-        date: MicroSec,
-    ) -> anyhow::Result<bool>;
+    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>;
 
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String;
     fn archive_has_header(&self) -> bool;
@@ -299,22 +281,47 @@ pub async fn do_rest_request(
         .await
         .with_context(|| format!("URL get error {url:}"))?;
 
-    if response.status().as_str() != "200" {
-        return Err(anyhow!(
-            "Response code = {} / download size {:?} / method({:?}) /  response body = {}",
-            response.status().as_str(),
-            response.content_length(),
-            method,
-            &body,
-        ));
+    if response.status().as_str() == "200" {
+        let body = response
+            .text()
+            .await
+            .with_context(|| format!("response text error"))?;
+
+        return Ok(body);
     }
 
-    let body = response
-        .text()
-        .await
-        .with_context(|| format!("response text error"))?;
+    // -----------other errors---------------
+    let status = response.status();
+    match status {
+        StatusCode::NOT_FOUND => {
+            log::error!("NOT FOUND url={}, {}", url, body);
+            println!("NOT FOUND url={}, {}", url, body);
+        },
+        StatusCode::FORBIDDEN |
+        StatusCode::UNAUTHORIZED => {
+            log::error!("AUTH ERROR url={}, {}", url, body);
+            println!("AUTH ERROR url={}, {}", url, body);
+            println!("Please check access key and token");
+        }
+        _ => {
+            let code = status.as_u16();
 
-    Ok(body)
+            if code == 10001 {
+                print!("status code 10001. please check access key and token");
+                log::error!("status code 10001. please check access key and token");
+            } 
+
+            log::error!("request error code={} / body={}", status, body)
+        }
+    }
+
+    Err(anyhow!(
+        "Response code = {} / download size {:?} / method({:?}) /  response body = {}",
+        response.status().as_str(),
+        response.content_length(),
+        method,
+        &body,
+    ))
 }
 
 pub async fn rest_get(
