@@ -17,17 +17,26 @@ use rust_decimal::Decimal;
 //use crate::db::KEY::low;
 use async_trait::async_trait;
 
+
+pub enum TradePage {
+    Done,
+    Time(MicroSec),
+    Int(i64),
+    Key(String)
+}
+
 pub trait RestApi {
     async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer>;
 
     async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
 
-    async fn get_trade_klines(
+    async fn get_trades(
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> anyhow::Result<Vec<Kline>>;
+        page: TradePage
+    ) -> anyhow::Result<(Vec<Trade>, TradePage)>;
 
     async fn new_order(
         &self,

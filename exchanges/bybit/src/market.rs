@@ -25,7 +25,7 @@ use rbot_lib::common::{
 };
 
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
-use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, UdpSender};
+use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, TradePage, UdpSender};
 
 use rbot_market::MarketImpl;
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
@@ -361,6 +361,12 @@ impl BybitMarket {
     ) -> anyhow::Result<MarketStream> {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
+
+    fn vaccum(&self) -> anyhow::Result<()> {
+        let mut lock = self.db.lock().unwrap();
+
+        lock.vacuum()
+    }
 }
 
 impl BybitMarket {
@@ -440,7 +446,7 @@ impl BybitMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread()?
+            lock.open_channel()?
         };
 
         let orderbook = self.board.clone();
@@ -549,24 +555,23 @@ impl BybitMarket {
             return Ok(0);
         }
 
-        let api = self.get_restapi();
-        let klines = api.get_trade_klines(
-            &self.get_config(),
-            unfix_start,
-            unfix_end,
-        ).await?;
-
-        let trades: Vec<Trade> = convert_klines_to_trades(klines);
-        let rec = trades.len() as i64;
-
         let expire_message = TradeDb::expire_control_message(unfix_start, unfix_end, false);
 
         let tx = {
             let mut lock = self.db.lock().unwrap();
-            lock.start_thread()?
+            lock.open_channel()?
         };
-
         tx.send(expire_message)?;
+
+        let api = self.get_restapi();
+        let (trades, _trade_page) = api.get_trades(
+            &self.get_config(),
+            unfix_start,
+            unfix_end,
+            TradePage::Done
+        ).await?;
+
+        let rec = trades.len() as i64;
         tx.send(trades)?;
 
         if verbose {
