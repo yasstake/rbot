@@ -471,7 +471,9 @@ impl TradeDb {
         Ok(())
     }
 
-    fn vacuum(&self) -> anyhow::Result<()> {
+    pub fn vacuum(&self) -> anyhow::Result<()> {
+        log::debug!("vacuum db");
+
         self.connection
             .execute("VACUUM", ())
             .with_context(|| format!("database VACUUM error"))?;
