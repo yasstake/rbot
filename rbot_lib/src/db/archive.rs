@@ -1,47 +1,37 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, ServerConfig,
-        Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY,
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, Trade, DAYS,
+        FLOOR_DAY, MIN, NOW, TODAY,
     },
-    db::{append_df, csv_to_df, df_to_parquet, merge_df, parquet_to_df, KEY},
+    db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
 };
-use anyhow::{anyhow, ensure, Context};
-use async_std::io::Bytes;
-use futures::{io::Cursor, StreamExt};
+use anyhow::{anyhow, Context};
+use futures::StreamExt;
 use parquet::{
     file::reader::{FileReader, SerializedFileReader},
     record::RowAccessor,
 };
 use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use tokio::io::{copy, AsyncWriteExt as _};
-use url::Url;
+use tokio::io::AsyncWriteExt as _;
 // Import the `anyhow` crate and the `Result` type.
 use super::{db_path_root, select_df};
+use polars::lazy::{
+    dsl::{col, lit},
+    frame::IntoLazy,
+};
 use polars::prelude::{DataFrame, NamedFrom};
 use polars::series::Series;
-use polars::{
-    chunked_array::ops::ChunkCast as _,
-    datatypes::DataType,
-    lazy::{
-        dsl::{col, lit},
-        frame::IntoLazy,
-    },
-};
+
 use std::{
     fs::{self, File},
-    io::{BufWriter, Write},
     path::{Path, PathBuf},
     str::FromStr,
     vec,
 };
 use tempfile::tempdir;
 
-use parquet::record::Row;
-use std::sync::Arc;
-
-const PARQUET: bool = true;
 const EXTENSION: &str = "parquet";
 
 ///
@@ -60,8 +50,7 @@ const EXTENSION: &str = "parquet";
 /// log_df    ->   raw archvie file it may be different from exchanges.
 /// archive_df -> archvie file that is stored in the local directory
 /// chache_df -> df to use TradeTable's cache.
-pub struct TradeArchive
-{
+pub struct TradeArchive {
     config: MarketConfig,
     production: bool,
     last_archive_check_time: MicroSec,
@@ -70,10 +59,8 @@ pub struct TradeArchive
     end_time: MicroSec,
 }
 
-impl TradeArchive
-{
-    pub fn new(config: &MarketConfig, production: bool) -> Self 
-    {
+impl TradeArchive {
+    pub fn new(config: &MarketConfig, production: bool) -> Self {
         let mut my = Self {
             config: config.clone(),
             production: production,
@@ -102,7 +89,6 @@ impl TradeArchive
         self.end_time
     }
 
-
     // check if the log data is already stored in local.
     pub fn has_local_archive(&self, date: MicroSec) -> bool {
         let archive_path = self.file_path(date);
@@ -119,10 +105,9 @@ impl TradeArchive
         ndays: i64,
         force: bool,
         verbose: bool,
-    ) -> anyhow::Result<i64> 
-        where
-            T: RestApi
-
+    ) -> anyhow::Result<i64>
+    where
+        T: RestApi,
     {
         let mut date = FLOOR_DAY(NOW());
 
@@ -132,7 +117,9 @@ impl TradeArchive
         let mut i = 0;
 
         while i <= ndays {
-            count += self.web_archive_to_parquet(api, date, force, verbose).await?;
+            count += self
+                .web_archive_to_parquet(api, date, force, verbose)
+                .await?;
             date -= DAYS(1);
 
             i += 1;
@@ -145,9 +132,9 @@ impl TradeArchive
 
     /// check the lates date in archive web site
     /// check the latest check time, within 60 min call this function, reuse cache value.
-    pub async fn latest_archive_date<T>(&mut self, api: &T) -> anyhow::Result<MicroSec> 
+    pub async fn latest_archive_date<T>(&mut self, api: &T) -> anyhow::Result<MicroSec>
     where
-        T: RestApi
+        T: RestApi,
     {
         let now = NOW();
         if now - self.last_archive_check_time < MIN(60) {
@@ -177,8 +164,6 @@ impl TradeArchive
             }
         }
     }
-
-
 
     /// generate 0 row empty cache(stored in memory) df
     pub fn make_empty_cachedf() -> DataFrame {
@@ -220,14 +205,13 @@ impl TradeArchive
 
             let new_df = self.load_cache_df(date)?;
 
-            df = append_df(&df, &new_df);
+            df = append_df(&df, &new_df)?;
         }
 
         df = select_df(&df, start_time, end_time);
 
         Ok(df)
     }
-
 
     /// load from parquet file and retrive as cachedf.
     pub fn load_cache_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
@@ -503,9 +487,9 @@ impl TradeArchive
         date: MicroSec,
         force: bool,
         verbose: bool,
-    ) -> anyhow::Result<i64> 
+    ) -> anyhow::Result<i64>
     where
-        T: RestApi
+        T: RestApi,
     {
         let config = &self.config.clone();
 
@@ -584,7 +568,7 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
         response.content_length().unwrap_or_default() // if error, return 0
     );
 
-    if ! response.status().is_success() {
+    if !response.status().is_success() {
         return Err(anyhow!("Download error response={:?}", response));
     }
 
@@ -617,19 +601,17 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
     Ok(path)
 }
 
-    /// check if achive date is avairable at specified date
-    async fn has_web_archive<T>(api: &T, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> 
-        where
-            T: RestApi
-    {
-        let url = api.history_web_url(config, date);
-        let result = check_exist(url.as_str()).await;
+/// check if achive date is avairable at specified date
+async fn has_web_archive<T>(api: &T, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>
+where
+    T: RestApi,
+{
+    let url = api.history_web_url(config, date);
+    let result = check_exist(url.as_str()).await;
 
-        if result.is_err() {
-            return Ok(false);
-        }
-
-        Ok(result.unwrap())
+    if result.is_err() {
+        return Ok(false);
     }
 
-
+    Ok(result.unwrap())
+}
