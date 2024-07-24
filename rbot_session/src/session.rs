@@ -14,7 +14,7 @@ use super::{Logger, OrderList};
 use pyo3::prelude::*;
 use rbot_lib::{common::{
     date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
-}, db::TradeTable};
+}, db::TradeDataFrame};
 
 use anyhow;
 
@@ -53,6 +53,8 @@ impl ExecuteMode {
 #[pyclass(name = "Session")]
 #[derive(Debug)]
 pub struct Session {
+    production: bool,
+
     session_id: String,
 
     execute_mode: ExecuteMode,
@@ -95,7 +97,6 @@ pub struct Session {
     client_mode: bool,
 
     log: Logger,
-    db_path: String,
 }
 
 #[pymethods]
@@ -143,13 +144,8 @@ impl Session {
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
 
-        let db_path = TradeTable::make_db_path(
-            &config.exchange_name, 
-            &category, 
-            &config.trade_symbol, 
-            production);
-
         let mut session = Self {
+            production: production,
             session_id: Self::int_to_base64(now_time),
             execute_mode: execute_mode,
             buy_orders: OrderList::new(OrderSide::Buy),
@@ -191,7 +187,6 @@ impl Session {
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
-            db_path: db_path,
         };
 
         session.load_order_list().unwrap();
@@ -481,9 +476,7 @@ impl Session {
 
     pub fn real_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
         log::debug!("market_order: side={:}, size={}", &side, size);
-
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
 
@@ -516,8 +509,7 @@ impl Session {
     }
 
     pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -547,8 +539,7 @@ impl Session {
     }
 
     pub fn dummy_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size_scale = self.market_config.size_scale;
-        let size = size.round_dp(size_scale);
+        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -604,11 +595,8 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        let price_scale = self.market_config.price_scale;
-        let pricedp = price.round_dp(price_scale);
-
-        let size_scale = self.market_config.size_scale;
-        let sizedp = size.round_dp(size_scale);
+        let price = self.market_config.round_price(price)?;
+        let size = self.market_config.round_size(size)?;
 
         // first push order to order list
         let local_id = self.new_order_id();
@@ -616,8 +604,8 @@ impl Session {
         log::debug!(
             "limit_order: side={:?}, size={}, price={}",
             side,
-            sizedp,
-            pricedp
+            size,
+            price
         );
 
         // then call market.limit_order
@@ -625,7 +613,7 @@ impl Session {
             let result = self.exchange.call_method1(
                 py,
                 "limit_order",
-                (self.market_config.clone(), side, pricedp, sizedp, local_id),
+                (self.market_config.clone(), side, price, size, local_id),
             );
 
             match result {
@@ -666,11 +654,8 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
-        let price_scale = self.market_config.price_scale;
-        let pricedp = price.round_dp(price_scale);
-
-        let size_scale = self.market_config.size_scale;
-        let sizedp = size.round_dp(size_scale);
+        let price = self.market_config.round_price(price)?;
+        let size = self.market_config.round_size(size)?;
 
         // first push order to order list
         let local_id = self.new_order_id();
@@ -680,8 +665,8 @@ impl Session {
         log::debug!(
             "dummuy_limit_order: side={:?}, size={}, price={}",
             side,
-            sizedp,
-            pricedp
+            size,
+            price
         );
 
         let mut order = Order::new(
@@ -693,8 +678,8 @@ impl Session {
             order_side,
             OrderType::Limit,
             OrderStatus::New,
-            pricedp,
-            sizedp,
+            price,
+            size,
         );
 
         order.is_maker = true;
@@ -765,21 +750,15 @@ impl Session {
 }
 
 impl Session {
-    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeTable>>> {
+    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeDataFrame>>> {
+
         if market_config.is_none() {
-            return TradeTable::get(&self.db_path);
+            return TradeDataFrame::get(&self.market_config, self.production);
         }
 
-        let market = market_config.unwrap();
+        let market_config = market_config.unwrap();
 
-        let db_path = TradeTable::make_db_path(
-            &market.exchange_name,
-            &market.trade_category,
-            &market.trade_symbol,
-            true,      // use only production db for reference
-        );
-
-        TradeTable::get(&db_path)
+        TradeDataFrame::get(&market_config, true)       // always use production other than primary market.
     }
 
     /// Message処理

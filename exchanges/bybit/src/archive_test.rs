@@ -1,74 +1,48 @@
-use anyhow::anyhow;
-use polars_io::avro::AvroReader;
-use polars_io::avro::AvroWriter;
-use polars_io::parquet::read::ParquetReader;
-use polars_io::parquet::write::ParquetWriter;
-use polars_io::SerReader;
-use polars_io::SerWriter;
-use std::fs::File;
-use std::path::PathBuf;
-
-use polars::prelude::DataFrame;
 
 #[cfg(test)]
 
 mod archive_test {
-    use std::path::Path;
     use std::path::PathBuf;
+    use std::str::FromStr;
 
     use rbot_lib::common::date_string;
     use rbot_lib::common::init_debug_log;
     use rbot_lib::common::DAYS;
-    use rbot_lib::common::FLOOR_DAY;
     use rbot_lib::common::NOW;
-    use rbot_lib::db::log_foreach;
-    use rbot_lib::db::TradeTableArchive;
-    use rbot_lib::net::log_download_tmp;
-    use rbot_market::MarketImpl;
-
+    use rbot_lib::db::log_download_tmp;
+    use rbot_lib::db::TradeArchive;
+    use rbot_lib::net::RestApi;
+    
     use crate::config::BybitConfig;
     use crate::config::BybitServerConfig;
     use crate::rest::BybitRestApi;
-    use crate::Bybit;
+    
 
-    use super::*;
-
-    fn create_archive() -> TradeTableArchive<BybitRestApi, BybitServerConfig> {
+    fn create_archive() -> TradeArchive {
         let server_config = BybitServerConfig::new(true);
         let config = BybitConfig::BTCUSDT();
 
         let archive =
-            TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
+            TradeArchive::new(&config, server_config.production);
 
         archive
     }
 
-    #[test]
-    fn test_archive_create() {
-        init_debug_log();
-        let server_config = BybitServerConfig::new(true);
-        let config = BybitConfig::BTCUSDT();
-        let archive =
-            TradeTableArchive::<BybitRestApi, BybitServerConfig>::new(&server_config, &config);
-
-        log::debug!("start->{}({}) end->{}({})",
-            archive.start_time(), date_string(archive.start_time()),
-            archive.end_time(), date_string(archive.end_time())
-        );
-    }
 
     #[tokio::test]
     async fn test_archive_latest() -> anyhow::Result<()> {
         let mut archive = create_archive();
 
         init_debug_log();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
         log::debug!("first try, access web archive");
-        let latest = archive.latest_archive_date().await?;
+        let latest = archive.latest_archive_date(&api).await?;
         log::debug!("date = {}({})", date_string(latest), latest);
 
         log::debug!("second try, use cached data");
-        let latest = archive.latest_archive_date().await?;
+        let latest = archive.latest_archive_date(&api).await?;
         log::debug!("date = {}({})", date_string(latest), latest);
 
 
@@ -94,12 +68,35 @@ mod archive_test {
     }
 
     #[tokio::test]
+    async fn test_test_download_tmp() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = BybitServerConfig::new(true);
+        let config = BybitConfig::BTCUSDT();
+
+        let api = BybitRestApi::new(&server);
+
+        let url = api.history_web_url(&config, NOW() - DAYS(2));
+        log::debug!("url={:?}", url);
+
+        let tmp_dir = PathBuf::from_str("/tmp/")?;
+
+        let file = log_download_tmp(&url, &tmp_dir).await?;    
+
+        log::debug!("download complete {:?}", file);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_web_archive_to_parquet() {
         let mut archive = create_archive();
 
         init_debug_log();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.web_archive_to_parquet(NOW() - DAYS(2), false, true).await.unwrap();
+
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await.unwrap();
     }
 
     #[test]
@@ -120,7 +117,7 @@ mod archive_test {
         let archive = create_archive();
         init_debug_log();
 
-        let df = archive.select_cache_df(0, 0)?;
+        let df = archive.select_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
 
@@ -134,21 +131,25 @@ mod archive_test {
         init_debug_log();
         let mut archive = create_archive();
 
-        archive.web_archive_to_parquet(NOW() - DAYS(2), false, true).await?;
-        archive.web_archive_to_parquet(NOW() - DAYS(3), false, true).await?;
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
+
+
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await?;
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(3), false, true).await?;
         archive
-            .web_archive_to_parquet(NOW() - DAYS(10), false, true)
+            .web_archive_to_parquet(&api, NOW() - DAYS(10), false, true)
             .await?;
 
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time())
+            date_string(archive.start_time()?)
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time())
+            date_string(archive.end_time()?)
         );
 
         let dates = archive.list_dates()?;
@@ -165,40 +166,43 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time())
+            date_string(archive.start_time()?)
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time())
+            date_string(archive.end_time()?)
         );
 
         log::debug!("download first");
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.download(4, false, true).await?;
+
+        archive.download(&api, 4, false, true).await?;
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time())
+            date_string(archive.start_time()?)
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time())
+            date_string(archive.end_time()?)
         );
 
         log::debug!("download with cache");
 
-        archive.download(7, false, true).await?;
+        archive.download(&api, 7, false, true).await?;
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time())
+            date_string(archive.start_time()?)
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time())
+            date_string(archive.end_time()?)
         );
 
         Ok(())
@@ -209,18 +213,20 @@ mod archive_test {
     async fn test_load_df() -> anyhow::Result<()> {
         init_debug_log();
         let mut archive = create_archive();
+        let server_config = BybitServerConfig::new(true);
+        let api = BybitRestApi::new(&server_config);
 
-        archive.download(2, false, true).await?;
+        archive.download(&api, 2, false, true).await?;
 
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time())
+            date_string(archive.start_time()?)
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time())
+            date_string(archive.end_time()?)
         );
 
         let df = archive.load_cache_df(NOW() - DAYS(2))?;
@@ -257,7 +263,7 @@ mod archive_test {
 
         let now = NOW();
 
-        let df = archive.select_cache_df(0, 0)?;
+        let df = archive.select_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
         log::debug!("{:?}", df.shape());
@@ -266,30 +272,6 @@ mod archive_test {
         log::debug!(
             "Polarsによる読み込み {}[rec]  {}[msec]",
             df.shape().0,
-            (NOW() - now) / 1_000 as i64
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_select_db_perf() -> anyhow::Result<()> {
-        let mut market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
-        init_debug_log();
-
-        market.download_archives(7, false, true, false);
-
-        let now = NOW();
-
-        let mut count = 0;
-        market.for_each_record(0, 0, &mut |trade| {
-            count += 1;
-            Ok(())
-        });
-
-        log::debug!(
-            "Sqliteによる読み込み {}[rec]  {}[msec]",
-            count,
             (NOW() - now) / 1_000 as i64
         );
 

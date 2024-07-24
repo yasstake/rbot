@@ -985,50 +985,31 @@ impl BitflyerMarket {
 
     #[getter]
     pub fn get_order_status(&self) -> PyResult<Vec<Order>> {
-        let _status = order_status(&self.server_config.rest_server, &self.config);
+        let status = order_status(&self.server_config.rest_server, &self.config);
 
-        // TODO: IMPLEMENT convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        convert_pyresult(status)
     }
 
     #[getter]
     pub fn get_open_orders(&self) -> PyResult<Vec<Order>> {
-        /*
         let status = open_orders(&self.server_config, &self.config);
 
         log::debug!("OpenOrder: {:?}", status);
 
-        // convert_pyresult_vec(status)
-        // TODO: implement
-        */
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        convert_pyresult_vec(status)
     }
 
     #[getter]
     pub fn get_trade_list(&self) -> PyResult<Vec<Order>> {
-        /*
         let status = trade_list(&self.server_config.rest_server, &self.config);
-        */
-        //         convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        convert_pyresult(status)
     }
 
     #[getter]
     pub fn get_account(&self) -> PyResult<AccountStatus> {
         let status = get_balance(&self.server_config.rest_server, &self.config);
 
-        status.unwrap();
-
-        //convert_pyresult(status)
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Not implemented",
-        ));
+        convert_pyresult(status)
     }
 
     #[getter]

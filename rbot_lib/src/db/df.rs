@@ -20,6 +20,8 @@ use polars::lazy::prelude::IntoLazy;
 use polars::lazy::prelude::{col, LazyFrame};
 use polars::time::ClosedWindow;
 
+use anyhow::anyhow;
+
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 pub mod KEY {
@@ -53,7 +55,7 @@ pub mod KEY {
 }
 
 /// Convert DataFrame to Parquet format and save it to the specified path.
-pub fn df_to_parquet(df: &mut DataFrame, target_path: &PathBuf) -> anyhow::Result<i64>{
+pub fn df_to_parquet(df: &mut DataFrame, target_path: &PathBuf) -> anyhow::Result<i64> {
     let mut target_path = target_path.clone();
     target_path.set_extension("parquet");
     let tmp = target_path.clone();
@@ -61,8 +63,7 @@ pub fn df_to_parquet(df: &mut DataFrame, target_path: &PathBuf) -> anyhow::Resul
 
     let mut file = File::create(&tmp).expect("could not create file");
 
-    ParquetWriter::new(&mut file)
-        .finish(df)?;
+    ParquetWriter::new(&mut file).finish(df)?;
 
     std::fs::rename(&tmp, &target_path)?;
 
@@ -70,22 +71,24 @@ pub fn df_to_parquet(df: &mut DataFrame, target_path: &PathBuf) -> anyhow::Resul
 }
 
 /// This function reads a Parquet file and converts it into a DataFrame.
-pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame>{
+pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame> {
     let file = File::open(path).expect("file not found");
 
-    let df = ParquetReader::new(file)
-            .finish()?;    
+    let df = ParquetReader::new(file).finish()?;
 
-    Ok(df)    
+    Ok(df)
 }
 
+/// import csv format into dataframe
 pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
-        let df = CsvReadOptions::default()
+    log::debug!("reading csv file = {:?}", source_path);
+
+    let df = CsvReadOptions::default()
         .with_has_header(has_header)
         .try_into_reader_with_file_path(Some(source_path.clone()))?
         .finish()?;
 
-        Ok(df)
+    Ok(df)
 }
 
 /// Cutoff start_time to end_time(not include)
@@ -124,6 +127,7 @@ pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> Da
     return df;
 }
 
+/// select df with lazy dataframe
 pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> LazyFrame {
     log::debug!(
         "Select from {} -> {}",
@@ -161,31 +165,39 @@ pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
     df.column(KEY::time_stamp).unwrap().max().unwrap()
 }
 
-pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> DataFrame {
-    let df2_start_time = start_time_df(df2);
+/// append df2 after df1
+pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
+    let df = df1.vstack(df2)?;
+    
+    Ok(df)
+}
 
-    if let Some(df2_start_time) = df2_start_time {
-        let df = select_df(df1, 0, df2_start_time);
+/// merge 2 dataframe, if overlap df2 on df1, df1 will be trimmed(overritten by df2)
+pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
+    log::debug!("merge df1={:?}  df2={:?}", df1.shape(), df2.shape());
 
-        log::debug!("merge len {}", df.shape().0);
-
-        if df.shape().0 == 0 {
-            df2.clone()
-        } else {
-            log::debug!("merge df1={:?}  df2={:?}", df1.shape(), df2.shape());
-
-            let df = df.vstack(df2);
-
-            if df.is_err() {
-                log::error!("merge_df error {:?} and {:?}", df, df2);
-                df2.clone()
-            } else {
-                df.unwrap()
-            }
-        }
-    } else {
-        df1.clone()
+    if df1.shape().0 == 0 {
+        return Ok(df2.clone());
     }
+
+    if df2.shape().0 == 0 {
+        return Ok(df1.clone());
+    }
+
+    let df2_start_time = start_time_df(df2);
+    if df2_start_time.is_none() {
+        return Err(anyhow!("cannot find time stamp {:?}", df2));
+    }
+    let df2_start_time = df2_start_time.unwrap();
+
+    let df = select_df(df1, 0, df2_start_time);
+    if df.shape().0 == 0 {
+        return Ok(df2.clone());
+    }
+
+    let df = df.vstack(df2)?;
+
+    Ok(df)
 }
 
 pub fn ohlcv_df(
@@ -221,15 +233,6 @@ pub fn ohlcv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![(KEY::time_stamp).to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -239,6 +242,15 @@ pub fn ohlcv_df(
             col(KEY::size).sum().alias(KEY::volume),
             col(KEY::price).count().alias(KEY::count),
         ])
+        .sort(
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -282,15 +294,6 @@ pub fn ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![KEY::time_stamp.to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
@@ -302,6 +305,15 @@ pub fn ohlcvv_df(
             col(KEY::time_stamp).min().alias(KEY::start_time),
             col(KEY::time_stamp).max().alias(KEY::end_time),
         ])
+        .sort(
+            vec![KEY::time_stamp.to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -345,6 +357,37 @@ pub fn ohlcv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
+        .group_by_dynamic(col(KEY::time_stamp), [], option)
+        .agg([
+            col(KEY::open)
+                .sort_by(
+                    vec![col(KEY::start_time)],
+                    SortMultipleOptions {
+                        descending: vec![false],
+                        nulls_last: vec![false],
+                        multithreaded: true,
+                        maintain_order: true,
+                    },
+                )
+                .first()
+                .alias(KEY::open),
+            col(KEY::high).max().alias(KEY::high),
+            col(KEY::low).min().alias(KEY::low),
+            col(KEY::close)
+                .sort_by(
+                    vec![col(KEY::end_time)],
+                    SortMultipleOptions {
+                        descending: vec![false],
+                        nulls_last: vec![false],
+                        multithreaded: true,
+                        maintain_order: true,
+                    },
+                )
+                .last()
+                .alias(KEY::close),
+            col(KEY::volume).sum().alias(KEY::volume),
+            col(KEY::count).sum().alias(KEY::count),
+        ])
         .sort(
             vec![(KEY::time_stamp).to_string()],
             SortMultipleOptions {
@@ -354,37 +397,6 @@ pub fn ohlcv_from_ohlcvv_df(
                 multithreaded: true,
             },
         )
-        .group_by_dynamic(col(KEY::time_stamp), [], option)
-        .agg([
-            col(KEY::open)
-                .sort_by(
-                    vec![col(KEY::start_time)],
-                    SortMultipleOptions{
-                        descending: vec![false],
-                        nulls_last: vec![false],
-                        multithreaded: true,
-                        maintain_order: true
-                    }
-                )
-                .first()
-                .alias(KEY::open),
-            col(KEY::high).max().alias(KEY::high),
-            col(KEY::low).min().alias(KEY::low),
-            col(KEY::close)
-                .sort_by(
-                    vec![col(KEY::end_time)],
-                    SortMultipleOptions{
-                        descending: vec![false],
-                        nulls_last: vec![false],
-                        multithreaded: true,
-                        maintain_order: true
-                    }
-                    )
-                .last()
-                .alias(KEY::close),
-            col(KEY::volume).sum().alias(KEY::volume),
-            col(KEY::count).sum().alias(KEY::count),
-        ])
         .collect();
 
     match result {
@@ -423,26 +435,6 @@ pub fn ohlcvv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .sort(
-            vec![(KEY::time_stamp).to_string()],
-            SortMultipleOptions {
-                descending: vec![false],
-                nulls_last: vec![false],
-                maintain_order: true,
-                multithreaded: true,
-            },
-        )
-        /*
-        .sort(
-                KEY::time_stamp,
-                SortOptions {
-                    descending: false,
-                    nulls_last: false,
-                    maintain_order: true,
-                    multithreaded: true,
-                },
-            )
-            */
         .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
@@ -454,6 +446,15 @@ pub fn ohlcvv_from_ohlcvv_df(
             col(KEY::start_time).min().alias(KEY::start_time),
             col(KEY::end_time).max().alias(KEY::end_time),
         ])
+        .sort(
+            vec![(KEY::time_stamp).to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                maintain_order: true,
+                multithreaded: true,
+            },
+        )
         .collect();
 
     match result {
@@ -466,44 +467,6 @@ pub fn ohlcvv_from_ohlcvv_df(
     }
 }
 
-/// Calc Value At Price
-/// group by unit price and order_side
-pub fn vap_df_bak(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
-    let df = select_df_lazy(df, start_time, end_time);
-
-    let vap = df
-        .group_by([KEY::price, KEY::order_side])
-        .agg([col(KEY::size).sum().alias(KEY::size)])
-        .collect()
-        .unwrap();
-
-    vap
-}
-
-/// Calc Value At Price
-/// group by unit price and order_side
-pub fn vap_df_bak2(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
-    let df = select_df_lazy(df, start_time, end_time);
-
-    //    let floor_price = col(KEY::price)
-    //    .map(|v: f64| (v / 10.0).floor() * 10.0, Arc::new(DataType::Float64) as Arc<dyn FunctionOutputField>);
-
-    //.div(10.0).alias("floor_price").cast(&DataType::Float64);
-
-    //    let floor_price =
-    //col(KEY::price).div(10.0).alias("floor_price").cast(&DataType::Float64);
-
-    let floor_price = col(KEY::price).floor();
-
-    let vap_gb = df.group_by([floor_price, col(KEY::order_side)]);
-
-    let vap = vap_gb
-        .agg([col(KEY::size).sum().alias(KEY::size)])
-        .collect()
-        .unwrap();
-
-    vap
-}
 
 /// Calc Value At Price
 /// group by unit price and order_side
@@ -531,14 +494,17 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
     )
     .unwrap();
 
-    let vap = vap.sort(
-        vec![KEY::price.to_string()],
-         SortMultipleOptions { 
-            descending: vec![false], 
-            nulls_last: vec![false], 
-            multithreaded: true, 
-            maintain_order: true}
-    ).unwrap();
+    let vap = vap
+        .sort(
+            vec![KEY::price.to_string()],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![false],
+                multithreaded: true,
+                maintain_order: true,
+            },
+        )
+        .unwrap();
 
     let price = vap.column(KEY::price).unwrap().clone();
     let buy_vol = vap
@@ -556,7 +522,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
         .rename(KEY::sell_volume)
         .clone();
 
-        let total_vol = (&buy_vol + &sell_vol).unwrap().rename(KEY::volume).clone();
+    let total_vol = (&buy_vol + &sell_vol).unwrap().rename(KEY::volume).clone();
 
     let df = DataFrame::new(vec![price, buy_vol, sell_vol, total_vol]).unwrap();
 
@@ -565,9 +531,9 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
 
 pub struct TradeBuffer {
     pub time_stamp: Vec<MicroSec>,
+    pub order_side: Vec<bool>,
     pub price: Vec<f64>,
     pub size: Vec<f64>,
-    pub order_side: Vec<bool>,
 }
 
 impl TradeBuffer {
@@ -604,11 +570,11 @@ impl TradeBuffer {
 
     pub fn to_dataframe(&self) -> DataFrame {
         let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
+        let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
         let price = Series::new(KEY::price, self.price.to_vec());
         let size = Series::new(KEY::size, self.size.to_vec());
-        let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
 
-        let df = DataFrame::new(vec![time_stamp, price, size, order_side]).unwrap();
+        let df = DataFrame::new(vec![time_stamp, order_side, price, size]).unwrap();
 
         return df;
     }
@@ -616,13 +582,13 @@ impl TradeBuffer {
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
-    let order_side = Series::new(KEY::order_side, Vec::<f64>::new());
+    let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
     let open = Series::new(KEY::open, Vec::<f64>::new());
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
     let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<f64>::new());
+    let count = Series::new(KEY::count, Vec::<i64>::new());
     let start_time = Series::new(KEY::start_time, Vec::<MicroSec>::new());
     let end_time = Series::new(KEY::end_time, Vec::<MicroSec>::new());
 
@@ -641,7 +607,7 @@ pub fn make_empty_ohlcv() -> DataFrame {
     let low = Series::new(KEY::low, Vec::<f64>::new());
     let close = Series::new(KEY::close, Vec::<f64>::new());
     let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<f64>::new());
+    let count = Series::new(KEY::count, Vec::<i64>::new());
 
     let df = DataFrame::new(vec![time, open, high, low, close, vol, count]).unwrap();
 
@@ -658,12 +624,12 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
     }
 }
 
-pub fn convert_timems_to_datetime(df: &mut DataFrame) -> &DataFrame {
-    let time = df.column(KEY::time_stamp).unwrap().i64().unwrap().clone();
+pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
+    let time = df.column(KEY::time_stamp)?.i64()?.clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    let df = df.with_column(date_time).unwrap();
+    df.with_column(date_time)?;
 
-    df
+    Ok(())
 }
 
 use polars::prelude::*;
@@ -672,7 +638,79 @@ use rust_decimal::prelude::ToPrimitive;
 #[cfg(test)]
 mod test_df {
     use super::*;
-    use crate::common::DAYS;
+    use crate::common::{init_debug_log, DAYS};
+
+    #[test]
+    fn test_merge_and_append_df() -> anyhow::Result<()> {
+        init_debug_log();
+
+        let df1 = df![
+            KEY::time_stamp => [1, 2, 3, 4, 5],
+            "value" => [11, 12, 13, 14, 15]
+        ]?;
+
+        let df2 = df![
+            KEY::time_stamp => [5, 6],
+            "value" => [25, 26]
+        ]?;
+
+        let merged_df = df![
+            KEY::time_stamp => [1, 2, 3, 4, 5, 6],
+            "value" => [11, 12, 13, 14, 25, 26]
+        ]?;
+
+        let df = merge_df(&df1, &df2)?;
+        log::debug!("{:?}", df);
+        assert_eq!(df, merged_df);
+
+        let empty_df = select_df(&df1, 100, 101);
+        log::debug!("{:?}", empty_df);
+
+        let df = merge_df(&empty_df, &df2)?;
+        assert_eq!(df, df2);
+
+        let df = merge_df(&df1, &empty_df)?;
+        assert_eq!(df, df1);
+
+        assert_eq!(
+            merge_df(
+                &df![
+                    KEY::time_stamp => [1, 2],
+                    "value" => [11, 12]
+                ]?,
+                &df![
+                    KEY::time_stamp => [5, 6],
+                    "value" => [25, 26]
+                ]?,
+            )?,
+            df![
+                KEY::time_stamp => [1,2,5,6],
+                "value" => [11, 12, 25,26]
+            ]?
+        );
+
+        assert_eq!(
+            append_df(
+                &df![
+                    KEY::time_stamp => [1, 2],
+                    "value" => [11, 12]
+                ]?,
+                &df![
+                    KEY::time_stamp => [2, 3],
+                    "value" => [25, 26]
+                ]?,
+            )?,
+            df![
+                KEY::time_stamp => [1,2,2,3],
+                "value" => [11, 12, 25,26]
+            ]?
+        );
+
+
+
+
+        Ok(())
+    }
 
     #[test]
     fn test_simple_dynamic_group() {
@@ -702,15 +740,6 @@ mod test_df {
 
         let groupby = df
             .lazy()
-            .sort(
-                vec!["date".to_string()],
-                SortMultipleOptions {
-                    descending: vec![false],
-                    nulls_last: vec![false],
-                    multithreaded: true,
-                    maintain_order: false,
-                },
-            )
             .group_by_dynamic(
                 col("date"),
                 //[col("category")],
@@ -721,6 +750,15 @@ mod test_df {
                 col("value").mean().alias("mean"),
                 col("value").sum().alias("sum"),
             ])
+            .sort(
+                vec!["date".to_string()],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![false],
+                    multithreaded: true,
+                    maintain_order: false,
+                },
+            )
             .collect()
             .unwrap();
 
@@ -732,25 +770,30 @@ mod test_df {
 
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(
-            KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3)],
-            KEY::order_side => &[0, 1, 0],
-            KEY::open => &[1.0, 2.0, 3.0],
-            KEY::high => &[1.0, 2.0, 3.0],
-            KEY::low => &[1.0, 2.0, 3.0],
-            KEY::close => &[1.0, 2.0, 3.0],
-            KEY::volume => &[1.0, 2.0, 3.0],
-            KEY::count => &[1.0, 2.0, 3.0],
-            KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3)],
-            KEY::end_time => &[DAYS(1), DAYS(2), DAYS(3)]
+            KEY::order_side => &[false, true, false, true],
+            KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
+            KEY::open => &[1.0, 2.0, 3.0, 4.0],
+            KEY::high => &[1.0, 2.0, 3.0, 4.0],
+            KEY::low => &[1.0, 2.0, 3.0, 4.0],
+            KEY::close => &[1.0, 2.0, 3.0, 4.0],
+            KEY::volume => &[1.0, 2.0, 3.0, 4.0],
+            KEY::count => &[1, 2, 3, 4],
+            KEY::start_time => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
+            KEY::end_time => &[DAYS(2), DAYS(3), DAYS(4), DAYS(4)]
         );
 
-        return df.unwrap().sort([KEY::time_stamp], 
-            SortMultipleOptions{
-                descending: vec![false],
-                nulls_last: vec![false],
-                multithreaded: true,
-                maintain_order: true
-            }).unwrap();
+        return df
+            .unwrap()
+            .sort(
+                [KEY::time_stamp],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![false],
+                    multithreaded: true,
+                    maintain_order: true,
+                },
+            )
+            .unwrap();
     }
 
     #[test]
@@ -758,22 +801,33 @@ mod test_df {
         let ohlc = make_ohlcv_df();
 
         println!("{:?}", ohlc);
+        assert_eq!(ohlc.shape().0, 4);
+        assert_eq!(ohlc.shape().1, 10);
     }
 
     #[test]
-    fn test_make_ohlcv_from_ohclv() {
+    fn test_make_ohlcvv_from_ohclv() -> anyhow::Result<()>{
         let ohlcv = make_ohlcv_df();
 
-        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
         println!("{:?}", ohlcv2);
+
+        assert_eq!(ohlcv, ohlcv2);
+
+        Ok(())
     }
 
     #[test]
-    fn test_make_ohlc_from_ohclv() {
+    fn test_make_ohlcv_from_ohclv() -> anyhow::Result<()>{
         let ohlcv = make_ohlcv_df();
 
-        let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10);
+        let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
         println!("{:?}", ohlcv2);
+
+        assert_eq!(ohlcv2.shape().0, 3);
+        assert_eq!(ohlcv2.shape().1, 7);
+
+        Ok(())
     }
 
     #[test]
@@ -847,15 +901,15 @@ mod test_df {
     }
 
     #[test]
-    fn test_convert_ohlc_datetime() {
+    fn test_convert_ohlc_datetime() -> anyhow::Result<()>{
         let mut df = make_empty_ohlcv();
 
         println!("{:?}", df);
 
-        let time = df.column("time_stamp").unwrap().i64().unwrap().clone();
-        let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-        let df = df.with_column(date_time).unwrap();
+        convert_timems_to_datetime(&mut df)?;
 
         println!("{:?}", df);
+
+        Ok(())
     }
 }
