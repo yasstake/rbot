@@ -11,6 +11,7 @@ use polars::datatypes::DataType;
 use polars::export::num::FromPrimitive;
 use polars::frame::DataFrame;
 use polars::series::Series;
+use rbot_lib::common::convert_klines_to_trades;
 use rbot_lib::common::split_yyyymmdd;
 use rbot_lib::common::time_string;
 use rbot_lib::common::to_naive_datetime;
@@ -24,6 +25,7 @@ use rbot_lib::db::ohlcv_start;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::KEY;
 use rbot_lib::net::check_exist;
+use rbot_lib::net::TradePage;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
@@ -160,12 +162,13 @@ impl RestApi for BybitRestApi {
         Ok(result.into())
     }
 
-    async fn get_trade_klines(
+    async fn get_trades(
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-    ) -> anyhow::Result<Vec<Kline>> {
+        _page: TradePage
+    ) -> anyhow::Result<(Vec<Trade>, TradePage)> {
         let server = &self.server_config;
 
         let mut klines_buf: Vec<Kline> = vec![];
@@ -223,7 +226,9 @@ impl RestApi for BybitRestApi {
             }
         }
 
-        Ok(klines_buf)
+        let trades = convert_klines_to_trades(klines_buf);
+
+        Ok((trades, TradePage::Done))
     }
 
     async fn new_order(
@@ -710,26 +715,25 @@ mod bybit_rest_test {
     }
 
     #[tokio::test]
-    async fn test_trade_kline() {
+    async fn test_trade_kline() -> anyhow::Result<()> {
         init_debug_log();
         let server_config = BybitServerConfig::new(false);
         let config = BybitConfig::BTCUSDT();
         let api = BybitRestApi::new(&server_config);
 
         let now = NOW();
-        let start_time = now - HHMM(24, 0);
+        let start_time = now - DAYS(2);
 
-        let r = api.get_trade_klines(&config, start_time, now).await;
-        assert!(r.is_ok());
-
-        let r = r.unwrap();
-        let l = r.len();
+        let (trades, page) = api.get_trades(&config, start_time, now, TradePage::Done).await?;
+        let l = trades.len();
         println!(
             "{:?}-{:?}  {:?} [rec]",
-            time_string(r[0].timestamp),
-            time_string(r[l - 1].timestamp),
+            time_string(trades[0].time),
+            time_string(trades[l - 1].time),
             l
         );
+
+        Ok(())
     }
 
     #[tokio::test]

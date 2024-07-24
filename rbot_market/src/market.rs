@@ -6,6 +6,7 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::MarketMessage;
 
 use rbot_lib::db::TradeDataFrame;
+use rbot_lib::db::TradeDb;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -281,12 +282,15 @@ where
 
     fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
         log::debug!("[start] find_latest_gap");
-        let start_time = NOW() - DAYS(2);
-
         let db = self.get_db();
+
 
         let (fix_time, unfix_time) = {
             let mut lock = db.lock().unwrap();
+
+            let start_time = NOW() - DAYS(2);
+
+
             let fix_time = lock.latest_fix_time(start_time, force)?;
             if fix_time == 0 {
                 return Err(anyhow!("No data found"));
@@ -502,7 +506,7 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        lock.start_thread()
+        lock.open_channel()
     }
 
     async fn async_download_recent_trades(
@@ -581,7 +585,16 @@ where
         let db = self.get_db();
         let api = self.get_restapi();
         let mut lock =  db.lock().unwrap();
-        lock.download_archive(api, ndays, force, verbose).await
+        let count = lock.download_archive(api, ndays, force, verbose).await?;
+        let archive_end = lock.archive_end_time();
+
+        if archive_end != 0 {
+            let expire = TradeDb::expire_control_message(0, archive_end, true);
+            let tx = lock.open_channel()?;
+            tx.send(expire)?;
+        }
+
+        Ok(count)
     }
 
     async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {

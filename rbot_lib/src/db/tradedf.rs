@@ -89,6 +89,10 @@ impl TradeDataFrame {
         Ok(trade_data_frame)
     }
 
+    pub fn vacuum(&self) -> anyhow::Result<()>{
+        self.db.vacuum()        
+    }
+
     pub fn get_archive(&self) -> TradeArchive {
         self.archive.clone()
     }
@@ -177,7 +181,7 @@ impl TradeDataFrame {
     }
 
     // TODO: rename to open_channel
-    pub fn start_thread(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
+    pub fn open_channel(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
         self.db.open_channel()
     }
 
@@ -257,8 +261,14 @@ impl TradeDataFrame {
         self.cache_duration = 0;
     }
 
-    pub fn select_cachedf(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn archive_end_time(&self) -> MicroSec {
         let archive_end = self.archive.end_time().unwrap_or_default();
+
+        archive_end
+    }
+
+    pub fn select_cachedf(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
+        let archive_end = self.archive_end_time();
 
         let df = if start_time < archive_end {
             let df1 = self.archive.select_cachedf(start_time, end_time)?;
@@ -277,7 +287,7 @@ impl TradeDataFrame {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        self.cache_df = self.db.select_cachedf(start_time, end_time)?;
+        self.cache_df = self.select_cachedf(start_time, end_time)?;
 
         Ok(self.cache_df.shape().0 as i64)
     }
@@ -286,8 +296,8 @@ impl TradeDataFrame {
         self.update_cache_df(0, 0)
     }
 
-    // TODO: 日付単位に変更する。
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
+        let forget_before = FLOOR_DAY(forget_before);       // expire by date.
         log::debug!("Expire cache {}", time_string(forget_before));
         let cache_timing = ohlcv_start(forget_before);
         self.cache_df = select_df(&self.cache_df, cache_timing, 0);
@@ -353,7 +363,7 @@ impl TradeDataFrame {
 
         // load data and merge cache
         if start_time < df_start_time {
-            let df1 = &self.db.select_cachedf(start_time, df_start_time)?;
+            let df1 = &self.select_cachedf(start_time, df_start_time)?;
 
             let len = df1.shape().0;
             // データがあった場合のみ更新
@@ -387,10 +397,9 @@ impl TradeDataFrame {
         }
 
         if df_end_time < end_time {
-            // 2日先までキャッシュを先読み
+            // 3日先までキャッシュを先読み
             let df2 = &self
-                .db
-                .select_cachedf(df_end_time, FLOOR_DAY(end_time + DAYS(3)))?;
+                .select_cachedf(df_end_time, FLOOR_DAY(end_time + DAYS(4)))?;
 
             log::debug!(
                 "load data after cache(2days) df1={:?} df2={:?}",
