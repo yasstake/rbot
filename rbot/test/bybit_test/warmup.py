@@ -50,7 +50,7 @@ class SkeltonAgent:      # クラス名は任意です
         if self.tick_count < 10:
             # rbotから最新のタイムバーを1本取得
             ohlcv = session.ohlcv(session.clock_interval_sec, 1)
-            print(f"on_clock(clock = {clock}")
+            print(f"on_clock(clock = {time_string(clock)} {clock}")
             print(ohlcv)
 
 
