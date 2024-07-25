@@ -3,12 +3,10 @@
 use std::sync::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 
-use polars::lazy::dsl::last;
-use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
+use pyo3::{pyclass, pymethods, PyAny, Python};
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::FLOOR_SEC;
-use rbot_lib::db::ohlcv_start;
 use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -70,7 +68,7 @@ pub struct Session {
     sell_orders: OrderList,
     real_account: AccountCoins,
     psudo_account: AccountCoins,
-    exchange: PyObject,
+    exchange: Py<PyAny>,
     current_timestamp: MicroSec,
     current_clock_time: MicroSec,
     pub session_name: String,
@@ -112,8 +110,8 @@ impl Session {
     #[new]
     #[pyo3(signature = (exchange, market, execute_mode, client_mode=false, session_name=None, log_memory=true))]
     pub fn new(
-        exchange: PyObject,
-        market: PyObject,
+        exchange: &Bound<PyAny>,
+        market: &Bound<PyAny>,
         execute_mode: ExecuteMode,
         client_mode: bool,
         session_name: Option<&str>,
@@ -135,19 +133,12 @@ impl Session {
             }
         };
 
-        let production = Python::with_gil(|py| {
-            let production = exchange.getattr(py, "production").unwrap();
-            let production: bool = production.extract(py).unwrap();
+        let obj = exchange.as_borrowed();
+            let production = obj.getattr("production").unwrap();
+            let production: bool = production.extract().unwrap();
 
-            production
-        });
-
-        let config = Python::with_gil(|py| {
-            let config = market.getattr(py, "config").unwrap();
-            let config: MarketConfig = config.extract(py).unwrap();
-
-            config
-        });
+        let config = market.getattr("config").unwrap();
+        let config: MarketConfig = config.extract().unwrap();
 
         let category = config.trade_category.clone();
         let now_time = NOW() / 1_000_000;
@@ -160,7 +151,7 @@ impl Session {
             sell_orders: OrderList::new(OrderSide::Sell),
             real_account: AccountCoins::default(),
             psudo_account: AccountCoins::default(),
-            exchange,
+            exchange: exchange.extract().unwrap(),
             current_timestamp: 0,
             current_clock_time: 0,
             session_name,
@@ -257,7 +248,7 @@ impl Session {
             ohlcv
         };
 
-        Ok((df))
+        Ok(df)
     }
 
     pub fn vap(
