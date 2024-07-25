@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 
-use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
+use pyo3::{pyclass, pymethods, PyAny, Python};
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::FLOOR_SEC;

@@ -3,7 +3,7 @@
 use crossbeam_channel::Receiver;
 use pyo3::{
     pyclass, pymethods,
-    types::{IntoPyDict, PyAnyMethods, PyDict, PyTuple},
+    types::{IntoPyDict, PyAnyMethods},
     Bound, Py, PyAny, PyErr, PyObject, Python,
 };
 use rust_decimal::prelude::ToPrimitive;
@@ -107,45 +107,6 @@ impl Runner {
         self.last_print_tick_time = 0;
         self.last_print_loop_count = 0;
         self.last_print_real_time = 0;
-    }
-
-    pub fn runrun(
-        &mut self,
-        exchange: &Bound<PyAny>,
-        market: &Bound<PyAny>,
-        agent: &Bound<PyAny>,
-    ) -> anyhow::Result<()> {
-        /*
-        let production = Python::with_gil(|py| {
-            let exchange_status = exchange.getattr(py, "production").unwrap();
-            let status: bool = exchange_status.extract(py).unwrap();
-            status
-        });
-        */
-
-        let production = Python::with_gil(|py| {
-            // exchage test
-
-            let obj = exchange.as_borrowed();
-            let attr = obj.getattr("production").unwrap();
-            let attr_string = attr.to_string();
-            println!("{:?}", attr_string);
-
-            // agent
-            let obj = agent.as_borrowed();
-            let attr = obj.dir();
-
-            println!("{:?}", attr);
-
-            //            let init= obj.get_item("on_init").unwrap();
-            let r = obj.call_method0("on_init").unwrap();
-
-            println!("{:?}", r);
-        });
-
-        //        println!("{:?}", production);
-
-        Ok(())
     }
 
     #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
@@ -475,7 +436,6 @@ impl Runner {
             if result.is_err() {
                 return Err(result.unwrap_err());
             }
-            self.loop_count += 1;
 
             Ok(())
         })?;
@@ -892,35 +852,5 @@ impl Runner {
         let stream = stream.extract::<MarketStream>()?;
 
         Ok(stream.reciver)
-    }
-
-    pub async fn open_backtest_stream(
-        market: &PyObject,
-        time_from: MicroSec,
-        time_to: MicroSec,
-    ) -> impl Stream<Item = anyhow::Result<MarketMessage>> {
-        let market_stream = Python::with_gil(|py| {
-            let stream = market.call_method1(py, "open_backtest_channel", (time_from, time_to));
-
-            if stream.is_ok() {
-                let stream = stream.unwrap();
-                let stream = stream.extract::<MarketStream>(py).unwrap();
-                stream
-            } else {
-                let err = stream.unwrap_err();
-                log::error!("Error in open_backtest_channel: {:?}", err);
-                panic!("Error in open_backtest_channel: {:?}", err);
-            }
-        });
-
-        let market_stream = market_stream.reciver;
-
-        stream! {
-            loop {
-                let message = market_stream.recv()?;
-
-                yield Ok(message);
-            }
-        }
     }
 }
