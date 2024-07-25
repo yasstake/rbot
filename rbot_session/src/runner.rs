@@ -1,7 +1,9 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
+use std::borrow::Cow;
+
 use crossbeam_channel::Receiver;
-use pyo3::{pyclass, pymethods, types::IntoPyDict, Py, PyAny, PyErr, PyObject, Python};
+use pyo3::{pyclass, pymethods, types::{IntoPyDict, PyAnyMethods, PyDict, PyList, PyType}, Bound, Py, PyAny, PyErr, PyObject, Python};
 use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
@@ -105,12 +107,55 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
+    pub fn runrun(
+        &mut self,
+        exchange: &Bound<PyAny>,
+        market: &Bound<PyAny>,
+        agent: &Bound<PyAny>,
+    ) -> anyhow::Result<()> {
+
+        /*
+        let production = Python::with_gil(|py| {
+            let exchange_status = exchange.getattr(py, "production").unwrap();
+            let status: bool = exchange_status.extract(py).unwrap();
+            status
+        });
+        */
+
+        let production = Python::with_gil(| py | {
+
+            // exchage test
+
+            let obj = exchange.as_borrowed();
+            let attr = obj.getattr("production").unwrap();
+            let attr_string = attr.to_string();
+            println!("{:?}", attr_string);
+
+
+            // agent
+            let obj = agent.as_borrowed();
+            let attr = obj.dir();
+
+            println!("{:?}", attr);
+
+//            let init= obj.get_item("on_init").unwrap();
+            let r= obj.call_method0("on_init").unwrap();
+
+            println!("{:?}", r);
+        });
+
+
+//        println!("{:?}", production);
+
+        Ok(())
+    }
+
     #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
         exchange: PyObject,
         market: PyObject,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         start_time: MicroSec,
         end_time: MicroSec,
         execute_time: i64,
@@ -134,7 +179,7 @@ impl Runner {
         &mut self,
         exchange: PyObject,
         market: PyObject,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         log_memory: bool,
         execute_time: i64,
         verbose: bool,
@@ -177,7 +222,7 @@ impl Runner {
         &mut self,
         exchange: PyObject,
         market: PyObject,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         log_memory: bool,
         execute_time: i64,
         verbose: bool,
@@ -306,7 +351,7 @@ impl Runner {
         r
     }
 
-    pub fn update_agent_info(&mut self, agent: &PyAny) -> Result<(), PyErr> {
+    pub fn update_agent_info(&mut self, agent: &Bound<PyAny>) -> Result<(), PyErr> {
         self.has_on_init = has_method(agent, "on_init");
         self.has_on_clock = has_method(agent, "on_clock");
         self.has_on_tick = has_method(agent, "on_tick");
@@ -418,7 +463,7 @@ impl Runner {
     pub fn execute_message(
         &mut self,
         py_session: &Py<Session>,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         message: &MarketMessage,
         interval_sec: i64,
     ) -> anyhow::Result<()> {
@@ -441,7 +486,7 @@ impl Runner {
         market: PyObject,
         //        receiver: impl Stream<Item = anyhow::Result<MarketMessage>>,
         receiver: &Receiver<MarketMessage>,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
@@ -624,7 +669,7 @@ impl Runner {
     pub fn on_message(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
         message: &MarketMessage,
         interval_sec: i64,
@@ -725,7 +770,7 @@ impl Runner {
 
     fn call_agent_on_init(
         self: &mut Self,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
     ) -> anyhow::Result<()> {
         if !self.has_on_init {
@@ -743,7 +788,7 @@ impl Runner {
     fn call_agent_on_tick(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
         trade: &Trade,
     ) -> Result<(), PyErr> {
@@ -759,7 +804,7 @@ impl Runner {
     fn call_agent_on_update(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
         order: &Order,
     ) -> Result<(), PyErr> {
@@ -775,7 +820,7 @@ impl Runner {
     fn call_agent_on_clock(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
         clock: MicroSec,
     ) -> Result<(), PyErr> {
@@ -792,7 +837,7 @@ impl Runner {
     fn call_agent_on_account_update(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
         account: &AccountCoins,
     ) -> Result<(), PyErr> {
@@ -817,7 +862,7 @@ impl Runner {
     fn call_agent_on_account_update_dummy(
         self: &mut Self,
         py: &Python,
-        agent: &PyAny,
+        agent: &Bound<PyAny>,
         py_session: &Py<Session>,
     ) -> Result<(), PyErr> {
         let mut session = py_session.borrow_mut(*py);
