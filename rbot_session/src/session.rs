@@ -3,6 +3,7 @@
 use std::{collections::VecDeque, sync::Arc};
 use std::sync::Mutex;
 
+use polars::lazy::dsl::last;
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use pyo3_polars::PyDataFrame;
@@ -1160,11 +1161,21 @@ impl Session {
         result
     }
 
+    fn calc_olhcv_start(last_time: MicroSec, window_sec: MicroSec, nbar: i64) -> MicroSec {
+//        log::debug("time={} ({})", time_string(last_time), last_time);
+
+
+
+        0
+    }
 }
 
 #[cfg(test)]
 mod session_tests {
-
+    #[test]
+    fn test_calc_ohlcv_start() {
+//        let t = YYMMDD(2024,)
+    }
 
 
     /*

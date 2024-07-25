@@ -322,10 +322,6 @@ impl TradeArchive {
         let file = File::open(file)?;
         let reader = SerializedFileReader::new(file)?;
 
-        // スキーマを取得
-        let schema = reader.metadata().file_metadata().schema();
-        println!("File Schema: {:?}", schema);
-
         for row in reader {
             let row = row?;
 
