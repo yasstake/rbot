@@ -435,7 +435,7 @@ impl TradeDataFrame {
         Ok(())
     }
 
-    pub fn ohlcvv_df(
+    fn _ohlcvv_df(
         &mut self,
         mut start_time: MicroSec,
         end_time: MicroSec,
@@ -460,14 +460,14 @@ impl TradeDataFrame {
     ) -> anyhow::Result<PyDataFrame> {
         start_time = ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcvv_df(start_time, end_time, window_sec)?;
+        let mut df = self._ohlcvv_df(start_time, end_time, window_sec)?;
 
         convert_timems_to_datetime(&mut df)?;
 
         return Ok(PyDataFrame(df));
     }
 
-    pub fn ohlcv_df(
+    fn _ohlcv_df(
         &mut self,
         mut start_time: MicroSec,
         end_time: MicroSec,
@@ -492,7 +492,7 @@ impl TradeDataFrame {
     ) -> anyhow::Result<PyDataFrame> {
         start_time = ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        let mut df = self.ohlcv_df(start_time, end_time, window_sec)?;
+        let mut df = self._ohlcv_df(start_time, end_time, window_sec)?;
         convert_timems_to_datetime(&mut df)?;
         let df = PyDataFrame(df);
 

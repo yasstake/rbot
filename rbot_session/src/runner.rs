@@ -53,6 +53,8 @@ pub struct Runner {
     exchange_name: String,
     category: String,
     symbol: String,
+
+    warmup_count: i64,
 }
 
 #[pymethods]
@@ -86,6 +88,7 @@ impl Runner {
             exchange_name: "".to_string(),
             category: "".to_string(),
             symbol: "".to_string(),
+            warmup_count: 0,
         }
     }
 
@@ -727,7 +730,10 @@ impl Runner {
             if let MarketMessage::Trade(trade) = message {
                 let new_clock = FLOOR_SEC(trade.time, interval_sec);
 
-                if self.current_clock < new_clock {
+                if self.current_clock == 0 {
+                    self.current_clock = new_clock;
+                }
+                else if self.current_clock < new_clock {
                     self.current_clock = new_clock;
 
                     self.call_agent_on_clock(py, agent, py_session, new_clock)?;
