@@ -40,7 +40,8 @@ class SkeltonAgent:      # クラス名は任意です
         """
         # 現在の時刻をプリントします。
 #        print("on_clock: ", clock, ": ", time_string(clock))
-        session.market_order("Buy", 0.001)
+        #session.market_order("Buy", 0.001)
+        pass
     
     def on_update(self, session, updated_order):
         """自分の注文状態が変化した場合に呼び出される処理です。
@@ -51,6 +52,7 @@ class SkeltonAgent:      # クラス名は任意です
         """
         # 注文状態が変化した注文情報をプリントします。オーダーを発行しない限り呼び出されません。
 #        print("on_update", updated_order)    
+        pass
 
     
 from rbot import Bybit, BybitConfig
