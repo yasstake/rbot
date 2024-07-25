@@ -3,12 +3,10 @@
 use std::sync::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 
-use polars::lazy::dsl::last;
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::FLOOR_SEC;
-use rbot_lib::db::ohlcv_start;
 use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -257,7 +255,7 @@ impl Session {
             ohlcv
         };
 
-        Ok((df))
+        Ok(df)
     }
 
     pub fn vap(

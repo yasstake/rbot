@@ -53,8 +53,6 @@ pub struct Runner {
     exchange_name: String,
     category: String,
     symbol: String,
-
-    warmup_count: i64,
 }
 
 #[pymethods]
@@ -88,7 +86,6 @@ impl Runner {
             exchange_name: "".to_string(),
             category: "".to_string(),
             symbol: "".to_string(),
-            warmup_count: 0,
         }
     }
 
@@ -283,7 +280,7 @@ impl Runner {
                 market.call_method(py, "download_gap", (), Some(kwargs))?;
                 log::debug!("download_gap is done");
 
-                let kwargs = vec![("ndays", 1)];
+                let kwargs = vec![("ndays", 2)];
                 market.call_method(py, "download_archive", (), Some(kwargs.into_py_dict(py)))?;
                 log::debug!("download_archive is done");
             }
@@ -717,19 +714,6 @@ impl Runner {
         session.update_psudo_account_by_order(order)
     }
 
-    /*
-    fn get_clock_interval_py(
-        self: &mut Self,
-        py: &Python,
-        py_session: &Py<Session>,
-    ) -> Result<i64, PyErr> {
-        let session = py_session.borrow_mut(*py);
-        let interval_sec = session.get_clock_interval_sec();
-
-        Ok(interval_sec)
-    }
-    */
-
     fn get_clock_interval(self: &mut Self, py_session: &Py<Session>) -> Result<i64, PyErr> {
         Python::with_gil(|py| {
             let session = py_session.borrow_mut(py);
@@ -738,21 +722,6 @@ impl Runner {
             Ok(interval_sec)
         })
     }
-
-    /*
-    fn call_agent_on_init_py(
-        self: &mut Self,
-        py: &Python,
-        agent: &PyAny,
-        py_session: &Py<Session>,
-    ) -> Result<(), PyErr> {
-        let session = py_session.borrow_mut(*py);
-
-        agent.call_method1("on_init", (session,))?;
-
-        Ok(())
-    }
-    */
 
     fn call_agent_on_init(
         self: &mut Self,
