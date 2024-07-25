@@ -19,12 +19,10 @@ use tokio::task::JoinHandle;
 use crate::common::MarketConfig;
 use crate::common::TimeChunk;
 use crate::common::FLOOR_DAY;
-use crate::db::TradeDataFrame;
 
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Sender;
 
-use crate::common::flush_log;
 use crate::common::LogStatus;
 use crate::common::OrderSide;
 use crate::common::SEC;
@@ -403,7 +401,7 @@ impl TradeDb {
         return path.exists();
     }
 
-
+    /*
     /// check if table is exsit by sql.
     fn is_table_exsit(&mut self) -> bool {
         log::debug!("is_table_exsit");
@@ -435,6 +433,7 @@ impl TradeDb {
             }
         }
     }
+    */
 
     fn create_table_if_not_exists(&mut self) -> anyhow::Result<()> {
         self.connection.execute(
@@ -457,6 +456,7 @@ impl TradeDb {
         Ok(())
     }
 
+    /*
     fn drop_table(&self) -> anyhow::Result<()> {
         println!("database is dropped. To use database, restart the program.");
         println!("To delete completely, delete the database file from OS.");
@@ -470,6 +470,7 @@ impl TradeDb {
 
         Ok(())
     }
+    */
 
     pub fn vacuum(&self) -> anyhow::Result<()> {
         log::debug!("vacuum db");
@@ -481,6 +482,7 @@ impl TradeDb {
         Ok(())
     }
 
+    /* 
     fn recreate_table(&mut self) -> anyhow::Result<()> {
         self.create_table_if_not_exists()?;
         self.drop_table()?;
@@ -488,6 +490,7 @@ impl TradeDb {
 
         Ok(())
     }
+    */
 
     /// select  cachedf from database
     pub fn select_cachedf(

@@ -9,7 +9,7 @@ use crate::{
 use anyhow::{anyhow, Context};
 use futures::StreamExt;
 use parquet::{
-    file::reader::{FileReader, SerializedFileReader},
+    file::reader::SerializedFileReader,
     record::RowAccessor,
 };
 use reqwest::Client;
