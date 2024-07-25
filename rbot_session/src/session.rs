@@ -1,23 +1,30 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use std::{collections::VecDeque, sync::Arc};
 use std::sync::Mutex;
+use std::{collections::VecDeque, sync::Arc};
 
 use polars::lazy::dsl::last;
 use pyo3::{pyclass, pymethods, PyAny, PyObject, Python};
 
 use pyo3_polars::PyDataFrame;
+use rbot_lib::common::FLOOR_SEC;
+use rbot_lib::db::ohlcv_start;
 use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 use super::{Logger, OrderList};
 use pyo3::prelude::*;
-use rbot_lib::{common::{
-    date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins, AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide, OrderStatus, OrderType, Trade, NOW, SEC
-}, db::TradeDataFrame};
+use rbot_lib::{
+    common::{
+        date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins,
+        AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide,
+        OrderStatus, OrderType, Trade, NOW, SEC,
+    },
+    db::TradeDataFrame,
+};
 
-use anyhow;
+use anyhow::anyhow;
 
 #[derive(Debug, Clone, PartialEq)]
 #[pyclass]
@@ -195,48 +202,70 @@ impl Session {
         return session;
     }
 
-
     #[pyo3(signature = (interval, count, market=None))]
-    pub fn ohlcv(&mut self, interval: i64, count: i64, market: Option<&MarketConfig>) -> anyhow::Result<PyDataFrame> {
-        let window_sec = interval * count;
-        let time_from = self.current_timestamp - SEC(window_sec);
+    pub fn ohlcv(
+        &mut self,
+        interval: i64,
+        count: i64,
+        market: Option<&MarketConfig>,
+    ) -> anyhow::Result<PyDataFrame> {
+        let time_from = calc_ohlcv_start(self.current_timestamp, interval, count)?;
         let time_to = self.current_timestamp;
 
         let df = {
-            log::debug!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+            log::debug!(
+                "ohlcv: time_from={}, time_to={}, interval={}",
+                time_from,
+                time_to,
+                interval
+            );
 
             let db = self.get_db(market)?;
             let lock = db.lock();
 
-            let ohlcv = lock.unwrap().ohlcv_df(time_from, time_to, interval)?;
+            let ohlcv = lock.unwrap().py_ohlcv_polars(time_from, time_to, interval)?;
 
             ohlcv
         };
 
-        Ok(PyDataFrame(df))
+        Ok(df)
     }
 
     #[pyo3(signature = (interval, count, market=None))]
-    pub fn ohlcvv(&mut self, interval: i64, count: i64, market: Option<&MarketConfig>) -> anyhow::Result<PyDataFrame> {
-        let window_sec = interval * count;
-        let time_from = self.current_timestamp - SEC(window_sec);
+    pub fn ohlcvv(
+        &mut self,
+        interval: i64,
+        count: i64,
+        market: Option<&MarketConfig>,
+    ) -> anyhow::Result<PyDataFrame> {
+        let time_from = calc_ohlcv_start(self.current_timestamp, interval, count)?;
         let time_to = self.current_timestamp;
 
         let df = {
-            log::debug!("ohlcv: time_from={}, time_to={}, interval={}", time_from, time_to, interval);
+            log::debug!(
+                "ohlcv: time_from={}, time_to={}, interval={}",
+                time_from,
+                time_to,
+                interval
+            );
 
             let db = self.get_db(market)?;
             let lock = db.lock();
 
-            let ohlcv = lock.unwrap().ohlcvv_df(time_from, time_to, interval)?;
+            let ohlcv = lock.unwrap().py_ohlcvv_polars(time_from, time_to, interval)?;
 
             ohlcv
         };
 
-        Ok(PyDataFrame(df))
+        Ok((df))
     }
 
-    pub fn vap(&mut self, start_time: MicroSec, end_time: MicroSec, price_unit: i64) -> anyhow::Result<PyDataFrame> {
+    pub fn vap(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        price_unit: i64,
+    ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db(None).unwrap();
         let mut lock = db.lock().unwrap();
 
@@ -256,12 +285,15 @@ impl Session {
     }
 
     #[getter]
-    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)>{
+    pub fn get_board(&self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         self.select_board(None)
     }
 
     #[pyo3(signature = (market_config=None))]
-    pub fn select_board(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+    pub fn select_board(
+        &self,
+        market_config: Option<&MarketConfig>,
+    ) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let board_config = if let Some(config) = market_config {
             config
         } else {
@@ -751,15 +783,17 @@ impl Session {
 }
 
 impl Session {
-    pub fn get_db(&self, market_config: Option<&MarketConfig>) -> anyhow::Result<Arc<Mutex<TradeDataFrame>>> {
-
+    pub fn get_db(
+        &self,
+        market_config: Option<&MarketConfig>,
+    ) -> anyhow::Result<Arc<Mutex<TradeDataFrame>>> {
         if market_config.is_none() {
             return TradeDataFrame::get(&self.market_config, self.production);
         }
 
         let market_config = market_config.unwrap();
 
-        TradeDataFrame::get(&market_config, true)       // always use production other than primary market.
+        TradeDataFrame::get(&market_config, true) // always use production other than primary market.
     }
 
     /// Message処理
@@ -865,7 +899,7 @@ impl Session {
     pub fn on_account_update(&mut self, account: &AccountCoins) {
         self.real_account.update(account);
 
-        let account_pair: AccountPair = self.real_account.extract_pair(&self.market_config);        
+        let account_pair: AccountPair = self.real_account.extract_pair(&self.market_config);
 
         if self.log_account(&account_pair).is_err() {
             log::error!("log_account_status error");
@@ -873,7 +907,7 @@ impl Session {
     }
 
     pub fn on_order_update(&mut self, order: &mut Order) {
-        if ! order.is_my_order(&self.session_name) {
+        if !order.is_my_order(&self.session_name) {
             log::debug!("on_order_update: skip my order: {:?}", order);
             return;
         }
@@ -881,7 +915,7 @@ impl Session {
         self.log_id += 1;
         order.log_id = self.log_id;
         order.update_balance(&self.market_config);
-        self.update_psudo_position(order);        
+        self.update_psudo_position(order);
 
         if order.order_side == OrderSide::Buy {
             if order.status == OrderStatus::Filled || order.status == OrderStatus::Canceled {
@@ -907,7 +941,10 @@ impl Session {
     fn new_order_id(&mut self) -> String {
         self.order_number += 1;
 
-        format!("{}-{}{:04}", self.session_name, self.session_id, self.order_number)
+        format!(
+            "{}-{}{:04}",
+            self.session_name, self.session_id, self.order_number
+        )
     }
 
     fn load_order_list(&mut self) -> Result<(), PyErr> {
@@ -934,7 +971,7 @@ impl Session {
                             continue;
                         }
 
-                        if ! order.is_my_order(&self.session_name) {
+                        if !order.is_my_order(&self.session_name) {
                             continue;
                         }
 
@@ -1160,23 +1197,67 @@ impl Session {
 
         result
     }
+}
 
-    fn calc_olhcv_start(last_time: MicroSec, window_sec: MicroSec, nbar: i64) -> MicroSec {
-//        log::debug("time={} ({})", time_string(last_time), last_time);
-
-
-
-        0
+pub fn calc_ohlcv_start(
+    ohlcv_end_time: MicroSec,
+    window_sec: i64,
+    nbar: i64,
+) -> anyhow::Result<MicroSec> {
+    //        log::debug("time={} ({})", time_string(last_time), last_time);
+    if nbar < 1 {
+        return Err(anyhow!("nbar is zero, or minus. nbar={}", nbar));
     }
+
+    let start_time = (ohlcv_end_time - 1) - SEC(window_sec) * (nbar -1); 
+    let start_time = FLOOR_SEC(start_time, window_sec);
+
+    Ok(start_time)
 }
 
 #[cfg(test)]
 mod session_tests {
-    #[test]
-    fn test_calc_ohlcv_start() {
-//        let t = YYMMDD(2024,)
-    }
+    use super::*;
+    use rbot_lib::common::{init_debug_log, parse_time};
 
+
+    #[test]
+    fn test_calc_ohlcv_start() -> anyhow::Result<()>{
+        init_debug_log();
+
+        let t1 = parse_time("2024-07-10T00:00:00.000000+00:00");
+
+        // if ndays = 0, raize an error.
+        let result = calc_ohlcv_start(t1, 60, 0);
+        log::debug!("{:?}", result);
+        assert!(result.is_err());
+
+        let result = calc_ohlcv_start(t1, 60, 1);
+        log::debug!("{:?}", result);
+        assert!(result.is_ok());
+        let start = result.unwrap();
+        log::debug!("start: {:?} ({:?})", time_string(start), start);
+        log::debug!("end: {:?} ({:?})", time_string(t1), t1);
+
+        assert_eq!(calc_ohlcv_start(parse_time("2024-07-10T00:00:00.000000+00:00"), 60, 1)?, parse_time("2024-07-09T23:59:00.000000+00:00"));
+
+        let result = calc_ohlcv_start(t1, 60, 2);
+        log::debug!("{:?}", result);
+        assert!(result.is_ok());
+        let start = result.unwrap();
+        log::debug!("start: {:?} ({:?})", time_string(start), start);
+        log::debug!("end: {:?} ({:?})", time_string(t1), t1);
+
+
+        assert_eq!(calc_ohlcv_start(parse_time("2024-07-10T00:00:00.000000+00:00"), 60, 2)?, parse_time("2024-07-09T23:58:00.000000+00:00"));
+
+
+
+        assert_eq!(calc_ohlcv_start(parse_time("2024-07-10T00:00:00.000000+00:00"), 3600, 1)?, parse_time("2024-07-09T23:00:00.000000+00:00"));
+        assert_eq!(calc_ohlcv_start(parse_time("2024-07-10T00:00:00.000000+00:00"), 3600, 2)?, parse_time("2024-07-09T22:00:00.000000+00:00"));
+
+        Ok(()) 
+    }
 
     /*
     use rbot_lib::common::init_debug_log;
