@@ -292,7 +292,7 @@ impl Runner {
                 market.call_method("download_gap", (), Some(&kwargs))?;
                 log::debug!("download_gap is done");
 
-                let kwargs = vec![("ndays", 2)];
+                let kwargs = vec![("ndays", 10)];
                 let kwargs = kwargs.into_py_dict_bound(py);
                 market.call_method("download_archive", (), Some(&kwargs))?;
                 log::debug!("download_archive is done");
@@ -701,7 +701,7 @@ impl Runner {
             }
 
             if account_change && self.has_account_update {
-                self.call_agent_on_account_update_dummy(py, agent, py_session)?;
+                self.call_agent_on_account_update_backtest(py, agent, py_session)?;
             }
         }
 
@@ -819,7 +819,7 @@ impl Runner {
     }
 
     /// When backtest, the account infomation is from session.
-    fn call_agent_on_account_update_dummy(
+    fn call_agent_on_account_update_backtest(
         self: &mut Self,
         py: &Python,
         agent: &Bound<PyAny>,
