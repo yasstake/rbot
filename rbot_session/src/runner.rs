@@ -4,13 +4,11 @@ use crossbeam_channel::Receiver;
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
-    Bound, Py, PyAny, PyErr, PyObject, Python,
+    Bound, Py, PyAny, PyErr, Python,
 };
 use rust_decimal::prelude::ToPrimitive;
 
 use super::{has_method, ExecuteMode, Session};
-use async_stream::stream;
-use futures::Stream;
 
 use rbot_lib::{
     common::{
@@ -236,7 +234,7 @@ impl Runner {
     }
 }
 
-const WARMUP_STEPS: i64 = 5;
+const MAX_WARMUP_STEPS: i64 = 500;
 
 impl Runner {
     pub fn agent_id(&self) -> String {
@@ -487,20 +485,21 @@ impl Runner {
         let interval_sec = self.get_clock_interval(&py_session)?;
 
         // warm up loop
-        let mut warm_up_loop: i64 = WARMUP_STEPS;
+        let mut warm_up_step: i64 = 1;
         while let Ok(message) = receiver.recv() {
             self.execute_message_update_session(&py_session, &message)?;
 
-            if let MarketMessage::Trade(_trade) = &message {
-                warm_up_loop = warm_up_loop - 1;
-                if warm_up_loop <= 0 {
-                    break;
-                }
+            log::debug!("warm up loop {:?}:{:?}", warm_up_step, message);
+
+            if self.is_session_initialized(&py_session) {
+                break;
             }
 
-            if self.verbose {
-                println!("warm up loop {:?}:{:?}", warm_up_loop, message);
+            if MAX_WARMUP_STEPS <= warm_up_step {
+                break;
             }
+
+            warm_up_step += 1;
         }
 
         println!("------- warm up end ---------");
@@ -725,6 +724,13 @@ impl Runner {
             let interval_sec = session.get_clock_interval_sec();
 
             Ok(interval_sec)
+        })
+    }
+
+    fn is_session_initialized(&self, py_session: &Py<Session>) -> bool {
+        Python::with_gil(|py| {
+            let session = py_session.borrow_mut(py);
+            session.is_initialized()
         })
     }
 

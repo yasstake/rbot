@@ -787,6 +787,22 @@ impl Session {
         TradeDataFrame::get(&market_config, true) // always use production other than primary market.
     }
 
+    pub fn is_initialized(&self)  -> bool {
+        if self.current_timestamp == 0 {
+            return false;
+        }
+
+        if self.ask_edge == dec![0.0] {
+            return false;
+        }
+
+        if self.bid_edge == dec![0.0] {
+            return false;
+        }
+
+        true
+    }
+
     /// Message処理
     /// Dummyのときは、Tradeで約定情報を受け取り、約定キューに追加する。
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
