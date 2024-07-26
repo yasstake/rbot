@@ -46,15 +46,10 @@ pub struct MarketConfig {
     #[pyo3(set, get)]    
     pub trade_symbol: String,
 
-    #[pyo3(set)]
     pub price_unit: Decimal,
-    
-    #[pyo3(set)]
     pub size_unit: Decimal,
 
-    #[pyo3(set)]
     pub maker_fee: Decimal,
-    #[pyo3(set)]    
     pub taker_fee: Decimal,
 
     #[pyo3(set)]
@@ -109,30 +104,37 @@ impl MarketConfig {
         round(self.size_unit, size)
     }
 
-
     #[new]
     pub fn new(
         exchange_name: &str,
         trade_category: &str,
         foreign_currency: &str,
         home_currency: &str,
-        price_unit: Decimal,
+        price_unit: f64,
         price_type: PriceType,
-        size_unit: Decimal,
+        size_unit: f64,
         board_depth: u32,
         market_order_price_slip: f64,
         maker_fee: f64,
         taker_fee: f64,
         fee_type: FeeType,
         public_subscribe_channel: Vec<String>,
+        trade_symbol: Option<&str>
     ) -> Self {
         let maker_fee = Decimal::from_f64(maker_fee).unwrap();
         let taker_fee = Decimal::from_f64(taker_fee).unwrap();
 
+        let symbol = if let Some(symbol) = trade_symbol {
+            symbol.to_string()
+        }
+        else {
+            format!("{}{}", foreign_currency, home_currency)
+        };
+
         Self {
             exchange_name: exchange_name.to_string(),
-            price_unit: price_unit,
-            size_unit: size_unit,
+            price_unit: Decimal::from_f64(price_unit).unwrap(),
+            size_unit: Decimal::from_f64(size_unit).unwrap(),
             maker_fee,
             taker_fee,
             price_type,
@@ -142,10 +144,52 @@ impl MarketConfig {
             market_order_price_slip: Decimal::from_f64(market_order_price_slip).unwrap(),
             board_depth,
             trade_category: trade_category.to_string(),
-            trade_symbol: format!("{}{}", foreign_currency, home_currency),
-            public_subscribe_channel: public_subscribe_channel
+            public_subscribe_channel: public_subscribe_channel,
+            trade_symbol: symbol
         }
     }
+
+    #[setter]
+    pub fn set_price_unit(&mut self, unit: f64) {
+        self.price_unit = Decimal::from_f64(unit).unwrap();
+    }
+
+    #[getter]
+    pub fn get_price_unit(&self) -> Decimal {
+        self.price_unit.clone()
+    }
+
+    #[setter]
+    pub fn set_size_unit(&mut self, unit: f64) {
+        self.size_unit = Decimal::from_f64(unit).unwrap();
+    }
+
+    #[getter]
+    pub fn get_size_unit(&self) -> Decimal {
+        self.size_unit.clone()
+    }
+
+    #[setter]
+    pub fn set_maker_fee(&mut self, fee: f64) {
+        self.maker_fee = Decimal::from_f64(fee).unwrap();
+    }
+
+    #[getter]
+    pub fn get_maker_fee(&mut self) -> Decimal {
+        self.maker_fee.clone()
+    }
+
+    #[setter]
+    pub fn set_taker_fee(&mut self, fee: f64) {
+        self.taker_fee = Decimal::from_f64(fee).unwrap();
+    }
+
+    #[getter]
+    pub fn get_taker_fee(&mut self) -> Decimal {
+        self.taker_fee.clone()
+    }
+
+
 
     pub fn key_string(&self, production: bool) -> String {
         if production {
@@ -164,15 +208,16 @@ impl Default for MarketConfig {
             "default_trade_category",
             "default_foreign_currency",
             "default_home_currency",
-            Decimal::from_f64(0.01).unwrap(),
+            0.01,
             PriceType::Home,
-            Decimal::from_f64(0.01).unwrap(),
+            0.01,
             10,
             0.0,
             0.0,
             0.0,
             FeeType::Home,
             vec![],
+            None,
         )
     }
 }
@@ -220,6 +265,17 @@ mod test_market_config {
         assert_eq!(round, dec![0.11]);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_price_size_unit() {
+        let mut config = MarketConfig::default();
+
+        config.set_price_unit(0.123);
+        assert_eq!(config.get_price_unit(), dec![0.123]);
+
+        config.set_size_unit(1.23);
+        assert_eq!(config.get_size_unit(), dec![1.23]);
     }
 }
 

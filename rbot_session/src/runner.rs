@@ -1,9 +1,7 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use std::sync::OnceLock;
-
 use crossbeam_channel::Receiver;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
@@ -15,9 +13,8 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        date_string, date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins,
-        MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB,
-        MICRO_SECOND, NOW, SEC,
+        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
+        MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -117,7 +114,7 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
+    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_memory=false, log_file=None))]
     pub fn back_test(
         &mut self,
         exchange: &Bound<PyAny>,
@@ -127,6 +124,7 @@ impl Runner {
         end_time: MicroSec,
         execute_time: i64,
         verbose: bool,
+        log_memory: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
         self.execute_time = execute_time;
@@ -156,7 +154,7 @@ impl Runner {
             &receiver,
             agent,
             false,
-            true,
+            log_memory,
             log_file,
             &mut |_, _remain_time| {},
         )
@@ -651,7 +649,7 @@ impl Runner {
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
-                    self.print_progress(&py_session, remain_time);
+                    // self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
 
                     let progress = self.progress_string(remain_time);
@@ -665,7 +663,7 @@ impl Runner {
 
                     let profit = self.get_profit(&py_session);
 
-                    session_bar.set_message(format!("Psudo Profit(no fee) ={:>8.2}", profit));
+                    session_bar.set_message(format!("  Psudo Profit(no fee) = {:>6.2}", profit));
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -715,35 +713,33 @@ impl Runner {
         }
     }
 
-    pub fn progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {}
-
     fn progress_string(&self, remain_time: MicroSec) -> String {
         let time = format!(
-            "{:<.19}, {:>6}[rec]",
+            "[{:<.19}]  {:>10}[rec]",
             time_string(self.last_timestamp),
-            self.loop_count,
+            HumanCount(self.loop_count as u64),
         );
 
         let on_tick = if self.on_tick_count != 0 {
-            format!(", {:>6}[tk]", self.on_tick_count)
+            format!("  {:>8}[tk]", HumanCount(self.on_tick_count as u64))
         } else {
             ",  **** [tk]".to_string()
         };
 
         let on_clock = if self.on_clock_count != 0 {
-            format!(", {:>6}[cl]", self.on_clock_count,)
+            format!("  {:>8}[cl]", HumanCount(self.on_clock_count as u64))
         } else {
             ",  **** [cl]".to_string()
         };
 
         let on_update = if self.on_update_count != 0 {
-            format!(", {:>6}[up]", self.on_update_count,)
+            format!("  {:>6}[up]", HumanCount(self.on_update_count as u64))
         } else {
             ",  **** [up]".to_string()
         };
 
         let remain_time = if 0 < remain_time {
-            format!(", remain={:>4}[S]", remain_time / 1_000_000)
+            format!("  remain={:>4}[S]", remain_time / 1_000_000)
         } else {
             "".to_string()
         };
@@ -755,32 +751,25 @@ impl Runner {
     }
 
     fn archive_status(&self, market: &Bound<PyAny>) -> String {
-        let s = Python::with_gil(|py| {
-            let obj = market.getattr("archive_info").unwrap();
-            let (start_time, end_time): (MicroSec, MicroSec) = obj.extract().unwrap();
+        let obj = market.getattr("archive_info").unwrap();
+        let (start_time, end_time): (MicroSec, MicroSec) = obj.extract().unwrap();
 
-            let s = format!(
-                "[{} => {}]",
-                date_time_string(start_time),
-                date_time_string(end_time),
-            );
-
-            s
-        });
+        let s = format!(
+            "[{} => {}]",
+            date_time_string(start_time),
+            date_time_string(end_time),
+        );
 
         s
     }
 
-    pub fn print_progress(&self, py_session: &Py<Session>, remain_time: i64) {
+    pub fn print_progress(&self, _py_session: &Py<Session>, remain_time: i64) {
         let mode = match self.execute_mode {
             ExecuteMode::Dry => "[Dry run ]",
             ExecuteMode::Real => "[Real run]",
             ExecuteMode::BackTest => "[BackTest]",
         };
 
-        if self.execute_mode == ExecuteMode::BackTest {
-            return self.backtest_progress(py_session, remain_time);
-        }
 
         print!(
             "\r{}{:<.19}, {:>6}[rec]",
@@ -826,8 +815,6 @@ impl Runner {
 
         flush_log();
     }
-
-    pub fn backtest_progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {}
 
     pub fn on_message(
         self: &mut Self,

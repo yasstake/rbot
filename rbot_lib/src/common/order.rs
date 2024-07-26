@@ -1401,15 +1401,16 @@ mod order_tests {
             "SPOT",
             "BTC",
             "USDT",
-            dec![0.01],
+            0.01,
             PriceType::Home,
-            dec![0.001],
+            0.001,
             1000,
             0.0001,
             0.001,
             0.001,
             FeeType::Home,
             vec!["".to_string()],
+            None,
         );
 
         config

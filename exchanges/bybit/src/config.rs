@@ -133,9 +133,9 @@ impl BybitConfig {
             "linear",
             "BTC",
             "USDT",
-            dec![0.1],
+            0.1,
             PriceType::Home,
-            dec![0.001],
+            0.001,
             200,
             0.1,
             0.00_01,
@@ -145,6 +145,7 @@ impl BybitConfig {
                 "publicTrade.BTCUSDT".to_string(),
                 "orderbook.200.BTCUSDT".to_string(),
             ],
+            None,
         )
     }
 
@@ -155,9 +156,9 @@ impl BybitConfig {
             "linear",
             "BTC",
             "USDC",
-            dec![0.1],
+            0.1,
             PriceType::Home,
-            dec![0.001],
+            0.001,
             200,
             0.1,
             0.00_01,
@@ -167,6 +168,7 @@ impl BybitConfig {
                 "publicTrade.BTCPERP".to_string(),
                 "orderbook.200.BTCPERP".to_string(),
             ],
+            None,
         );
 
         config.trade_symbol = "BTCPERP".to_string();
@@ -181,9 +183,9 @@ impl BybitConfig {
             "linear",
             "ETH",
             "USDT",            
-            dec![0.01],
+            0.01,
             PriceType::Home,
-            dec![0.01],
+            0.01,
             200,
             0.1,
             0.00_01,
@@ -193,6 +195,7 @@ impl BybitConfig {
                 "publicTrade.ETHUSDT".to_string(),
                 "orderbook.200.ETHUSDT".to_string(),
             ],
+            None
         );
 
         config
@@ -205,9 +208,9 @@ impl BybitConfig {
             "linear",
             "ETH",
             "USDC",            
-            dec![0.01],
+            0.01,
             PriceType::Home,
-            dec![0.01],
+            0.01,
             200,
             0.1,
             0.00_01,
@@ -217,9 +220,8 @@ impl BybitConfig {
                 "publicTrade.ETHPERP".to_string(),
                 "orderbook.200.ETHPERP".to_string(),
             ],
+            Some("ETHPERP")
         );
-
-        config.trade_symbol = "ETHPERP".to_string();
         config
     }
 
@@ -230,9 +232,9 @@ impl BybitConfig {
             "linear",
             "MNT",
             "USDT",            
-            dec![0.0001],
+            0.0001,
             PriceType::Home,
-            dec![1],
+            1.0,
             200,
             0.1,
             0.00_01,
@@ -242,6 +244,7 @@ impl BybitConfig {
                 "publicTrade.MNTUSDT".to_string(),
                 "orderbook.200.MNTUSDT".to_string(),
             ],
+            None,
         )
     }
 
@@ -252,9 +255,9 @@ impl BybitConfig {
             "linear",
             "MNT",
             "USDT",            
-            dec![0.0001],
+            0.0001,
             PriceType::Home,
-            dec![0.1],
+            0.1,
             200,
             0.1,
             0.00_01,
@@ -264,6 +267,7 @@ impl BybitConfig {
                 "publicTrade.MNT-PERP".to_string(),
                 "orderbook.200.MNT-PERP".to_string(),
             ],
+            Some("MNT-PERP")
         )
     }
 
@@ -275,9 +279,9 @@ impl BybitConfig {
             "linear",
             "SOL",
             "USDT",            
-            dec![0.0001],
+            0.0001,
             PriceType::Home,
-            dec![0.1],
+            0.1,
             200,
             0.1,
             0.00_01,
@@ -287,6 +291,7 @@ impl BybitConfig {
                 "publicTrade.SOLUSDT".to_string(),
                 "orderbook.200.SOLUSDT".to_string(),
             ],
+            None
         )
     }
 
@@ -297,9 +302,9 @@ impl BybitConfig {
             "linear",
             "SOL",
             "USDC",            
-            dec![0.01],
+            0.01,
             PriceType::Home,
-            dec![0.1],
+            0.1,
             200,
             0.1,
             0.00_01,
@@ -309,6 +314,7 @@ impl BybitConfig {
                 "publicTrade.SOLPERP".to_string(),
                 "orderbook.200.SOLPERP".to_string(),
             ],
+            Some("SOLPERP")
         )
     }
 
@@ -320,9 +326,9 @@ impl BybitConfig {
             "linear",
             "USDC",
             "USDT",            
-            dec![0.0001],
+            0.0001,
             PriceType::Home,
-            dec![0.1],
+            0.1,
             200,
             0.1,
             0.00_01,
@@ -332,6 +338,7 @@ impl BybitConfig {
                 "publicTrade.USDCUSDT".to_string(),
                 "orderbook.200.USDCUSDT".to_string(),
             ],
+            None,
         )
     }
 
@@ -367,9 +374,9 @@ mod test_bybit_config {
             "linear",
             "BTC",
             "USDT",
-            dec![0.1],
+            0.1,
             PriceType::Home,
-            dec![0.001],
+            0.001,
             200,
             0.1,
             0.00_01,
@@ -379,6 +386,7 @@ mod test_bybit_config {
                 "publicTrade.BTCUSDT".to_string(),
                 "orderbook.200.BTCUSDT".to_string(),
             ],
+            None
         );
 
         assert_eq!(config, new_config);

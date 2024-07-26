@@ -888,12 +888,12 @@ impl Session {
         if tick.order_side == OrderSide::Buy {
             self.ask_edge = tick.price;
             if self.ask_edge <= self.bid_edge {
-                self.bid_edge = self.ask_edge - self.market_config.price_unit;
+                self.bid_edge = self.ask_edge - self.market_config.get_price_unit();
             }
         } else if tick.order_side == OrderSide::Sell {
             self.bid_edge = tick.price;
             if self.ask_edge <= self.bid_edge {
-                self.ask_edge = self.bid_edge + self.market_config.price_unit;
+                self.ask_edge = self.bid_edge + self.market_config.get_price_unit();
             }
         }
 
