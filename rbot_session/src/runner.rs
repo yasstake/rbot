@@ -48,6 +48,9 @@ pub struct Runner {
     last_print_loop_count: i64,
     last_print_real_time: MicroSec,
 
+    backtest_start_time: MicroSec,
+    backtest_end_time: MicroSec,
+
     execute_mode: ExecuteMode,
     agent_id: String,
 
@@ -83,6 +86,9 @@ impl Runner {
             last_print_loop_count: 0,
             last_print_real_time: 0,
 
+            backtest_start_time: 0,
+            backtest_end_time: 0,
+
             agent_id: "".to_string(),
             config: MarketConfig::default(),
             exchange_name: "".to_string(),
@@ -107,6 +113,7 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
+
     #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
@@ -127,8 +134,14 @@ impl Runner {
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
 
-        let receiver = Self::open_backtest_receiver(market, start_time, end_time)?;
-        self.run(exchange, market, &receiver, agent, false, true, log_file)
+        let (start_time, end_time, receiver) =
+            Self::open_backtest_receiver(market, start_time, end_time)?;
+
+        self.backtest_start_time = start_time;
+        self.backtest_end_time = end_time;
+
+        self.run(exchange, market, &receiver, agent, false, true, log_file,
+        |_, _| {})
     }
 
     #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false, no_download=false))]
@@ -162,6 +175,7 @@ impl Runner {
 
             self.run(
                 exchange, market, &receiver, agent, client, log_memory, log_file,
+                |_, _| {}
             )
         } else {
             self.prepare_data(exchange, &market, no_download)?;
@@ -170,6 +184,7 @@ impl Runner {
 
             self.run(
                 exchange, market, &receiver, agent, client, log_memory, log_file,
+                |_, _| {}
             )
         }
     }
@@ -204,14 +219,14 @@ impl Runner {
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file,
+                exchange, market, &receiver, agent, client, log_memory, log_file, |_s, _rt|{}
             )
         } else {
             self.prepare_data(exchange, market, no_download)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file,
+                exchange, market, &receiver, agent, client, log_memory, log_file, |_s, _rt|{}
             )
         }
     }
@@ -282,7 +297,7 @@ impl Runner {
                 } else {
                     vec![("verbose", false)]
                 };
-                
+
                 //let kwargs = kwargs.into_py_dict_bound(py);
                 let kwargs = kwargs.into_py_dict_bound(py);
                 market.call_method("download_latest", (), Some(&kwargs))?;
@@ -441,7 +456,7 @@ impl Runner {
         Ok(())
     }
 
-    pub fn run(
+    pub fn run<F>(
         &mut self,
         exchange: &Bound<PyAny>,
         market: &Bound<PyAny>,
@@ -451,7 +466,10 @@ impl Runner {
         client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
-    ) -> anyhow::Result<Py<Session>> {
+        print_progress: F
+    ) -> anyhow::Result<Py<Session>> 
+    where F:Fn(&Py<Session>, i64)
+    {
         self.start_timestamp = 0;
 
         let object = exchange.as_borrowed();
@@ -526,9 +544,14 @@ impl Runner {
                 }
             }
 
-            // print progress if verbose flag is set.
-            if self.verbose {
-                self.print_progress(remain_time);
+            if self.last_timestamp - self.last_print_tick_time < self.print_interval
+                && self.last_print_tick_time != 0
+            {
+                if self.verbose {
+                    self.print_progress(&py_session, remain_time);
+                    print_progress(&py_session, remain_time);
+                }
+                self.last_print_tick_time = self.last_timestamp;
             }
         }
         self.print_run_result(loop_start_time);
@@ -566,18 +589,21 @@ impl Runner {
         }
     }
 
-    pub fn print_progress(&mut self, remain_time: i64) -> bool {
-        if self.last_timestamp - self.last_print_tick_time < self.print_interval
-            && self.last_print_tick_time != 0
-        {
-            return false;
-        }
+    pub fn progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {
 
+    }
+
+
+    pub fn print_progress(&self, py_session: &Py<Session>, remain_time: i64) {
         let mode = match self.execute_mode {
             ExecuteMode::Dry => "[Dry run ]",
             ExecuteMode::Real => "[Real run]",
             ExecuteMode::BackTest => "[BackTest]",
         };
+
+        if self.execute_mode == ExecuteMode::BackTest {
+            return self.backtest_progress(py_session, remain_time);
+        }
 
         print!(
             "\r{}{:<.19}, {:>6}[rec]",
@@ -602,6 +628,7 @@ impl Runner {
             print!(", {:>4}[ETA]", remain_time / 1_000_000);
         }
 
+        /*
         if self.execute_mode == ExecuteMode::BackTest {
             let count = self.loop_count - self.last_print_loop_count;
             self.last_print_loop_count = self.loop_count;
@@ -618,12 +645,12 @@ impl Runner {
 
             print!(", {:>7}[rec/s]({:>5} X)", rec_per_sec, speed,);
         }
+        */
 
         flush_log();
+    }
 
-        self.last_print_tick_time = self.last_timestamp;
-
-        return true;
+    pub fn backtest_progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {
     }
 
     pub fn on_message(
@@ -853,16 +880,51 @@ impl Runner {
         market: &Bound<PyAny>,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<Receiver<MarketMessage>> {
+    ) -> anyhow::Result<(MicroSec, MicroSec, Receiver<MarketMessage>)> {
         let stream = market.call_method1("open_backtest_channel", (time_from, time_to))?;
-        let stream = stream.extract::<MarketStream>()?;
+        let (start_time, end_time, stream) =
+            stream.extract::<(MicroSec, MicroSec, MarketStream)>()?;
 
-        Ok(stream.reciver)
+        Ok((start_time, end_time, stream.reciver))
     }
 }
 
-
 #[cfg(test)]
 mod test_runner {
-    
+    use std::{thread::sleep, time::Duration};
+
+    use indicatif::MultiProgress;
+
+    #[test]
+    fn test_progress_bar() {
+        // https://docs.rs/indicatif/latest/indicatif/index.html#
+
+        use indicatif::ProgressBar;
+
+        let m = MultiProgress::new();
+
+        let text_bar = m.add(ProgressBar::new_spinner());
+
+        let main_bar = ProgressBar::new(100);
+        let main_bar = m.add(main_bar);
+
+        let sub_bar = ProgressBar::new(100);
+        let sub_bar = m.add(sub_bar);
+
+        for i in 0..100 {
+            text_bar.set_message(format!("process {}", i));
+
+            for _ in 0..100 {
+                sleep(Duration::from_millis(10));
+                sub_bar.inc(1);
+            }
+            sub_bar.reset();
+
+            // sub_bar.finish_with_message("DONE");
+            main_bar.inc(1);
+        }
+
+        sub_bar.finish();
+        main_bar.finish();
+    }
 }

@@ -369,6 +369,10 @@ impl TradeArchive {
 
         let all_dates = self.list_dates()?;
 
+        if all_dates.len() == 0 {
+            return Err(anyhow!("no data in archive from {} -> to {}", date_string(start_time), date_string(end_time)));
+        }
+
         let mut dates: Vec<MicroSec> = all_dates
             .into_iter()
             .filter(|date| start_time <= *date && *date <= end_time)
