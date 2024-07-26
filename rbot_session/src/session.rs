@@ -77,7 +77,8 @@ pub struct Session {
 
     psudo_position: Decimal,
     average_price: Decimal,
-    profit: Decimal,
+    #[pyo3(get)]
+    pub profit: Decimal,
 
     commission_home_sum: Decimal,
     commission_foreign_sum: Decimal,

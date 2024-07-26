@@ -9,13 +9,15 @@ use pyo3::{
     types::{IntoPyDict, PyAnyMethods},
     Bound, Py, PyAny, PyErr, Python,
 };
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 
 use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        date_string, date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC
+        date_string, date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins,
+        MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB,
+        MICRO_SECOND, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -156,8 +158,7 @@ impl Runner {
             false,
             true,
             log_file,
-            &mut |_, _remain_time| {
-            },
+            &mut |_, _remain_time| {},
         )
     }
 
@@ -562,8 +563,12 @@ impl Runner {
                     println!("------------      START        -------------");
                 }
                 ExecuteMode::BackTest => {
-                    let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)/24/60/60;
-                    println!("backtest from={} to={}[{}days]", 
+                    let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)
+                        / 24
+                        / 60
+                        / 60;
+                    println!(
+                        "backtest from={} to={}[{}days]",
                         date_time_string(self.backtest_start_time),
                         date_time_string(self.backtest_end_time),
                         days
@@ -602,9 +607,7 @@ impl Runner {
         let m = MultiProgress::new();
 
         let progress_bar = ProgressBar::new_spinner();
-        progress_bar.set_style(ProgressStyle::with_template(
-            "{msg}"            
-        ).unwrap());
+        progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
         let progress_bar = m.add(progress_bar);
 
         let session_bar = ProgressBar::new_spinner();
@@ -612,15 +615,16 @@ impl Runner {
 
         let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
         let mut total_bar = ProgressBar::new(duration as u64);
-        total_bar.set_style(ProgressStyle::with_template(
-            "[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]"            
-        ).unwrap());
+        total_bar.set_style(
+            ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
+                .unwrap(),
+        );
 
         if self.execute_mode == ExecuteMode::BackTest {
             total_bar = m.add(total_bar);
         }
 
-        // main loop 
+        // main loop
         let mut remain_time: i64 = 0;
 
         let loop_start_time = NOW();
@@ -628,7 +632,6 @@ impl Runner {
             //------- MAIN LOOP ---------
             self.execute_message(&py_session, agent, &message, interval_sec)?;
             self.loop_count += 1;
-
 
             //-------print status etc.
             // break if the running time exceeceds the loop_duration
@@ -644,26 +647,25 @@ impl Runner {
                 }
             }
 
-            if self.print_interval < self.last_timestamp - self.last_print_tick_time 
+            if self.print_interval < self.last_timestamp - self.last_print_tick_time
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
                     self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
 
-
                     let progress = self.progress_string(remain_time);
                     progress_bar.set_message(progress);
 
                     if self.execute_mode == ExecuteMode::BackTest {
-                        let sec_processed = microsec_to_sec(self.last_timestamp - self.start_timestamp);
+                        let sec_processed =
+                            microsec_to_sec(self.last_timestamp - self.start_timestamp);
                         total_bar.set_position(sec_processed as u64);
                     }
 
+                    let profit = self.get_profit(&py_session);
 
-
-
-
+                    session_bar.set_message(format!("Psudo Profit(no fee) ={:>8.2}", profit));
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -671,6 +673,16 @@ impl Runner {
         self.print_run_result(loop_start_time);
 
         Ok(py_session)
+    }
+
+    fn get_profit(&self, py_session: &Py<Session>) -> Decimal {
+        let profit = Python::with_gil(|py| {
+            let profit = py_session.getattr(py, "profit").unwrap();
+            let profit: Decimal = profit.extract(py).unwrap();
+            profit
+        });
+
+        profit
     }
 
     fn print_run_result(&self, loop_start_time: i64) {
@@ -1070,9 +1082,9 @@ mod test_runner {
         let text_bar = m.add(ProgressBar::new_spinner());
 
         let main_bar = ProgressBar::new(100);
-        main_bar.set_style(ProgressStyle::with_template(
-            "[{elapsed}] {bar:40.cyan/bule} {msg}"
-        ).unwrap());
+        main_bar.set_style(
+            ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/bule} {msg}").unwrap(),
+        );
         let main_bar = m.add(main_bar);
 
         let sub_bar = ProgressBar::new(100);
