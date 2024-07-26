@@ -544,11 +544,15 @@ where
     // fn download_latest(&mut self, verbose: bool) -> i64;
     fn start_market_stream(&mut self) -> anyhow::Result<()>;
 
+    /// open back test channel
+    /// returns:
+    ///     actual date to start
+    ///     actual date to end.
     fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream> {
+    ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
         let (sender, market_stream) = MarketStream::open();
 
         let archive = {
@@ -556,6 +560,11 @@ where
             let trade_dataframe = db.lock().unwrap();
             trade_dataframe.get_archive()
         };
+
+        let dates = archive.select_dates(time_from, time_to)?;
+
+        let actual_start = dates[0];
+        let actual_end = dates[dates.len() -1];
 
         std::thread::spawn(move || {
             let result = archive.foreach(time_from, time_to, &mut |trade| {
@@ -570,7 +579,7 @@ where
             }
         });
 
-        return Ok(market_stream);
+        return Ok((actual_start, actual_end, market_stream));
     }
 
 

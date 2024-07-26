@@ -358,7 +358,7 @@ impl BybitMarket {
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream> {
+    ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 
