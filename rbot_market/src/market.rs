@@ -204,6 +204,8 @@ pub trait MarketInterface {
     fn reset_cache_duration(&mut self);
     fn stop_db_thread(&mut self);
     fn cache_all_data(&mut self);
+    fn get_archive_info(&self) -> (MicroSec, MicroSec);
+
     fn select_trades(
         &mut self,
         start_time: MicroSec,
@@ -352,6 +354,16 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.update_cache_all()
+    }
+
+    fn get_archive_info(&self) -> (MicroSec, MicroSec) {
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+
+        let start_time = lock.archive_start_time();
+        let end_time = lock.archive_end_time();
+
+        (start_time, end_time)
     }
 
     fn select_trades(
@@ -581,7 +593,6 @@ where
 
         return Ok((actual_start, actual_end, market_stream));
     }
-
 
     async fn async_download_archive   
     (

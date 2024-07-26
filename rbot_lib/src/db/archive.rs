@@ -435,6 +435,7 @@ impl TradeArchive {
                 }
 
                 if detect_gap {
+                    log::warn!("Delete too old log {:?}", date_string(d));
                     self.delete(d)?;
                 }
             }
@@ -534,11 +535,7 @@ impl TradeArchive {
         let has_csv_file = self.has_local_archive(date);
 
         if has_csv_file && !force {
-            if verbose {
-                log::debug!("archive csv file exist {}", time_string(date));
-                println!("archive csv file exist {}", time_string(date));
-                return Ok(0);
-            }
+            return Ok(0);
         }
 
         let latest = { self.latest_archive_date(api).await? };
@@ -560,6 +557,9 @@ impl TradeArchive {
         let url = api.history_web_url(config, date);
 
         log::debug!("Downloading ...[{}]", url);
+        if verbose {
+            println!("Downloading ...[{}]", url);
+        }
 
         let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
 
