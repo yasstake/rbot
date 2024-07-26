@@ -1,17 +1,15 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, Trade, DAYS,
-        FLOOR_DAY, MIN, NOW, TODAY,
+        date_string, date_time_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide,
+        Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY,
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
 };
 use anyhow::{anyhow, Context};
 use futures::StreamExt;
-use parquet::{
-    file::reader::SerializedFileReader,
-    record::RowAccessor,
-};
+use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressStyle};
+use parquet::{file::reader::SerializedFileReader, record::RowAccessor};
 use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tokio::io::{AsyncWriteExt as _, BufWriter};
@@ -57,6 +55,8 @@ pub struct TradeArchive {
     latest_archive_date: MicroSec,
     start_time: MicroSec,
     end_time: MicroSec,
+
+    download_per_cent: i64,
 }
 
 impl Clone for TradeArchive {
@@ -68,6 +68,7 @@ impl Clone for TradeArchive {
             latest_archive_date: self.latest_archive_date.clone(),
             start_time: self.start_time.clone(),
             end_time: self.end_time.clone(),
+            download_per_cent: 0,
         };
 
         let r = archive.analyze();
@@ -88,6 +89,7 @@ impl TradeArchive {
             latest_archive_date: 0,
             start_time: 0,
             end_time: 0,
+            download_per_cent: 0,
         };
 
         let r = my.analyze();
@@ -147,21 +149,61 @@ impl TradeArchive {
     {
         let mut date = FLOOR_DAY(NOW());
 
+        if verbose {
+            println!(
+                "downloading web archvie from [{}]days before. force=[{}]",
+                ndays, force
+            );
+        }
+
         log::debug!("download log from {:?}({:?})", date_string(date), date);
 
         let mut count = 0;
-        let mut i = 0;
+        let mut total_files = -1;
+        let m = MultiProgress::new();
+        let mut text_bar = ProgressBar::new_spinner();
+        text_bar = m.add(text_bar);
 
-        while i <= ndays {
-            count += self
-                .web_archive_to_parquet(api, date, force, verbose)
-                .await?;
+        let mut progress_bar = ProgressBar::new_spinner();
+
+        for i in 0..ndays {
+            if force || (! self.has_local_archive(date) && date < self.latest_archive_date(api).await?)  {
+                if total_files == -1 {
+                    total_files = ndays - i;
+
+                    progress_bar = ProgressBar::new((total_files * 100) as u64);
+                    progress_bar.set_style(
+                        ProgressStyle::with_template(
+                            "[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta_precise}]"
+                    ).unwrap()
+                    );
+                    progress_bar = m.add(progress_bar);
+                }
+
+                let url = api.history_web_url(&self.config, date);
+                count += self
+                    .web_archive_to_parquet(api, date, force, verbose, |count, content_len| {
+                        if verbose {
+                            let percent = count * 100 / content_len;                           
+
+                            //progress_bar.set_position((i * 100 + percent) as u64);
+                           progress_bar.set_position( 
+                                ((i - (ndays - total_files))*100 + percent) as u64);
+
+                            text_bar.set_message(format!("{}({:2}%)[{:12}/{}]", url, percent, HumanBytes(count as u64), HumanBytes(content_len as u64)));
+                        }
+                        // let p =
+                    })
+                    .await?;
+            } else {
+                if verbose {
+                    text_bar.set_message(format!("skip download [{}]", date_time_string(date)));
+                }
+            }
             date -= DAYS(1);
-
-            i += 1;
         }
-
         self.analyze()?;
+
 
         Ok(count)
     }
@@ -370,7 +412,11 @@ impl TradeArchive {
         let all_dates = self.list_dates()?;
 
         if all_dates.len() == 0 {
-            return Err(anyhow!("no data in archive from {} -> to {}", date_string(start_time), date_string(end_time)));
+            return Err(anyhow!(
+                "no data in archive from {} -> to {}",
+                date_string(start_time),
+                date_string(end_time)
+            ));
         }
 
         let mut dates: Vec<MicroSec> = all_dates
@@ -518,19 +564,20 @@ impl TradeArchive {
         Ok(())
     }
 
-    pub async fn web_archive_to_parquet<T>(
+    pub async fn web_archive_to_parquet<T, F>(
         &mut self,
         api: &T,
         date: MicroSec,
         force: bool,
         verbose: bool,
+        f: F,
     ) -> anyhow::Result<i64>
     where
         T: RestApi,
+        F: FnMut(i64, i64),
     {
+        self.download_per_cent = 0;
         let config = &self.config.clone();
-
-        let date = FLOOR_DAY(date);
 
         let has_csv_file = self.has_local_archive(date);
 
@@ -556,14 +603,9 @@ impl TradeArchive {
 
         let url = api.history_web_url(config, date);
 
-        log::debug!("Downloading ...[{}]", url);
-        if verbose {
-            println!("Downloading ...[{}]", url);
-        }
-
         let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
 
-        let file_path = log_download_tmp(&url, tmp_dir.path())
+        let file_path = log_download_tmp(&url, tmp_dir.path(), f)
             .await
             .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
 
@@ -587,9 +629,16 @@ impl TradeArchive {
     }
 }
 
-const BUFFER_SIZE: usize = 8 * 1024 * 1024; 
+const BUFFER_SIZE: usize = 8 * 1024 * 1024;
 
-pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathBuf> {
+pub async fn log_download_tmp<F>(
+    url: &str,
+    tmp_dir: &Path,
+    mut progress: F,
+) -> anyhow::Result<PathBuf>
+where
+    F: FnMut(i64, i64),
+{
     let client = Client::new();
 
     let response = client
@@ -600,10 +649,12 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
         .await
         .with_context(|| format!("URL get error {}", url))?;
 
+    let content_length = response.content_length().unwrap_or_default();
+
     log::debug!(
         "Response code = {} / download size {}",
         response.status().as_str(),
-        response.content_length().unwrap_or_default() // if error, return 0
+        content_length // if error, return 0
     );
 
     if !response.status().is_success() {
@@ -624,8 +675,21 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
 
     log::debug!("start reading from web");
 
+    let mut count: i64 = 0;
+    let mut last_count = 0;
+    let count_interval = (content_length / 100) as i64;
+
     while let Some(item) = stream.next().await {
         let chunk = item?;
+        let len = chunk.len() as i64;
+        count += len;
+        last_count += len;
+
+        if count_interval < last_count {
+            progress(count, content_length as i64);
+            last_count = 0;
+        }
+
         file_buffer.write_all(&chunk).await?;
     }
 
@@ -633,8 +697,6 @@ pub async fn log_download_tmp(url: &str, tmp_dir: &Path) -> anyhow::Result<PathB
 
     Ok(path)
 }
-
-
 
 /// check if achive date is avairable at specified date
 async fn has_web_archive<T>(api: &T, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>
@@ -669,12 +731,17 @@ mod archive_test {
         log::debug!("start download");
         let now = NOW();
         let file = log_download_tmp(
-            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2024-07-16.csv.gz"
-            , path).await?;
+            "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2024-07-16.csv.gz",
+            path,
+            |count, content_len| {
+                println!("{}", count);
+            },
+        )
+        .await?;
 
-            log::debug!("done");
-            log::debug!("file={:?} :  {}[msec]", file, (NOW()-now)/1_000);
-    
+        log::debug!("done");
+        log::debug!("file={:?} :  {}[msec]", file, (NOW() - now) / 1_000);
+
         Ok(())
     }
 }
