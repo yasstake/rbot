@@ -3,9 +3,9 @@
 `rbot` is a python crypt trading bot framework written in Rust.
 
 The feature is;
-* Store historical transaction data(tick) in sqlite database.
-* Calculate OHLCV data with any window sizefrom historical tick data
-* Provide bot framework that enables `backtest`, `dry_run` and `production`.
+* Your Bot can be executed in three mode `backtest`, `dry_run` and `production` without modification.
+* Turuly TICK BASED backtesting.
+* Written in Rust and Provided as Python plugin. So you can write your own bot in Python with super efficent Rust back end.
 
 ### the execution sample
 

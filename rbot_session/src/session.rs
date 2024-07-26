@@ -77,7 +77,8 @@ pub struct Session {
 
     psudo_position: Decimal,
     average_price: Decimal,
-    profit: Decimal,
+    #[pyo3(get)]
+    pub profit: Decimal,
 
     commission_home_sum: Decimal,
     commission_foreign_sum: Decimal,
@@ -118,7 +119,7 @@ impl Session {
         log_memory: bool,
     ) -> Self {
         log::info!("Session::new: exchange={:?}, market={:?}, execute_mode={:?}, client_mode={:?}, session_name={:?}, log_memory={:?}", exchange, market, execute_mode, client_mode, session_name, log_memory);
-        println!("new session");
+
         let session_name = match session_name {
             Some(name) => name.to_string(),
             None => {
@@ -787,6 +788,22 @@ impl Session {
         TradeDataFrame::get(&market_config, true) // always use production other than primary market.
     }
 
+    pub fn is_initialized(&self)  -> bool {
+        if self.current_timestamp == 0 {
+            return false;
+        }
+
+        if self.ask_edge == dec![0.0] {
+            return false;
+        }
+
+        if self.bid_edge == dec![0.0] {
+            return false;
+        }
+
+        true
+    }
+
     /// Message処理
     /// Dummyのときは、Tradeで約定情報を受け取り、約定キューに追加する。
     pub fn on_message(&mut self, message: &MarketMessage) -> Vec<Order> {
@@ -871,12 +888,12 @@ impl Session {
         if tick.order_side == OrderSide::Buy {
             self.ask_edge = tick.price;
             if self.ask_edge <= self.bid_edge {
-                self.bid_edge = self.ask_edge - self.market_config.price_unit;
+                self.bid_edge = self.ask_edge - self.market_config.get_price_unit();
             }
         } else if tick.order_side == OrderSide::Sell {
             self.bid_edge = tick.price;
             if self.ask_edge <= self.bid_edge {
-                self.ask_edge = self.bid_edge + self.market_config.price_unit;
+                self.ask_edge = self.bid_edge + self.market_config.get_price_unit();
             }
         }
 

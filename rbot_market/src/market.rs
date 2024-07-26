@@ -204,6 +204,8 @@ pub trait MarketInterface {
     fn reset_cache_duration(&mut self);
     fn stop_db_thread(&mut self);
     fn cache_all_data(&mut self);
+    fn get_archive_info(&self) -> (MicroSec, MicroSec);
+
     fn select_trades(
         &mut self,
         start_time: MicroSec,
@@ -352,6 +354,16 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.update_cache_all()
+    }
+
+    fn get_archive_info(&self) -> (MicroSec, MicroSec) {
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+
+        let start_time = lock.archive_start_time();
+        let end_time = lock.archive_end_time();
+
+        (start_time, end_time)
     }
 
     fn select_trades(
@@ -544,11 +556,15 @@ where
     // fn download_latest(&mut self, verbose: bool) -> i64;
     fn start_market_stream(&mut self) -> anyhow::Result<()>;
 
+    /// open back test channel
+    /// returns:
+    ///     actual date to start
+    ///     actual date to end.
     fn open_backtest_channel(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
-    ) -> anyhow::Result<MarketStream> {
+    ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
         let (sender, market_stream) = MarketStream::open();
 
         let archive = {
@@ -556,6 +572,11 @@ where
             let trade_dataframe = db.lock().unwrap();
             trade_dataframe.get_archive()
         };
+
+        let dates = archive.select_dates(time_from, time_to)?;
+
+        let actual_start = dates[0];
+        let actual_end = dates[dates.len() -1];
 
         std::thread::spawn(move || {
             let result = archive.foreach(time_from, time_to, &mut |trade| {
@@ -570,9 +591,8 @@ where
             }
         });
 
-        return Ok(market_stream);
+        return Ok((actual_start, actual_end, market_stream));
     }
-
 
     async fn async_download_archive   
     (

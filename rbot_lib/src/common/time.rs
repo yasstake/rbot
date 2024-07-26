@@ -20,6 +20,10 @@ pub fn msec_to_microsec(t: i64) -> MicroSec {
     return (t as i64) * 1_000;
 }
 
+pub fn microsec_to_sec(t: MicroSec) -> i64 {
+    t / MICRO_SECOND
+}
+
 pub fn to_seconds(microsecond: MicroSec) -> f64 {
     return (microsecond as f64) / (MICRO_SECOND as f64);
 }
@@ -90,6 +94,14 @@ pub fn date_string(t: MicroSec) -> String {
 
     return datetime.format("%Y%m%d").to_string();
 }
+
+#[pyfunction]
+pub fn date_time_string(t: MicroSec) -> String {
+    let datetime = to_naive_datetime(t);
+
+    return datetime.format("%Y/%m/%dT%H:%M").to_string();
+}
+
 
 ///  convert YYYYMMDD format date to MicroSec,
 ///  return 0 in error.

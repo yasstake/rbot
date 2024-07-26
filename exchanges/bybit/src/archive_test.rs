@@ -80,7 +80,7 @@ mod archive_test {
 
         let tmp_dir = PathBuf::from_str("/tmp/")?;
 
-        let file = log_download_tmp(&url, &tmp_dir).await?;    
+        let file = log_download_tmp(&url, &tmp_dir, |_, _|{}).await?;    
 
         log::debug!("download complete {:?}", file);
 
@@ -96,7 +96,7 @@ mod archive_test {
         let api = BybitRestApi::new(&server_config);
 
 
-        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await.unwrap();
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true, |_, _|{}).await.unwrap();
     }
 
     #[test]
@@ -135,10 +135,10 @@ mod archive_test {
         let api = BybitRestApi::new(&server_config);
 
 
-        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true).await?;
-        archive.web_archive_to_parquet(&api, NOW() - DAYS(3), false, true).await?;
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(2), false, true, |_, _|{}).await?;
+        archive.web_archive_to_parquet(&api, NOW() - DAYS(3), false, true, |_, _|{}).await?;
         archive
-            .web_archive_to_parquet(&api, NOW() - DAYS(10), false, true)
+            .web_archive_to_parquet(&api, NOW() - DAYS(10), false, true, |_, _|{})
             .await?;
 
         log::debug!(
