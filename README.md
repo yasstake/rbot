@@ -4,8 +4,29 @@
 
 The feature is;
 * Your Bot can be executed in three mode `backtest`, `dry_run` and `production` without modification.
-* Turuly TICK BASED backtesting.
+* TICK BASED backtesting.
 * Written in Rust and Provided as Python plugin. So you can write your own bot in Python with super efficent Rust back end.
+
+## For 0.4.0 Beta release (This is beta release)
+
+### Change:
+	OHLCVのTimestampの型をi64からDateTimeへ変更(->Agentに影響あり）
+	約定ログの保存方式をSQLiteからparquetへ変更（ファイルサイズが５分の１へ縮小）
+	注意：過去にダウンロードした約定ログは使えません。DBディレクトリごと削除し、再度ダウンロードしてください。
+	DownloadとBackテストにProgressBarを導入
+
+
+### Fix:
+	#244 立ち上げ直後に最初のTickでon_clockがよびだされていたのを修正
+	#255 Session.ohlcvで指定した本数よりも多く足が計算されていたのを修正。
+	
+### Limitations:
+	バックテスト以外のDryRun,RealRunは修正後テストしていません。
+	一旦このβリリースでは動かないものと考えてください。
+
+
+
+
 
 ### the execution sample
 
