@@ -10,7 +10,10 @@ use pyo3_polars::PyDataFrame;
 
 use crate::{
     common::{time_string, MarketConfig, MicroSec, Trade, DAYS, FLOOR_DAY, HHMM, NOW},
-    db::{append_df, end_time_df, make_empty_ohlcvv, merge_df, ohlcv_start, ohlcvv_df, select_df, start_time_df, TradeBuffer, KEY},
+    db::{
+        append_df, end_time_df, make_empty_ohlcvv, merge_df, ohlcv_start, ohlcvv_df, select_df,
+        start_time_df, TradeBuffer, KEY,
+    },
     net::RestApi,
 };
 
@@ -89,8 +92,8 @@ impl TradeDataFrame {
         Ok(trade_data_frame)
     }
 
-    pub fn vacuum(&self) -> anyhow::Result<()>{
-        self.db.vacuum()        
+    pub fn vacuum(&self) -> anyhow::Result<()> {
+        self.db.vacuum()
     }
 
     pub fn get_archive(&self) -> TradeArchive {
@@ -105,8 +108,8 @@ impl TradeDataFrame {
         }
 
         let db_start = self.db.start_time();
-        
-        if let Ok(start)  = db_start {
+
+        if let Ok(start) = db_start {
             return Ok(start);
         }
 
@@ -177,7 +180,7 @@ impl TradeDataFrame {
 
         self.cache_ohlcvv = df;
 
-        Ok(())    
+        Ok(())
     }
 
     // TODO: rename to open_channel
@@ -197,7 +200,6 @@ impl TradeDataFrame {
     {
         self.archive.download(api, ndays, force, verbose).await
     }
-
 
     /*
     pub async fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
@@ -261,21 +263,30 @@ impl TradeDataFrame {
         self.cache_duration = 0;
     }
 
+    pub fn archive_start_time(&self) -> MicroSec {
+        let archive_start = self.archive.start_time().unwrap_or_default();
+
+        archive_start
+    }
+
     pub fn archive_end_time(&self) -> MicroSec {
         let archive_end = self.archive.end_time().unwrap_or_default();
 
         archive_end
     }
 
-    pub fn select_cachedf(&mut self, start_time: MicroSec, end_time: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn select_cachedf(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
         let archive_end = self.archive_end_time();
 
         let df = if start_time < archive_end {
             let df1 = self.archive.select_cachedf(start_time, end_time)?;
             let df2 = self.db.select_cachedf(archive_end, end_time)?;
             append_df(&df1, &df2)
-        }
-        else {
+        } else {
             self.db.select_cachedf(start_time, end_time)
         };
 
@@ -297,7 +308,7 @@ impl TradeDataFrame {
     }
 
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
-        let forget_before = FLOOR_DAY(forget_before);       // expire by date.
+        let forget_before = FLOOR_DAY(forget_before); // expire by date.
         log::debug!("Expire cache {}", time_string(forget_before));
         let cache_timing = ohlcv_start(forget_before);
         self.cache_df = select_df(&self.cache_df, cache_timing, 0);
@@ -398,8 +409,7 @@ impl TradeDataFrame {
 
         if df_end_time < end_time {
             // 3日先までキャッシュを先読み
-            let df2 = &self
-                .select_cachedf(df_end_time, FLOOR_DAY(end_time + DAYS(4)))?;
+            let df2 = &self.select_cachedf(df_end_time, FLOOR_DAY(end_time + DAYS(4)))?;
 
             log::debug!(
                 "load data after cache(2days) df1={:?} df2={:?}",

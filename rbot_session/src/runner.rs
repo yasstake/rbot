@@ -1,6 +1,9 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
+use std::sync::OnceLock;
+
 use crossbeam_channel::Receiver;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
@@ -12,8 +15,7 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        flush_log, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec,
-        Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+        date_string, date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -113,7 +115,6 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-
     #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_file=None))]
     pub fn back_test(
         &mut self,
@@ -126,13 +127,13 @@ impl Runner {
         verbose: bool,
         log_file: Option<String>,
     ) -> anyhow::Result<Py<Session>> {
-        self.update_market_info(market)?;
-        self.update_agent_info(agent)?;
-
         self.execute_time = execute_time;
         self.print_interval = SEC(60 * 60);
         self.verbose = verbose;
         self.execute_mode = ExecuteMode::BackTest;
+
+        self.update_market_info(market)?;
+        self.update_agent_info(agent)?;
 
         let (start_time, end_time, receiver) =
             Self::open_backtest_receiver(market, start_time, end_time)?;
@@ -140,8 +141,24 @@ impl Runner {
         self.backtest_start_time = start_time;
         self.backtest_end_time = end_time;
 
-        self.run(exchange, market, &receiver, agent, false, true, log_file,
-        |_, _| {})
+        if verbose {
+            self.print_archive_info(market);
+        }
+
+        // let bar = ProgressBar::new()
+        let self_ref = self;
+
+        self_ref.run(
+            exchange,
+            market,
+            &receiver,
+            agent,
+            false,
+            true,
+            log_file,
+            &mut |_, _remain_time| {
+            },
+        )
     }
 
     #[pyo3(signature = (*, exchange, market, agent, log_memory=false, execute_time=0, verbose=false, log_file=None, client=false, no_download=false))]
@@ -174,8 +191,14 @@ impl Runner {
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file,
-                |_, _| {}
+                exchange,
+                market,
+                &receiver,
+                agent,
+                client,
+                log_memory,
+                log_file,
+                &mut |_, _| {},
             )
         } else {
             self.prepare_data(exchange, &market, no_download)?;
@@ -183,8 +206,14 @@ impl Runner {
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file,
-                |_, _| {}
+                exchange,
+                market,
+                &receiver,
+                agent,
+                client,
+                log_memory,
+                log_file,
+                &mut |_, _| {},
             )
         }
     }
@@ -219,14 +248,28 @@ impl Runner {
                 UdpReceiver::open_channel(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file, |_s, _rt|{}
+                exchange,
+                market,
+                &receiver,
+                agent,
+                client,
+                log_memory,
+                log_file,
+                &mut |_s, _rt| {},
             )
         } else {
             self.prepare_data(exchange, market, no_download)?;
             let receiver = MARKET_HUB.subscribe(&exchange_name, &category, &symbol, &agent_id)?;
 
             self.run(
-                exchange, market, &receiver, agent, client, log_memory, log_file, |_s, _rt|{}
+                exchange,
+                market,
+                &receiver,
+                agent,
+                client,
+                log_memory,
+                log_file,
+                &mut |_s, _rt| {},
             )
         }
     }
@@ -254,6 +297,12 @@ const MAX_WARMUP_STEPS: i64 = 500;
 impl Runner {
     pub fn agent_id(&self) -> String {
         "".to_string()
+    }
+
+    pub fn print_archive_info(&self, market: &Bound<PyAny>) {
+        let info = self.archive_status(market);
+
+        println!("ARCHIVE has data [{}]", info);
     }
 
     pub fn prepare_data(
@@ -313,6 +362,10 @@ impl Runner {
 
             Ok::<(), anyhow::Error>(()) // Add type annotation for Result
         })?;
+
+        if self.verbose {
+            self.print_archive_info(market);
+        }
 
         Ok(())
     }
@@ -466,9 +519,10 @@ impl Runner {
         client_mode: bool,
         log_memory: bool,
         log_file: Option<String>,
-        print_progress: F
-    ) -> anyhow::Result<Py<Session>> 
-    where F:Fn(&Py<Session>, i64)
+        print_progress: &mut F,
+    ) -> anyhow::Result<Py<Session>>
+    where
+        F: FnMut(&Py<Session>, i64),
     {
         self.start_timestamp = 0;
 
@@ -482,6 +536,7 @@ impl Runner {
             } else {
                 println!("--------- connect test net  ----------------");
             }
+
             match self.execute_mode {
                 ExecuteMode::Real => println!("************   REAL MODE   ****************"),
                 ExecuteMode::Dry => println!("------------   dry run mode   -------------"),
@@ -492,6 +547,30 @@ impl Runner {
             print!("agent_id: {}, ", self.agent_id);
             print!("log_memory: {}, ", log_memory);
             println!("duration: {}[sec], ", self.execute_time);
+            if let Some(file) = log_file.clone() {
+                println!("logfile: {}", file);
+            }
+            if client_mode {
+                println!("Client mode");
+            }
+
+            match self.execute_mode {
+                ExecuteMode::Real => {
+                    println!("************      START     ****************");
+                }
+                ExecuteMode::Dry => {
+                    println!("------------      START        -------------");
+                }
+                ExecuteMode::BackTest => {
+                    let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)/24/60/60;
+                    println!("backtest from={} to={}[{}days]", 
+                        date_time_string(self.backtest_start_time),
+                        date_time_string(self.backtest_end_time),
+                        days
+                    );
+                    println!("///////////       START        ////////////");
+                }
+            }
 
             flush_log();
         }
@@ -520,21 +599,42 @@ impl Runner {
             warm_up_step += 1;
         }
 
-        println!("------- warm up end ---------");
+        let m = MultiProgress::new();
 
+        let progress_bar = ProgressBar::new_spinner();
+        progress_bar.set_style(ProgressStyle::with_template(
+            "{msg}"            
+        ).unwrap());
+        let progress_bar = m.add(progress_bar);
+
+        let session_bar = ProgressBar::new_spinner();
+        let session_bar = m.add(session_bar);
+
+        let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+        let mut total_bar = ProgressBar::new(duration as u64);
+        total_bar.set_style(ProgressStyle::with_template(
+            "[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]"            
+        ).unwrap());
+
+        if self.execute_mode == ExecuteMode::BackTest {
+            total_bar = m.add(total_bar);
+        }
+
+        // main loop 
         let mut remain_time: i64 = 0;
 
         let loop_start_time = NOW();
         while let Ok(message) = receiver.recv() {
+            //------- MAIN LOOP ---------
             self.execute_message(&py_session, agent, &message, interval_sec)?;
             self.loop_count += 1;
 
+
+            //-------print status etc.
             // break if the running time exceeceds the loop_duration
             if self.start_timestamp == 0 {
                 self.start_timestamp = self.last_timestamp;
-                if self.verbose {
-                    println!("start_timestamp: {}", time_string(self.start_timestamp));
-                }
+                log::debug!("start_timestamp: {}", time_string(self.start_timestamp));
             } else if 0 < self.execute_time {
                 remain_time = self.start_timestamp + SEC(self.execute_time) - self.last_timestamp;
 
@@ -544,12 +644,26 @@ impl Runner {
                 }
             }
 
-            if self.last_timestamp - self.last_print_tick_time < self.print_interval
-                && self.last_print_tick_time != 0
+            if self.print_interval < self.last_timestamp - self.last_print_tick_time 
+                || self.last_print_tick_time == 0
             {
                 if self.verbose {
                     self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
+
+
+                    let progress = self.progress_string(remain_time);
+                    progress_bar.set_message(progress);
+
+                    if self.execute_mode == ExecuteMode::BackTest {
+                        let sec_processed = microsec_to_sec(self.last_timestamp - self.start_timestamp);
+                        total_bar.set_position(sec_processed as u64);
+                    }
+
+
+
+
+
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -589,10 +703,61 @@ impl Runner {
         }
     }
 
-    pub fn progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {
+    pub fn progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {}
 
+    fn progress_string(&self, remain_time: MicroSec) -> String {
+        let time = format!(
+            "{:<.19}, {:>6}[rec]",
+            time_string(self.last_timestamp),
+            self.loop_count,
+        );
+
+        let on_tick = if self.on_tick_count != 0 {
+            format!(", {:>6}[tk]", self.on_tick_count)
+        } else {
+            ",  **** [tk]".to_string()
+        };
+
+        let on_clock = if self.on_clock_count != 0 {
+            format!(", {:>6}[cl]", self.on_clock_count,)
+        } else {
+            ",  **** [cl]".to_string()
+        };
+
+        let on_update = if self.on_update_count != 0 {
+            format!(", {:>6}[up]", self.on_update_count,)
+        } else {
+            ",  **** [up]".to_string()
+        };
+
+        let remain_time = if 0 < remain_time {
+            format!(", remain={:>4}[S]", remain_time / 1_000_000)
+        } else {
+            "".to_string()
+        };
+
+        format!(
+            "{}{}{}{}{}",
+            time, on_tick, on_clock, on_update, remain_time
+        )
     }
 
+    fn archive_status(&self, market: &Bound<PyAny>) -> String {
+        let s = Python::with_gil(|py| {
+            let obj = market.getattr("archive_info").unwrap();
+            let (start_time, end_time): (MicroSec, MicroSec) = obj.extract().unwrap();
+
+            let s = format!(
+                "[{} => {}]",
+                date_time_string(start_time),
+                date_time_string(end_time),
+            );
+
+            s
+        });
+
+        s
+    }
 
     pub fn print_progress(&self, py_session: &Py<Session>, remain_time: i64) {
         let mode = match self.execute_mode {
@@ -650,8 +815,7 @@ impl Runner {
         flush_log();
     }
 
-    pub fn backtest_progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {
-    }
+    pub fn backtest_progress(&self, py_session: &Py<Session>, remain_time: MicroSec) {}
 
     pub fn on_message(
         self: &mut Self,
@@ -893,7 +1057,7 @@ impl Runner {
 mod test_runner {
     use std::{thread::sleep, time::Duration};
 
-    use indicatif::MultiProgress;
+    use indicatif::{MultiProgress, ProgressStyle};
 
     #[test]
     fn test_progress_bar() {
@@ -906,6 +1070,9 @@ mod test_runner {
         let text_bar = m.add(ProgressBar::new_spinner());
 
         let main_bar = ProgressBar::new(100);
+        main_bar.set_style(ProgressStyle::with_template(
+            "[{elapsed}] {bar:40.cyan/bule} {msg}"
+        ).unwrap());
         let main_bar = m.add(main_bar);
 
         let sub_bar = ProgressBar::new(100);
