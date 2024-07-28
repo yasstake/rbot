@@ -6,7 +6,7 @@ use std::{collections::VecDeque, sync::Arc};
 use pyo3::{pyclass, pymethods, PyAny, Python};
 
 use pyo3_polars::PyDataFrame;
-use rbot_lib::common::FLOOR_SEC;
+use rbot_lib::common::{date_time_string, short_time_string, FLOOR_SEC};
 use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -17,7 +17,7 @@ use rbot_lib::{
     common::{
         date_string, get_orderbook, hour_string, min_string, time_string, AccountCoins,
         AccountPair, MarketConfig, MarketMessage, MicroSec, Order, OrderBookList, OrderSide,
-        OrderStatus, OrderType, Trade, NOW, SEC,
+        OrderStatus, OrderType, Trade, NOW, SEC
     },
     db::TradeDataFrame,
 };
@@ -103,6 +103,13 @@ pub struct Session {
 
     client_mode: bool,
 
+    market_buy_count: i64,
+    market_sell_count: i64,
+    limit_buy_count: i64,
+    limit_sell_count: i64,
+
+    message: Vec<String>,
+
     log: Logger,
 }
 
@@ -183,6 +190,14 @@ impl Session {
             market_config: config,
 
             dummy_q: Mutex::new(VecDeque::new()),
+
+            market_buy_count: 0,
+            market_sell_count: 0,
+            limit_buy_count: 0,
+            limit_sell_count: 0,
+        
+            message: vec![],
+        
 
             client_mode: client_mode,
 
@@ -490,8 +505,15 @@ impl Session {
             return Ok(order_to_cancel.into_py(py));
         })
     }
-
+    
     pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+        if OrderSide::from(&side) == OrderSide::Buy {
+            self.market_buy_count += 1;
+        }
+        else {
+            self.market_sell_count += 1;
+        }
+
         match self.execute_mode {
             ExecuteMode::Real => self.real_market_order(side, size),
             ExecuteMode::BackTest => self.dummy_market_order(side, size),
@@ -607,6 +629,13 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
+        if OrderSide::from(&side) == OrderSide::Buy {
+            self.limit_buy_count += 1;
+        }
+        else {
+            self.limit_sell_count += 1;
+        }
+
         if self.execute_mode == ExecuteMode::BackTest || self.execute_mode == ExecuteMode::Dry {
             return self.dummy_limit_order(side, price, size);
         } else {
@@ -722,6 +751,39 @@ impl Session {
         } else {
             return false;
         }
+    }
+
+    pub fn message(&mut self, m: &str) {
+        let message = format!("[{}] {}", short_time_string(self.current_timestamp), m);
+        self.message.push(message);
+    }
+
+    #[getter]
+    pub fn get_message(&mut self) -> Vec<String> {
+        let message = self.message.clone();
+        self.message.clear();
+
+        message
+    }
+
+    #[getter]
+    pub fn get_limit_buy_count(&self) -> i64 {
+        self.limit_buy_count
+    }
+
+    #[getter]
+    pub fn get_limit_sell_count(&self) -> i64 {
+        self.limit_sell_count
+    }
+
+    #[getter]
+    pub fn get_market_buy_count(&self) -> i64 {
+        self.market_buy_count
+    }
+
+    #[getter] 
+    pub fn get_market_sell_count(&self) -> i64 {
+        self.market_sell_count
     }
 
     #[getter]

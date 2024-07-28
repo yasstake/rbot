@@ -74,6 +74,13 @@ pub fn time_string(t: MicroSec) -> String {
 }
 
 #[pyfunction]
+pub fn short_time_string(t: MicroSec) -> String {
+    let datetime = to_naive_datetime(t);
+
+    return datetime.format("%Y-%m-%dT%H:%M:%S").to_string();
+}
+
+#[pyfunction]
 pub fn hour_string(t: MicroSec) -> String {
     let datetime = to_naive_datetime(t);
 
@@ -207,6 +214,11 @@ mod time_test {
         assert_eq!(time_string(0), "1970-01-01T00:00:00.000000");
         assert_eq!(time_string(1), "1970-01-01T00:00:00.000001");
         assert_eq!(time_string(1_000_001), "1970-01-01T00:00:01.000001");
+    }
+
+    #[test]
+    fn test_short_timestring() {
+        assert_eq!(short_time_string(0), "1970-01-01T00:00:00");
     }
 
     // https://rust-lang-nursery.github.io/rust-cookbook/datetime/parse.html
