@@ -115,7 +115,7 @@ impl Runner {
         self.last_print_real_time = 0;
     }
 
-    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_memory=false, log_file=None))]
+    #[pyo3(signature = (*, exchange, market, agent, start_time=0, end_time=0, execute_time=0, verbose=false, log_memory=true, log_file=None))]
     pub fn back_test(
         &mut self,
         exchange: &Bound<PyAny>,
