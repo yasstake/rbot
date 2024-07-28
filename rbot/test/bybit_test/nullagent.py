@@ -65,6 +65,8 @@ bybit  = Bybit(production=False)
 
 market = bybit.open_market(BybitConfig.BTCUSDT)
 
+print(market.config)
+
 from rbot import Runner
 from rbot import NOW, DAYS
 

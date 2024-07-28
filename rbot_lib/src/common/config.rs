@@ -189,8 +189,6 @@ impl MarketConfig {
         self.taker_fee.clone()
     }
 
-
-
     pub fn key_string(&self, production: bool) -> String {
         if production {
             format!("{}/{}/{}", self.exchange_name, self.trade_category, self.trade_symbol)
@@ -221,8 +219,6 @@ impl Default for MarketConfig {
         )
     }
 }
-
-
 
 
 #[cfg(test)]

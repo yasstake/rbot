@@ -9,6 +9,8 @@ use pyo3::{
     Bound, Py, PyAny, Python,
 };
 
+use super::{calc_class, MarketConfig};
+
 pub struct FileBar {
     current_file: i64,
     current_file_size: i64,
@@ -153,9 +155,8 @@ impl RunningBar {
 
             let profit = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
-            //profit.setattr("bar_format",
-            //"{postfix:>30} ({percentage:2.0f}%) {n_fmt:>8}/{total_fmt} ({rate_fmt})",);
-            //           profit.call_method0("refresh");
+            profit.setattr("bar_format",
+            "{postfix:>}",);
 
             let kwargs = [
                 ("total", duration),
@@ -163,17 +164,24 @@ impl RunningBar {
             ].into_py_dict_bound(py);
             let message = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
-            //profit.setattr("bar_format",
-            //"{postfix:>30} ({percentage:2.0f}%) {n_fmt:>8}/{total_fmt} ({rate_fmt})",);
-            //           profit.call_method0("refresh");
+            message.setattr("bar_format",
+            "{postfix:<}",);
 
 
             Self {
-                profit: profit.as_gil_ref().into(),
                 progress: progress.as_gil_ref().into(),
+                profit: profit.as_gil_ref().into(),
                 message: message.as_gil_ref().into(),
             }
         })
+    }
+
+    pub fn set_duration(&mut self, duration: i64) {
+        let bar = self.progress.borrow_mut();
+        Python::with_gil(|py| {
+            bar.setattr(py, "total", duration);
+        });
+        self.refresh();
     }
 
     pub fn elapsed(&mut self, n: i64) {
@@ -183,31 +191,44 @@ impl RunningBar {
             progress.setattr(py, "n", n);
             progress.call_method0(py, "refresh");
         });
-        self.reflesh();
+        self.refresh();
     }
 
     pub fn done() {}
 
-    pub fn set_profit(&mut self, msg: &str) {
+    pub fn set_profit(&mut self, config: &MarketConfig, profit: f64, duration_min: i64) {
+        let profit_string = calc_class(config, profit, duration_min);
+
         let profit = self.profit.borrow_mut();
 
         Python::with_gil(|py| {
-            profit.call_method1(py, "set_postfix_str", (msg,));
+            profit.call_method1(py, "set_postfix_str", (&profit_string,));
         });
 
-        self.reflesh();
+        self.refresh();
     }
 
-    pub fn write_message(&mut self, message: &str) {
+    pub fn set_message(&mut self, msg: &str) {
+        let message = self.message.borrow_mut();
+
+        Python::with_gil(|py| {
+            message.call_method1(py, "set_postfix_str", (msg,));
+        });
+
+        self.refresh();
+    }
+
+    pub fn print(&mut self, message: &str) {
         let bar = self.progress.borrow_mut();
         Python::with_gil(|py| {
-            let kwargs = [("end", "\r")].into_py_dict_bound(py);
+            let kwargs = [("end", "\n")].into_py_dict_bound(py);
 
             bar.call_method_bound(py, "write", (message,), Some(&kwargs));
         });
+        self.refresh();
     }
 
-    pub fn reflesh(&mut self) {
+    pub fn refresh(&mut self) {
         let profit = self.profit.borrow_mut();
         let progress = self.progress.borrow_mut();
         let message = self.message.borrow_mut();
@@ -245,8 +266,6 @@ mod test_bar {
 
         for i in 0..1000 {
             bar.elapsed(i);
-            // bar.write_message(&format!("profit = {}", i/100));
-            bar.set_profit(&format!("profit = {}", i / 100));
             thread::sleep(
                 std::time::Duration::from_millis(10), // 100ミリ秒待機
             )
