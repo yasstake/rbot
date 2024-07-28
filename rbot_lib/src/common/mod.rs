@@ -13,6 +13,7 @@ mod orderbook;
 mod util;
 mod hub;
 mod bar;
+mod calc_class;
 
 pub use time::*;
 pub use order::*;
@@ -25,3 +26,4 @@ pub use orderbook::*;
 pub use util::*;
 pub use hub::*;
 pub use bar::*;
+pub use calc_class::*;

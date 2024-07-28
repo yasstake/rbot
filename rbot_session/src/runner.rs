@@ -13,7 +13,9 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
+        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
+        MarketMessage, MarketStream, MicroSec, Order, RunningBar, Trade, FLOOR_SEC, MARKET_HUB,
+        MICRO_SECOND, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -615,24 +617,25 @@ impl Runner {
         let session_bar = m.add(session_bar);
         */
 
-        let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+        let mut bar = RunningBar::new(0);
 
         /*
-        let mut total_bar = ProgressBar::new(duration as u64);
-        total_bar.set_style(
-            ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
-                .unwrap(),
-        );
-*/
+                let mut total_bar = ProgressBar::new(duration as u64);
+                total_bar.set_style(
+                    ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
+                        .unwrap(),
+                );
+        */
         if self.execute_mode == ExecuteMode::BackTest {
-//            total_bar = m.add(total_bar);
-
+            let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+            bar.set_duration(duration);
         }
 
         // main loop
         let mut remain_time: i64 = 0;
 
         let loop_start_time = NOW();
+
         while let Ok(message) = receiver.recv() {
             //------- MAIN LOOP ---------
             self.execute_message(&py_session, agent, &message, interval_sec)?;
@@ -656,20 +659,30 @@ impl Runner {
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
-                    // self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
                     let progress = self.progress_string(remain_time);
-                    //progress_bar.set_message(progress);
+                    bar.set_message(&progress);
 
                     if self.execute_mode == ExecuteMode::BackTest {
                         let sec_processed =
                             microsec_to_sec(self.last_timestamp - self.start_timestamp);
-                        //total_bar.set_position(sec_processed as u64);
+                        bar.elapsed(sec_processed);
                     }
 
                     let profit = self.get_profit(&py_session);
 
-                    //session_bar.set_message(format!("  Psudo Profit(no fee) = {:>6.2}", profit));
+                    if self.last_timestamp != 0 {
+                        let execute_duration_sec =
+                            (self.last_timestamp - self.start_timestamp) / MICRO_SECOND;
+
+                        if 60 < execute_duration_sec {
+                            bar.set_profit(
+                                &self.config,
+                                profit.to_f64().unwrap(),
+                                execute_duration_sec / 60,
+                            );
+                        }
+                    }
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -767,59 +780,6 @@ impl Runner {
         );
 
         s
-    }
-
-    pub fn print_progress(&self, _py_session: &Py<Session>, remain_time: i64) {
-        let mode = match self.execute_mode {
-            ExecuteMode::Dry => "[Dry run ]",
-            ExecuteMode::Real => "[Real run]",
-            ExecuteMode::BackTest => "[BackTest]",
-        };
-
-
-        print!(
-            "\r{}{:<.19}, {:>6}[rec]",
-            mode,
-            time_string(self.last_timestamp),
-            self.loop_count,
-        );
-
-        if self.on_tick_count != 0 {
-            print!(", {:>6}[tk]", self.on_tick_count,);
-        }
-
-        if self.on_clock_count != 0 {
-            print!(", {:>6}[cl]", self.on_clock_count,);
-        }
-
-        if self.on_update_count != 0 {
-            print!(", {:>6}[up]", self.on_update_count,);
-        }
-
-        if 0 < remain_time {
-            print!(", {:>4}[ETA]", remain_time / 1_000_000);
-        }
-
-        /*
-        if self.execute_mode == ExecuteMode::BackTest {
-            let count = self.loop_count - self.last_print_loop_count;
-            self.last_print_loop_count = self.loop_count;
-
-            let now = NOW();
-            let real_elapsed_time = now - self.last_print_real_time;
-            self.last_print_real_time = now;
-
-            let rec_per_sec = ((count * 1_000_000) as f64) / real_elapsed_time as f64; // in sec
-            let rec_per_sec = rec_per_sec as i64;
-
-            let tick_elapsed_time = self.last_timestamp - self.last_print_tick_time;
-            let speed = tick_elapsed_time / real_elapsed_time;
-
-            print!(", {:>7}[rec/s]({:>5} X)", rec_per_sec, speed,);
-        }
-        */
-
-        flush_log();
     }
 
     pub fn on_message(
