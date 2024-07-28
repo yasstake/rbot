@@ -373,7 +373,8 @@ impl Runner {
     pub fn update_market_info(&mut self, market: &Bound<PyAny>) -> Result<(), PyErr> {
         let market_config = market.getattr("config")?;
         let market_config = market_config.extract::<MarketConfig>()?;
-
+        
+        self.config = market_config.clone();
         self.exchange_name = market_config.exchange_name;
         self.category = market_config.trade_category;
         self.symbol = market_config.trade_symbol;
@@ -526,6 +527,8 @@ impl Runner {
     {
         self.start_timestamp = 0;
 
+        println!("config {:?}", market);
+
         let object = exchange.as_borrowed();
         let exchange_status = object.getattr("production").unwrap();
         let production: bool = exchange_status.extract().unwrap();
@@ -547,6 +550,7 @@ impl Runner {
             print!("agent_id: {}, ", self.agent_id);
             print!("log_memory: {}, ", log_memory);
             println!("duration: {}[sec], ", self.execute_time);
+
             if let Some(file) = log_file.clone() {
                 println!("logfile: {}", file);
             }
@@ -563,9 +567,9 @@ impl Runner {
                 }
                 ExecuteMode::BackTest => {
                     let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)
-                        / 24
-                        / 60
-                        / 60;
+                        / 24        // days
+                        / 60        // hour
+                        / 60;       // min
                     println!(
                         "backtest from={} to={}[{}days]",
                         date_time_string(self.backtest_start_time),
@@ -603,29 +607,9 @@ impl Runner {
             warm_up_step += 1;
         }
 
-        /*
-        let writer = PyWriter::new();
-        //let target = ProgressDrawTarget::term_like(Box::new(writer));
-        let target = ProgressDrawTarget::stderr();
-        let m = MultiProgress::with_draw_target(target);
-
-        let progress_bar = ProgressBar::new_spinner();
-        progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
-        let progress_bar = m.add(progress_bar);
-
-        let session_bar = ProgressBar::new_spinner();
-        let session_bar = m.add(session_bar);
-        */
 
         let mut bar = RunningBar::new(0);
 
-        /*
-                let mut total_bar = ProgressBar::new(duration as u64);
-                total_bar.set_style(
-                    ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
-                        .unwrap(),
-                );
-        */
         if self.execute_mode == ExecuteMode::BackTest {
             let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
             bar.set_duration(duration);
@@ -633,7 +617,6 @@ impl Runner {
 
         // main loop
         let mut remain_time: i64 = 0;
-
         let loop_start_time = NOW();
 
         while let Ok(message) = receiver.recv() {
