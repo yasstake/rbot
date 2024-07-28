@@ -81,11 +81,14 @@ session = runner.back_test(
                 exchange=bybit,
                 market=market,
                 agent=agent, 
-                log_memory=False,
+                log_memory=True,
 #                execute_time = 10,
                 verbose=True,
                 log_file="skelton_bot.log",
             )
+
+
+print(session.log.orders)
 
 
 """

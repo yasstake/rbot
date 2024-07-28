@@ -13,7 +13,7 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyWriter, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
+        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -601,6 +601,7 @@ impl Runner {
             warm_up_step += 1;
         }
 
+        /*
         let writer = PyWriter::new();
         //let target = ProgressDrawTarget::term_like(Box::new(writer));
         let target = ProgressDrawTarget::stderr();
@@ -612,16 +613,19 @@ impl Runner {
 
         let session_bar = ProgressBar::new_spinner();
         let session_bar = m.add(session_bar);
+        */
 
         let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+
+        /*
         let mut total_bar = ProgressBar::new(duration as u64);
         total_bar.set_style(
             ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
                 .unwrap(),
         );
-
+*/
         if self.execute_mode == ExecuteMode::BackTest {
-            total_bar = m.add(total_bar);
+//            total_bar = m.add(total_bar);
 
         }
 
@@ -655,17 +659,17 @@ impl Runner {
                     // self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
                     let progress = self.progress_string(remain_time);
-                    progress_bar.set_message(progress);
+                    //progress_bar.set_message(progress);
 
                     if self.execute_mode == ExecuteMode::BackTest {
                         let sec_processed =
                             microsec_to_sec(self.last_timestamp - self.start_timestamp);
-                        total_bar.set_position(sec_processed as u64);
+                        //total_bar.set_position(sec_processed as u64);
                     }
 
                     let profit = self.get_profit(&py_session);
 
-                    session_bar.set_message(format!("  Psudo Profit(no fee) = {:>6.2}", profit));
+                    //session_bar.set_message(format!("  Psudo Profit(no fee) = {:>6.2}", profit));
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }

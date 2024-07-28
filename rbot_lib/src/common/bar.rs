@@ -29,16 +29,21 @@ impl FileBar {
             //                            "[{elapsed}] {n_fmt}/{total_fmt} {percentage.0f}% |{bar} |[ETA:{remaining}]");
             total_bar.setattr(
                 "bar_format",
-                "[{elapsed}]{percentage:2.0f}% |{bar}| [ETA:{remaining}]]",
+                "[{elapsed}]{percentage:>2.0f}% {bar} [ETA:{remaining}]",
             );
 
             let kwargs = [("total", total_size)].into_py_dict_bound(py);
+
             let file_bar = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             file_bar.setattr(
                 "bar_format",
-                "[{postfix:>30}] ({percentage:2.0f}%)  [{n_fmt:>6}/{total_fmt:<6}] ({rate_fmt})",
+                "{postfix:>30} ({percentage:2.0f}%) {n_fmt:>8}/{total_fmt} ({rate_fmt})",
             );
+
+            file_bar.setattr("unit", "B");
+
+            file_bar.setattr("unit_scale", true);
 
             Self {
                 current_file: 0,
@@ -49,24 +54,38 @@ impl FileBar {
         })
     }
 
+    pub fn set_total_files(&mut self, total_files: i64) {
+        let total_bar = self.total_bar.borrow_mut();
+        Python::with_gil(|py| {
+            total_bar.setattr(py, "total", total_files * 100);
+        });
+        self.refresh();
+    }
+
+    pub fn set_filesize(&mut self, size: i64) {
+        self.current_file_size = size;
+        let file_bar = self.file_bar.borrow_mut();
+
+        Python::with_gil(|py| {
+            file_bar.setattr(py, "total", size);
+        });
+
+        self.refresh();
+    }
+
     pub fn new_file(&mut self, name: &str, size: i64) {
         self.current_file += 1;
         self.current_file_size = size;
 
-        //        let bar = self.file_bar.borrow_mut();
         let file_bar = self.file_bar.borrow_mut();
 
         Python::with_gil(|py| {
-            let kwargs = [("downloading", name)].into_py_dict_bound(py);
-
-            //file_bar.call_method_bound(py, "set_postfix_str", (),Some(&kwargs));
-            //file_bar.call_method_bound(py, "set_postfix", (name, ),None);
             file_bar.call_method1(py, "set_postfix_str", (name,));
             file_bar.setattr(py, "total", size);
             file_bar.setattr(py, "n", 0);
             file_bar.call_method0(py, "reset");
-            file_bar.call_method0(py, "refresh");
         });
+        self.refresh();
     }
 
     pub fn file_pos(&mut self, n: i64) {
@@ -80,151 +99,157 @@ impl FileBar {
                 (self.current_file - 1) * 100 + (n * 100) / self.current_file_size,
             );
             file_bar.setattr(py, "n", n);
+        });
 
+        self.refresh();
+    }
+
+    pub fn done() {}
+
+    pub fn write_message(&mut self, message: &str) {
+        let bar = self.total_bar.borrow_mut();
+        Python::with_gil(|py| {
+            bar.call_method1(py, "write", (message,));
+        });
+    }
+
+    pub fn refresh(&mut self) {
+        let total_bar = self.total_bar.borrow_mut();
+        let file_bar = self.file_bar.borrow_mut();
+
+        Python::with_gil(|py| {
             total_bar.call_method0(py, "refresh");
             file_bar.call_method0(py, "refresh");
         });
-    }
 
-    pub fn file_done() {}
-}
-
-#[derive(Debug)]
-pub struct PyWriter {}
-
-impl PyWriter {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        let msg = String::from_utf8(buf.to_vec()).unwrap();
-        let msg = msg.as_str();
-
-        self.write_raw_str(msg);
-
-        Ok(buf.len())
-    }
-
-    fn write_raw_str(&self, msg: &str) {
-        Python::with_gil(|py| {
-            let sys = py.import_bound("sys").unwrap();
-            let stderr = sys.getattr("stdout").unwrap();
-            stderr.call_method("write", (msg,), None).unwrap();
-            stderr.call_method0("flush").unwrap();
-        });
-    }
-
-    fn flush(&self) -> io::Result<()> {
-        Python::with_gil(|py| {
-            let sys = py.import_bound("sys").unwrap();
-            let stderr = sys.getattr("stdout").unwrap();
-            stderr.call_method0("flush").unwrap();
-        });
-
-        Ok(())
     }
 }
 
-impl TermLike for PyWriter {
-    fn width(&self) -> u16 {
-        100
+pub struct RunningBar {
+    profit: Py<PyAny>,
+    progress: Py<PyAny>,
+    message: Py<PyAny>,
+}
+
+impl RunningBar {
+    pub fn new(duration: i64) -> Self {
+        Python::with_gil(|py| {
+            let tqdm = py.import_bound("tqdm").unwrap();
+            let kwargs = [
+                ("total", duration),
+                ("position", 0)
+            ].into_py_dict_bound(py);
+            let progress = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
+
+            progress.setattr(
+                "bar_format",
+                "[{elapsed}]{percentage:>2.0f}% {bar} [ETA:{remaining}]",
+            );
+
+            let kwargs = [
+                ("total", duration),
+                ("position", 1)
+            ].into_py_dict_bound(py);
+
+            let profit = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
+
+            //profit.setattr("bar_format",
+            //"{postfix:>30} ({percentage:2.0f}%) {n_fmt:>8}/{total_fmt} ({rate_fmt})",);
+            //           profit.call_method0("refresh");
+
+            let kwargs = [
+                ("total", duration),
+                ("position", 2)
+            ].into_py_dict_bound(py);
+            let message = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
+
+            //profit.setattr("bar_format",
+            //"{postfix:>30} ({percentage:2.0f}%) {n_fmt:>8}/{total_fmt} ({rate_fmt})",);
+            //           profit.call_method0("refresh");
+
+
+            Self {
+                profit: profit.as_gil_ref().into(),
+                progress: progress.as_gil_ref().into(),
+                message: message.as_gil_ref().into(),
+            }
+        })
     }
 
-    fn move_cursor_up(&self, n: usize) -> io::Result<()> {
-        //let s = format!("\x1B[{}A", n);
-        //self.write(s.as_bytes())?;
-        self.write_raw_str(format!(r"\33[{}A", n).as_str());
+    pub fn elapsed(&mut self, n: i64) {
+        let progress = self.progress.borrow_mut();
 
-        Ok(())
+        Python::with_gil(|py| {
+            progress.setattr(py, "n", n);
+            progress.call_method0(py, "refresh");
+        });
+        self.reflesh();
     }
 
-    fn move_cursor_down(&self, n: usize) -> io::Result<()> {
-        //let s = format!("\x1B[{}B", n);
-        //self.write(s.as_bytes())?;
-        self.write_raw_str(format!(r"\33[{}B", n).as_str());
+    pub fn done() {}
 
-        Ok(())
+    pub fn set_profit(&mut self, msg: &str) {
+        let profit = self.profit.borrow_mut();
+
+        Python::with_gil(|py| {
+            profit.call_method1(py, "set_postfix_str", (msg,));
+        });
+
+        self.reflesh();
     }
 
-    fn move_cursor_right(&self, n: usize) -> io::Result<()> {
-        //let s = format!("\x1B[{}C", n);
-        //self.write(s.as_bytes())?;
-        self.write_raw_str(format!(r"\33[{}C", n).as_str());
+    pub fn write_message(&mut self, message: &str) {
+        let bar = self.progress.borrow_mut();
+        Python::with_gil(|py| {
+            let kwargs = [("end", "\r")].into_py_dict_bound(py);
 
-        Ok(())
+            bar.call_method_bound(py, "write", (message,), Some(&kwargs));
+        });
     }
 
-    fn move_cursor_left(&self, n: usize) -> io::Result<()> {
-        //let s = format!("\x1B[{}D", n);
-        //self.write(s.as_bytes())?;
-        self.write_raw_str(format!(r"\33[{}D", n).as_str());
+    pub fn reflesh(&mut self) {
+        let profit = self.profit.borrow_mut();
+        let progress = self.progress.borrow_mut();
+        let message = self.message.borrow_mut();
 
-        Ok(())
-    }
-
-    fn write_line(&self, s: &str) -> io::Result<()> {
-        let r = self.write(s.as_bytes());
-        self.write("\n".as_bytes())?;
-
-        if r.is_err() {
-            return Err(r.unwrap_err());
-        }
-
-        Ok(())
-    }
-
-    fn write_str(&self, s: &str) -> io::Result<()> {
-        let r = self.write(s.as_bytes());
-
-        if r.is_err() {
-            return Err(r.unwrap_err());
-        }
-
-        Ok(())
-    }
-
-    fn clear_line(&self) -> io::Result<()> {
-        self.write_raw_str(r"\r");
-        self.write(r"\33[K".as_bytes())?;
-
-        Ok(())
-    }
-
-    fn flush(&self) -> io::Result<()> {
-        self.flush()
+        Python::with_gil(|py| {
+            profit.call_method0(py, "refresh");
+            progress.call_method0(py, "refresh");
+            message.call_method0(py, "refresh");
+        });
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod test_bar {
+    use std::thread;
 
-    use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+    use super::RunningBar;
 
-    use super::*;
+
+
+
+
+
+
+
+
+
+
+
+
 
     #[test]
-    fn test_bar() -> anyhow::Result<()> {
-        // カスタムファイル出力先を開く
-        let writer = PyWriter::new();
+    fn test_running_bar() {
+        let mut bar = RunningBar::new(1000);
 
-        let target = ProgressDrawTarget::term_like(Box::new(writer));
-
-        // プログレスバーの作成とカスタム出力先の設定
-        let pb = ProgressBar::new(100);
-        pb.set_draw_target(target);
-        pb.set_style(ProgressStyle::default_bar().template(
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}",
-        )?);
-
-        //pb.set_draw_target(ProgressDrawTarget::stdout());
-
-        for i in 0..100 {
-            pb.inc(1);
-            std::thread::sleep(std::time::Duration::from_millis(50));
+        for i in 0..1000 {
+            bar.elapsed(i);
+            // bar.write_message(&format!("profit = {}", i/100));
+            bar.set_profit(&format!("profit = {}", i / 100));
+            thread::sleep(
+                std::time::Duration::from_millis(10), // 100ミリ秒待機
+            )
         }
-        pb.finish_with_message("done");
-
-        Ok(())
     }
 }
