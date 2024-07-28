@@ -3,6 +3,9 @@
 
 use std::env::VarError;
 
+use hmac::digest::{consts::False, typenum::NotEq};
+use pyo3::{types::{PyAnyMethods, PyModule}, Python};
+
 const RBOT_MULTICAST_ADDR: &str = "224.0.0.51";
 const DEFAULT_MULTICAST_PORT: i64 = 3001;
 
@@ -44,3 +47,71 @@ pub fn env_rbot_multicast_port() -> i64 {
     port.unwrap()
 }
 
+pub fn is_notebook() -> bool {
+    Python::with_gil(|py| {
+        let notebook = PyModule::from_code_bound(
+            py,
+            r#"
+def is_notebook() -> bool:
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == "ZMQInteractiveShell":
+            return True
+        else:
+            return False
+
+    except NameError:
+        return False            
+            "#,
+            "notebook.py",
+            "notebook",
+        );
+
+        if notebook.is_err() {
+            log::debug!("pymodule import error");
+            return false;
+        }
+        let notebook = notebook.unwrap();
+
+        let is_note = notebook.call_method0("is_notebook");
+        if is_note.is_err() {
+            log::debug!("call python error");
+            return false;
+        }
+        
+        let r = is_note.unwrap().extract::<bool>();
+        if r.is_err() {
+            log::debug!("result extract error");
+            return false;
+        }
+
+        log::debug!("all pass result can be trudted.");
+
+        return r.unwrap();
+    })
+}
+
+
+
+#[cfg(test)]
+mod test_env {
+    use arrow::compute::is_not_null;
+
+    use crate::common::init_debug_log;
+
+    use super::is_notebook;
+
+    #[test]
+    fn test_is_notebook() {
+        init_debug_log();
+
+        let note = is_notebook();
+
+        if note {
+            log::debug!("NOTEBOOK");
+        }
+        else {
+            log::debug!("SHELL");
+        }
+    }
+}

@@ -1,7 +1,7 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Receiver;
-use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
@@ -14,7 +14,8 @@ use super::{has_method, ExecuteMode, Session};
 use rbot_lib::{
     common::{
         date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
-        MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+        MarketMessage, MarketStream, MicroSec, Order, RunningBar, Trade, FLOOR_SEC, MARKET_HUB,
+        MICRO_SECOND, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -372,7 +373,8 @@ impl Runner {
     pub fn update_market_info(&mut self, market: &Bound<PyAny>) -> Result<(), PyErr> {
         let market_config = market.getattr("config")?;
         let market_config = market_config.extract::<MarketConfig>()?;
-
+        
+        self.config = market_config.clone();
         self.exchange_name = market_config.exchange_name;
         self.category = market_config.trade_category;
         self.symbol = market_config.trade_symbol;
@@ -525,6 +527,8 @@ impl Runner {
     {
         self.start_timestamp = 0;
 
+        println!("config {:?}", market);
+
         let object = exchange.as_borrowed();
         let exchange_status = object.getattr("production").unwrap();
         let production: bool = exchange_status.extract().unwrap();
@@ -546,6 +550,7 @@ impl Runner {
             print!("agent_id: {}, ", self.agent_id);
             print!("log_memory: {}, ", log_memory);
             println!("duration: {}[sec], ", self.execute_time);
+
             if let Some(file) = log_file.clone() {
                 println!("logfile: {}", file);
             }
@@ -562,9 +567,9 @@ impl Runner {
                 }
                 ExecuteMode::BackTest => {
                     let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)
-                        / 24
-                        / 60
-                        / 60;
+                        / 24        // days
+                        / 60        // hour
+                        / 60;       // min
                     println!(
                         "backtest from={} to={}[{}days]",
                         date_time_string(self.backtest_start_time),
@@ -602,30 +607,18 @@ impl Runner {
             warm_up_step += 1;
         }
 
-        let m = MultiProgress::new();
 
-        let progress_bar = ProgressBar::new_spinner();
-        progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
-        let progress_bar = m.add(progress_bar);
-
-        let session_bar = ProgressBar::new_spinner();
-        let session_bar = m.add(session_bar);
-
-        let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
-        let mut total_bar = ProgressBar::new(duration as u64);
-        total_bar.set_style(
-            ProgressStyle::with_template("[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta}]")
-                .unwrap(),
-        );
+        let mut bar = RunningBar::new(0);
 
         if self.execute_mode == ExecuteMode::BackTest {
-            total_bar = m.add(total_bar);
+            let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+            bar.set_duration(duration);
         }
 
         // main loop
         let mut remain_time: i64 = 0;
-
         let loop_start_time = NOW();
+
         while let Ok(message) = receiver.recv() {
             //------- MAIN LOOP ---------
             self.execute_message(&py_session, agent, &message, interval_sec)?;
@@ -649,21 +642,46 @@ impl Runner {
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
-                    // self.print_progress(&py_session, remain_time);
+                    // progress message                    
                     print_progress(&py_session, remain_time);
-
                     let progress = self.progress_string(remain_time);
-                    progress_bar.set_message(progress);
+                    bar.set_message(&progress);
 
                     if self.execute_mode == ExecuteMode::BackTest {
                         let sec_processed =
                             microsec_to_sec(self.last_timestamp - self.start_timestamp);
-                        total_bar.set_position(sec_processed as u64);
+                        bar.elapsed(sec_processed);
                     }
 
+                    // profit message
                     let profit = self.get_profit(&py_session);
 
-                    session_bar.set_message(format!("  Psudo Profit(no fee) = {:>6.2}", profit));
+                    if self.last_timestamp != 0 {
+                        let execute_duration_sec =
+                            (self.last_timestamp - self.start_timestamp) / MICRO_SECOND;
+
+                        if 60 < execute_duration_sec {
+                            bar.set_profit(
+                                &self.config,
+                                profit.to_f64().unwrap(),
+                                execute_duration_sec / 60,
+                            );
+                        }
+                    }
+
+                    // other info
+                    let (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count) =
+                            self.get_session_info(&py_session);
+
+                    let order_string = format!("{:>6}[Limit/Buy  {:>6}[Limit/Sell]  {:>6}[Market/Buy  {:>6}[Market/Sell]",
+                            HumanCount(limit_buy_count as u64), HumanCount(limit_sell_count as u64), HumanCount(market_buy_count as u64), HumanCount(market_sell_count as u64));
+                
+                    bar.set_message2(&order_string);
+
+                    // print log
+                    //for line in message {
+                        //bar.print(&line);
+                    //}
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -681,6 +699,29 @@ impl Runner {
         });
 
         profit
+    }
+
+    fn get_session_info(&self, py_session: &Py<Session>) -> (i64, i64, i64, i64) {
+        let result = Python::with_gil(|py| {
+            let count = py_session.getattr(py, "limit_buy_count").unwrap();
+            let limit_buy_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "limit_sell_count").unwrap();
+            let limit_sell_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "market_buy_count").unwrap();
+            let market_buy_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "market_sell_count").unwrap();
+            let market_sell_count: i64 = count.extract(py).unwrap();
+
+            //let message = py_session.getattr(py, "message").unwrap();
+            //let message: Vec<String> = message.extract(py).unwrap();
+
+            (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count)
+        });
+
+        result
     }
 
     fn print_run_result(&self, loop_start_time: i64) {
@@ -761,59 +802,6 @@ impl Runner {
         );
 
         s
-    }
-
-    pub fn print_progress(&self, _py_session: &Py<Session>, remain_time: i64) {
-        let mode = match self.execute_mode {
-            ExecuteMode::Dry => "[Dry run ]",
-            ExecuteMode::Real => "[Real run]",
-            ExecuteMode::BackTest => "[BackTest]",
-        };
-
-
-        print!(
-            "\r{}{:<.19}, {:>6}[rec]",
-            mode,
-            time_string(self.last_timestamp),
-            self.loop_count,
-        );
-
-        if self.on_tick_count != 0 {
-            print!(", {:>6}[tk]", self.on_tick_count,);
-        }
-
-        if self.on_clock_count != 0 {
-            print!(", {:>6}[cl]", self.on_clock_count,);
-        }
-
-        if self.on_update_count != 0 {
-            print!(", {:>6}[up]", self.on_update_count,);
-        }
-
-        if 0 < remain_time {
-            print!(", {:>4}[ETA]", remain_time / 1_000_000);
-        }
-
-        /*
-        if self.execute_mode == ExecuteMode::BackTest {
-            let count = self.loop_count - self.last_print_loop_count;
-            self.last_print_loop_count = self.loop_count;
-
-            let now = NOW();
-            let real_elapsed_time = now - self.last_print_real_time;
-            self.last_print_real_time = now;
-
-            let rec_per_sec = ((count * 1_000_000) as f64) / real_elapsed_time as f64; // in sec
-            let rec_per_sec = rec_per_sec as i64;
-
-            let tick_elapsed_time = self.last_timestamp - self.last_print_tick_time;
-            let speed = tick_elapsed_time / real_elapsed_time;
-
-            print!(", {:>7}[rec/s]({:>5} X)", rec_per_sec, speed,);
-        }
-        */
-
-        flush_log();
     }
 
     pub fn on_message(
