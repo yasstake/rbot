@@ -31,7 +31,7 @@ impl FileBar {
             //                            "[{elapsed}] {n_fmt}/{total_fmt} {percentage.0f}% |{bar} |[ETA:{remaining}]");
             total_bar.setattr(
                 "bar_format",
-                "[{elapsed}]{percentage:>2.0f}% {bar} [ETA:{remaining}]",
+                "[{elapsed}]{percentage:>2.0f}% |{bar}| [ETA:{remaining}]",
             );
 
             let kwargs = [("total", total_size)].into_py_dict_bound(py);
@@ -136,16 +136,17 @@ pub struct RunningBar {
 impl RunningBar {
     pub fn new(duration: i64) -> Self {
         Python::with_gil(|py| {
-            let tqdm = py.import_bound("tqdm").unwrap();
+            let tqdm = py.import_bound("tqdm.notebook").unwrap();
             let kwargs = [
                 ("total", duration),
-                ("position", 0)
+                ("position", 0),
+                ("ncols", 100)
             ].into_py_dict_bound(py);
             let progress = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             progress.setattr(
                 "bar_format",
-                "[{elapsed}]{percentage:>2.0f}% {bar} [ETA:{remaining}]",
+                "[{elapsed}]{percentage:>2.0f}% |{bar}| [ETA:{remaining}]",
             );
 
             let kwargs = [
@@ -246,18 +247,6 @@ mod test_bar {
     use std::thread;
 
     use super::RunningBar;
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     #[test]
