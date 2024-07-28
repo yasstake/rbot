@@ -12,6 +12,7 @@ mod env;
 mod orderbook;
 mod util;
 mod hub;
+mod bar;
 
 pub use time::*;
 pub use order::*;
@@ -23,3 +24,4 @@ pub use env::*;
 pub use orderbook::*;
 pub use util::*;
 pub use hub::*;
+pub use bar::*;
