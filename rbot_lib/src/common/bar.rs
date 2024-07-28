@@ -9,7 +9,8 @@ use pyo3::{
     Bound, Py, PyAny, Python,
 };
 
-use super::{calc_class, MarketConfig};
+use super::{calc_class, is_notebook, MarketConfig};
+
 
 pub struct FileBar {
     current_file: i64,
@@ -20,11 +21,23 @@ pub struct FileBar {
 
 impl FileBar {
     pub fn new(total_files: i64) -> Self {
+        let package = if is_notebook() {
+            "tqdm.notebook"
+        }
+        else {
+            "tqdm"
+        };
+    
         Python::with_gil(|py| {
-            let tqdm = py.import_bound("tqdm").unwrap();
+            let tqdm = py.import_bound(package).unwrap();
             let total_size = total_files * 100; // inpercent
 
-            let kwargs = [("total", total_size)].into_py_dict_bound(py);
+            let kwargs = [
+                ("total", total_size),
+                ("position", 1),
+                ("ncols", 80),
+            ].into_py_dict_bound(py);
+
             let total_bar = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             //            total_bar.setattr("bar_format",
@@ -34,7 +47,10 @@ impl FileBar {
                 "[{elapsed}]{percentage:>2.0f}% |{bar}| [ETA:{remaining}]",
             );
 
-            let kwargs = [("total", total_size)].into_py_dict_bound(py);
+            let kwargs = [
+                ("total", total_size),
+                ("position", 2)
+            ].into_py_dict_bound(py);
 
             let file_bar = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
@@ -128,18 +144,26 @@ impl FileBar {
 }
 
 pub struct RunningBar {
-    profit: Py<PyAny>,
     progress: Py<PyAny>,
-    message: Py<PyAny>,
+    tick_status: Py<PyAny>,
+    order_status: Py<PyAny>,
+    profit: Py<PyAny>,
 }
 
 impl RunningBar {
     pub fn new(duration: i64) -> Self {
+        let package = if is_notebook() {
+            "tqdm.notebook"
+        }
+        else {
+            "tqdm"
+        };
+
         Python::with_gil(|py| {
-            let tqdm = py.import_bound("tqdm.notebook").unwrap();
+            let tqdm = py.import_bound(package).unwrap();
             let kwargs = [
                 ("total", duration),
-                ("position", 0),
+                ("position", 1),
                 ("ncols", 100)
             ].into_py_dict_bound(py);
             let progress = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
@@ -151,7 +175,25 @@ impl RunningBar {
 
             let kwargs = [
                 ("total", duration),
-                ("position", 1)
+                ("position", 2)
+            ].into_py_dict_bound(py);
+            let tick_status = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
+
+            tick_status.setattr("bar_format",
+            "{postfix:<}",);
+
+            let kwargs = [
+                ("total", duration),
+                ("position", 3)
+            ].into_py_dict_bound(py);
+            let order_status = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
+
+            order_status.setattr("bar_format",
+            "{postfix:<}",);
+
+            let kwargs = [
+                ("total", duration),
+                ("position", 4)
             ].into_py_dict_bound(py);
 
             let profit = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
@@ -159,20 +201,13 @@ impl RunningBar {
             profit.setattr("bar_format",
             "{postfix:>}",);
 
-            let kwargs = [
-                ("total", duration),
-                ("position", 2)
-            ].into_py_dict_bound(py);
-            let message = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
-
-            message.setattr("bar_format",
-            "{postfix:<}",);
 
 
             Self {
                 progress: progress.as_gil_ref().into(),
+                tick_status: tick_status.as_gil_ref().into(),
+                order_status: order_status.as_gil_ref().into(),
                 profit: profit.as_gil_ref().into(),
-                message: message.as_gil_ref().into(),
             }
         })
     }
@@ -210,7 +245,7 @@ impl RunningBar {
     }
 
     pub fn set_message(&mut self, msg: &str) {
-        let message = self.message.borrow_mut();
+        let message = self.tick_status.borrow_mut();
 
         Python::with_gil(|py| {
             message.call_method1(py, "set_postfix_str", (msg,));
@@ -219,6 +254,16 @@ impl RunningBar {
         self.refresh();
     }
 
+    pub fn set_message2(&mut self, msg: &str) {
+        let message = self.order_status.borrow_mut();
+
+        Python::with_gil(|py| {
+            message.call_method1(py, "set_postfix_str", (msg,));
+        });
+
+        self.refresh();
+    }
+    
     pub fn print(&mut self, message: &str) {
         let bar = self.progress.borrow_mut();
         Python::with_gil(|py| {
@@ -230,14 +275,16 @@ impl RunningBar {
     }
 
     pub fn refresh(&mut self) {
-        let profit = self.profit.borrow_mut();
         let progress = self.progress.borrow_mut();
-        let message = self.message.borrow_mut();
+        let tick_status = self.tick_status.borrow_mut();
+        let order_status = self.order_status.borrow_mut();
+        let profit = self.profit.borrow_mut();
 
         Python::with_gil(|py| {
-            profit.call_method0(py, "refresh");
             progress.call_method0(py, "refresh");
-            message.call_method0(py, "refresh");
+            tick_status.call_method0(py, "refresh");
+            order_status.call_method0(py, "refresh");
+            profit.call_method0(py, "refresh");
         });
     }
 }
@@ -255,8 +302,10 @@ mod test_bar {
 
         for i in 0..1000 {
             bar.elapsed(i);
+            bar.print(&format!("--{}", i));
             thread::sleep(
-                std::time::Duration::from_millis(10), // 100ミリ秒待機
+                std::time::Duration::from_millis(10), 
+                // 100ミリ秒待機
             )
         }
     }

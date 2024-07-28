@@ -642,6 +642,7 @@ impl Runner {
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
+                    // progress message                    
                     print_progress(&py_session, remain_time);
                     let progress = self.progress_string(remain_time);
                     bar.set_message(&progress);
@@ -652,6 +653,7 @@ impl Runner {
                         bar.elapsed(sec_processed);
                     }
 
+                    // profit message
                     let profit = self.get_profit(&py_session);
 
                     if self.last_timestamp != 0 {
@@ -666,6 +668,20 @@ impl Runner {
                             );
                         }
                     }
+
+                    // other info
+                    let (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count) =
+                            self.get_session_info(&py_session);
+
+                    let order_string = format!("{:>6}[Limit/Buy  {:>6}[Limit/Sell]  {:>6}[Market/Buy  {:>6}[Market/Sell]",
+                            HumanCount(limit_buy_count as u64), HumanCount(limit_sell_count as u64), HumanCount(market_buy_count as u64), HumanCount(market_sell_count as u64));
+                
+                    bar.set_message2(&order_string);
+
+                    // print log
+                    //for line in message {
+                        //bar.print(&line);
+                    //}
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }
@@ -683,6 +699,29 @@ impl Runner {
         });
 
         profit
+    }
+
+    fn get_session_info(&self, py_session: &Py<Session>) -> (i64, i64, i64, i64) {
+        let result = Python::with_gil(|py| {
+            let count = py_session.getattr(py, "limit_buy_count").unwrap();
+            let limit_buy_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "limit_sell_count").unwrap();
+            let limit_sell_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "market_buy_count").unwrap();
+            let market_buy_count: i64 = count.extract(py).unwrap();
+
+            let count = py_session.getattr(py, "market_sell_count").unwrap();
+            let market_sell_count: i64 = count.extract(py).unwrap();
+
+            //let message = py_session.getattr(py, "message").unwrap();
+            //let message: Vec<String> = message.extract(py).unwrap();
+
+            (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count)
+        });
+
+        result
     }
 
     fn print_run_result(&self, loop_start_time: i64) {
