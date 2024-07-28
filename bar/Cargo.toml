@@ -1,0 +1,12 @@
+[package]
+name = "bar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+indicatif = {version="0.17"}
+anyhow = {version="1.0.86"}
+
+#indicatif = {workspace="*"}
+
+kdam = {version="0.5.2", features=["notebook", "template"]}

@@ -1,7 +1,7 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Receiver;
-use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
@@ -13,8 +13,7 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
-        MarketMessage, MarketStream, MicroSec, Order, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC,
+        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyWriter, Trade, FLOOR_SEC, MARKET_HUB, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -602,7 +601,10 @@ impl Runner {
             warm_up_step += 1;
         }
 
-        let m = MultiProgress::new();
+        let writer = PyWriter::new();
+        //let target = ProgressDrawTarget::term_like(Box::new(writer));
+        let target = ProgressDrawTarget::stderr();
+        let m = MultiProgress::with_draw_target(target);
 
         let progress_bar = ProgressBar::new_spinner();
         progress_bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
@@ -620,6 +622,7 @@ impl Runner {
 
         if self.execute_mode == ExecuteMode::BackTest {
             total_bar = m.add(total_bar);
+
         }
 
         // main loop
@@ -651,7 +654,6 @@ impl Runner {
                 if self.verbose {
                     // self.print_progress(&py_session, remain_time);
                     print_progress(&py_session, remain_time);
-
                     let progress = self.progress_string(remain_time);
                     progress_bar.set_message(progress);
 

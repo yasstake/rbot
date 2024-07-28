@@ -1091,4 +1091,6 @@ mod logger_tests {
 }
 
 #[cfg(test)]
-mod test_logger {}
+mod test_logger {
+    
+}

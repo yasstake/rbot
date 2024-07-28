@@ -18,6 +18,7 @@ members = [
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit", 
+    "bar", 
 ]
 
 resolver = "2"
@@ -136,3 +137,4 @@ actix-web={version="4.5"}
 actix-rt={version="2.9"}
 
 indicatif = {version="0.17"}
+kdam = {version="0.5.2", features=["notebook", "template"]}
