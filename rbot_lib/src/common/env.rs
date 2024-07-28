@@ -52,7 +52,12 @@ pub fn is_notebook() -> bool {
         let notebook = PyModule::from_code_bound(
             py,
             r#"
+import sys
+
 def is_notebook() -> bool:
+    if 'google.colab' in sys.modules:
+        return True               
+
     try:
         shell = get_ipython().__class__.__name__
         if shell == "ZMQInteractiveShell":
