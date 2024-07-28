@@ -1,14 +1,13 @@
 use crate::{
     common::{
-        date_string, date_time_string, parse_date, time_string, to_seconds, MarketConfig, MicroSec, OrderSide, PyWriter, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, FileBar, MarketConfig, MicroSec, OrderSide, Trade,
+        DAYS, FLOOR_DAY, MIN, NOW, TODAY,
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
 };
 use anyhow::{anyhow, Context};
 use futures::StreamExt;
-use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use kdam::{Bar, BarExt, RowManager};
 use parquet::{file::reader::SerializedFileReader, record::RowAccessor};
 use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
@@ -148,12 +147,13 @@ impl TradeArchive {
         T: RestApi,
     {
         let mut date = FLOOR_DAY(NOW());
+        let mut bar = FileBar::new(ndays);
 
         if verbose {
-            println!(
+            bar.write_message(&format!(
                 "downloading web archvie from [{}]days before. force=[{}]",
                 ndays, force
-            );
+            ));
         }
 
         log::debug!("download log from {:?}({:?})", date_string(date), date);
@@ -163,61 +163,29 @@ impl TradeArchive {
 
         kdam::set_notebook(true);
 
-        let text_bar = Bar::new(1);
-
-        let mut bars = RowManager::new(3);
-        bars.push(text_bar);        // 0: text message
-
-        let mut total_number = 0;
-
-
         for i in 0..ndays {
-            if force || (! self.has_local_archive(date) && date < self.latest_archive_date(api).await?)  {
+            if force
+                || (!self.has_local_archive(date) && date < self.latest_archive_date(api).await?)
+            {
                 if total_files == -1 {
                     total_files = ndays - i;
 
-                    let total_number = total_files * 100;
-                    let total_bar = Bar::new(total_number as usize);
-                    let file_bar = Bar::new(100);
-
-                    bars.push(total_bar);       // 1: total progress
-                    bars.push(file_bar);        // 2: progress in each file
-
-            
-                    /*
-                    progress_bar = ProgressBar::new((total_files * 100) as u64);
-                    progress_bar.set_style(
-                        ProgressStyle::with_template(
-                            "[{elapsed_precise}]({percent:>3}%){bar:56}[ETA:{eta_precise}]"
-                    ).unwrap()
-                    );
-                    progress_bar = m.add(progress_bar);
-                    */
+                    bar.set_total_files(total_files);
                 }
 
-    //                m.set_draw_target(ProgressDrawTarget::stdout());
-
                 let url = api.history_web_url(&self.config, date);
+                bar.new_file(&url, 10);
+
                 count += self
                     .web_archive_to_parquet(api, date, force, verbose, |count, content_len| {
                         if verbose {
-                            bars.get_mut(1).unwrap().update_to((i * 100 + (count*100/content_len)) as usize);
-                           
-
-
-                            /*
-                            let percent = count * 100 / content_len;                           
-
-                            //progress_bar.set_position((i * 100 + percent) as u64);
-                           progress_bar.set_position( 
-                                ((i - (ndays - total_files))*100 + percent) as u64);
-
-                            text_bar.set_message(format!("{}({:2}%)[{:12}/{}]", url, percent, HumanBytes(count as u64), HumanBytes(content_len as u64)));
-                            */
+                            bar.set_filesize(content_len);
+                            bar.file_pos(count);
                         }
                     })
                     .await?;
-            } else {
+            }
+             else {
                 if verbose {
                     // text_bar.set_message(format!("skip download [{}]", date_time_string(date)));
                 }
@@ -226,6 +194,11 @@ impl TradeArchive {
         }
         self.analyze()?;
 
+        if verbose {
+            bar.write_message(&format!("Arvhied data: from:[{}] to:[{}]",
+                time_string(self.start_time()?), time_string(self.end_time()?))
+        );
+        }
 
         Ok(count)
     }
@@ -620,7 +593,6 @@ impl TradeArchive {
 
         if verbose && force {
             log::debug!("force download");
-            println!("force download");
         }
 
         let url = api.history_web_url(config, date);
@@ -768,51 +740,3 @@ mod archive_test {
     }
 }
 
-
-#[cfg(test)] 
-mod archive_test_tqdm {
-    use std::{thread, time::Duration};
-
-    use pyo3::{types::{IntoPyDict as _, PyAnyMethods as _}, Python};
-
-    use crate::common::FileBar;
-
-    #[test]
-    fn test_tqdm() {
-        Python::with_gil(|py| {
-            let tqdm = py.import_bound("tqdm").unwrap();
-            let range: Vec<i32> = (0..100).collect();
-            
-            let kwargs = [("desc", "Processing")].into_py_dict_bound(py);
-            let bar = tqdm.call_method("tqdm", (range,), Some(&kwargs)).unwrap();
-    
-            for _ in 0..100 {
-                bar.call_method1("update", (1,));
-                thread::sleep(Duration::from_millis(50));
-            }
-        }
-        );    
-    }
-
-    #[test]
-    fn test_dqm_struct() {
-        let mut fm = FileBar::new(2);
-
-        fm.new_file("FIRST FILE", 100);
-
-        for i in 0..100 {
-            fm.file_pos(i);
-            thread::sleep(Duration::from_millis(50));
-        }
-
-        fm.new_file("SECOND FILE", 200);
-
-        for i in 0..100 {
-            fm.file_pos(i);
-            thread::sleep(Duration::from_millis(50));
-        }
-
-
-    }
-
-}
