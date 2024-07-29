@@ -43,7 +43,6 @@ class SkeltonAgent:      # クラス名は任意です
         session.market_order("Buy", 0.01)
         session.market_order("Sell", 0.01)
 
-
     def on_update(self, session, updated_order):
         """自分の注文状態が変化した場合に呼び出される処理です。
         Args:
