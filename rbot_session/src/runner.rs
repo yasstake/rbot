@@ -13,6 +13,7 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
+        get_agent_message,
         date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
         MarketMessage, MarketStream, MicroSec, Order, RunningBar, Trade, FLOOR_SEC, MARKET_HUB,
         MICRO_SECOND, NOW, SEC,
@@ -527,8 +528,6 @@ impl Runner {
     {
         self.start_timestamp = 0;
 
-        println!("config {:?}", market);
-
         let object = exchange.as_borrowed();
         let exchange_status = object.getattr("production").unwrap();
         let production: bool = exchange_status.extract().unwrap();
@@ -607,7 +606,6 @@ impl Runner {
             warm_up_step += 1;
         }
 
-
         let mut bar = RunningBar::new(0);
 
         if self.execute_mode == ExecuteMode::BackTest {
@@ -673,15 +671,14 @@ impl Runner {
                     let (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count) =
                             self.get_session_info(&py_session);
 
-                    let order_string = format!("{:>6}[Limit/Buy  {:>6}[Limit/Sell]  {:>6}[Market/Buy  {:>6}[Market/Sell]",
+                    let order_string = format!("{:>6}[Limit/Buy]  {:>6}[Limit/Sell]  {:>6}[Market/Buy]  {:>6}[Market/Sell]",
                             HumanCount(limit_buy_count as u64), HumanCount(limit_sell_count as u64), HumanCount(market_buy_count as u64), HumanCount(market_sell_count as u64));
                 
                     bar.set_message2(&order_string);
 
-                    // print log
-                    //for line in message {
-                        //bar.print(&line);
-                    //}
+                    for line in get_agent_message() {
+                        bar.print(&line);
+                    }
                 }
                 self.last_print_tick_time = self.last_timestamp;
             }

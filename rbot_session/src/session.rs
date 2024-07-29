@@ -6,7 +6,7 @@ use std::{collections::VecDeque, sync::Arc};
 use pyo3::{pyclass, pymethods, PyAny, Python};
 
 use pyo3_polars::PyDataFrame;
-use rbot_lib::common::{date_time_string, short_time_string, FLOOR_SEC};
+use rbot_lib::common::{short_time_string, write_agent_messsage, get_agent_message, FLOOR_SEC};
 use rbot_server::get_rest_orderbook;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -108,8 +108,6 @@ pub struct Session {
     limit_buy_count: i64,
     limit_sell_count: i64,
 
-    message: Vec<String>,
-
     log: Logger,
 }
 
@@ -196,9 +194,6 @@ impl Session {
             limit_buy_count: 0,
             limit_sell_count: 0,
         
-            message: vec![],
-        
-
             client_mode: client_mode,
 
             log: Logger::new(log_memory),
@@ -753,17 +748,15 @@ impl Session {
         }
     }
 
-    pub fn message(&mut self, m: &str) {
+    pub fn print(&mut self, m: &str) {
         let message = format!("[{}] {}", short_time_string(self.current_timestamp), m);
-        self.message.push(message);
+        println!("WRITE: {}", message);
+        write_agent_messsage(&message);
     }
 
     #[getter]
     pub fn get_message(&mut self) -> Vec<String> {
-        let message = self.message.clone();
-        self.message.clear();
-
-        message
+        get_agent_message()
     }
 
     #[getter]
