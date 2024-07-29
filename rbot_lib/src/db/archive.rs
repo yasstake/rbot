@@ -184,6 +184,8 @@ impl TradeArchive {
                         }
                     })
                     .await?;
+
+                bar.write_message(&url);
             }
              else {
                 if verbose {
@@ -192,6 +194,7 @@ impl TradeArchive {
             }
             date -= DAYS(1);
         }
+
         self.analyze()?;
 
         if verbose {

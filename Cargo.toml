@@ -18,7 +18,6 @@ members = [
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit", 
-    "bar", 
 ]
 
 resolver = "2"
