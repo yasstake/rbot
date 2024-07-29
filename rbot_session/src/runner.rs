@@ -532,11 +532,14 @@ impl Runner {
         let exchange_status = object.getattr("production").unwrap();
         let production: bool = exchange_status.extract().unwrap();
 
+        let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
+        let mut bar= RunningBar::new(duration);
+
         if self.verbose {
             if production {
-                println!("========= CONNECT PRODUCTION NET  ==========");
+                bar.print("========= CONNECT PRODUCTION NET  ==========");
             } else {
-                println!("--------- connect test net  ----------------");
+                bar.print("--------- connect test net  ----------------");
             }
 
             match self.execute_mode {
@@ -545,24 +548,24 @@ impl Runner {
                 ExecuteMode::BackTest => println!("///////////    backtest mode   ////////////"),
             }
 
-            print!("market: {}, ", self.exchange_name);
-            print!("agent_id: {}, ", self.agent_id);
-            print!("log_memory: {}, ", log_memory);
-            println!("duration: {}[sec], ", self.execute_time);
+            bar.print(&format!("market: {}, ", self.exchange_name));
+            bar.print(&format!("agent_id: {}, ", self.agent_id));
+            bar.print(&format!("log_memory: {}, ", log_memory));
+            bar.print(&format!("duration: {}[sec], ", self.execute_time));
 
             if let Some(file) = log_file.clone() {
-                println!("logfile: {}", file);
+                bar.print(&format!("logfile: {}", file));
             }
             if client_mode {
-                println!("Client mode");
+                bar.print("Client mode");
             }
 
             match self.execute_mode {
                 ExecuteMode::Real => {
-                    println!("************      START     ****************");
+                    bar.print("************      START     ****************");
                 }
                 ExecuteMode::Dry => {
-                    println!("------------      START        -------------");
+                    bar.print("------------      START        -------------");
                 }
                 ExecuteMode::BackTest => {
                     let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)
@@ -575,7 +578,7 @@ impl Runner {
                         date_time_string(self.backtest_end_time),
                         days
                     );
-                    println!("///////////       START        ////////////");
+                    bar.print("///////////       START        ////////////");
                 }
             }
 
@@ -604,13 +607,6 @@ impl Runner {
             }
 
             warm_up_step += 1;
-        }
-
-        let mut bar = RunningBar::new(0);
-
-        if self.execute_mode == ExecuteMode::BackTest {
-            let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
-            bar.set_duration(duration);
         }
 
         // main loop
@@ -690,7 +686,7 @@ impl Runner {
 
     fn get_profit(&self, py_session: &Py<Session>) -> Decimal {
         let profit = Python::with_gil(|py| {
-            let profit = py_session.getattr(py, "profit").unwrap();
+            let profit = py_session.getattr(py, "total_profit").unwrap();
             let profit: Decimal = profit.extract(py).unwrap();
             profit
         });
