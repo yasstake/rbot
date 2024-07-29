@@ -13,10 +13,9 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        get_agent_message,
-        date_time_string, flush_log, microsec_to_sec, time_string, AccountCoins, MarketConfig,
-        MarketMessage, MarketStream, MicroSec, Order, RunningBar, Trade, FLOOR_SEC, MARKET_HUB,
-        MICRO_SECOND, NOW, SEC,
+        calc_class, date_time_string, flush_log, get_agent_message, microsec_to_sec, time_string,
+        AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyRunningBar,
+        RunningBar, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC,
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -374,7 +373,7 @@ impl Runner {
     pub fn update_market_info(&mut self, market: &Bound<PyAny>) -> Result<(), PyErr> {
         let market_config = market.getattr("config")?;
         let market_config = market_config.extract::<MarketConfig>()?;
-        
+
         self.config = market_config.clone();
         self.exchange_name = market_config.exchange_name;
         self.category = market_config.trade_category;
@@ -533,7 +532,8 @@ impl Runner {
         let production: bool = exchange_status.extract().unwrap();
 
         let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
-        let mut bar= RunningBar::new(duration);
+        //let mut bar= RunningBar::new(duration);
+        let mut bar = PyRunningBar::new(duration);
 
         if self.verbose {
             if production {
@@ -571,7 +571,7 @@ impl Runner {
                     let days = microsec_to_sec(self.backtest_end_time - self.backtest_start_time)
                         / 24        // days
                         / 60        // hour
-                        / 60;       // min
+                        / 60; // min
                     println!(
                         "backtest from={} to={}[{}days]",
                         date_time_string(self.backtest_start_time),
@@ -636,15 +636,15 @@ impl Runner {
                 || self.last_print_tick_time == 0
             {
                 if self.verbose {
-                    // progress message                    
+                    // progress message
                     print_progress(&py_session, remain_time);
                     let progress = self.progress_string(remain_time);
-                    bar.set_message(&progress);
+                    bar.message(&progress);
 
                     if self.execute_mode == ExecuteMode::BackTest {
                         let sec_processed =
                             microsec_to_sec(self.last_timestamp - self.start_timestamp);
-                        bar.elapsed(sec_processed);
+                        bar.set_progress(sec_processed);
                     }
 
                     // profit message
@@ -655,22 +655,22 @@ impl Runner {
                             (self.last_timestamp - self.start_timestamp) / MICRO_SECOND;
 
                         if 60 < execute_duration_sec {
-                            bar.set_profit(
+                            bar.profit(&calc_class(
                                 &self.config,
                                 profit.to_f64().unwrap(),
                                 execute_duration_sec / 60,
-                            );
+                            ));
                         }
                     }
 
                     // other info
                     let (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count) =
-                            self.get_session_info(&py_session);
+                        self.get_session_info(&py_session);
 
                     let order_string = format!("{:>6}[Limit/Buy]  {:>6}[Limit/Sell]  {:>6}[Market/Buy]  {:>6}[Market/Sell]",
                             HumanCount(limit_buy_count as u64), HumanCount(limit_sell_count as u64), HumanCount(market_buy_count as u64), HumanCount(market_sell_count as u64));
-                
-                    bar.set_message2(&order_string);
+
+                    bar.order(&order_string);
 
                     for line in get_agent_message() {
                         bar.print(&line);
@@ -711,7 +711,12 @@ impl Runner {
             //let message = py_session.getattr(py, "message").unwrap();
             //let message: Vec<String> = message.extract(py).unwrap();
 
-            (limit_buy_count, limit_sell_count, market_buy_count, market_sell_count)
+            (
+                limit_buy_count,
+                limit_sell_count,
+                market_buy_count,
+                market_sell_count,
+            )
         });
 
         result

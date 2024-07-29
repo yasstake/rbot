@@ -1,7 +1,6 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, FileBar, MarketConfig, MicroSec, OrderSide, Trade,
-        DAYS, FLOOR_DAY, MIN, NOW, TODAY,
+        date_string, parse_date, time_string, FileBar, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
@@ -147,16 +146,14 @@ impl TradeArchive {
         T: RestApi,
     {
         let mut date = FLOOR_DAY(NOW());
-        let mut bar = FileBar::new(ndays);
+        let mut bar = PyFileBar::new(ndays);
 
         if verbose {
-            bar.write_message(&format!(
+            bar.print(&format!(
                 "downloading web archvie from [{}]days before. force=[{}]",
                 ndays, force
             ));
         }
-
-        log::debug!("download log from {:?}({:?})", date_string(date), date);
 
         let mut count = 0;
         let mut total_files = -1;
@@ -174,18 +171,24 @@ impl TradeArchive {
                 }
 
                 let url = api.history_web_url(&self.config, date);
-                bar.new_file(&url, 10);
+                bar.next_file(&url, 10_000);
+
+                let mut file_size = 0;
 
                 count += self
                     .web_archive_to_parquet(api, date, force, verbose, |count, content_len| {
                         if verbose {
-                            bar.set_filesize(content_len);
-                            bar.file_pos(count);
+                            if file_size == 0 {
+                                bar.set_file_size(content_len);
+                            }
+                            file_size = content_len;
+
+                            bar.set_file_progress(count);
                         }
                     })
                     .await?;
 
-                bar.write_message(&url);
+                bar.print(&url);
             }
              else {
                 if verbose {
@@ -198,7 +201,7 @@ impl TradeArchive {
         self.analyze()?;
 
         if verbose {
-            bar.write_message(&format!("Arvhied data: from:[{}] to:[{}]",
+            bar.print(&format!("Arvhied data: from:[{}] to:[{}]",
                 time_string(self.start_time()?), time_string(self.end_time()?))
         );
         }
