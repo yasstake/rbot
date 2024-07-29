@@ -5,7 +5,7 @@ use std::{
 
 use indicatif::TermLike;
 use pyo3::{
-    types::{IntoPyDict as _, PyAnyMethods as _},
+    types::{IntoPyDict as _, PyAnyMethods as _, PyModule},
     Bound, Py, PyAny, Python,
 };
 
@@ -134,6 +134,110 @@ impl FileBar {
     }
 }
 
+const PY_TQDM_PYTHON: &str = r#"
+from tqdm import tqdm
+"#;
+
+const PY_TQDM_NOTEBOOK: &str = r#"
+from tqdm.notebook import tqdm
+"#;
+
+const PY_RUNNING_BAR: &str = r#"
+
+class ProgressBar:
+    def __init__(self, max_value):
+        self.progress = tqdm(total=max_value, position=1,
+                             bar_format="[{elapsed}]({percentage:>2.0f}%) |{bar}| [ETA:{remaining}]")
+        self.last_progress = 0
+        self.status = tqdm(total=0, position=2, bar_format="{postfix:<}")
+        self.profit = tqdm(total=0, position=3, bar_format="{postfix:>}")
+
+    def set_progress(self, value):
+        diff = value - self.last_progress
+        if diff > 0:
+            self.progress.update(diff)
+
+        self.last_progress = value
+
+    def print_message(self, value):
+        self.status.set_postfix_str(value)
+
+    def print_profit(self, value):
+        self.profit.set_postfix_str(value)
+
+    def print(self, value):
+        self.progress.write(value)
+
+    def close(self):
+        self.progress.close()
+        self.status.close()
+        self.profit.close()
+"#;
+
+pub struct PyRunningBar {
+    bar: Py<PyAny>,
+}
+
+impl PyRunningBar {
+    pub fn new(total_duration: i64) -> PyRunningBar {
+        let py_script = if is_notebook() {
+            format!("{}{}", PY_TQDM_NOTEBOOK, PY_RUNNING_BAR)
+        } else {
+            format!("{}{}", PY_TQDM_PYTHON, PY_RUNNING_BAR)
+        };
+
+        let bar = Python::with_gil(|py| {
+            let py_module =
+                PyModule::from_code_bound(py, &py_script, "py_running_bar.py", "py_running_bar");
+
+            if py_module.is_err() {
+                log::error!("py progress tqdm bar class create error")
+            }
+
+            let py_module = py_module.unwrap();
+
+            let progress_class = py_module.getattr("ProgressBar").unwrap();
+            let bar = progress_class.call1((total_duration,)).unwrap();
+
+            Self { bar: bar.into() }
+        });
+
+        bar
+    }
+
+    pub fn set_progress(&mut self, n: i64) {
+        let bar = self.bar.borrow_mut();
+
+        Python::with_gil(|py| {
+            bar.call_method1(py, "set_progress", (n,)).unwrap();
+        })
+    }
+
+    pub fn message(&mut self, m: &str) {
+        let bar = self.bar.borrow_mut();
+
+        Python::with_gil(|py| {
+            bar.call_method1(py, "print_message", (m,)).unwrap();
+        })
+    }
+
+    pub fn profit(&mut self, m: &str) {
+        let bar = self.bar.borrow_mut();
+
+        Python::with_gil(|py| {
+            bar.call_method1(py, "print_profit", (m,)).unwrap();
+        })
+    }
+
+    pub fn print(&mut self, m: &str) {
+        let bar = self.bar.borrow_mut();
+
+        Python::with_gil(|py| {
+            bar.call_method1(py, "print", (m,)).unwrap();
+        })
+    }
+}
+
 pub struct RunningBar {
     progress: Py<PyAny>,
     tick_status: Py<PyAny>,
@@ -151,8 +255,7 @@ impl RunningBar {
 
         Python::with_gil(|py| {
             let tqdm = py.import_bound(package).unwrap();
-            let kwargs =
-                [("total", duration), ("position", 1),].into_py_dict_bound(py);
+            let kwargs = [("total", duration), ("position", 1)].into_py_dict_bound(py);
             let progress = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             progress.setattr(
@@ -160,17 +263,17 @@ impl RunningBar {
                 "[{elapsed}]{percentage:>2.0f}% |{bar}| [ETA:{remaining}]",
             );
 
-            let kwargs = [("total", duration), ("position", 2),  ].into_py_dict_bound(py);
+            let kwargs = [("total", duration), ("position", 2)].into_py_dict_bound(py);
             let tick_status = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             tick_status.setattr("bar_format", "{postfix:<}");
 
-            let kwargs = [("total", duration), ("position", 3), ].into_py_dict_bound(py);
+            let kwargs = [("total", duration), ("position", 3)].into_py_dict_bound(py);
             let order_status = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
             order_status.setattr("bar_format", "{postfix:<}");
 
-            let kwargs = [("total", duration), ("position", 4), ].into_py_dict_bound(py);
+            let kwargs = [("total", duration), ("position", 4)].into_py_dict_bound(py);
 
             let profit = tqdm.call_method("tqdm", (), Some(&kwargs)).unwrap();
 
@@ -266,7 +369,7 @@ impl RunningBar {
 mod test_bar {
     use std::thread;
 
-    use super::RunningBar;
+    use super::{PyRunningBar, RunningBar};
 
     #[test]
     fn test_running_bar() {
@@ -280,5 +383,18 @@ mod test_bar {
                 // 100ミリ秒待機
             )
         }
+    }
+
+    #[test]
+    fn test_init_bar() {
+        let mut bar = PyRunningBar::new(1000);
+
+        bar.set_progress(100);
+        bar.message("NOW IN PROGRESS");
+        bar.profit("SO MUCH PROFIT");
+        bar.print("log message");
+        bar.message("NOW IN PROGRESS2");
+        bar.profit("SO MUCH PROFIT2");
+        bar.set_progress(200);
     }
 }
