@@ -80,7 +80,7 @@ class FileBar:
         self.file_progress.reset(total =size)
         self.file_progress.set_description(name)
         self.file_progress.set_postfix_str(
-            f"[{self.current_file} / {self.total_files}]"
+            f"[{self.current_file + 1} / {self.total_files}]"
         )
 
     def set_progress(self, value):
