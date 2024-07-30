@@ -1,6 +1,6 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, FileBar, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
@@ -146,7 +146,7 @@ impl TradeArchive {
         T: RestApi,
     {
         let mut date = FLOOR_DAY(NOW());
-        let mut bar = PyFileBar::new(ndays);
+        let mut bar = PyFileBar::new();
 
         if verbose {
             bar.print(&format!(
@@ -158,8 +158,6 @@ impl TradeArchive {
         let mut count = 0;
         let mut total_files = -1;
 
-        kdam::set_notebook(true);
-
         for i in 0..ndays {
             if force
                 || (!self.has_local_archive(date) && date < self.latest_archive_date(api).await?)
@@ -167,6 +165,7 @@ impl TradeArchive {
                 if total_files == -1 {
                     total_files = ndays - i;
 
+                    bar.init(total_files, true, true);
                     bar.set_total_files(total_files);
                 }
 
