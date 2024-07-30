@@ -1,7 +1,6 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Receiver;
-use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
@@ -13,9 +12,7 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        calc_class, date_time_string, flush_log, get_agent_message, microsec_to_sec, time_string,
-        AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyRunningBar,
-        RunningBar, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC,
+        calc_class, date_time_string, flush_log, format_number, get_agent_message, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyRunningBar, RunningBar, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -668,7 +665,10 @@ impl Runner {
                         self.get_session_info(&py_session);
 
                     let order_string = format!("{:>6}[Limit/Buy]  {:>6}[Limit/Sell]  {:>6}[Market/Buy]  {:>6}[Market/Sell]",
-                            HumanCount(limit_buy_count as u64), HumanCount(limit_sell_count as u64), HumanCount(market_buy_count as u64), HumanCount(market_sell_count as u64));
+                            format_number(limit_buy_count), 
+                            format_number(limit_sell_count),
+                            format_number(market_buy_count), 
+                            format_number(market_sell_count));
 
                     bar.order(&order_string);
 
@@ -756,23 +756,23 @@ impl Runner {
         let time = format!(
             "[{:<.19}]  {:>10}[rec]",
             time_string(self.last_timestamp),
-            HumanCount(self.loop_count as u64),
+            format_number(self.loop_count),
         );
 
         let on_tick = if self.on_tick_count != 0 {
-            format!("  {:>8}[tk]", HumanCount(self.on_tick_count as u64))
+            format!("  {:>8}[tk]", format_number(self.on_tick_count))
         } else {
             ",  **** [tk]".to_string()
         };
 
         let on_clock = if self.on_clock_count != 0 {
-            format!("  {:>8}[cl]", HumanCount(self.on_clock_count as u64))
+            format!("  {:>8}[cl]", format_number(self.on_clock_count))
         } else {
             ",  **** [cl]".to_string()
         };
 
         let on_update = if self.on_update_count != 0 {
-            format!("  {:>6}[up]", HumanCount(self.on_update_count as u64))
+            format!("  {:>6}[up]", format_number(self.on_update_count))
         } else {
             ",  **** [up]".to_string()
         };

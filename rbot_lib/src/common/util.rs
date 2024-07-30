@@ -157,3 +157,43 @@ pub fn hmac_sign(secret_key: &str, message: &str) -> String {
 
     hex::encode(mac.into_bytes())
 }
+
+pub fn format_number(num: i64) -> String {
+    let mut formatted = String::new();
+
+    let num_string = num.abs().to_string();
+    let len = num_string.len();
+
+    if num < 0 {
+        formatted.push('-');
+    }
+
+    for (i, c) in num_string.chars().enumerate() {
+        if i != 0 && (len -i) % 3 == 0 {
+            formatted.push(',');
+        }
+        formatted.push(c);
+    }
+    formatted
+}
+
+
+#[cfg(test)]
+mod test_utils {
+    use crate::common::format_number;
+
+    #[test]
+    fn test_format_number() {
+        assert_eq!(format_number(10), "10");
+        assert_eq!(format_number(100), "100");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(10000), "10,000");
+        assert_eq!(format_number(12345678), "12,345,678");
+
+        assert_eq!(format_number(-10), "-10");
+        assert_eq!(format_number(-100), "-100");
+        assert_eq!(format_number(-1000), "-1,000");
+        assert_eq!(format_number(-10000), "-10,000");
+        assert_eq!(format_number(-12345678), "-12,345,678");
+    }
+}
