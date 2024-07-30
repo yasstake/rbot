@@ -23,7 +23,7 @@ jobs:
         command: build
         args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
-          yum update -y && yum install -y perl-core libssl-dev openssl pkg-config perl-IPC-Cmd buid-essential
+          yum update -y && yum install -y perl-core libssl-dev openssl pkg-config perl-IPC-Cmd
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
