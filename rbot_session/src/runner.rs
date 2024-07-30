@@ -12,7 +12,9 @@ use super::{has_method, ExecuteMode, Session};
 
 use rbot_lib::{
     common::{
-        calc_class, date_time_string, flush_log, format_number, get_agent_message, microsec_to_sec, time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyRunningBar, RunningBar, Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC
+        calc_class, date_time_string, flush_log, format_number, get_agent_message, microsec_to_sec,
+         time_string, AccountCoins, MarketConfig, MarketMessage, MarketStream, MicroSec, Order, PyRunningBar, 
+         Trade, FLOOR_SEC, MARKET_HUB, MICRO_SECOND, NOW, SEC
     },
     net::{UdpReceiver, UdpSender},
 };
@@ -1038,45 +1040,3 @@ impl Runner {
     }
 }
 
-#[cfg(test)]
-mod test_runner {
-    use std::{thread::sleep, time::Duration};
-
-    use indicatif::{MultiProgress, ProgressStyle};
-
-    #[test]
-    fn test_progress_bar() {
-        // https://docs.rs/indicatif/latest/indicatif/index.html#
-
-        use indicatif::ProgressBar;
-
-        let m = MultiProgress::new();
-
-        let text_bar = m.add(ProgressBar::new_spinner());
-
-        let main_bar = ProgressBar::new(100);
-        main_bar.set_style(
-            ProgressStyle::with_template("[{elapsed}] {bar:40.cyan/bule} {msg}").unwrap(),
-        );
-        let main_bar = m.add(main_bar);
-
-        let sub_bar = ProgressBar::new(100);
-        let sub_bar = m.add(sub_bar);
-
-        for i in 0..100 {
-            text_bar.set_message(format!("process {}", i));
-
-            for _ in 0..100 {
-                sleep(Duration::from_millis(10));
-                sub_bar.inc(1);
-            }
-            sub_bar.reset();
-
-            // sub_bar.finish_with_message("DONE");
-            main_bar.inc(1);
-        }
-
-        sub_bar.finish();
-        main_bar.finish();
-    }
-}

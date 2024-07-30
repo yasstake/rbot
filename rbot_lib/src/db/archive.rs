@@ -1,6 +1,6 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, FileBar, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
@@ -157,8 +157,6 @@ impl TradeArchive {
 
         let mut count = 0;
         let mut total_files = -1;
-
-        kdam::set_notebook(true);
 
         for i in 0..ndays {
             if force
