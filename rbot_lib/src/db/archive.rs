@@ -146,7 +146,7 @@ impl TradeArchive {
         T: RestApi,
     {
         let mut date = FLOOR_DAY(NOW());
-        let mut bar = PyFileBar::new(ndays);
+        let mut bar = PyFileBar::new();
 
         if verbose {
             bar.print(&format!(
@@ -165,6 +165,7 @@ impl TradeArchive {
                 if total_files == -1 {
                     total_files = ndays - i;
 
+                    bar.init(total_files, true, true);
                     bar.set_total_files(total_files);
                 }
 
