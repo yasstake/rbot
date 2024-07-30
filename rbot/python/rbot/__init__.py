@@ -23,12 +23,12 @@ print("All rights reserved. (c) 2022-2024 rbot(rusty-bot) developers / yasstake"
 
 
 def mount_google_drive(rbot_path = 'RUSTY-BOT'):
-    if 'google.clab' in sys.modules:
+    import sys
+    if 'google.colab' in sys.modules:
         from google.colab import drive
-        target = '/content/drive/' + rbot_path
+        target = '/content/drive/'
         drive.mount(target)
-        rbot.set_db_root(target)
-        print('rbot db is created in [' + target + ']')
+        rbot.set_db_root(target + rbot_path)
+        print('rbot db path is  [' + target + "/" + rbot_path + ']')
     else:
         print('NOT running on Google Colab')
-
