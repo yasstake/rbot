@@ -683,6 +683,10 @@ impl Runner {
                 self.last_print_tick_time = self.last_timestamp;
             }
         }
+        for line in get_agent_message() {
+            bar.print(&line);
+        }
+
         self.print_run_result(loop_start_time);
 
         Ok(py_session)
