@@ -532,9 +532,11 @@ impl Runner {
 
         let duration = microsec_to_sec(self.backtest_end_time - self.backtest_start_time);
         //let mut bar= RunningBar::new(duration);
-        let mut bar = PyRunningBar::new(duration);
+        let mut bar = PyRunningBar::new();
 
         if self.verbose {
+            bar.init(duration, true, true);
+
             if production {
                 bar.print("========= CONNECT PRODUCTION NET  ==========");
             } else {

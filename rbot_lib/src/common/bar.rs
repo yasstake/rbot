@@ -10,6 +10,7 @@ use pyo3::{
 
 use super::{calc_class, is_notebook, MarketConfig};
 
+
 const PY_TQDM_PYTHON: &str = r#"
 from tqdm import tqdm
 "#;
@@ -99,10 +100,24 @@ class FileBar:
 
 pub struct PyFileBar {
     bar: Py<PyAny>,
+    enable: bool,
+    verbose_print: bool,
 }
 
 impl PyFileBar {
-    pub fn new(total_files: i64) -> Self {
+    pub fn new() -> Self {
+        let none = Python::with_gil(|py|{
+            Python::None(py)
+        });
+
+        Self {
+            bar: none,
+            enable: false,
+            verbose_print: false
+        }
+    }
+
+    pub fn init(&mut self, total_files: i64, enable: bool, verbose_print: bool) {
         let py_script = if is_notebook() {
             format!("{}{}", PY_TQDM_NOTEBOOK, PY_FILE_BAR)
         } else {
@@ -122,13 +137,16 @@ impl PyFileBar {
             let progress_class = py_module.getattr("FileBar").unwrap();
             let bar = progress_class.call1((total_files,)).unwrap();
 
-            Self { bar: bar.into() }
+            self.bar = bar.into();
+            self.enable = enable;
+            self.verbose_print = verbose_print;
         });
-
-        bar
     }
 
     pub fn set_file_progress(&mut self, n: i64) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -137,6 +155,9 @@ impl PyFileBar {
     }
 
     pub fn set_total_files(&mut self, total_files: i64) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -146,6 +167,9 @@ impl PyFileBar {
 
 
     pub fn next_file(&mut self, file_name: &str, size: i64) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -154,6 +178,9 @@ impl PyFileBar {
     }
 
     pub fn set_file_size(&mut self, size: i64) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -162,11 +189,21 @@ impl PyFileBar {
     }
 
     pub fn print(&mut self, m: &str) {
+        if ! self.verbose_print {
+            return;
+        }
+
         let bar = self.bar.borrow_mut();
 
+
         Python::with_gil(|py| {
-            bar.call_method1(py, "print", (m,)).unwrap();
-        })
+            if self.enable {
+                bar.call_method1(py, "print", (m,)).unwrap();
+            }
+            else {
+                println!("{}", m);
+            }
+        });
     }
 }
 
@@ -210,10 +247,24 @@ class ProgressBar:
 
 pub struct PyRunningBar {
     bar: Py<PyAny>,
+    enable: bool,
+    verbose_print: bool,
 }
 
 impl PyRunningBar {
-    pub fn new(total_duration: i64) -> PyRunningBar {
+    pub fn new() -> Self {
+        let none = Python::with_gil(|py|{
+            Python::None(py)
+        });
+
+        Self {
+            bar: none,
+            enable: false,
+            verbose_print: false
+        }
+    }
+
+    pub fn init(&mut self, total_duration: i64, enable: bool, verbose_print: bool) {
         let py_script = if is_notebook() {
             format!("{}{}", PY_TQDM_NOTEBOOK, PY_RUNNING_BAR)
         } else {
@@ -233,13 +284,17 @@ impl PyRunningBar {
             let progress_class = py_module.getattr("ProgressBar").unwrap();
             let bar = progress_class.call1((total_duration,)).unwrap();
 
-            Self { bar: bar.into() }
+            self.bar = bar.into();
+            self.enable = enable;
+            self.verbose_print = verbose_print;
         });
-
-        bar
     }
 
     pub fn set_progress(&mut self, n: i64) {
+        if ! self.enable {
+            return;
+        }
+
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -248,6 +303,9 @@ impl PyRunningBar {
     }
 
     pub fn message(&mut self, m: &str) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -256,6 +314,9 @@ impl PyRunningBar {
     }
 
     pub fn order(&mut self, m: &str) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -264,6 +325,9 @@ impl PyRunningBar {
     }
 
     pub fn profit(&mut self, m: &str) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
@@ -273,11 +337,19 @@ impl PyRunningBar {
 
 
     pub fn print(&mut self, m: &str) {
+        if ! self.enable {
+            return;
+        }
         let bar = self.bar.borrow_mut();
 
-        Python::with_gil(|py| {
-            bar.call_method1(py, "print", (m,)).unwrap();
-        })
+        if self.verbose_print {
+            Python::with_gil(|py| {
+                bar.call_method1(py, "print", (m,)).unwrap();
+            })
+        }
+        else {
+            println!("{}", m);
+        }
     }
 }
 
@@ -290,7 +362,8 @@ mod test_bar {
 
     #[test]
     fn test_py_filebar() {
-        let mut bar = PyFileBar::new(10);
+        let mut bar = PyFileBar::new();
+        bar.init(10, true, true);
 
         bar.set_total_files(11);
 
@@ -310,7 +383,8 @@ mod test_bar {
 
     #[test]
     fn test_init_bar() {
-        let mut bar = PyRunningBar::new(1000);
+        let mut bar = PyRunningBar::new();
+        bar.init(1000, true, true);
 
         bar.set_progress(100);
         bar.message("NOW IN PROGRESS");
