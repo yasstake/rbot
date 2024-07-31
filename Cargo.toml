@@ -1,23 +1,49 @@
-#[package]
-#name = "rbot"
-#version = "0.3.1"
-#edition = "2021"
+[package]
+name = "rbot"
+version = "0.1.5"       # for test pypi
+# version = "0.4.0"     # for main release branch
+edition = "2021"
+exclude = ["test/**"]
+
+[lib]
+name = "rbot"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bybit = {path = "exchanges/bybit"}
+# binance = {path = "exchanges/binance"}
+
+rbot_lib = {path="modules/rbot_lib"}
+rbot_session = {path="modules/rbot_session"}
+rbot_server = {path="modules/rbot_server"}
+rbot_market = {path="modules/rbot_market"}
+
+
+
+# https://pyo3.rs/v0.13.2/faq
+[dependencies.pyo3]
+version = "0.21.2"
+features = ["rust_decimal", "auto-initialize", "abi3-py38", "anyhow"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+#default = ["extension-module"]
 
 
 [workspace]
 
+
 members = [
-    "rbot",
-    "rbot_lib",
-    "rbot_market",
-    "rbot_session",
-    "rbot_server",
-    "rbot_blockon",
-    "rbot_server", 
-    "rbot_blockon",
+    "modules/rbot_lib",
+    "modules/rbot_market",
+    "modules/rbot_session",
+    "modules/rbot_server",
+    "modules/rbot_blockon",
+    "modules/rbot_server",
+    "modules/rbot_blockon",
     "exchanges/bitbank",
     "exchanges/bitflyer",
-    "exchanges/bybit", 
+    "exchanges/bybit",
 ]
 
 resolver = "2"
@@ -25,13 +51,13 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 
+
 [workspace.dependencies]
-rbot = { path = "./rbot" }
-rbot_lib = { path = "./rbot_lib" }
-rbot_blockon = { path = "./rbot_blockon" }
-rbot_session = { path = "./rbot_session" }
-rbot_market = { path = "./rbot_market" }
-rbot_server = { path = "./rbot_server" }
+rbot_lib = {path="modules/rbot_lib"}
+rbot_session = {path="modules/rbot_session"}
+rbot_server = {path="modules/rbot_server"}
+rbot_market = {path="modules/rbot_market"}
+rbot_blockon = {path="modules/rbot_blockon"}
 
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
@@ -69,13 +95,13 @@ tokio-stream = { version = "0.1.14" }
 async-trait = {version="0.1.81"}
 
 rusqlite = { version = "0.32.0", features = ["bundled"] }
-    
+
 polars = { version = "0.41.3", features = [
-        "lazy", 
-        "ndarray", 
-        "dtype-time", 
+        "lazy",
+        "ndarray",
+        "dtype-time",
         "object",
-         "round_series", 
+         "round_series",
          "temporal",
          "pivot",
          "dynamic_group_by",
@@ -97,8 +123,6 @@ parquet = "52.1.0"
 
 ndarray = { version = "0.15" }
 numpy = { version = "0.21.0" }
-
-apache-avro = "0.16.0"
 
 reqwest = { version = "0.12.2", features = ["blocking", "gzip", "stream"] }
 futures = { version = "0.3" }

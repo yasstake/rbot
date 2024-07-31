@@ -1,3 +1,0 @@
-// Copyright(c) 2022-2024. yasstake. All rights reserved.
-// ABSOLUTELY NO WARRANTY
-// Distributed under LGPL license.

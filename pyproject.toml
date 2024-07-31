@@ -24,7 +24,7 @@ Documentation = "https://github.com/yasstake/rusty-bot"
 Repository = "https://github.com/yasstake/rbot"
 
 [tool.maturin]
-python-source = "rbot/python"
+python-source = "python"
 
 [tool.setuptools.packages.find]
 exclude = ["build", "tests", "test"]

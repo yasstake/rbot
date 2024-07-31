@@ -22,7 +22,7 @@ jobs:
         manylinux: auto
         command: build
         sccache: 'true'
-        args: -vv -m ./rbot/Cargo.toml -o dist --find-interpreter --features "extension-module"
+        args: -vv -m ./Cargo.toml -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
