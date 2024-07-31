@@ -171,6 +171,7 @@ impl TradeArchive {
 
                 let url = api.history_web_url(&self.config, date);
                 bar.next_file(&url, 10_000);
+                bar.print(&url);
 
                 let mut file_size = 0;
 
@@ -186,8 +187,6 @@ impl TradeArchive {
                         }
                     })
                     .await?;
-
-                bar.print(&url);
             }
              else {
                 if verbose {
@@ -200,7 +199,7 @@ impl TradeArchive {
         self.analyze()?;
 
         if verbose {
-            bar.print(&format!("Arvhied data: from:[{}] to:[{}]",
+            bar.print(&format!("Archived data: from:[{}] to:[{}]",
                 time_string(self.start_time()?), time_string(self.end_time()?))
         );
         }

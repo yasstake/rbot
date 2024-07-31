@@ -504,7 +504,16 @@ impl Session {
         })
     }
     
-    pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+    pub fn market_order(&mut self, side: String, size: Decimal) -> Result<Vec<Order>, PyErr> {
+        let new_size = self.market_config.round_size(size);
+        if new_size.is_err() {
+            log::warn!("market order size trunc into zero {:?} -> {:?}", size, new_size);
+
+            return Ok(vec![])
+        }
+
+        let size = new_size.unwrap();
+
         if OrderSide::from(&side) == OrderSide::Buy {
             self.market_buy_count += 1;
         }
@@ -519,19 +528,37 @@ impl Session {
         }
     }
 
-    pub fn real_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
+    pub fn real_market_order(&mut self, side: String, size: Decimal) -> Result<Vec<Order>, PyErr> {
         log::debug!("market_order: side={:}, size={}", &side, size);
-        let size = self.market_config.round_size(size)?;
 
         let local_id = self.new_order_id();
 
-        Python::with_gil(|py| {
-            self.exchange.call_method1(
+        let r = Python::with_gil(|py| {
+            let result = self.exchange.call_method1(
                 py,
                 "market_order",
                 (self.market_config.clone(), side, size, local_id),
-            )
-        })
+            );
+
+            match result {
+                // if success update order list
+                Ok(order) => {
+                    let orders: Vec<Order> = order.extract(py).unwrap();
+
+                    return Ok(orders);
+                }
+                Err(e) => {
+                    log::error!(
+                        "market_order error: {:?}  / sizeorg={:?}",
+                        e,
+                        size
+                    );
+                    return Err(e);
+                }
+            }
+        });
+
+        r
     }
 
     pub fn calc_dummy_execute_price_by_slip(&mut self, side: OrderSide) -> Decimal {
@@ -553,8 +580,7 @@ impl Session {
         return execute_price;
     }
 
-    pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size = self.market_config.round_size(size)?;
+    pub fn dry_market_order(&mut self, side: String, size: Decimal) -> Result<Vec<Order>, PyErr> {
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -580,11 +606,10 @@ impl Session {
 
         self.push_dummy_q(&order.clone());
 
-        Python::with_gil(|py| Ok(order.into_py(py)))
+        Ok(order)
     }
 
-    pub fn dummy_market_order(&mut self, side: String, size: Decimal) -> Result<Py<PyAny>, PyErr> {
-        let size = self.market_config.round_size(size)?;
+    pub fn dummy_market_order(&mut self, side: String, size: Decimal) -> Result<Vec<Order>, PyErr> {
 
         let local_id = self.new_order_id();
         let order_side = OrderSide::from(&side);
@@ -616,9 +641,7 @@ impl Session {
         let orders = vec![order];
         self.push_dummy_q(&orders);
 
-        Python::with_gil(|py| {
-            return Ok(orders.into_py(py));
-        })
+        Ok(orders)
     }
 
     pub fn limit_order(
@@ -627,6 +650,12 @@ impl Session {
         price: Decimal,
         size: Decimal,
     ) -> Result<Vec<Order>, PyErr> {
+        let new_size = self.market_config.round_size(size);
+        if new_size.is_err() {
+            log::warn!("limit order size trunc into zero {:?} -> {:?}", size, new_size);
+            return Ok(vec![])
+        }
+
         if OrderSide::from(&side) == OrderSide::Buy {
             self.limit_buy_count += 1;
         }
