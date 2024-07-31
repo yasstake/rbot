@@ -150,6 +150,31 @@ impl BybitConfig {
     }
 
     #[classattr]
+    pub fn ETHUSDT() -> MarketConfig {
+        let config = MarketConfig::new(
+            BYBIT,
+            "linear",
+            "ETH",
+            "USDT",            
+            0.01,
+            PriceType::Home,
+            0.01,
+            200,
+            0.1,
+            0.00_01,
+            0.00_01,
+            FeeType::Home,
+            vec![
+                "publicTrade.ETHUSDT".to_string(),
+                "orderbook.200.ETHUSDT".to_string(),
+            ],
+            None
+        );
+
+        config
+    }
+
+    #[classattr]
     pub fn BTCUSDC() -> MarketConfig {
         let mut config = MarketConfig::new(
             BYBIT,
@@ -176,30 +201,6 @@ impl BybitConfig {
     }
 
 
-    #[classattr]
-    pub fn ETHUSDT() -> MarketConfig {
-        let config = MarketConfig::new(
-            BYBIT,
-            "linear",
-            "ETH",
-            "USDT",            
-            0.01,
-            PriceType::Home,
-            0.01,
-            200,
-            0.1,
-            0.00_01,
-            0.00_01,
-            FeeType::Home,
-            vec![
-                "publicTrade.ETHUSDT".to_string(),
-                "orderbook.200.ETHUSDT".to_string(),
-            ],
-            None
-        );
-
-        config
-    }
 
     #[classattr]
     pub fn ETHUSDC() -> MarketConfig {
