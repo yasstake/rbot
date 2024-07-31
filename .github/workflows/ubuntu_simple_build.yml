@@ -8,12 +8,12 @@ env:
   PYTHON_VERSION: '3.8'
   
 jobs:
-  linux:
+  linux-simple:
     runs-on: ubuntu-latest
     steps:
     - name: apt-get-update
       run: sudo apt-get update
-    - uses: actions/setup-python@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: ${{ env.PYTHON_VERSION }}
     - uses: actions/checkout@v4
