@@ -12,14 +12,6 @@ def terminate(_a, _b):
     
 signal.signal(signal.SIGINT, terminate)
 
-print("rbot version: ", rbot.__version__)
-print("!!! ABSOLUTELY NO WARRANTY. USE AT YOUR OWN RISK !!!")
-print("For some exchange, an affliate or referer link may be included.")
-print("Distributed under LGPL license. https://www.gnu.org/licenses/lgpl-3.0.txt")
-print("See the document at https://github.com/yasstake/rusty-bot")
-print("All rights reserved. (c) 2022-2024 rbot(rusty-bot) developers / yasstake")
-
-
 
 
 def mount_google_drive(rbot_path = 'RUSTY-BOT'):
@@ -32,3 +24,12 @@ def mount_google_drive(rbot_path = 'RUSTY-BOT'):
         print('rbot db path is  [' + target + "/" + rbot_path + ']')
     else:
         print('NOT running on Google Colab')
+
+
+print("rbot version: ", rbot.__version__)
+print("!!! ABSOLUTELY NO WARRANTY. USE AT YOUR OWN RISK !!!")
+print("For some exchange, an affliate or referer link may be included.")
+print("Distributed under LGPL license. https://www.gnu.org/licenses/lgpl-3.0.txt")
+print("See the document at https://github.com/yasstake/rusty-bot")
+print("All rights reserved. (c) 2022-2024 rbot(rusty-bot) developers / yasstake")
+
