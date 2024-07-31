@@ -77,16 +77,6 @@ impl TradeDataFrame {
         }
 
         let trade_dataframe = TradeDataFrame::open(config, production)?;
-
-        /* TODO: Consider if multiprocess access the same database
-        log::debug!("vaccum start {:?}", config.key_string(production));
-        let r = trade_dataframe.vacuum();
-        if r.is_err() {
-            log::warn!("db vaccum error {:?}", r);
-        }
-        log::debug!("vaccum end");
-        */
-
         let trade_data_frame = insert_trade_dataframe_cache(config, production, trade_dataframe)?;
 
         Ok(trade_data_frame)

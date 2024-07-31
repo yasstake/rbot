@@ -20,8 +20,9 @@ def mount_google_drive(rbot_path = 'RUSTY-BOT'):
         from google.colab import drive
         target = '/content/drive/'
         drive.mount(target)
-        rbot.set_db_root(target + rbot_path)
-        print('rbot db path is  [' + target + "/" + rbot_path + ']')
+        drive_path = target + 'MyDrive' + '/' +  rbot_path
+        rbot.set_db_root(drive_path)
+        print('rbot db path is  [' + drive_path  + ']')
     else:
         print('NOT running on Google Colab')
 
