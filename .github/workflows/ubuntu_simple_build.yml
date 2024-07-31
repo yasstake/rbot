@@ -38,7 +38,7 @@ jobs:
             apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd 
           fi
     - name: Upload wheels
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: wheels
         path: dist
