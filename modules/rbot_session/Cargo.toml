@@ -1,0 +1,46 @@
+[package]
+name = "rbot_session"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rbot_lib = {workspace = true}
+rbot_market = {workspace = true}
+rbot_server = {workspace = true}
+#rbot_server = {path = "../rbot_server"}
+
+anyhow = {workspace = true}
+
+rust_decimal = {workspace = true}
+rust_decimal_macros = {workspace = true}
+
+polars = {workspace=true}
+pyo3-polars = {workspace=true}
+
+serde = {workspace = true}
+serde_derive = {workspace = true}
+serde_json = {workspace = true}
+serde_with = {workspace = true}
+
+
+futures = {workspace = true}
+
+log = {workspace = true}
+env_logger = {workspace = true}
+
+crossbeam-channel = {workspace = true}
+
+async-stream = {workspace = true}
+
+tokio={workspace = true}
+
+# https://pyo3.rs/v0.13.2/faq
+[dependencies.pyo3]
+version = "0.21.2"
+features = ["rust_decimal", "auto-initialize", "abi3-py38", "anyhow"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+

@@ -13,10 +13,10 @@ crate-type = ["cdylib", "rlib"]
 bybit = {path = "exchanges/bybit"}
 # binance = {path = "exchanges/binance"}
 
-rbot_lib = {path="lib/rbot_lib"}
-rbot_session = {path="lib/rbot_session"}
-rbot_server = {path="lib/rbot_server"}
-rbot_market = {path="lib/rbot_market"}
+rbot_lib = {path="modules/rbot_lib"}
+rbot_session = {path="modules/rbot_session"}
+rbot_server = {path="modules/rbot_server"}
+rbot_market = {path="modules/rbot_market"}
 
 
 
@@ -34,13 +34,13 @@ extension-module = ["pyo3/extension-module"]
 
 
 members = [
-    "lib/rbot_lib",
-    "lib/rbot_market",
-    "lib/rbot_session",
-    "lib/rbot_server",
-    "lib/rbot_blockon",
-    "lib/rbot_server",
-    "lib/rbot_blockon",
+    "modules/rbot_lib",
+    "modules/rbot_market",
+    "modules/rbot_session",
+    "modules/rbot_server",
+    "modules/rbot_blockon",
+    "modules/rbot_server",
+    "modules/rbot_blockon",
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit",
@@ -53,11 +53,11 @@ edition = "2021"
 
 
 [workspace.dependencies]
-rbot_lib = {path="lib/rbot_lib"}
-rbot_session = {path="lib/rbot_session"}
-rbot_server = {path="lib/rbot_server"}
-rbot_market = {path="lib/rbot_market"}
-rbot_blockon = {path="lib/rbot_blockon"}
+rbot_lib = {path="modules/rbot_lib"}
+rbot_session = {path="modules/rbot_session"}
+rbot_server = {path="modules/rbot_server"}
+rbot_market = {path="modules/rbot_market"}
+rbot_blockon = {path="modules/rbot_blockon"}
 
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
