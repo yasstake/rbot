@@ -21,7 +21,8 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: -vv -m ./rbot/Cargo.toml --release -o dist --find-interpreter --features "extension-module"
+        sccache: 'true'
+        args: -vv -m ./rbot/Cargo.toml -o dist --find-interpreter --features "extension-module"
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
