@@ -23,8 +23,6 @@ members = [
 resolver = "2"
 
 [workspace.package]
-name = "rbot"
-version = "0.3.2"
 edition = "2021"
 
 [workspace.dependencies]

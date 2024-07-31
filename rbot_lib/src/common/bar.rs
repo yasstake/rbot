@@ -124,7 +124,7 @@ impl PyFileBar {
             format!("{}{}", PY_TQDM_PYTHON, PY_FILE_BAR)
         };
 
-        let bar = Python::with_gil(|py| {
+        Python::with_gil(|py| {
             let py_module =
                 PyModule::from_code_bound(py, &py_script, "py_file_bar.py", "py_file_bar");
 
@@ -150,7 +150,8 @@ impl PyFileBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "set_file_progress", (n,)).unwrap();
+            // ignore err.
+            let _r = bar.call_method1(py, "set_file_progress", (n,));
         })
     }
 
@@ -161,7 +162,7 @@ impl PyFileBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "set_total_files", (total_files,)).unwrap();
+            let _r = bar.call_method1(py, "set_total_files", (total_files,));
         })
     }
 
@@ -173,7 +174,7 @@ impl PyFileBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "next_file", (file_name, size,)).unwrap();
+            let _r = bar.call_method1(py, "next_file", (file_name, size,));
         })
     }
 
@@ -184,7 +185,7 @@ impl PyFileBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "set_file_size", (size,)).unwrap();
+            let _r = bar.call_method1(py, "set_file_size", (size,));
         })
     }
 
@@ -198,7 +199,7 @@ impl PyFileBar {
 
         Python::with_gil(|py| {
             if self.enable {
-                bar.call_method1(py, "print", (m,)).unwrap();
+                let _r = bar.call_method1(py, "print", (m,));
             }
             else {
                 println!("{}", m);
@@ -271,7 +272,7 @@ impl PyRunningBar {
             format!("{}{}", PY_TQDM_PYTHON, PY_RUNNING_BAR)
         };
 
-        let bar = Python::with_gil(|py| {
+        Python::with_gil(|py| {
             let py_module =
                 PyModule::from_code_bound(py, &py_script, "py_running_bar.py", "py_running_bar");
 
@@ -298,7 +299,7 @@ impl PyRunningBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "set_progress", (n,)).unwrap();
+            let _r = bar.call_method1(py, "set_progress", (n,));
         })
     }
 
@@ -309,7 +310,7 @@ impl PyRunningBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "print_message", (m,)).unwrap();
+            let _r = bar.call_method1(py, "print_message", (m,));
         })
     }
 
@@ -320,7 +321,7 @@ impl PyRunningBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "print_order", (m,)).unwrap();
+            let _r = bar.call_method1(py, "print_order", (m,));
         })
     }
 
@@ -331,7 +332,7 @@ impl PyRunningBar {
         let bar = self.bar.borrow_mut();
 
         Python::with_gil(|py| {
-            bar.call_method1(py, "print_profit", (m,)).unwrap();
+            let _r = bar.call_method1(py, "print_profit", (m,));
         })
     }
 
@@ -344,7 +345,7 @@ impl PyRunningBar {
 
         if self.verbose_print {
             Python::with_gil(|py| {
-                bar.call_method1(py, "print", (m,)).unwrap();
+                let _r = bar.call_method1(py, "print", (m,));
             })
         }
         else {

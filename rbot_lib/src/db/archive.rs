@@ -732,7 +732,7 @@ mod archive_test {
         let file = log_download_tmp(
             "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2024-07-16.csv.gz",
             path,
-            |count, content_len| {
+            |count, _content_len| {
                 println!("{}", count);
             },
         )

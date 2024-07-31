@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "rbot"
 authors = [{name="@yasstake"}]
-description = "crypt trading framework, support back_test, dry_run and real_run"
+description = "Real TICK BASED crypt trading framework, support back_test, dry_run and real_run"
 readme="README.md"
 license = { file = "LICENSE.txt" }
 
@@ -24,7 +24,7 @@ Documentation = "https://github.com/yasstake/rusty-bot"
 Repository = "https://github.com/yasstake/rbot"
 
 [tool.maturin]
-python-source = "python"
+python-source = "rbot/python"
 
 [tool.setuptools.packages.find]
 exclude = ["build", "tests", "test"]
