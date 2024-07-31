@@ -29,7 +29,7 @@ class FileBar:
         self.total_files = total_files
         self.last_progress = 0
 
-        self.file_progress = tqdm(total=0, position=2, delay=2, bar_format="       ({percentage:3.0f}%) |{bar}| {postfix:>} {n_fmt:>8}/{total_fmt} {rate_fmt}",
+        self.file_progress = tqdm(total=0, position=2, delay=2, bar_format="      ({percentage:3.0f}%) |{bar}| {postfix:>} {n_fmt:>8}/{total_fmt} {rate_fmt}",
           unit="B", unit_scale=True
         )
         self.last_file_progress = 0
