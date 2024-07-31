@@ -19,6 +19,16 @@ classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     ]
 
+[project.urls]
+Documentation = "https://github.com/yasstake/rusty-bot"
+Repository = "https://github.com/yasstake/rbot"
+
+[tool.maturin]
+python-source = "python"
+
+[tool.setuptools.packages.find]
+exclude = ["build", "tests", "test"]
+
 dependencies = [
     "pyarrow",
     "polars",
@@ -29,14 +39,3 @@ dependencies = [
     "json2html",
     "tqdm"    
 ]
-
-[project.urls]
-Documentation = "https://github.com/yasstake/rusty-bot"
-Repository = "https://github.com/yasstake/rbot"
-
-
-[tool.maturin]
-python-source = "python"
-
-[tool.setuptools.packages.find]
-exclude = ["build", "tests"]
