@@ -25,6 +25,7 @@ Repository = "https://github.com/yasstake/rbot"
 
 [tool.maturin]
 python-source = "python"
+module-name = "rbot._rbot"
 
 [tool.setuptools.packages.find]
 exclude = ["build", "tests", "test"]
