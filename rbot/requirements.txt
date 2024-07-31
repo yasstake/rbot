@@ -1,7 +1,0 @@
-pyarrow
-polars
-plotly
-nbformat
-numpy
-pandas
-json2html
