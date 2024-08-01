@@ -25,9 +25,9 @@ use crossbeam_channel::Sender;
 
 use crate::common::LogStatus;
 use crate::common::OrderSide;
+use crate::common::Trade;
 use crate::common::SEC;
 use crate::common::{time_string, MicroSec, CEIL, DAYS, FLOOR_SEC, NOW};
-use crate::common::Trade;
 use crate::db::df::TradeBuffer;
 
 use super::db_full_path;
@@ -213,6 +213,13 @@ impl TradeDb {
             LogStatus::ExpireControl
         };
 
+        let start_time = if start_time < 0 {
+            log::warn!("expire control message with minus time {}", start_time);
+            0
+        } else {
+            start_time
+        };
+
         let mut trades: Vec<Trade> = vec![];
         let t = Trade::new(
             start_time,
@@ -321,8 +328,7 @@ impl TradeDb {
         return Ok(true);
     }
 
-    pub fn open(config: &MarketConfig, production: bool) -> anyhow::Result<Self> 
-    {
+    pub fn open(config: &MarketConfig, production: bool) -> anyhow::Result<Self> {
         let db_path = db_full_path(
             &config.exchange_name,
             &config.trade_category,
@@ -333,7 +339,7 @@ impl TradeDb {
         let create_new = Self::is_db_file_exsist(&db_path);
 
         let conn = Connection::open(db_path)?;
-        
+
         if create_new {
             conn.pragma_update(None, "journal_mode", "wal")?;
         }
@@ -393,8 +399,7 @@ impl TradeDb {
         self.handle = Some(handle);
 
         return Ok(self.tx.clone().unwrap());
-      
-    } 
+    }
 
     /// check if database file is exsit
     fn is_db_file_exsist(path: &PathBuf) -> bool {
@@ -482,7 +487,7 @@ impl TradeDb {
         Ok(())
     }
 
-    /* 
+    /*
     fn recreate_table(&mut self) -> anyhow::Result<()> {
         self.create_table_if_not_exists()?;
         self.drop_table()?;
@@ -610,38 +615,45 @@ impl TradeDb {
         return Ok(trades);
     }
 
-
     /// Retrieves the earliest time stamp from the trades table in the SQLite database.
     /// Returns a Result containing the earliest time stamp as a MicroSec value, or an Error if the query fails.
-    pub fn start_time(&self) -> anyhow::Result<MicroSec> {
-        let sql = "select time_stamp from trades order by time_stamp asc limit 1";
+    pub fn start_time(&self, since_time: MicroSec) -> MicroSec {
+        let sql = "select time_stamp from trades where $1 < time_stamp order by time_stamp asc limit 1";
 
-        let r = self
-            .connection
-            .query_row(sql, [], |row| {
-                let min: i64 = row.get(0)?;
-                Ok(min)
-            })
-            .with_context(|| format!("start_time select error"))?;
+        let r = self.connection.query_row(sql, [since_time], |row| {
+            let min: i64 = row.get(0)?;
+            Ok(min)
+        });
+        let time = if r.is_ok() {
+            r.unwrap()
+        } else {
+            log::warn!("no data in db");
+            0
+        };
 
-        return Ok(r);
+        return time;
     }
 
     /// select max(end) time_stamp in db
-    pub fn end_time(&self, search_from: MicroSec) -> anyhow::Result<MicroSec> {
+    /// returns 0 for no data.
+    pub fn end_time(&self, search_from: MicroSec) -> MicroSec {
         // let sql = "select max(time_stamp) from trades";
         let sql =
             "select time_stamp from trades where $1 < time_stamp order by time_stamp desc limit 1";
 
-        let r = self
-            .connection
-            .query_row(sql, [search_from], |row| {
-                let max: i64 = row.get(0)?;
-                Ok(max)
-            })
-            .with_context(|| format!("end_time select error"))?;
+        let r = self.connection.query_row(sql, [search_from], |row| {
+            let max: i64 = row.get(0)?;
+            Ok(max)
+        });
 
-        return Ok(r);
+        let time = if r.is_ok() {
+            r.unwrap()
+        } else {
+            log::warn!("no data in db");
+            0
+        };
+
+        return time;
     }
 
     /// Find un-downloaded data time chunks.
@@ -678,12 +690,11 @@ impl TradeDb {
         _end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
-        let db_start_time = match self.start_time() {
-            Ok(t) => t,
-            Err(_e) => {
-                return vec![];
-            }
-        };
+        let db_start_time = self.start_time(0);
+
+        if db_start_time == 0 {
+            return vec![];
+        }
 
         if start_time + allow_size <= db_start_time {
             log::debug!(
@@ -706,12 +717,11 @@ impl TradeDb {
         end_time: MicroSec,
         allow_size: MicroSec,
     ) -> Vec<TimeChunk> {
-        let mut db_end_time = match self.end_time(0) {
-            Ok(t) => t,
-            Err(_e) => {
-                return vec![];
-            }
-        };
+        let mut db_end_time = self.end_time(0);
+
+        if db_end_time == 0 {
+            return vec![];
+        }
 
         if db_end_time < start_time {
             db_end_time = start_time;
@@ -829,8 +839,15 @@ impl TradeDb {
                 end: start_time,
             }]
         } else {
-            let start_time = self.start_time().unwrap_or(NOW());
-            let end_time = self.end_time(0).unwrap_or(NOW());
+            let now = NOW();
+            let mut start_time = self.start_time(0);
+            if start_time == 0 {
+                start_time = now;
+            }
+            let mut end_time = self.end_time(0);
+            if end_time == 0 {
+                end_time = now;
+            }
 
             let mut time_chunk: Vec<TimeChunk> = vec![];
 
@@ -859,11 +876,7 @@ impl TradeDb {
 
         return days_gap;
     }
-
-
-
 }
-
 
 /*
 #[cfg(test)]
