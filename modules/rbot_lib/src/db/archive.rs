@@ -98,31 +98,23 @@ impl TradeArchive {
         log::debug!(
             "S: {:?} ({:?})",
             my.start_time(),
-            time_string(my.start_time().unwrap_or_default())
+            time_string(my.start_time())
         );
         log::debug!(
             "E: {:?} ({:?})",
             my.end_time(),
-            time_string(my.end_time().unwrap_or_default())
+            time_string(my.end_time())
         );
 
         return my;
     }
 
-    pub fn start_time(&self) -> anyhow::Result<MicroSec> {
-        if self.start_time == 0 {
-            return Err(anyhow!("no data in archive"));
-        }
-
-        Ok(self.start_time)
+    pub fn start_time(&self) -> MicroSec {
+        self.start_time
     }
 
-    pub fn end_time(&self) -> anyhow::Result<MicroSec> {
-        if self.end_time == 0 {
-            return Err(anyhow!("no data in archive"));
-        }
-
-        Ok(self.end_time)
+    pub fn end_time(&self) -> MicroSec {
+        self.end_time
     }
 
     // check if the log data is already stored in local.
@@ -200,7 +192,7 @@ impl TradeArchive {
 
         if verbose {
             bar.print(&format!("Archived data: from:[{}] to:[{}]",
-                time_string(self.start_time()?), time_string(self.end_time()?))
+                time_string(self.start_time()), time_string(self.end_time()))
         );
         }
 
@@ -294,20 +286,20 @@ impl TradeArchive {
     pub fn load_cache_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
         let date = FLOOR_DAY(date);
 
-        if date < self.start_time()? {
+        if date < self.start_time() {
             log::warn!(
                 "Not found in archive[too early] query={:?} < start_time{:?}",
                 date_string(date),
-                date_string(self.start_time()?)
+                date_string(self.start_time())
             );
             return Ok(Self::make_empty_cachedf());
         }
 
-        if self.end_time()? <= date {
+        if self.end_time() <= date {
             log::warn!(
                 "Not found in archive[too new] query={:?} >= end_time{:?}",
                 date_string(date),
-                date_string(self.end_time()?)
+                date_string(self.end_time())
             );
             return Ok(Self::make_empty_cachedf());
         }
@@ -396,14 +388,14 @@ impl TradeArchive {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<Vec<MicroSec>> {
-        let start_time = if start_time == 0 || start_time < self.start_time()? {
-            self.start_time()?
+        let start_time = if start_time == 0 || start_time < self.start_time() {
+            self.start_time()
         } else {
             FLOOR_DAY(start_time)
         };
 
-        let end_time = if end_time == 0 || self.end_time()? <= end_time {
-            FLOOR_DAY(self.end_time()? - 1)
+        let end_time = if end_time == 0 || self.end_time() <= end_time {
+            FLOOR_DAY(self.end_time() - 1)
         } else {
             FLOOR_DAY(end_time)
         };

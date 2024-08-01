@@ -700,13 +700,6 @@ impl BinanceMarket {
             trades[0].status = LogStatus::FixRestApiStart;
             trades[l - 1].status = LogStatus::FixRestApiEnd;
 
-            /*
-            Binanceではklineから作ったデータは存在しないので削除不要
-            let expire_message =
-                TradeTableDb::expire_control_message(trades[0].time, trades[l - 1].time);
-
-            tx.send(expire_message)?;
-            */
             tx.send(trades)?;
 
             insert_len += l as i64;

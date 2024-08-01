@@ -247,8 +247,13 @@ impl BybitMarket {
     }
 
     #[getter]
-    fn get_archive_info(&self) -> (MicroSec, MicroSec) {
+    fn get_archive_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
         MarketImpl::get_archive_info(self)
+    }
+
+    #[getter]
+    fn get_db_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
+        MarketImpl::get_db_info(self)
     }
 
     fn reset_cache_duration(&mut self) {
