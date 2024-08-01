@@ -356,15 +356,26 @@ where
         lock.update_cache_all()
     }
 
-    fn get_archive_info(&self) -> (MicroSec, MicroSec) {
+    fn get_archive_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
         let db = self.get_db();
         let lock = db.lock().unwrap();
 
-        let start_time = lock.archive_start_time();
-        let end_time = lock.archive_end_time();
+        let start_time = lock.get_archive_start_time();
+        let end_time = lock.get_archive_end_time();
 
-        (start_time, end_time)
+        Ok((start_time, end_time))
     }
+
+    fn get_db_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
+        let db = self.get_db();
+        let lock = db.lock().unwrap();
+
+        let start_time = lock.get_db_start_time(0);
+        let end_time = lock.get_db_end_time(0);
+
+        Ok((start_time, end_time))
+    }
+
 
     fn select_trades(
         &mut self,
@@ -604,9 +615,17 @@ where
     {
         let db = self.get_db();
         let api = self.get_restapi();
-        let mut lock =  db.lock().unwrap();
+        let lock =  db.lock();
+
+        if lock.is_err() {
+            log::error!("db get lock failure ");
+            return Err(anyhow!("db get lock error"));
+        }
+
+        let mut lock = lock.unwrap();
+        
         let count = lock.download_archive(api, ndays, force, verbose).await?;
-        let archive_end = lock.archive_end_time();
+        let archive_end = lock.get_archive_end_time();
 
         if archive_end != 0 {
             let expire = TradeDb::expire_control_message(0, archive_end, true);
