@@ -144,12 +144,12 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time()?)
+            date_string(archive.start_time())
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time()?)
+            date_string(archive.end_time())
         );
 
         let dates = archive.list_dates()?;
@@ -166,12 +166,12 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time()?)
+            date_string(archive.start_time())
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time()?)
+            date_string(archive.end_time())
         );
 
         log::debug!("download first");
@@ -183,12 +183,12 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time()?)
+            date_string(archive.start_time())
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time()?)
+            date_string(archive.end_time())
         );
 
         log::debug!("download with cache");
@@ -197,12 +197,12 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time()?)
+            date_string(archive.start_time())
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time()?)
+            date_string(archive.end_time())
         );
 
         Ok(())
@@ -221,12 +221,12 @@ mod archive_test {
         log::debug!(
             "start={:?}({:?})",
             archive.start_time(),
-            date_string(archive.start_time()?)
+            date_string(archive.start_time())
         );
         log::debug!(
             "end={:?}({:?})",
             archive.end_time(),
-            date_string(archive.end_time()?)
+            date_string(archive.end_time())
         );
 
         let df = archive.load_cache_df(NOW() - DAYS(2))?;

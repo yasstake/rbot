@@ -9,7 +9,7 @@ use polars::frame::DataFrame;
 use pyo3_polars::PyDataFrame;
 
 use crate::{
-    common::{time_string, MarketConfig, MicroSec, Trade, DAYS, FLOOR_DAY, HHMM, NOW},
+    common::{time_string, MarketConfig, MicroSec, Trade, DAYS, FLOOR_DAY, NOW},
     db::{
         append_df, end_time_df, make_empty_ohlcvv, merge_df, ohlcv_start, ohlcvv_df, select_df,
         start_time_df, TradeBuffer, KEY,
@@ -69,6 +69,10 @@ pub struct TradeDataFrame {
 }
 
 impl TradeDataFrame {
+    pub fn archive_emd_default() -> MicroSec {
+        NOW() - DAYS(2)
+    }
+
     pub fn get(config: &MarketConfig, production: bool) -> anyhow::Result<Arc<Mutex<Self>>> {
         let trade_dataframe = get_trade_dataframe_cache(config, production);
 
@@ -86,44 +90,48 @@ impl TradeDataFrame {
         self.db.vacuum()
     }
 
+    pub fn get_archive_start_time(&self)-> MicroSec {
+        self.archive.start_time()
+    }
+
+    pub fn get_archive_end_time(&self) -> MicroSec {
+        self.archive.end_time()
+    }
+
+    pub fn get_db_start_time(&self, since_time: MicroSec) -> MicroSec {
+        self.db.start_time(since_time)
+    }
+
+    pub fn get_db_end_time(&self, from_time: MicroSec) -> MicroSec {
+        self.db.end_time(from_time)
+    }
+
     pub fn get_archive(&self) -> TradeArchive {
         self.archive.clone()
     }
 
-    pub fn start_time(&self) -> anyhow::Result<MicroSec> {
-        let archive_start = self.archive.start_time();
+    pub fn start_time(&self) -> MicroSec {
+        let archive_start = self.get_archive_start_time();
 
-        if let Ok(start) = archive_start {
-            return Ok(start);
+        if archive_start != 0 {
+            return archive_start;
         }
 
-        let db_start = self.db.start_time();
+        let db_start = self.db.start_time(Self::archive_emd_default());
 
-        if let Ok(start) = db_start {
-            return Ok(start);
-        }
-
-        Err(anyhow!("no data in archive or db"))
+        db_start
     }
 
-    pub fn end_time(&self) -> anyhow::Result<MicroSec> {
+    pub fn end_time(&self) -> MicroSec {
         let archive_end = self.archive.end_time();
 
-        let archive_end = archive_end.unwrap_or_default();
+        let db_end = self.get_db_end_time(Self::archive_emd_default());
 
-        let db_end = self.db.end_time(NOW() + HHMM(1, 0));
-
-        if let Ok(end_time) = db_end {
-            if archive_end < end_time {
-                return Ok(end_time);
-            }
+        if db_end != 0 && archive_end < db_end {
+            return db_end;
         }
 
-        if archive_end != 0 {
-            return Ok(archive_end);
-        }
-
-        Err(anyhow!("no data in archive or db"))
+        return archive_end;
     }
 
     /// create new expire control message(from latest fix time to now)
@@ -136,7 +144,6 @@ impl TradeDataFrame {
         self.db.make_expire_control_message(now, force)
     }
 
-    // TODO: review
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
         let start_time: MicroSec = df
             .column(KEY::time_stamp)
@@ -191,59 +198,6 @@ impl TradeDataFrame {
         self.archive.download(api, ndays, force, verbose).await
     }
 
-    /*
-    pub async fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
-        if verbose {
-            println!("async_download_lastest");
-            flush_log();
-        }
-
-        let config = self.config;
-
-        let trades = self.api..T::get_recent_trades(&server_config, &config).await?;
-        let rec = trades.len() as i64;
-
-        log::debug!("rec: {}", rec);
-
-        if rec == 0 {
-            return Ok(0);
-        }
-
-        if verbose {
-            println!("from rec: {:?}", trades[0].__str__());
-            println!("to   rec: {:?}", trades[(rec as usize) - 1].__str__());
-            println!("rec: {}", rec);
-            flush_log();
-        }
-        let tx = self.start_db_thread().await;
-
-        let start_time = trades.iter().map(|trade| trade.time).min();
-
-        if let Some(start_time) = start_time {
-            let expire_control = self
-                .get_db()
-                .lock()
-                .unwrap()
-                .make_expire_control_message(start_time, false);
-
-            if expire_control.is_err() {
-                println!("make_expire_control_message {:?}", expire_control.err());
-            } else {
-                let expire_control = expire_control.unwrap();
-                if verbose {
-                    println!("expire control from {:?}", expire_control[0].__str__());
-                    println!("expire control to   {:?}", expire_control[1].__str__());
-                }
-
-                tx.send(expire_control)?;
-            }
-        }
-
-        tx.send(trades)?;
-
-        Ok(rec)
-    }
-    */
 
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.cache_duration;
@@ -253,24 +207,12 @@ impl TradeDataFrame {
         self.cache_duration = 0;
     }
 
-    pub fn archive_start_time(&self) -> MicroSec {
-        let archive_start = self.archive.start_time().unwrap_or_default();
-
-        archive_start
-    }
-
-    pub fn archive_end_time(&self) -> MicroSec {
-        let archive_end = self.archive.end_time().unwrap_or_default();
-
-        archive_end
-    }
-
     pub fn select_cachedf(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
-        let archive_end = self.archive_end_time();
+        let archive_end = self.get_archive_end_time();
 
         let df = if start_time < archive_end {
             let df1 = self.archive.select_cachedf(start_time, end_time)?;
@@ -537,8 +479,8 @@ impl TradeDataFrame {
     }
 
     pub fn info(&self) -> String {
-        let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let min = self.start_time();
+        let max = self.end_time();
 
         return format!(
             "{{\"start\": {}, \"end\": {}}}",
@@ -548,8 +490,14 @@ impl TradeDataFrame {
     }
 
     pub fn _repr_html_(&self) -> String {
-        let min = self.start_time().unwrap_or_default();
-        let max = self.end_time().unwrap_or_default();
+        let min = self.start_time();
+        let max = self.end_time();
+
+        let archive_min = self.get_archive_start_time();
+        let archive_max = self.get_archive_end_time();
+
+        let db_min = self.get_db_start_time(0);
+        let db_max = self.get_db_end_time(0);
 
         return format!(
             r#"
@@ -560,12 +508,41 @@ impl TradeDataFrame {
             <tr><td>{:?}</td><td>{:?}</td></tr>
             <tr><td><b>days=</b></td><td>{}</td></tr>                
             </table>                
+            <table>
+            <caption>Archive Data</caption>
+            <tr><th>start</th><th>end</th></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td><b>days=</b></td><td>{}</td></tr>                
+            </table>                
+            <table>
+            <caption>DataBase Data</caption>
+            <tr><th>start</th><th>end</th></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td>{:?}</td><td>{:?}</td></tr>
+            <tr><td><b>days=</b></td><td>{}</td></tr>                
+            </table>                
+
+
             "#,
             min,
             max,
             time_string(min),
             time_string(max),
             (max - min) / DAYS(1),
+
+            archive_min,
+            archive_max,
+            time_string(archive_min),
+            time_string(archive_max),
+            (archive_max - archive_min) / DAYS(1),
+
+            db_min,
+            db_max,
+            time_string(db_min),
+            time_string(db_max),
+            (db_max - db_min) / DAYS(1),
+
         );
     }
 
