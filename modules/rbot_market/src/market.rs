@@ -1,13 +1,21 @@
 // Copyright(c) 2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Sender;
+use pyo3::IntoPy;
+use pyo3::Py;
+use pyo3::PyAny;
+use pyo3::PyResult;
+use pyo3::Python;
 use rbot_lib::common::flush_log;
+use rbot_lib::common::time_string;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::db::TradeArchive;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
+use rbot_lib::net::TradePage;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -275,18 +283,33 @@ where
 
     fn get_history_web_base_url(&self) -> String;
 
-    fn db_start_up_rec(&self) -> Option<Trade> {
+    fn db_start_up_rec(&self) -> PyResult<Py<PyAny>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        lock.db_start_up_rec()
+        let trade = lock.db_start_up_rec();
+        Python::with_gil(|py| {
+            if let Some(trade) = trade {
+                Ok(trade.into_py(py))
+            } else {
+                Ok(Python::None(py))
+            }
+        })
     }
 
-    fn latest_db_rec(&self, search_before: MicroSec) -> Option<Trade> {
+    fn latest_db_rec(&self, search_before: MicroSec) -> PyResult<Py<PyAny>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        lock.latest_db_rec(search_before)
+        let trade = lock.latest_db_rec(search_before);
+
+        Python::with_gil(|py| {
+            if let Some(trade) = trade {
+                Ok(trade.into_py(py))
+            } else {
+                Ok(Python::None(py))
+            }
+        })
     }
 
     fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
@@ -435,9 +458,6 @@ where
         lock._repr_html_()
     }
 
-    /// Order book
-    ///
-    ///
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>>;
 
     fn refresh_order_book(&mut self) -> anyhow::Result<()>;
@@ -528,7 +548,7 @@ where
         Ok(edge_price.unwrap())
     }
 
-    async fn start_db_thread(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
+    async fn open_db_channel(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
@@ -557,7 +577,7 @@ where
 
         let expire_message = expire_message.unwrap();
 
-        let tx = self.start_db_thread().await?;
+        let tx = self.open_db_channel().await?;
         let r = tx.send(expire_message);
         if r.is_err() {
             log::error!("Error in tx.send: {:?}", r.err().unwrap());
@@ -668,12 +688,13 @@ where
             println!("rec: {}", rec);
             flush_log();
         }
-        let tx = self.start_db_thread().await?;
+        let tx = self.open_db_channel().await?;
 
         let start_time = trades[0].time;
         let end_time = trades[(rec - 1) as usize].time;
 
-        let expire_control = TradeDb::expire_control_message(start_time, end_time, true, "download latest");
+        let expire_control =
+            TradeDb::expire_control_message(start_time, end_time, true, "download latest");
 
         if verbose {
             println!("expire control from {:?}", expire_control[0].__str__());
@@ -683,6 +704,87 @@ where
         tx.send(expire_control)?;
 
         tx.send(trades)?;
+
+        Ok(rec)
+    }
+
+    async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        let (_start_t, end_t) = self.get_archive_info()?;
+
+        let end_t = if end_t == 0 {
+            TradeDataFrame::archive_emd_default()
+        } else {
+            end_t
+        };
+
+        let time_from = if time_from < end_t { end_t } else { time_from };
+
+        if verbose {
+            println!(
+                "download_range from={}({}) to={}({})",
+                time_from,
+                time_string(time_from),
+                time_to,
+                time_string(time_to)
+            )
+        }
+
+        let tx = self.open_db_channel().await?;
+
+        let api = self.get_restapi();
+
+        let mut trade_page = TradePage::New;
+        let mut rec = 0;
+
+        loop {
+            let (trades, page) = api
+                .get_trades(&self.get_config(), time_from, time_to, &trade_page)
+                .await?;
+
+            let l = trades.len();
+
+            if l == 0 {
+                break;
+            }
+
+            let start_time = trades[0].time;
+            let end_time = trades[l-1].time;
+
+            if verbose {
+                println!(
+                    "download_range (loop) {}({}) {}({}) {}[rec]",
+                    time_string(start_time),
+                    start_time,
+                    time_string(time_to),
+                    time_to,
+                    l
+                );
+            }
+
+            let expire_message =
+                TradeDb::expire_control_message(
+                    start_time, end_time, true, "before download_gap");
+
+            tx.send(expire_message)?;
+
+            rec += l as i64;
+            tx.send(trades)?;
+
+            if verbose {
+                println!("rec: {}", rec);
+                flush_log();
+            }
+
+            if page == TradePage::Done {
+                break;
+            }
+            trade_page = page;
+        }
 
         Ok(rec)
     }

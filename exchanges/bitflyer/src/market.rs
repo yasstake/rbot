@@ -670,33 +670,6 @@ impl BitflyerMarket {
         }
     */
 
-    pub fn start_user_stream(&mut self) {
-        /*
-        let mut agent_channel = self.channel.clone();
-
-        let cfg = self.config.clone();
-
-        self.user_handler = Some(listen_userdata_stream(
-            &self.config,
-            move |message: BinanceUserStreamMessage| {
-                log::debug!("UserStream: {:?}", message);
-                let mutl_agent_channel = agent_channel.borrow_mut();
-                let m = message.convert_to_market_message(&cfg);
-                let _ = mutl_agent_channel.lock().unwrap().send(m);
-            },
-        ));
-
-        log::info!("start_user_stream");
-        */
-    }
-
-    /*
-    pub fn is_user_stream_running(&self) -> bool {
-        if let Some(handler) = &self.user_handler {
-            return !handler.is_finished();
-        }
-        return false;
-    }
 
     pub fn is_market_stream_running(&self) -> bool {
         if let Some(handler) = &self.public_handler {
@@ -708,7 +681,7 @@ impl BitflyerMarket {
     pub fn is_db_thread_running(&self) -> bool {
         return self.db.is_thread_running();
     }
-    */
+    
 
     /* TODO: implment */
 
@@ -777,23 +750,6 @@ impl BitflyerMarket {
         Ok(vec![response.unwrap()])
     }
 
-    /*
-    pub fn new_market_order_raw(
-        &self,
-        side: &str,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<BinanceOrderResponse> {
-        let size_scale = self.config.market_config.size_scale;
-        let size = size.round_dp(size_scale);
-
-        let order_side = OrderSide::from(side);
-
-        let response = new_market_order(&self.config, order_side, size, client_order_id);
-
-        convert_pyresult(response)
-    }
-    */
 
     pub fn market_order(
         &self,
