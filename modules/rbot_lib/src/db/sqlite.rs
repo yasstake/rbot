@@ -65,7 +65,7 @@ impl TradeDb {
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
         let sql =
-            r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and status = "U""#;
+            r#"delete from trades where ($1 <= time_stamp) and (time_stamp < $2) and (status = "U" or status = "Us")"#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
@@ -77,7 +77,7 @@ impl TradeDb {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp <= $2 and (status = "U" or status = "s" or status = "a" or status = "e")"#;
+        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and (status = 'Us' or status = 'U')"#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
@@ -93,6 +93,11 @@ impl TradeDb {
                                 values (?1, ?2, ?3, ?4, ?5, ?6) "#;
 
         for rec in trades {
+            if rec.status == LogStatus::Unknown || rec.order_side == OrderSide::Unknown {
+                log::error!("Invalid rec ignored: {:?}", rec);
+                continue;
+            }
+
             let no_of_records = tx.execute(
                 sql,
                 params![
@@ -187,6 +192,7 @@ impl TradeDb {
         &mut self,
         now: MicroSec,
         force: bool,
+        message: &str,
     ) -> anyhow::Result<Vec<Trade>> {
         log::debug!("make_expire_control_message from {}", time_string(now));
 
@@ -196,18 +202,20 @@ impl TradeDb {
         ensure!(fix_time != 0, "no fix data in 2 days");
 
         log::debug!(
-            "make_expire_control_message from {} to {}",
+            "make_expire_control_message from {} to {} message:{}",
             time_string(fix_time),
-            time_string(now)
+            time_string(now),
+            message
         );
 
-        Ok(Self::expire_control_message(fix_time, now, force))
+        Ok(Self::expire_control_message(fix_time, now, force, message))
     }
 
     pub fn expire_control_message(
         start_time: MicroSec,
         end_time: MicroSec,
         force: bool,
+        message: &str
     ) -> Vec<Trade> {
         let status = if force {
             LogStatus::ExpireControlForce
@@ -229,7 +237,7 @@ impl TradeDb {
             dec![0.0],
             dec![0.0],
             status,
-            "",
+            &format!("{} start", message),
         );
         trades.push(t);
 
@@ -239,9 +247,11 @@ impl TradeDb {
             dec![0.0],
             dec![0.0],
             status,
-            "",
+            &format!("{} end", message),
         );
         trades.push(t);
+
+        log::debug!("expire control: {:?}", trades);
 
         trades
     }
@@ -250,6 +260,10 @@ impl TradeDb {
         let trades_len = trades.len();
         if trades_len == 0 {
             return Ok(0);
+        }
+
+        if trades[0].time > trades[trades_len -1].time {
+            log::error!("Insert order error {:?}", trades);
         }
 
         let start_time = trades[0].time - SEC(1);
@@ -386,8 +400,12 @@ impl TradeDb {
                 match rx.recv() {
                     Ok(mut trades) => {
                         if db.first_ws_message {
-                            if trades.len() != 0 {
+                            if trades.len() != 0 && 
+                                (trades[0].status == LogStatus::UnFix 
+                                    || trades[0].status == LogStatus::UnFixStart) {
+
                                 trades[0].status = LogStatus::UnFixStart;
+
                                 db.first_ws_message = false;
                             }
                         }
@@ -614,9 +632,11 @@ impl TradeDb {
     /// 最後のWSの起動時間を探して返す。
     /// 存在しない場合はNone
     pub fn get_last_start_up_rec(&mut self) -> Option<Trade> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where (status = "u") order by time_stamp desc limit 1"#;
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where status = "Us" order by time_stamp desc limit 1"#;
 
         let trades = self.select_query(sql, vec![]);
+
+        log::debug!("last rec = {:?}", trades);
 
         if trades.is_err() {
             return None;

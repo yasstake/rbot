@@ -3,6 +3,7 @@
 use crossbeam_channel::Sender;
 use rbot_lib::common::flush_log;
 use rbot_lib::common::AccountCoins;
+use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
 use rbot_lib::db::TradeDataFrame;
@@ -20,13 +21,12 @@ use anyhow::anyhow;
 #[allow(unused_imports)]
 use anyhow::Context;
 
-
 use rbot_lib::{
     common::{
-        AccountPair, MarketConfig, MarketStream, MicroSec, Order,
-        OrderSide, OrderType, Trade, DAYS, NOW,
+        AccountPair, MarketConfig, MarketStream, MicroSec, Order, OrderSide, OrderType, Trade,
+        DAYS, NOW,
     },
-    db::df::KEY
+    db::df::KEY,
 };
 
 macro_rules! check_if_enable_order {
@@ -76,13 +76,12 @@ pub trait OrderInterface {
 
 pub trait OrderInterfaceImpl<T>
 where
-    T: RestApi
+    T: RestApi,
 {
     fn get_restapi(&self) -> &T;
 
     fn set_enable_order_feature(&mut self, enable_order: bool);
     fn get_enable_order_feature(&self) -> bool;
-
 
     async fn make_order(
         &self,
@@ -174,15 +173,13 @@ where
     async fn get_open_orders(&self, market_config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let api = self.get_restapi();
 
-        api.open_orders(market_config)
-            .await
+        api.open_orders(market_config).await
     }
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let api = self.get_restapi();
-        
-        api.get_account()
-            .await
+
+        api.get_account().await
     }
 
     async fn async_start_user_stream(&mut self) -> anyhow::Result<()>;
@@ -265,7 +262,7 @@ pub trait MarketInterface {
 
 pub trait MarketImpl<T>
 where
-    T: RestApi
+    T: RestApi,
 {
     // --- GET CONFIG INFO ----
     fn get_restapi(&self) -> &T;
@@ -296,12 +293,10 @@ where
         log::debug!("[start] find_latest_gap");
         let db = self.get_db();
 
-
         let (fix_time, unfix_time) = {
             let mut lock = db.lock().unwrap();
 
             let start_time = NOW() - DAYS(2);
-
 
             let fix_time = lock.latest_fix_time(start_time, force)?;
             if fix_time == 0 {
@@ -347,7 +342,6 @@ where
         Ok((latest_trade, first_unfix_trade))
     }
 
-
     fn get_cache_duration(&self) -> MicroSec {
         let db = self.get_db();
         let lock = db.lock().unwrap();
@@ -385,7 +379,6 @@ where
 
         Ok((start_time, end_time))
     }
-
 
     fn select_trades(
         &mut self,
@@ -555,7 +548,7 @@ where
 
         let expire_message = {
             let mut lock = db.lock().unwrap();
-            lock.make_expire_control_message(now, force)
+            lock.make_expire_control_message(now, force, "expire unfix data")
         };
 
         if expire_message.is_err() {
@@ -597,7 +590,7 @@ where
         let dates = archive.select_dates(time_from, time_to)?;
 
         let actual_start = dates[0];
-        let actual_end = dates[dates.len() -1];
+        let actual_end = dates[dates.len() - 1];
 
         std::thread::spawn(move || {
             let result = archive.foreach(time_from, time_to, &mut |trade| {
@@ -615,17 +608,15 @@ where
         return Ok((actual_start, actual_end, market_stream));
     }
 
-    async fn async_download_archive   
-    (
+    async fn async_download_archive(
         &self,
         ndays: i64,
         force: bool,
-        verbose: bool
-    ) -> anyhow::Result<i64> 
-    {
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
         let db = self.get_db();
         let api = self.get_restapi();
-        let lock =  db.lock();
+        let lock = db.lock();
 
         if lock.is_err() {
             log::error!("db get lock failure ");
@@ -633,12 +624,16 @@ where
         }
 
         let mut lock = lock.unwrap();
-        
+
         let count = lock.download_archive(api, ndays, force, verbose).await?;
         let archive_end = lock.get_archive_end_time();
 
+        // delete old data from db.
         if archive_end != 0 {
-            let expire = TradeDb::expire_control_message(0, archive_end, true);
+            let expire = TradeDb::expire_control_message(0, archive_end, true, "download archive");
+
+            log::debug!("expire: {:?}", expire);
+
             let tx = lock.open_channel()?;
             tx.send(expire)?;
         }
@@ -655,7 +650,8 @@ where
         let api = self.get_restapi();
         let config = self.get_config().clone();
 
-        let trades = api.get_recent_trades(&config).await?;
+        let mut trades = api.get_recent_trades(&config).await?;
+        trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
         let rec = trades.len() as i64;
 
         log::debug!("rec: {}", rec);
@@ -663,6 +659,8 @@ where
         if rec == 0 {
             return Ok(0);
         }
+
+        trades[0].status = LogStatus::UnFixStart;
 
         if verbose {
             println!("from rec: {:?}", trades[0].__str__());
@@ -672,27 +670,17 @@ where
         }
         let tx = self.start_db_thread().await?;
 
-        let start_time = trades.iter().map(|trade| trade.time).min();
+        let start_time = trades[0].time;
+        let end_time = trades[(rec - 1) as usize].time;
 
-        if let Some(start_time) = start_time {
-            let expire_control = self
-                .get_db()
-                .lock()
-                .unwrap()
-                .make_expire_control_message(start_time, false);
+        let expire_control = TradeDb::expire_control_message(start_time, end_time, true, "download latest");
 
-            if expire_control.is_err() {
-                println!("make_expire_control_message {:?}", expire_control.err());
-            } else {
-                let expire_control = expire_control.unwrap();                
-                if verbose {
-                    println!("expire control from {:?}", expire_control[0].__str__());
-                    println!("expire control to   {:?}", expire_control[1].__str__());
-                }
-
-                tx.send(expire_control)?;
-            }
+        if verbose {
+            println!("expire control from {:?}", expire_control[0].__str__());
+            println!("expire control to   {:?}", expire_control[1].__str__());
         }
+
+        tx.send(expire_control)?;
 
         tx.send(trades)?;
 
