@@ -94,7 +94,7 @@ impl TradeDataFrame {
         self.archive.start_time()
     }
 
-    pub fn get_archive_end_time(&self) -> MicroSec {
+    pub fn get_archive_end_time(&mut self) -> MicroSec {
         self.archive.end_time()
     }
 
@@ -122,7 +122,7 @@ impl TradeDataFrame {
         db_start
     }
 
-    pub fn end_time(&self) -> MicroSec {
+    pub fn end_time(&mut self) -> MicroSec {
         let archive_end = self.archive.end_time();
 
         let db_end = self.get_db_end_time(Self::archive_emd_default());
@@ -479,7 +479,7 @@ impl TradeDataFrame {
         return Ok(df);
     }
 
-    pub fn info(&self) -> String {
+    pub fn info(&mut self) -> String {
         let min = self.start_time();
         let max = self.end_time();
 
@@ -490,7 +490,7 @@ impl TradeDataFrame {
         );
     }
 
-    pub fn _repr_html_(&self) -> String {
+    pub fn _repr_html_(&mut self) -> String {
         let min = self.start_time();
         let max = self.end_time();
 

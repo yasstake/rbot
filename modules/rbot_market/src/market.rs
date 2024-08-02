@@ -12,7 +12,6 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
-use rbot_lib::db::TradeArchive;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
 use rbot_lib::net::TradePage;
@@ -385,7 +384,7 @@ where
 
     fn get_archive_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
         let db = self.get_db();
-        let lock = db.lock().unwrap();
+        let mut lock = db.lock().unwrap();
 
         let start_time = lock.get_archive_start_time();
         let end_time = lock.get_archive_end_time();
@@ -448,13 +447,13 @@ where
 
     fn info(&mut self) -> String {
         let db = self.get_db();
-        let lock = db.lock().unwrap();
+        let mut lock = db.lock().unwrap();
         lock.info()
     }
 
     fn _repr_html_(&self) -> String {
         let db = self.get_db();
-        let lock = db.lock().unwrap();
+        let mut lock = db.lock().unwrap();
         lock._repr_html_()
     }
 
@@ -601,7 +600,7 @@ where
     ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
         let (sender, market_stream) = MarketStream::open();
 
-        let archive = {
+        let mut archive = {
             let db = self.get_db();
             let trade_dataframe = db.lock().unwrap();
             trade_dataframe.get_archive()
