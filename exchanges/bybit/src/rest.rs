@@ -169,7 +169,7 @@ impl RestApi for BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        _page: TradePage
+        _page: &TradePage
     ) -> anyhow::Result<(Vec<Trade>, TradePage)> {
         let server = &self.server_config;
 
@@ -206,15 +206,22 @@ impl RestApi for BybitRestApi {
                 break;
             }
 
-            end_time = klines[klines_len - 1].timestamp - 1; // must be execute before append()
+            klines.reverse();
+
+            end_time = klines[0].timestamp - 1; // must be execute before append()
             log::debug!(
                 "start_time={:?} / end_time={:?} /({:?})rec",
                 time_string(klines[0].timestamp),
                 time_string(klines[klines_len - 1].timestamp),
                 klines_len
-            );
 
-            klines_buf.append(&mut klines);
+            );
+            log::debug!("append from {}  to {}", time_string(klines[0].timestamp), time_string(klines[klines.len() -1].timestamp));
+
+
+            // klines_buf.insert(0, .append(&mut klines);
+            klines_buf.splice(0..0, klines);
+
 
             if (end_time != 0) && (end_time <= start_time) {
                 log::debug!(
@@ -726,7 +733,7 @@ mod bybit_rest_test {
         let now = NOW();
         let start_time = now - DAYS(2);
 
-        let (trades, page) = api.get_trades(&config, start_time, now, TradePage::Done).await?;
+        let (trades, page) = api.get_trades(&config, start_time, now, &TradePage::New).await?;
         let l = trades.len();
         println!(
             "{:?}-{:?}  {:?} [rec]",

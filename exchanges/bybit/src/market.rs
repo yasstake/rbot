@@ -338,6 +338,25 @@ impl BybitMarket {
         MarketImpl::download_latest(self, verbose)
     }
 
+    fn download_range(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        if verbose {
+            println!(
+                "download_range from={} to={}",
+                time_string(start_time),
+                time_string(end_time)
+            );
+        }
+
+        BLOCK_ON(async {
+            MarketImpl::async_download_range(self, start_time, end_time, verbose).await
+        })
+    }
+
     #[pyo3(signature = (force=false))]
     fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_expire_unfix_data(force).await })
@@ -365,18 +384,17 @@ impl BybitMarket {
         lock.vacuum()
     }
 
-    fn latest_db_rec(&self, search_before: MicroSec) -> Option<Trade> {
+    fn latest_db_rec(&self, search_before: MicroSec) -> PyResult<Py<PyAny>> {
         let search_before = if 0 < search_before {
             search_before
-        }
-        else {
-            NOW() + DAYS(1)     // search from future
+        } else {
+            NOW() + DAYS(1) // search from future
         };
 
         MarketImpl::latest_db_rec(self, search_before)
     }
 
-    fn db_start_up_rec(&self) -> Option<Trade> {
+    fn last_db_sequence_start_rec(&self) -> PyResult<Py<PyAny>> {
         MarketImpl::db_start_up_rec(self)
     }
 }
@@ -419,11 +437,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
         let mut count = 0;
         BLOCK_ON(async {
-            // TODO:
-            // step0 : analyze gap.
-            // Step1:  delete old data (before 2 days ago.)
-            // step2:  download latest
-            // step3:  fill the gap
             log::debug!("download latest");
             let r = self.async_download_latest(verbose).await;
             if r.is_ok() {
@@ -431,16 +444,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
             } else {
                 count = 0;
             }
-
-            /*
-            log::debug!("fill the gap");
-            let r = self.async_download_gap(false, verbose).await;
-            if r.is_ok() {
-                count += r.unwrap();
-            } else {
-                count = 0;
-            }
-            */
         });
 
         Ok((count))
@@ -465,7 +468,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_start_market_stream().await })
     }
-
 }
 
 impl BybitMarket {
@@ -590,20 +592,28 @@ impl BybitMarket {
             return Ok(0);
         }
 
-        let expire_message = TradeDb::expire_control_message(unfix_start, unfix_end, false, "before download_gap");
-
         let tx = {
             let mut lock = self.db.lock().unwrap();
             lock.open_channel()?
         };
-        tx.send(expire_message)?;
 
         let api = self.get_restapi();
         let (trades, _trade_page) = api
-            .get_trades(&self.get_config(), unfix_start, unfix_end, TradePage::Done)
+            .get_trades(&self.get_config(), unfix_start, unfix_end, &TradePage::Done)
             .await?;
 
-        let rec = trades.len() as i64;
+        let rec = trades.len();
+
+        let start_time = if trades[0].time < trades[rec - 1].time {
+            trades[0].time
+        } else {
+            trades[rec - 1].time
+        };
+
+        let expire_message =
+            TradeDb::expire_control_message(start_time, unfix_end, false, "before download_gap");
+        tx.send(expire_message)?;
+
         tx.send(trades)?;
 
         if verbose {
@@ -611,7 +621,7 @@ impl BybitMarket {
             flush_log();
         }
 
-        Ok(rec)
+        Ok(rec as i64)
     }
 
     async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
@@ -757,5 +767,19 @@ mod market_test {
 
         let rec = market.download_latest(true);
         assert!(rec.is_ok());
+    }
+
+    #[test]
+    fn test_download_range() {
+        use super::*;
+
+        init_debug_log();
+
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config, true);
+
+        market.download_range(0, 0, true);
     }
 }
