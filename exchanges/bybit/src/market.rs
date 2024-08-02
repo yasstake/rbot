@@ -458,8 +458,8 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         self.board.clone()
     }
 
-    fn reflesh_order_book(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_reflesh_order_book().await })
+    fn refresh_order_book(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_refresh_order_book().await })
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -614,7 +614,7 @@ impl BybitMarket {
         Ok(rec)
     }
 
-    async fn async_reflesh_order_book(&mut self) -> anyhow::Result<()> {
+    async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
         let api = self.get_restapi();
         let board = api.get_board_snapshot(&self.config).await?;
         let mut b = self.board.write().unwrap();

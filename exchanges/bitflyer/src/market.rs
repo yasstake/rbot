@@ -67,7 +67,7 @@ impl BitflyerOrderBook {
         if asks_edge < bids_edge {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.reflesh_board();
+            self.refresh_board();
 
             (bids, asks) = self.board.get_board().unwrap();
         }
@@ -85,57 +85,9 @@ impl BitflyerOrderBook {
         self.board.update(&bids, &asks, board.snapshot);
     }
 
-    /*
-    pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
-        if self.last_update_id == 0 {
-            log::debug!(
-                "reflesh board {} / {}->{}",
-                self.last_update_id,
-                update_data.u,
-                update_data.U
-            );
-            sleep(Duration::from_millis(150)); // 100ms毎に更新されるので、150ms待つ。
-            self.reflesh_board();
-        }
 
-        // 4. Drop any event where u is <= lastUpdateId in the snapshot.
-        if update_data.u <= self.last_update_id {
-            log::debug!(
-                "Drop any event where u({}) is <= lastUpdateId({}) in the snapshot.",
-                update_data.u,
-                self.last_update_id
-            );
-
-            return;
-        }
-
-        // 5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
-        if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
-            log::debug!(
-                "lastupdate({}) / U({}) / u({})",
-                self.last_update_id,
-                update_data.U,
-                update_data.u
-            );
-            self.board
-                .update(&update_data.bids, &update_data.asks, false);
-        }
-
-        // 6. While listening to the stream, each new event's U should be equal to the previous event's u+1.
-        if update_data.U != self.last_update_id + 1 {
-            log::warn!(
-                "U is not equal to the previous event's u+1 {} {}",
-                update_data.U,
-                self.last_update_id + 1
-            );
-        }
-
-        self.last_update_id = update_data.u;
-    }
-    */
-
-    fn reflesh_board(&mut self) {
-        // TODO: reflesh board from rest api
+    fn refresh_board(&mut self) {
+        // TODO: refresh board from rest api
     }
 }
 

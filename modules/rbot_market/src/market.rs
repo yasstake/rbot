@@ -440,7 +440,7 @@ where
     ///
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>>;
 
-    fn reflesh_order_book(&mut self) -> anyhow::Result<()>;
+    fn refresh_order_book(&mut self) -> anyhow::Result<()>;
 
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
@@ -470,7 +470,7 @@ where
         if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.reflesh_order_book()?;
+            self.refresh_order_book()?;
 
             let orderbook = self.get_order_book();
 
@@ -520,7 +520,7 @@ where
         };
 
         if edge_price.is_err() {
-            self.reflesh_order_book()?;
+            self.refresh_order_book()?;
             let lock = orderbook.read().unwrap();
             edge_price = lock.get_edge_price();
         }
