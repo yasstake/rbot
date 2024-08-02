@@ -276,7 +276,8 @@ where
     fn get_config(&self) -> MarketConfig;
 
     /// Download historical log from REST API
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
+    /// returns start_time and rend_time of the download.
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)>;
 
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>>;
 
@@ -660,7 +661,7 @@ where
         Ok(count)
     }
 
-    async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+    async fn async_download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
         if verbose {
             println!("async_download_lastest");
             flush_log();
@@ -676,7 +677,7 @@ where
         log::debug!("rec: {}", rec);
 
         if rec == 0 {
-            return Ok(0);
+            return Err(anyhow!("No data "));
         }
 
         trades[0].status = LogStatus::UnFixStart;
@@ -704,7 +705,7 @@ where
 
         tx.send(trades)?;
 
-        Ok(rec)
+        Ok((start_time, end_time))
     }
 
     async fn async_download_range(
