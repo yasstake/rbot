@@ -6,6 +6,7 @@ use crate::{
     net::{check_exist, RestApi},
 };
 use anyhow::{anyhow, Context};
+use arrow::temporal_conversions::MICROSECONDS;
 use futures::StreamExt;
 use parquet::{file::reader::SerializedFileReader, record::RowAccessor};
 use reqwest::Client;
@@ -29,6 +30,8 @@ use std::{
 use tempfile::tempdir;
 
 const EXTENSION: &str = "parquet";
+
+const ARCHIVE_CHECK_INTERVAL: MicroSec = 10 * 60 * MICROSECONDS;
 
 ///
 ///Archive CSV format
@@ -54,7 +57,7 @@ pub struct TradeArchive {
     start_time: MicroSec,
     end_time: MicroSec,
 
-    download_per_cent: i64,
+    end_time_update_t: MicroSec,
 }
 
 impl Clone for TradeArchive {
@@ -66,7 +69,7 @@ impl Clone for TradeArchive {
             latest_archive_date: self.latest_archive_date.clone(),
             start_time: self.start_time.clone(),
             end_time: self.end_time.clone(),
-            download_per_cent: 0,
+            end_time_update_t: 0,
         };
 
         let r = archive.analyze();
@@ -87,7 +90,7 @@ impl TradeArchive {
             latest_archive_date: 0,
             start_time: 0,
             end_time: 0,
-            download_per_cent: 0,
+            end_time_update_t: 0,            
         };
 
         let r = my.analyze();
@@ -113,7 +116,8 @@ impl TradeArchive {
         self.start_time
     }
 
-    pub fn end_time(&self) -> MicroSec {
+    pub fn end_time(&mut self) -> MicroSec {
+        self.update_end_time();
         self.end_time
     }
 
@@ -261,7 +265,7 @@ impl TradeArchive {
 
     /// load from archived paquet file retrive specifed time frame.
     pub fn select_cachedf(
-        &self,
+        &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
@@ -283,7 +287,7 @@ impl TradeArchive {
     }
 
     /// load from parquet file and retrive as cachedf.
-    pub fn load_cache_df(&self, date: MicroSec) -> anyhow::Result<DataFrame> {
+    pub fn load_cache_df(&mut self, date: MicroSec) -> anyhow::Result<DataFrame> {
         let date = FLOOR_DAY(date);
 
         if date < self.start_time() {
@@ -326,7 +330,7 @@ impl TradeArchive {
 
     /// execute f for each rec in archive within specifed time frame.
     pub fn foreach<F>(
-        &self,
+        &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
         f: &mut F,
@@ -384,7 +388,7 @@ impl TradeArchive {
 
     ///
     pub fn select_dates(
-        &self,
+        &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<Vec<MicroSec>> {
@@ -434,6 +438,24 @@ impl TradeArchive {
         Ok(timestamp)
     }
 
+    pub fn update_end_time(&mut self) -> anyhow::Result<()>{
+        if   self.end_time_update_t < NOW() + ARCHIVE_CHECK_INTERVAL {
+            return Ok(());
+        }
+
+        let dates = self.list_dates()?;
+
+        let len = dates.len();
+        if len == 0 {
+            return Err(anyhow!("no data in archive"));
+        }
+
+        self.end_time = dates[len -1 ] + DAYS(1);
+
+        self.end_time_update_t = NOW();
+        Ok(())
+    }
+
     /// analyze archive directory, find start_time, end_time
     /// if there is fragmented date, delete it.
     /// Note: endday means next day's begining(archive date 24:00 = next day 00:00)
@@ -473,6 +495,8 @@ impl TradeArchive {
 
                 if detect_gap {
                     log::warn!("Delete too old log {:?}", date_string(d));
+
+                    // TODO: for some exchange, this must be moved(should be backed up the data)
                     self.delete(d)?;
                 }
             }
@@ -483,7 +507,7 @@ impl TradeArchive {
         Ok(())
     }
 
-    /// get list of archive date in order(older first)
+    /// get list of archive date in order
     pub fn list_dates(&self) -> anyhow::Result<Vec<MicroSec>> {
         let mut dates: Vec<MicroSec> = vec![];
 
@@ -567,7 +591,6 @@ impl TradeArchive {
         T: RestApi,
         F: FnMut(i64, i64),
     {
-        self.download_per_cent = 0;
         let config = &self.config.clone();
 
         let has_csv_file = self.has_local_archive(date);

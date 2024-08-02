@@ -52,7 +52,7 @@ mod archive_test {
 
     #[test]
     fn test_foreach_count() -> anyhow::Result<()> {
-        let archive = create_archive();
+        let mut archive = create_archive();
         init_debug_log();
 
         let mut rec: i64 = 0;
@@ -101,7 +101,7 @@ mod archive_test {
 
     #[test]
     fn test_load_cache_df() -> anyhow::Result<()> {
-        let archive = create_archive();
+        let mut archive = create_archive();
         init_debug_log();
 
 
@@ -114,7 +114,7 @@ mod archive_test {
 
     #[test]
     fn test_select_cache_df() -> anyhow::Result<()> {
-        let archive = create_archive();
+        let mut archive = create_archive();
         init_debug_log();
 
         let df = archive.select_cachedf(0, 0)?;
@@ -244,7 +244,7 @@ mod archive_test {
     #[test]
     fn test_select_dates() {
         init_debug_log();
-        let archive = create_archive();
+        let mut archive = create_archive();
 
         let dates = archive.select_dates(0, 0);
         log::debug!("{:?}", dates);
@@ -259,7 +259,7 @@ mod archive_test {
     #[test]
     fn test_select_df_perf() -> anyhow::Result<()> {
         init_debug_log();
-        let archive = create_archive();
+        let mut archive = create_archive();
 
         let now = NOW();
 
