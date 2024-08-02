@@ -559,6 +559,14 @@ impl TradeDataFrame {
         Ok((fix_time, unfix_time))
     }
 
+    pub fn db_start_up_rec(&mut self) -> Option<Trade> {
+        self.db.get_last_start_up_rec()
+    }
+
+    pub fn latest_db_rec(&mut self, search_before: MicroSec) -> Option<Trade> {
+        self.db.get_latest_rec(search_before)
+    }
+
     pub fn latest_fix_trade(
         &mut self,
         start_time: MicroSec,
