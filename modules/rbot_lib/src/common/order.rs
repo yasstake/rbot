@@ -237,9 +237,6 @@ pub enum LogStatus {
     FixBlockStart,   // データが確定(アーカイブ）し、ブロックの開始を表す
     FixArchiveBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（アーカイブファイル）
     FixBlockEnd,     // データが確定(アーカイブ）し、ブロックの終了を表す
-    FixRestApiStart,
-    FixRestApiBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（REST API）
-    FixRestApiEnd,
     ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
     ExpireControl,      // 削除指示(通常：WSデータのみ削除)
     Unknown,            // 未知のステータス / 未確定のステータス
@@ -253,17 +250,16 @@ impl Default for LogStatus {
 
 impl From<&str> for LogStatus {
     fn from(status: &str) -> Self {
-        match status.to_uppercase().as_str() {
-            "u" => LogStatus::UnFixStart,
+        log::debug!("{}", status);
+
+        match status {
+            "Us" => LogStatus::UnFixStart,
             "U" => LogStatus::UnFix,
-            "S" => LogStatus::FixBlockStart,
-            "A" => LogStatus::FixArchiveBlock,
-            "E" => LogStatus::FixBlockEnd,
-            "s" => LogStatus::FixRestApiStart,
-            "a" => LogStatus::FixRestApiBlock,
-            "e" => LogStatus::FixRestApiEnd,
-            "X" => LogStatus::ExpireControlForce,
-            "x" => LogStatus::ExpireControl,
+            "Fs" => LogStatus::FixBlockStart,
+            "F" => LogStatus::FixArchiveBlock,
+            "Fe" => LogStatus::FixBlockEnd,
+            "XX" => LogStatus::ExpireControlForce,
+            "X" => LogStatus::ExpireControl,
             _ => {
                 log::error!("Unknown log status: {:?}", status);
                 LogStatus::Unknown
@@ -275,17 +271,14 @@ impl From<&str> for LogStatus {
 impl LogStatus {
     pub fn to_string(&self) -> String {
         match self {
-            LogStatus::UnFixStart => "u".to_string(),
+            LogStatus::UnFixStart => "Us".to_string(),
             LogStatus::UnFix => "U".to_string(),
-            LogStatus::FixBlockStart => "S".to_string(),
-            LogStatus::FixArchiveBlock => "A".to_string(),
-            LogStatus::FixBlockEnd => "E".to_string(),
-            LogStatus::FixRestApiStart => "s".to_string(),
-            LogStatus::FixRestApiBlock => "a".to_string(),
-            LogStatus::FixRestApiEnd => "e".to_string(),
-            LogStatus::ExpireControlForce => "X".to_string(),
-            LogStatus::ExpireControl => "x".to_string(),
-            LogStatus::Unknown => "?".to_string(),
+            LogStatus::FixBlockStart => "Fs".to_string(),
+            LogStatus::FixArchiveBlock => "F".to_string(),
+            LogStatus::FixBlockEnd => "Fe".to_string(),
+            LogStatus::ExpireControlForce => "XX".to_string(),
+            LogStatus::ExpireControl => "X".to_string(),
+            LogStatus::Unknown => "???".to_string(),
         }
     }
 }
@@ -333,7 +326,7 @@ impl Trade {
 
     pub fn __str__(&self) -> String {
         format!(
-            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status{:?}}}",
+            "{{timestamp:{}({:?}), order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status:{:?}}}",
             time_string(self.time),
             self.time,
             self.order_side,
@@ -349,6 +342,19 @@ impl Trade {
             "{{timestamp:{:?}, order_side:{:?}, price:{:?}, size:{:?}, id:{:?}, status:{:?}}}",
             self.time, self.order_side, self.price, self.size, self.id, self.status
         )
+    }
+
+    pub fn _html_repr_(&self) -> String {
+    format!(
+        "<tr><td>{}({})</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+        time_string(self.time),
+        self.time,
+        self.order_side,
+        self.price,
+        self.size,
+        self.id,
+        self.status
+    )
     }
 }
 
@@ -1580,6 +1586,15 @@ mod order_tests {
         
         let csv2 = Trade::from_csv(csv);
         log::debug!("csv= {} {:?}", csv2.to_csv(), csv2);
+
+    }
+    
+    #[test]
+    fn test_log_status() {
+        let log_status = LogStatus::UnFixStart.to_string();
+        println!("{}", log_status);
+
+        assert_eq!(LogStatus::UnFixStart, LogStatus::from(log_status.as_str()));
 
     }
 }
