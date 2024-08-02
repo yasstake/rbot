@@ -67,7 +67,7 @@ impl BitflyerOrderBook {
         if asks_edge < bids_edge {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.reflesh_board();
+            self.refresh_board();
 
             (bids, asks) = self.board.get_board().unwrap();
         }
@@ -85,57 +85,9 @@ impl BitflyerOrderBook {
         self.board.update(&bids, &asks, board.snapshot);
     }
 
-    /*
-    pub fn update(&mut self, update_data: &BinanceWsBoardUpdate) {
-        if self.last_update_id == 0 {
-            log::debug!(
-                "reflesh board {} / {}->{}",
-                self.last_update_id,
-                update_data.u,
-                update_data.U
-            );
-            sleep(Duration::from_millis(150)); // 100ms毎に更新されるので、150ms待つ。
-            self.reflesh_board();
-        }
 
-        // 4. Drop any event where u is <= lastUpdateId in the snapshot.
-        if update_data.u <= self.last_update_id {
-            log::debug!(
-                "Drop any event where u({}) is <= lastUpdateId({}) in the snapshot.",
-                update_data.u,
-                self.last_update_id
-            );
-
-            return;
-        }
-
-        // 5. The first processed event should have U <= lastUpdateId+1 AND u >= lastUpdateId+1.
-        if update_data.U <= self.last_update_id + 1 && update_data.u >= self.last_update_id + 1 {
-            log::debug!(
-                "lastupdate({}) / U({}) / u({})",
-                self.last_update_id,
-                update_data.U,
-                update_data.u
-            );
-            self.board
-                .update(&update_data.bids, &update_data.asks, false);
-        }
-
-        // 6. While listening to the stream, each new event's U should be equal to the previous event's u+1.
-        if update_data.U != self.last_update_id + 1 {
-            log::warn!(
-                "U is not equal to the previous event's u+1 {} {}",
-                update_data.U,
-                self.last_update_id + 1
-            );
-        }
-
-        self.last_update_id = update_data.u;
-    }
-    */
-
-    fn reflesh_board(&mut self) {
-        // TODO: reflesh board from rest api
+    fn refresh_board(&mut self) {
+        // TODO: refresh board from rest api
     }
 }
 
@@ -718,33 +670,6 @@ impl BitflyerMarket {
         }
     */
 
-    pub fn start_user_stream(&mut self) {
-        /*
-        let mut agent_channel = self.channel.clone();
-
-        let cfg = self.config.clone();
-
-        self.user_handler = Some(listen_userdata_stream(
-            &self.config,
-            move |message: BinanceUserStreamMessage| {
-                log::debug!("UserStream: {:?}", message);
-                let mutl_agent_channel = agent_channel.borrow_mut();
-                let m = message.convert_to_market_message(&cfg);
-                let _ = mutl_agent_channel.lock().unwrap().send(m);
-            },
-        ));
-
-        log::info!("start_user_stream");
-        */
-    }
-
-    /*
-    pub fn is_user_stream_running(&self) -> bool {
-        if let Some(handler) = &self.user_handler {
-            return !handler.is_finished();
-        }
-        return false;
-    }
 
     pub fn is_market_stream_running(&self) -> bool {
         if let Some(handler) = &self.public_handler {
@@ -756,7 +681,7 @@ impl BitflyerMarket {
     pub fn is_db_thread_running(&self) -> bool {
         return self.db.is_thread_running();
     }
-    */
+    
 
     /* TODO: implment */
 
@@ -825,23 +750,6 @@ impl BitflyerMarket {
         Ok(vec![response.unwrap()])
     }
 
-    /*
-    pub fn new_market_order_raw(
-        &self,
-        side: &str,
-        size: Decimal,
-        client_order_id: Option<&str>,
-    ) -> PyResult<BinanceOrderResponse> {
-        let size_scale = self.config.market_config.size_scale;
-        let size = size.round_dp(size_scale);
-
-        let order_side = OrderSide::from(side);
-
-        let response = new_market_order(&self.config, order_side, size, client_order_id);
-
-        convert_pyresult(response)
-    }
-    */
 
     pub fn market_order(
         &self,

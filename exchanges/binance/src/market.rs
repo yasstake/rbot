@@ -413,8 +413,8 @@ impl MarketImpl<BinanceRestApi, BinanceServerConfig> for BinanceMarket {
         self.board.clone()
     }
 
-    fn reflesh_order_book(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_reflesh_order_book_self().await })
+    fn refresh_board_order_book(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_refresh_order_book_self().await })
     }
 
     fn start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -485,7 +485,7 @@ impl BinanceMarket {
 
             public_ws.connect().await;
 
-            let _ = Self::async_reflesh_order_book(&orderbook, &server_config, &config).await;
+            let _ = Self::async_refresh_order_book(&orderbook, &server_config, &config).await;
 
             sleep(std::time::Duration::from_secs(1));
 
@@ -547,18 +547,18 @@ impl BinanceMarket {
         Ok(())
     }
 
-    async fn async_reflesh_order_book_self(&mut self) -> anyhow::Result<()> {
+    async fn async_refresh_order_book_self(&mut self) -> anyhow::Result<()> {
         let transfer =
             BinanceRestApi::get_board_snapshot(&self.server_config, &self.config).await?;
 
         Self::update_orderbook(&self.board, &transfer);
 
-        log::debug!("reflesh order book done");
+        log::debug!("refresh order book done");
 
         Ok(())
     }
 
-    async fn async_reflesh_order_book(
+    async fn async_refresh_order_book(
         orderbook: &Arc<RwLock<OrderBook>>,
         server: &BinanceServerConfig,
         config: &MarketConfig,
@@ -568,7 +568,7 @@ impl BinanceMarket {
         let orderbook = orderbook.clone();
         Self::update_orderbook(&orderbook, &transfer);
 
-        log::debug!("reflesh order book done");
+        log::debug!("refresh order book done");
 
         Ok(())
     }

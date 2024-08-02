@@ -263,7 +263,7 @@ impl TradeDb {
         }
 
         if trades[0].time > trades[trades_len -1].time {
-            log::error!("Insert order error {:?}", trades);
+            log::error!("Insert order error(order in reverse) {:?}", trades);
         }
 
         let start_time = trades[0].time - SEC(1);
