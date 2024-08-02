@@ -332,7 +332,7 @@ impl BybitMarket {
     }
 
     #[pyo3(signature = (verbose=false))]
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
         log::debug!("BybitMarket.download_latest(verbose={}", verbose);
 
         MarketImpl::download_latest(self, verbose)
@@ -432,21 +432,13 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         self.config.clone()
     }
 
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
         log::debug!("download latest(verbose={})", verbose);
 
-        let mut count = 0;
         BLOCK_ON(async {
             log::debug!("download latest");
-            let r = self.async_download_latest(verbose).await;
-            if r.is_ok() {
-                count += r.unwrap();
-            } else {
-                count = 0;
-            }
-        });
-
-        Ok((count))
+            self.async_download_latest(verbose).await
+        })
     }
 
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>> {
