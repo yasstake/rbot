@@ -159,7 +159,9 @@ impl RestApi for BybitRestApi {
         let result = serde_json::from_value::<BybitTradeResponse>(r.body)
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
-        Ok(result.into())
+        let mut trades: Vec<Trade> = result.into();
+
+        Ok(trades)
     }
 
     async fn get_trades(
@@ -620,7 +622,7 @@ impl BybitRestApi {
             return Ok(response);
         }
 
-        log::debug!("rest response: {}", response);
+        // log::debug!("rest response: {}", response);
 
         let result = from_str::<BybitRestResponse>(&response)
             .with_context(|| format!("parse error in parse_rest_response: {:?}", response))?;

@@ -140,8 +140,9 @@ impl TradeDataFrame {
         &mut self,
         now: MicroSec,
         force: bool,
+        message: &str
     ) -> anyhow::Result<Vec<Trade>> {
-        self.db.make_expire_control_message(now, force)
+        self.db.make_expire_control_message(now, force, message)
     }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
