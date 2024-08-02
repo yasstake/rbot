@@ -333,6 +333,8 @@ impl BybitMarket {
 
     #[pyo3(signature = (verbose=false))]
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        log::debug!("BybitMarket.download_latest(verbose={}", verbose);
+
         MarketImpl::download_latest(self, verbose)
     }
 
@@ -364,6 +366,13 @@ impl BybitMarket {
     }
 
     fn latest_db_rec(&self, search_before: MicroSec) -> Option<Trade> {
+        let search_before = if 0 < search_before {
+            search_before
+        }
+        else {
+            NOW() + DAYS(1)     // search from future
+        };
+
         MarketImpl::latest_db_rec(self, search_before)
     }
 
@@ -406,6 +415,8 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
     }
 
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64> {
+        log::debug!("download latest(verbose={})", verbose);
+
         let mut count = 0;
         BLOCK_ON(async {
             // TODO:
@@ -413,6 +424,7 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
             // Step1:  delete old data (before 2 days ago.)
             // step2:  download latest
             // step3:  fill the gap
+            log::debug!("download latest");
             let r = self.async_download_latest(verbose).await;
             if r.is_ok() {
                 count += r.unwrap();
@@ -420,12 +432,15 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
                 count = 0;
             }
 
+            /*
+            log::debug!("fill the gap");
             let r = self.async_download_gap(false, verbose).await;
             if r.is_ok() {
                 count += r.unwrap();
             } else {
                 count = 0;
             }
+            */
         });
 
         Ok((count))
@@ -575,7 +590,7 @@ impl BybitMarket {
             return Ok(0);
         }
 
-        let expire_message = TradeDb::expire_control_message(unfix_start, unfix_end, false);
+        let expire_message = TradeDb::expire_control_message(unfix_start, unfix_end, false, "before download_gap");
 
         let tx = {
             let mut lock = self.db.lock().unwrap();
