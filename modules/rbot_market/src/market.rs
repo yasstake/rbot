@@ -274,13 +274,23 @@ where
     /// Download historical log from REST API
     fn download_latest(&mut self, verbose: bool) -> anyhow::Result<i64>;
 
-    /// Download historical log from REST API, between the latest data and the latest FIX data.
-    /// If the latest FIX data is not found, generate psudo data from klines.
-    fn download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64>;
-
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>>;
 
     fn get_history_web_base_url(&self) -> String;
+
+    fn db_start_up_rec(&self) -> Option<Trade> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+
+        lock.db_start_up_rec()
+    }
+
+    fn latest_db_rec(&self, search_before: MicroSec) -> Option<Trade> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+
+        lock.latest_db_rec(search_before)
+    }
 
     fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
         log::debug!("[start] find_latest_gap");

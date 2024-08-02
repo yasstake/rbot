@@ -50,6 +50,8 @@ pub struct TradeDb {
     production: bool,
     connection: Connection,
 
+    first_ws_message: bool,
+
     tx: Option<Sender<Vec<Trade>>>,
     handle: Option<JoinHandle<()>>,
 }
@@ -347,6 +349,9 @@ impl TradeDb {
         let mut db = TradeDb {
             config: config.clone(),
             production,
+
+            first_ws_message: true,
+
             connection: conn,
             tx: None,
             handle: None,
@@ -379,7 +384,14 @@ impl TradeDb {
             let rx = rx; // Move rx into the closure's environment
             loop {
                 match rx.recv() {
-                    Ok(trades) => {
+                    Ok(mut trades) => {
+                        if db.first_ws_message {
+                            if trades.len() != 0 {
+                                trades[0].status = LogStatus::UnFixStart;
+                                db.first_ws_message = false;
+                            }
+                        }
+
                         let result = db.insert_records(&trades);
 
                         if result.is_err() {
@@ -406,39 +418,6 @@ impl TradeDb {
         return path.exists();
     }
 
-    /*
-    /// check if table is exsit by sql.
-    fn is_table_exsit(&mut self) -> bool {
-        log::debug!("is_table_exsit");
-
-        let sql = "select count(*) from sqlite_master where type='table' and name='trades'";
-
-        let connection = &mut self.connection;
-        // TODO: set timeout parameter
-        //        connection.busy_timeout(Duration::from_secs(3)).unwrap();
-        //        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Deferred).unwrap();
-
-        let result = connection.query_row(sql, [], |row| {
-            let count: i64 = row.get(0)?;
-            Ok(count)
-        });
-
-        match result {
-            Ok(count) => {
-                if count == 0 {
-                    return false;
-                } else {
-                    log::debug!("table is exsit");
-                    return true;
-                }
-            }
-            Err(e) => {
-                log::error!("is_table_exsit error {:?}", e);
-                return false;
-            }
-        }
-    }
-    */
 
     fn create_table_if_not_exists(&mut self) -> anyhow::Result<()> {
         self.connection.execute(
@@ -461,21 +440,6 @@ impl TradeDb {
         Ok(())
     }
 
-    /*
-    fn drop_table(&self) -> anyhow::Result<()> {
-        println!("database is dropped. To use database, restart the program.");
-        println!("To delete completely, delete the database file from OS.");
-        flush_log();
-
-        self.connection
-            .execute("drop table trades", ())
-            .with_context(|| format!("database drop error"))?;
-
-        self.vacuum()?;
-
-        Ok(())
-    }
-    */
 
     pub fn vacuum(&self) -> anyhow::Result<()> {
         log::debug!("vacuum db");
@@ -487,15 +451,6 @@ impl TradeDb {
         Ok(())
     }
 
-    /*
-    fn recreate_table(&mut self) -> anyhow::Result<()> {
-        self.create_table_if_not_exists()?;
-        self.drop_table()?;
-        self.create_table_if_not_exists()?;
-
-        Ok(())
-    }
-    */
 
     /// select  cachedf from database
     pub fn select_cachedf(
@@ -654,6 +609,43 @@ impl TradeDb {
         };
 
         return time;
+    }
+
+    /// 最後のWSの起動時間を探して返す。
+    /// 存在しない場合はNone
+    pub fn get_last_start_up_rec(&mut self) -> Option<Trade> {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where (status = "u") order by time_stamp desc limit 1"#;
+
+        let trades = self.select_query(sql, vec![]);
+
+        if trades.is_err() {
+            return None;
+        }
+
+        let trades = trades.unwrap();
+
+        if trades.len() != 0 {
+            return Some(trades[0].clone()) 
+        }
+        None
+    }
+
+    // DBにある最新のデータを取得する
+    pub fn get_latest_rec(&mut self, search_before: MicroSec) -> Option<Trade> {
+        let sql = r#"select time_stamp, action, price, size, status, id from trades where time_stamp < $1 order by time_stamp desc limit 1"#;
+
+        let trades = self.select_query(sql, vec![search_before]);
+
+        if trades.is_err() {
+            return None;
+        }
+
+        let trades = trades.unwrap();
+
+        if trades.len() != 0 {
+            return Some(trades[0].clone()) 
+        }
+        None
     }
 
     /// Find un-downloaded data time chunks.

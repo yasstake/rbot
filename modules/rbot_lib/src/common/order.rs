@@ -15,6 +15,7 @@ use crate::db::KEY;
 use async_std::stream::Cloned;
 
 use csv::StringRecord;
+use log::Log;
 use polars::prelude::DataFrame;
 use polars::prelude::NamedFrom;
 use polars::prelude::TimeUnit;
@@ -231,6 +232,7 @@ impl From<&String> for OrderType {
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
 #[pyclass]
 pub enum LogStatus {
+    UnFixStart,       // WebSocketデータの取得開始ポイント
     UnFix,           // データはWebSocketなどから取得されたが、まだ確定していない
     FixBlockStart,   // データが確定(アーカイブ）し、ブロックの開始を表す
     FixArchiveBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（アーカイブファイル）
@@ -252,6 +254,7 @@ impl Default for LogStatus {
 impl From<&str> for LogStatus {
     fn from(status: &str) -> Self {
         match status.to_uppercase().as_str() {
+            "u" => LogStatus::UnFixStart,
             "U" => LogStatus::UnFix,
             "S" => LogStatus::FixBlockStart,
             "A" => LogStatus::FixArchiveBlock,
@@ -272,6 +275,7 @@ impl From<&str> for LogStatus {
 impl LogStatus {
     pub fn to_string(&self) -> String {
         match self {
+            LogStatus::UnFixStart => "u".to_string(),
             LogStatus::UnFix => "U".to_string(),
             LogStatus::FixBlockStart => "S".to_string(),
             LogStatus::FixArchiveBlock => "A".to_string(),
