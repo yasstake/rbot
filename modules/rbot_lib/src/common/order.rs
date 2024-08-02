@@ -289,16 +289,22 @@ impl LogStatus {
 /// Represents a trade made on an exchange.
 pub struct Trade {
     /// The time the trade was executed, in microseconds since the epoch.
+    #[pyo3(get)]
     pub time: MicroSec,
     /// The side of the order that was filled.
+    #[pyo3(get)]
     pub order_side: OrderSide,
     /// The price at which the trade was executed.
+    #[pyo3(get)]
     pub price: Decimal,
     /// The size of the trade.
+    #[pyo3(get)]
     pub size: Decimal,
     /// trade status
+    #[pyo3(get)]
     pub status: LogStatus,
     /// The unique identifier for the trade.
+    #[pyo3(get)]
     pub id: String,
 }
 

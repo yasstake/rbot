@@ -18,7 +18,9 @@ use rust_decimal::Decimal;
 use async_trait::async_trait;
 
 
+#[derive(PartialEq)]
 pub enum TradePage {
+    New,
     Done,
     Time(MicroSec),
     Int(i64),
@@ -35,7 +37,7 @@ pub trait RestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: TradePage
+        page: &TradePage
     ) -> anyhow::Result<(Vec<Trade>, TradePage)>;
 
     async fn new_order(
