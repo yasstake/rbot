@@ -272,6 +272,24 @@ impl BybitMarket {
         MarketImpl::select_trades(self, start_time, end_time)
     }
 
+    fn select_db_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        MarketImpl::select_db_trades(self, start_time, end_time)
+    }
+
+    fn select_archive_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        MarketImpl::select_archive_trades(self, start_time, end_time)
+    }
+
+
+
     fn ohlcvv(
         &mut self,
         start_time: MicroSec,
@@ -338,7 +356,57 @@ impl BybitMarket {
         MarketImpl::download_latest(self, verbose)
     }
 
-    fn download_range(
+    fn download_realtime(
+        &mut self,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
+        BLOCK_ON(async {
+            MarketImpl::async_download_realtime(self, force, verbose).await
+        })
+    }
+
+
+
+    fn open_backtest_channel(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
+        MarketImpl::open_backtest_channel(self, time_from, time_to)
+    }
+
+    fn vaccum(&self) -> anyhow::Result<()> {
+        let mut lock = self.db.lock().unwrap();
+
+        lock.vacuum()
+    }
+
+    #[pyo3(signature = (force=false))]
+    fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
+        BLOCK_ON(async { self.async_expire_unfix_data(force).await })
+    }
+
+    fn _find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
+        MarketImpl::find_latest_gap(self, force)
+    }
+
+
+    fn _latest_db_rec(&self, search_before: MicroSec) -> anyhow::Result<Trade> {
+        let search_before = if 0 < search_before {
+            search_before
+        } else {
+            NOW() + DAYS(1) // search from future
+        };
+
+        MarketImpl::latest_db_rec(self, search_before)
+    }
+
+    fn _last_db_sequence_start_rec(&self) -> PyResult<Py<PyAny>> {
+        MarketImpl::db_start_up_rec(self)
+    }
+
+    fn _download_range(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -355,47 +423,6 @@ impl BybitMarket {
         BLOCK_ON(async {
             MarketImpl::async_download_range(self, start_time, end_time, verbose).await
         })
-    }
-
-    #[pyo3(signature = (force=false))]
-    fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_expire_unfix_data(force).await })
-    }
-
-    fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
-        MarketImpl::find_latest_gap(self, force)
-    }
-
-    fn start_market_stream(&mut self) -> anyhow::Result<()> {
-        MarketImpl::start_market_stream(self)
-    }
-
-    fn open_backtest_channel(
-        &mut self,
-        time_from: MicroSec,
-        time_to: MicroSec,
-    ) -> anyhow::Result<(MicroSec, MicroSec, MarketStream)> {
-        MarketImpl::open_backtest_channel(self, time_from, time_to)
-    }
-
-    fn vaccum(&self) -> anyhow::Result<()> {
-        let mut lock = self.db.lock().unwrap();
-
-        lock.vacuum()
-    }
-
-    fn latest_db_rec(&self, search_before: MicroSec) -> PyResult<Py<PyAny>> {
-        let search_before = if 0 < search_before {
-            search_before
-        } else {
-            NOW() + DAYS(1) // search from future
-        };
-
-        MarketImpl::latest_db_rec(self, search_before)
-    }
-
-    fn last_db_sequence_start_rec(&self) -> PyResult<Py<PyAny>> {
-        MarketImpl::db_start_up_rec(self)
     }
 }
 
@@ -457,12 +484,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         BLOCK_ON(async { self.async_refresh_order_book().await })
     }
 
-    fn start_market_stream(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_start_market_stream().await })
-    }
-}
-
-impl BybitMarket {
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
@@ -548,6 +569,10 @@ impl BybitMarket {
 
         Ok(())
     }
+
+}
+
+impl BybitMarket {
 
     async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
         log::debug!("[start] download_gap ");
@@ -772,6 +797,6 @@ mod market_test {
 
         let mut market = BybitMarket::new(&server_config, &market_config, true);
 
-        market.download_range(0, 0, true);
+        market._download_range(0, 0, true);
     }
 }
