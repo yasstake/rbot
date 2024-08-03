@@ -168,7 +168,7 @@ pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
 /// append df2 after df1
 pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
     let df = df1.vstack(df2)?;
-    
+
     Ok(df)
 }
 
@@ -467,7 +467,6 @@ pub fn ohlcvv_from_ohlcvv_df(
     }
 }
 
-
 /// Calc Value At Price
 /// group by unit price and order_side
 pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i64) -> DataFrame {
@@ -552,6 +551,13 @@ impl TradeBuffer {
         self.price.clear();
         self.size.clear();
         self.order_side.clear();
+    }
+
+    pub fn push(&mut self, timestamp: MicroSec, order_side: bool, price: f64, size: f64) {
+        self.time_stamp.push(timestamp);
+        self.order_side.push(order_side);
+        self.price.push(price);
+        self.size.push(size);
     }
 
     #[allow(unused)]
@@ -706,9 +712,6 @@ mod test_df {
             ]?
         );
 
-
-
-
         Ok(())
     }
 
@@ -806,7 +809,7 @@ mod test_df {
     }
 
     #[test]
-    fn test_make_ohlcvv_from_ohclv() -> anyhow::Result<()>{
+    fn test_make_ohlcvv_from_ohclv() -> anyhow::Result<()> {
         let ohlcv = make_ohlcv_df();
 
         let ohlcv2 = ohlcvv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
@@ -818,7 +821,7 @@ mod test_df {
     }
 
     #[test]
-    fn test_make_ohlcv_from_ohclv() -> anyhow::Result<()>{
+    fn test_make_ohlcv_from_ohclv() -> anyhow::Result<()> {
         let ohlcv = make_ohlcv_df();
 
         let ohlcv2 = ohlcv_from_ohlcvv_df(&ohlcv, 0, 0, 10)?;
@@ -901,7 +904,7 @@ mod test_df {
     }
 
     #[test]
-    fn test_convert_ohlc_datetime() -> anyhow::Result<()>{
+    fn test_convert_ohlc_datetime() -> anyhow::Result<()> {
         let mut df = make_empty_ohlcv();
 
         println!("{:?}", df);
@@ -911,5 +914,26 @@ mod test_df {
         println!("{:?}", df);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_ohlc() {
+        let mut trade_buffer = TradeBuffer::new();
+
+        for i in 0..1000000 {
+            trade_buffer.push(i * 1_00, true, (i * 2) as f64, (i * 3) as f64);
+        }
+
+        let df = trade_buffer.to_dataframe();
+
+        println!("{:}", df);
+
+        let mut ohlcv = ohlcv_df(&df, 123, 0, 10).unwrap();
+
+        println!("{:?}", ohlcv);
+
+        convert_timems_to_datetime(&mut ohlcv);
+
+        println!("{:?}", ohlcv);
     }
 }
