@@ -225,7 +225,6 @@ pub fn ohlcv_df(
         // truncate: true,                    // タイムスタンプを切り下げてまとめる。
         include_boundaries: false, // データの下限と上限を結果に含めるかどうか？(falseでOK)
         closed_window: ClosedWindow::Left, // t <=  x  < t+1       開始時間はWindowに含まれる。終了は含まれない(CloseWindow::Left)。
-        start_by: StartBy::DataPoint,
         // check_sorted: false,
         ..Default::default()
     };
@@ -262,6 +261,8 @@ pub fn ohlcv_df(
         }
     }
 }
+
+
 
 pub fn ohlcvv_df(
     df: &DataFrame,
@@ -917,7 +918,7 @@ mod test_df {
     }
 
     #[test]
-    fn test_ohlc() {
+    fn test_ohlcv() {
         let mut trade_buffer = TradeBuffer::new();
 
         for i in 0..1000000 {
@@ -936,4 +937,28 @@ mod test_df {
 
         println!("{:?}", ohlcv);
     }
+
+    #[test]
+    fn test_ohlcvv() {
+        let mut trade_buffer = TradeBuffer::new();
+
+        for i in 0..1000000 {
+            let side = i%2 == 0;
+
+            trade_buffer.push(i * 1_00, side, (i * 2) as f64, (i * 3) as f64);
+        }
+
+        let df = trade_buffer.to_dataframe();
+
+        println!("{:}", df);
+
+        let mut ohlcv = ohlcvv_df(&df, 123, 0, 10).unwrap();
+
+        println!("{:?}", ohlcv);
+
+        convert_timems_to_datetime(&mut ohlcv);
+
+        println!("{:?}", ohlcv);
+    }
+
 }

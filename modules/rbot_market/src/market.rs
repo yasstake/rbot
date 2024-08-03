@@ -12,10 +12,12 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::db::convert_timems_to_datetime;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
 use rbot_lib::net::TradePage;
 use rust_decimal_macros::dec;
+use tokio::time;
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -297,19 +299,17 @@ where
         })
     }
 
-    fn latest_db_rec(&self, search_before: MicroSec) -> PyResult<Py<PyAny>> {
+    fn latest_db_rec(&self, search_before: MicroSec) -> anyhow::Result<Trade> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
         let trade = lock.latest_db_rec(search_before);
 
-        Python::with_gil(|py| {
-            if let Some(trade) = trade {
-                Ok(trade.into_py(py))
-            } else {
-                Ok(Python::None(py))
-            }
-        })
+        if trade.is_some() {
+            return Ok(trade.unwrap())
+        }
+
+        Err(anyhow!("no record from {:?}({:?})", time_string(search_before), search_before))
     }
 
     fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
@@ -411,6 +411,32 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_select_trades_polars(start_time, end_time)
+    }
+
+    fn select_db_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        let mut df = lock.select_db_cachedf(start_time, end_time)?;
+        convert_timems_to_datetime(&mut df)?;
+
+        Ok(PyDataFrame(df))
+    }
+
+    fn select_archive_trades(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        let mut df = lock.select_archive_cachedf(start_time, end_time)?;
+        convert_timems_to_datetime(&mut df)?;
+
+        Ok(PyDataFrame(df))
     }
 
     fn ohlcvv(
@@ -588,7 +614,7 @@ where
 
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
-    fn start_market_stream(&mut self) -> anyhow::Result<()>;
+    async fn async_start_market_stream(&mut self) -> anyhow::Result<()>;
 
     /// open back test channel
     /// returns:
@@ -693,19 +719,43 @@ where
         let start_time = trades[0].time;
         let end_time = trades[(rec - 1) as usize].time;
 
-        let expire_control =
-            TradeDb::expire_control_message(start_time, end_time, true, "download latest");
-
-        if verbose {
-            println!("expire control from {:?}", expire_control[0].__str__());
-            println!("expire control to   {:?}", expire_control[1].__str__());
-        }
-
-        tx.send(expire_control)?;
-
         tx.send(trades)?;
 
         Ok((start_time, end_time))
+    }
+
+    async fn async_download_realtime(
+        &mut self,
+        force: bool,
+        verbose: bool
+    ) -> anyhow::Result<()> {
+
+        self.async_start_market_stream().await?;
+        log::info!("start public ws");
+
+        let (start_time, _end_time) = self.async_download_latest(verbose).await?;
+        log::info!("download recent {:?}->{:?}", time_string(start_time), time_string(_end_time));
+
+        let rec = self.latest_db_rec(start_time);
+
+        let range_from = if force {
+            log::info!("force download");
+            0           // from begining
+        }
+        else if rec.is_err() {
+            log::info!("repave all");
+            0           // from begining
+        }
+        else {
+            let t = rec.unwrap().time;
+            log::info!("download from {:?}", time_string(t));
+
+            t
+        };
+
+        self.async_download_range(range_from, start_time, verbose).await?;
+
+        Ok(())
     }
 
     async fn async_download_range(
