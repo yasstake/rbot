@@ -700,8 +700,6 @@ where
         trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
         let rec = trades.len() as i64;
 
-        log::debug!("rec: {}", rec);
-
         if rec == 0 {
             return Err(anyhow!("No data "));
         }
@@ -810,8 +808,8 @@ where
                     "download_range (loop) {}({}) {}({}) {}[rec]",
                     time_string(start_time),
                     start_time,
-                    time_string(time_to),
-                    time_to,
+                    time_string(end_time),
+                    end_time,
                     l
                 );
             }

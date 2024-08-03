@@ -412,14 +412,6 @@ impl BybitMarket {
         end_time: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        if verbose {
-            println!(
-                "download_range from={} to={}",
-                time_string(start_time),
-                time_string(end_time)
-            );
-        }
-
         BLOCK_ON(async {
             MarketImpl::async_download_range(self, start_time, end_time, verbose).await
         })
