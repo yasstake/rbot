@@ -229,7 +229,7 @@ impl TradeDb {
         } else {
             start_time
         };
-
+       
         let mut trades: Vec<Trade> = vec![];
         let t = Trade::new(
             start_time,
@@ -278,6 +278,7 @@ impl TradeDb {
             trades_len
         );
 
+        // TODO: now log in db is unstable data only
         if log_status == LogStatus::ExpireControl && trades_len == 2 {
             log::debug!("delete unarchived data");
             let tx = self.begin_transaction()?;
@@ -294,7 +295,7 @@ impl TradeDb {
 
         // create transaction with immidate mode
         let tx = self.begin_transaction()?;
-        let _ = Self::delete_unstable_data(&tx, start_time, end_time);
+        // let _ = Self::delete_unstable_data(&tx, start_time, end_time);
         // then insert data
         let insert_len = Self::insert_transaction(&tx, trades)?;
         tx.commit()?;

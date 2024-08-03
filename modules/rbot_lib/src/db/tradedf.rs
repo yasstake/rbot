@@ -4,7 +4,9 @@ use std::{
 };
 
 use crossbeam_channel::Sender;
+
 use once_cell::sync::Lazy;
+//use pyo3::sync::GILOnceCell;
 use polars::frame::DataFrame;
 use pyo3_polars::PyDataFrame;
 
@@ -90,7 +92,7 @@ impl TradeDataFrame {
         self.db.vacuum()
     }
 
-    pub fn get_archive_start_time(&self)-> MicroSec {
+    pub fn get_archive_start_time(&self) -> MicroSec {
         self.archive.start_time()
     }
 
@@ -140,7 +142,7 @@ impl TradeDataFrame {
         &mut self,
         now: MicroSec,
         force: bool,
-        message: &str
+        message: &str,
     ) -> anyhow::Result<Vec<Trade>> {
         self.db.make_expire_control_message(now, force, message)
     }
@@ -199,7 +201,6 @@ impl TradeDataFrame {
         self.archive.download(api, ndays, force, verbose).await
     }
 
-
     pub fn get_cache_duration(&self) -> MicroSec {
         return self.cache_duration;
     }
@@ -216,14 +217,30 @@ impl TradeDataFrame {
         let archive_end = self.get_archive_end_time();
 
         let df = if start_time < archive_end {
-            let df1 = self.archive.select_cachedf(start_time, end_time)?;
-            let df2 = self.db.select_cachedf(archive_end, end_time)?;
+            let df1 = self.select_archive_cachedf(start_time, end_time)?;
+            let df2 = self.select_db_cachedf(archive_end, end_time)?;
             append_df(&df1, &df2)
         } else {
             self.db.select_cachedf(start_time, end_time)
         };
 
         df
+    }
+
+    pub fn select_archive_cachedf(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
+        self.archive.select_cachedf(start_time, end_time)
+    }
+
+    pub fn select_db_cachedf(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
+        self.db.select_cachedf(start_time, end_time)
     }
 
     pub fn load_cachedf(
@@ -531,19 +548,16 @@ impl TradeDataFrame {
             time_string(min),
             time_string(max),
             (max - min) / DAYS(1),
-
             archive_min,
             archive_max,
             time_string(archive_min),
             time_string(archive_max),
             (archive_max - archive_min) / DAYS(1),
-
             db_min,
             db_max,
             time_string(db_min),
             time_string(db_max),
             (db_max - db_min) / DAYS(1),
-
         );
     }
 

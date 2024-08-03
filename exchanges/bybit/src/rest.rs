@@ -178,9 +178,9 @@ impl RestApi for BybitRestApi {
         let start_time = ohlcv_start(start_time);
 
         let mut end_time = if end_time == 0 {
-            ohlcv_end(NOW()) - 1
+            ohlcv_start(NOW())
         } else {
-            ohlcv_end(end_time) - 1
+            ohlcv_start(end_time)
         };
 
         loop {
@@ -221,7 +221,6 @@ impl RestApi for BybitRestApi {
 
             // klines_buf.insert(0, .append(&mut klines);
             klines_buf.splice(0..0, klines);
-
 
             if (end_time != 0) && (end_time <= start_time) {
                 log::debug!(
