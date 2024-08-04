@@ -234,9 +234,8 @@ impl From<&String> for OrderType {
 pub enum LogStatus {
     UnFixStart,       // WebSocketデータの取得開始ポイント
     UnFix,           // データはWebSocketなどから取得されたが、まだ確定していない
-    FixBlockStart,   // データが確定(アーカイブ）し、ブロックの開始を表す
-    FixArchiveBlock, // データが確定(アーカイブ）し、ブロックの中間を表す（アーカイブファイル）
-    FixBlockEnd,     // データが確定(アーカイブ）し、ブロックの終了を表す
+    Virtual,           // 4本足から作成したデータ
+    FixArchiveBlock,   // アーカイブから取得されたデータ
     ExpireControlForce, // 削除指示（アーカイブ意外は強制削除）
     ExpireControl,      // 削除指示(通常：WSデータのみ削除)
     Unknown,            // 未知のステータス / 未確定のステータス
@@ -255,9 +254,8 @@ impl From<&str> for LogStatus {
         match status {
             "Us" => LogStatus::UnFixStart,
             "U" => LogStatus::UnFix,
-            "Fs" => LogStatus::FixBlockStart,
-            "F" => LogStatus::FixArchiveBlock,
-            "Fe" => LogStatus::FixBlockEnd,
+            "V" => LogStatus::Virtual,
+            "A" => LogStatus::FixArchiveBlock,
             "XX" => LogStatus::ExpireControlForce,
             "X" => LogStatus::ExpireControl,
             _ => {
@@ -273,9 +271,8 @@ impl LogStatus {
         match self {
             LogStatus::UnFixStart => "Us".to_string(),
             LogStatus::UnFix => "U".to_string(),
-            LogStatus::FixBlockStart => "Fs".to_string(),
-            LogStatus::FixArchiveBlock => "F".to_string(),
-            LogStatus::FixBlockEnd => "Fe".to_string(),
+            LogStatus::Virtual => "V".to_string(),
+            LogStatus::FixArchiveBlock => "A".to_string(),
             LogStatus::ExpireControlForce => "XX".to_string(),
             LogStatus::ExpireControl => "X".to_string(),
             LogStatus::Unknown => "???".to_string(),

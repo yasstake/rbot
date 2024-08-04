@@ -349,10 +349,11 @@ impl BybitMarket {
     fn _download_realtime(
         &mut self,
         force: bool,
+        connect_ws: bool,
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download_realtime(self, force, verbose).await
+            MarketImpl::async_download_realtime(self, connect_ws, force, verbose).await
         })
     }
 
@@ -368,11 +369,6 @@ impl BybitMarket {
         let mut lock = self.db.lock().unwrap();
 
         lock.vacuum()
-    }
-
-    #[pyo3(signature = (force=false))]
-    fn _expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_expire_unfix_data(force).await })
     }
 
     fn _cache_all_data(&mut self) -> anyhow::Result<()> {
@@ -392,10 +388,6 @@ impl BybitMarket {
 
     fn _reset_cache_duration(&mut self) {
         MarketImpl::reset_cache_duration(self)
-    }
-
-    fn _find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
-        MarketImpl::find_latest_gap(self, force)
     }
 
 
@@ -573,73 +565,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
 impl BybitMarket {
 
-    async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
-        log::debug!("[start] download_gap ");
-        let gap_result = self.find_latest_gap(force);
-        if gap_result.is_err() {
-            log::warn!("no gap found: {:?}", gap_result);
-
-            if verbose {
-                println!("no gap found: {:?}", gap_result);
-                flush_log();
-            }
-
-            return Ok(0);
-        }
-
-        let (unfix_start, unfix_end) = gap_result?;
-
-        //let (unfix_start, unfix_end) = self.find_latest_gap();
-        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
-
-        if verbose {
-            println!(
-                "unfix_start: {:?}({:?}), unfix_end: {:?}({:?})",
-                time_string(unfix_start),
-                unfix_start,
-                time_string(unfix_end),
-                unfix_end
-            );
-            flush_log();
-        }
-
-        if unfix_end != 0 && unfix_end - unfix_start <= HHMM(0, 1) {
-            log::info!("no need to download");
-            return Ok(0);
-        }
-
-        let tx = {
-            let mut lock = self.db.lock().unwrap();
-            lock.open_channel()?
-        };
-
-        let api = self.get_restapi();
-        let (trades, _trade_page) = api
-            .get_trades(&self.get_config(), unfix_start, unfix_end, &TradePage::Done)
-            .await?;
-
-        let rec = trades.len();
-
-        let start_time = if trades[0].time < trades[rec - 1].time {
-            trades[0].time
-        } else {
-            trades[rec - 1].time
-        };
-
-        let expire_message =
-            TradeDb::expire_control_message(start_time, unfix_end, false, "before download_gap");
-        tx.send(expire_message)?;
-
-        tx.send(trades)?;
-
-        if verbose {
-            println!("rec: {}", rec);
-            flush_log();
-        }
-
-        Ok(rec as i64)
-    }
-
     async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
         let api = self.get_restapi();
         let board = api.get_board_snapshot(&self.config).await?;
@@ -663,10 +588,9 @@ mod bybit_test {
         init_debug_log();
         let mut bybit = Bybit::new(false);
         assert_eq!(bybit.get_enable_order_feature(), false);
-
         
         bybit.set_enable_order_feature(true);        
-
+        assert_eq!(bybit.get_enable_order_feature(), true);
     }
 
     #[test]

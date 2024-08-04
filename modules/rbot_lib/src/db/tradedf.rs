@@ -136,16 +136,6 @@ impl TradeDataFrame {
         return archive_end;
     }
 
-    /// create new expire control message(from latest fix time to now)
-    /// if there is not fix record in 2 days, return error.
-    pub fn make_expire_control_message(
-        &mut self,
-        now: MicroSec,
-        force: bool,
-        message: &str,
-    ) -> anyhow::Result<Vec<Trade>> {
-        self.db.make_expire_control_message(now, force, message)
-    }
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
         let start_time: MicroSec = df
@@ -563,15 +553,6 @@ impl TradeDataFrame {
         return self.db.insert_records(trades);
     }
 
-    pub fn find_latest_gap(&mut self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
-        let start_time = NOW() - DAYS(2);
-
-        let fix_time = self.latest_fix_time(start_time, force)?;
-        let unfix_time = self.first_unfix_time(fix_time)?;
-
-        Ok((fix_time, unfix_time))
-    }
-
     pub fn db_start_up_rec(&mut self) -> Option<Trade> {
         self.db.get_last_start_up_rec()
     }
@@ -580,29 +561,6 @@ impl TradeDataFrame {
         self.db.get_latest_rec(search_before)
     }
 
-    pub fn latest_fix_trade(
-        &mut self,
-        start_time: MicroSec,
-        force: bool,
-    ) -> anyhow::Result<Option<Trade>> {
-        self.db.latest_fix_trade(start_time, force)
-    }
-
-    pub fn latest_fix_time(
-        &mut self,
-        start_time: MicroSec,
-        force: bool,
-    ) -> anyhow::Result<MicroSec> {
-        self.db.latest_fix_time(start_time, force)
-    }
-
-    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
-        self.db.first_unfix_trade(start_time)
-    }
-
-    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
-        self.db.first_unfix_time(start_time)
-    }
 }
 
 impl TradeDataFrame {
