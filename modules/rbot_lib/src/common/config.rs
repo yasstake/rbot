@@ -1,17 +1,16 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use pyo3::{pyclass, pymethods};
+use super::SecretString;
+use anyhow::anyhow;
+use pyo3::{pyclass, pymethods, types::PyAnyMethods as _, Bound, PyAny, PyResult};
 use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 use zip::read::Config;
-use super::SecretString;
-use anyhow::anyhow;
 
-
-pub trait ServerConfig : Send + Sync {
+pub trait ServerConfig: Send + Sync {
     fn get_historical_web_base(&self) -> String;
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;
@@ -41,9 +40,9 @@ pub enum PriceType {
 pub struct MarketConfig {
     #[pyo3(set)]
     pub exchange_name: String,
-    #[pyo3(set, get)]    
+    #[pyo3(set, get)]
     pub trade_category: String,
-    #[pyo3(set, get)]    
+    #[pyo3(set, get)]
     pub trade_symbol: String,
 
     pub price_unit: Decimal,
@@ -54,14 +53,14 @@ pub struct MarketConfig {
 
     #[pyo3(set)]
     pub price_type: PriceType,
-    #[pyo3(set)]    
+    #[pyo3(set)]
     pub fee_type: FeeType,
 
     #[pyo3(set)]
     pub home_currency: String,
-    #[pyo3(set)]    
+    #[pyo3(set)]
     pub foreign_currency: String,
-    
+
     #[pyo3(set)]
     pub market_order_price_slip: Decimal,
 
@@ -74,17 +73,26 @@ pub struct MarketConfig {
 
 fn round(unit: Decimal, value: Decimal) -> anyhow::Result<Decimal> {
     let scale = unit.scale();
-    
+
     let v = (value / unit).floor() * unit; // price_unitで切り捨て
     let v = v.round_dp(scale);
 
     if v == dec![0.0] {
-        log::warn!("Price or size becomes zero value= {} / unit= {} => {}", value, unit, v);
-        return Err(anyhow!("Price or size becomes zero value= {} / unit= {} => {}", value, unit, v))
+        log::warn!(
+            "Price or size becomes zero value= {} / unit= {} => {}",
+            value,
+            unit,
+            v
+        );
+        return Err(anyhow!(
+            "Price or size becomes zero value= {} / unit= {} => {}",
+            value,
+            unit,
+            v
+        ));
     }
     Ok(v)
 }
-
 
 #[pymethods]
 impl MarketConfig {
@@ -119,15 +127,14 @@ impl MarketConfig {
         taker_fee: f64,
         fee_type: FeeType,
         public_subscribe_channel: Vec<String>,
-        trade_symbol: Option<&str>
+        trade_symbol: Option<&str>,
     ) -> Self {
         let maker_fee = Decimal::from_f64(maker_fee).unwrap();
         let taker_fee = Decimal::from_f64(taker_fee).unwrap();
 
         let symbol = if let Some(symbol) = trade_symbol {
             symbol.to_string()
-        }
-        else {
+        } else {
             format!("{}{}", foreign_currency, home_currency)
         };
 
@@ -145,7 +152,7 @@ impl MarketConfig {
             board_depth,
             trade_category: trade_category.to_string(),
             public_subscribe_channel: public_subscribe_channel,
-            trade_symbol: symbol
+            trade_symbol: symbol,
         }
     }
 
@@ -191,11 +198,23 @@ impl MarketConfig {
 
     pub fn key_string(&self, production: bool) -> String {
         if production {
-            format!("{}/{}/{}", self.exchange_name, self.trade_category, self.trade_symbol)
+            format!(
+                "{}/{}/{}",
+                self.exchange_name, self.trade_category, self.trade_symbol
+            )
+        } else {
+            format!(
+                "{}/{}/{}/test",
+                self.exchange_name, self.trade_category, self.trade_symbol
+            )
         }
-        else {
-            format!("{}/{}/{}/test", self.exchange_name, self.trade_category, self.trade_symbol)
-        }
+    }
+
+    fn __eq__(&self, other: &Bound<Self>) -> PyResult<bool> {
+        let other = other
+            .extract::<MarketConfig>()
+            .expect("Expected MarketConfig");
+        Ok(self.eq(&other))
     }
 }
 
@@ -220,7 +239,6 @@ impl Default for MarketConfig {
     }
 }
 
-
 #[cfg(test)]
 mod test_market_config {
     use rust_decimal_macros::dec;
@@ -230,7 +248,7 @@ mod test_market_config {
     use super::MarketConfig;
 
     #[test]
-    fn round_price() -> anyhow::Result<()>{
+    fn round_price() -> anyhow::Result<()> {
         let mut config = MarketConfig::default();
         config.price_unit = dec![0.5];
 
@@ -274,4 +292,3 @@ mod test_market_config {
         assert_eq!(config.get_size_unit(), dec![1.23]);
     }
 }
-

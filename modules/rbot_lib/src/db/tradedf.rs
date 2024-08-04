@@ -268,15 +268,25 @@ impl TradeDataFrame {
     pub fn update_cache_df(
         &mut self,
         start_time: MicroSec,
-        mut end_time: MicroSec,
+        end_time: MicroSec,
     ) -> anyhow::Result<()> {
         log::debug!("update_cache_df {} -> {}", start_time, end_time);
 
         let df_start_time: i64;
 
-        if end_time == 0 {
-            end_time = NOW();
+        let end_time = if end_time == 0 {
+            NOW()
         }
+        else {
+            end_time
+        };
+
+        let start_time = if start_time == 0 {
+            self.get_archive_start_time()
+        }
+        else {
+            start_time
+        };
 
         let cache_time = end_time - start_time;
         if self.cache_duration < cache_time {
