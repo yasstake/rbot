@@ -93,11 +93,12 @@ impl Bybit {
     //--- OrderInterfaceImpl ----
     #[setter]
     pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
-        self.enable_order = enable_order;
+        self.set_enable_order_feature(enable_order);
     }
+
     #[getter]
     pub fn get_enable_order_with_my_own_risk(&self) -> bool {
-        self.enable_order
+        self.get_enable_order_feature()
     }
 
     pub fn limit_order(
@@ -154,10 +155,12 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
     }
 
     fn set_enable_order_feature(&mut self, enable_order: bool) {
+        log::debug!("set enable order {}", enable_order);
         self.enable_order = enable_order;
     }
 
     fn get_enable_order_feature(&self) -> bool {
+        log::debug!("get enable order {}", self.enable_order);
         self.enable_order
     }
 
@@ -241,10 +244,6 @@ impl BybitMarket {
         MarketImpl::get_config(self)
     }
 
-    #[getter]
-    fn get_cache_duration(&self) -> MicroSec {
-        MarketImpl::get_cache_duration(self)
-    }
 
     #[getter]
     fn get_archive_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
@@ -256,9 +255,6 @@ impl BybitMarket {
         MarketImpl::get_db_info(self)
     }
 
-    fn reset_cache_duration(&mut self) {
-        MarketImpl::reset_cache_duration(self)
-    }
 
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         MarketImpl::cache_all_data(self)
@@ -385,6 +381,14 @@ impl BybitMarket {
     #[pyo3(signature = (force=false))]
     fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
         BLOCK_ON(async { self.async_expire_unfix_data(force).await })
+    }
+
+    fn _get_cache_duration(&self) -> MicroSec {
+        MarketImpl::get_cache_duration(self)
+    }
+
+    fn _reset_cache_duration(&mut self) {
+        MarketImpl::reset_cache_duration(self)
     }
 
     fn _find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
@@ -646,15 +650,20 @@ impl BybitMarket {
 #[cfg(test)]
 mod bybit_test {
     use rbot_lib::common::init_debug_log;
+    use rbot_market::OrderInterfaceImpl;
     use rust_decimal_macros::dec;
 
     use crate::{Bybit, BybitConfig};
 
     #[test]
     fn test_create() {
-        let bybit = Bybit::new(false);
+        init_debug_log();
+        let mut bybit = Bybit::new(false);
+        assert_eq!(bybit.get_enable_order_feature(), false);
 
-        assert!(bybit.enable_order == false);
+        
+        bybit.set_enable_order_feature(true);        
+
     }
 
     #[test]
