@@ -494,18 +494,6 @@ impl TradeDataFrame {
         Ok(df)
     }
 
-    pub fn py_select_trades_polars(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<PyDataFrame> {
-        let mut df = self.db.select_cachedf(start_time, end_time)?;
-        convert_timems_to_datetime(&mut df)?;
-        let df = PyDataFrame(df);
-
-        return Ok(df);
-    }
-
     pub fn info(&mut self) -> String {
         let min = self.start_time();
         let max = self.end_time();
