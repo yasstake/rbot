@@ -285,6 +285,7 @@ where
 
     fn get_history_web_base_url(&self) -> String;
 
+
     fn db_start_up_rec(&self) -> PyResult<Py<PyAny>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
@@ -410,7 +411,11 @@ where
     ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        lock.py_select_trades_polars(start_time, end_time)
+
+        let mut df = lock.select_cachedf(start_time, end_time)?;
+        convert_timems_to_datetime(&mut df)?;
+
+        Ok(PyDataFrame(df))
     }
 
     fn select_db_trades(
@@ -470,6 +475,18 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
         lock.py_vap(start_time, end_time, price_unit)
+    }
+
+    fn start_time(&mut self) -> MicroSec {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.start_time()
+    }
+
+    fn end_time(&mut self) -> MicroSec {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        lock.end_time()
     }
 
     fn info(&mut self) -> String {
@@ -652,6 +669,31 @@ where
         });
 
         return Ok((actual_start, actual_end, market_stream));
+    }
+
+    async fn async_download(&mut self, ndays: i64, connect_ws: bool, force_archive: bool, force_recent: bool, force: bool, verbose: bool) -> anyhow::Result<()> {
+        let force_archive = if force {
+            true
+        }
+        else {
+            force_archive
+        };
+
+        let force_recent = if force {
+            true
+        }
+        else {
+            force_recent
+        };
+
+
+        if connect_ws {
+            self.async_download_realtime(force_archive, verbose).await?;
+        }
+
+        self.async_download_archive(ndays, force_recent, verbose).await?;
+
+        Ok(())
     }
 
     async fn async_download_archive(
