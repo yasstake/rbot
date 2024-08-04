@@ -7,7 +7,7 @@ use rbot_lib::{common::{
     get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, 
     FeeType, PriceType,
     BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
-}, db::{get_db_root, set_db_root}};
+}, db::{get_data_root, set_data_root, __delete_data_root}};
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
@@ -24,8 +24,8 @@ fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
-    m.add_function(wrap_pyfunction!(get_db_root, m)?)?;
-    m.add_function(wrap_pyfunction!(set_db_root, m)?)?;
+    m.add_function(wrap_pyfunction!(get_data_root, m)?)?;
+    m.add_function(wrap_pyfunction!(set_data_root, m)?)?;
 
     m.add_function(wrap_pyfunction!(init_log, m)?)?;
     m.add_function(wrap_pyfunction!(init_debug_log, m)?)?;
@@ -43,6 +43,9 @@ fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(SEC, m)?)?;
 
     m.add_function(wrap_pyfunction!(FLOOR_SEC, m)?)?;
+
+    m.add_function(wrap_pyfunction!(__delete_data_root, m)?)?;
+
 
     // classes
     m.add_class::<MarketConfig>()?;

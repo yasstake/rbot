@@ -10,7 +10,7 @@ use super::MarketConfig;
 use super::MarketMessage;
 use super::SEC;
 use crate::common::time::time_string;
-use crate::db::get_db_root;
+use crate::db::get_data_root;
 use crate::db::KEY;
 use async_std::stream::Cloned;
 
