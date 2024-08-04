@@ -17,7 +17,6 @@ use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
 use rbot_lib::net::TradePage;
 use rust_decimal_macros::dec;
-use tokio::time;
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3_polars::PyDataFrame;
@@ -285,7 +284,6 @@ where
 
     fn get_history_web_base_url(&self) -> String;
 
-
     fn db_start_up_rec(&self) -> PyResult<Py<PyAny>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
@@ -307,63 +305,14 @@ where
         let trade = lock.latest_db_rec(search_before);
 
         if trade.is_some() {
-            return Ok(trade.unwrap())
+            return Ok(trade.unwrap());
         }
 
-        Err(anyhow!("no record from {:?}({:?})", time_string(search_before), search_before))
-    }
-
-    fn find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
-        log::debug!("[start] find_latest_gap");
-        let db = self.get_db();
-
-        let (fix_time, unfix_time) = {
-            let mut lock = db.lock().unwrap();
-
-            let start_time = NOW() - DAYS(2);
-
-            let fix_time = lock.latest_fix_time(start_time, force)?;
-            if fix_time == 0 {
-                return Err(anyhow!("No data found"));
-            }
-
-            let unfix_time = lock.first_unfix_time(fix_time)?;
-
-            (fix_time, unfix_time)
-        };
-
-        Ok((fix_time, unfix_time))
-    }
-
-    fn find_latest_gap_trade(&self, force: bool) -> anyhow::Result<(Option<Trade>, Option<Trade>)> {
-        log::debug!("[start] find_latest_gap_trade force={}", force);
-        let start_time = NOW() - DAYS(2);
-
-        let db = self.get_db();
-
-        let mut lock = db.lock().unwrap();
-        let latest_trade = lock.latest_fix_trade(start_time, force)?;
-
-        if latest_trade.is_none() {
-            log::debug!("No data found");
-            return Ok((None, None));
-        }
-
-        let latest_trade_id = latest_trade.as_ref().unwrap().id.clone();
-        let fix_time = latest_trade.as_ref().unwrap().time;
-
-        let first_unfix_trade = lock.first_unfix_trade(fix_time)?;
-
-        if first_unfix_trade.is_some() {
-            let first_unfix_trade_id = first_unfix_trade.as_ref().unwrap().id.clone();
-
-            if first_unfix_trade_id == latest_trade_id {
-                log::debug!("first_unfix_trade_id <= latest_trade_id");
-                return Ok((None, None));
-            }
-        }
-
-        Ok((latest_trade, first_unfix_trade))
+        Err(anyhow!(
+            "no record from {:?}({:?})",
+            time_string(search_before),
+            search_before
+        ))
     }
 
     fn get_cache_duration(&self) -> MicroSec {
@@ -479,7 +428,7 @@ where
 
     fn start_time(&mut self) -> MicroSec {
         let db = self.get_db();
-        let mut lock = db.lock().unwrap();
+        let lock = db.lock().unwrap();
         lock.start_time()
     }
 
@@ -605,30 +554,6 @@ where
         self.get_restapi().get_recent_trades(market_config).await
     }
 
-    async fn async_expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
-        let db = self.get_db();
-        let now = NOW();
-
-        let expire_message = {
-            let mut lock = db.lock().unwrap();
-            lock.make_expire_control_message(now, force, "expire unfix data")
-        };
-
-        if expire_message.is_err() {
-            return Ok(());
-        }
-
-        let expire_message = expire_message.unwrap();
-
-        let tx = self.open_db_channel().await?;
-        let r = tx.send(expire_message);
-        if r.is_err() {
-            log::error!("Error in tx.send: {:?}", r.err().unwrap());
-        }
-
-        Ok(())
-    }
-
     /// Download latest data from REST API
     // fn download_latest(&mut self, verbose: bool) -> i64;
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()>;
@@ -671,27 +596,24 @@ where
         return Ok((actual_start, actual_end, market_stream));
     }
 
-    async fn async_download(&mut self, ndays: i64, connect_ws: bool, force_archive: bool, force_recent: bool, force: bool, verbose: bool) -> anyhow::Result<()> {
-        let force_archive = if force {
-            true
-        }
-        else {
-            force_archive
-        };
+    async fn async_download(
+        &mut self,
+        ndays: i64,
+        connect_ws: bool,
+        force_archive: bool,
+        force_recent: bool,
+        force: bool,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
+        let force_archive = if force { true } else { force_archive };
 
-        let force_recent = if force {
-            true
-        }
-        else {
-            force_recent
-        };
+        let force_recent = if force { true } else { force_recent };
 
+        self.async_download_realtime(connect_ws, force_recent, verbose)
+            .await?;
 
-        if connect_ws {
-            self.async_download_realtime(force_archive, verbose).await?;
-        }
-
-        self.async_download_archive(ndays, force_recent, verbose).await?;
+        self.async_download_archive(ndays, force_archive, verbose)
+            .await?;
 
         Ok(())
     }
@@ -718,7 +640,7 @@ where
 
         // delete old data from db.
         if archive_end != 0 {
-            let expire = TradeDb::expire_control_message(0, archive_end, true, "download archive");
+            let expire = TradeDb::expire_control_message(0, archive_end + 1, true, "download archive");
 
             log::debug!("expire: {:?}", expire);
 
@@ -759,6 +681,11 @@ where
         let start_time = trades[0].time;
         let end_time = trades[(rec - 1) as usize].time;
 
+        let expire_message =
+            TradeDb::expire_control_message(start_time, end_time, false, "before download_latest");
+
+        tx.send(expire_message)?;
+
         tx.send(trades)?;
 
         Ok((start_time, end_time))
@@ -766,34 +693,42 @@ where
 
     async fn async_download_realtime(
         &mut self,
+        connect_ws: bool,
         force: bool,
-        verbose: bool
+        verbose: bool,
     ) -> anyhow::Result<()> {
-
-        self.async_start_market_stream().await?;
-        log::info!("start public ws");
+        if connect_ws {
+            if verbose {
+                println!("connect ws");
+            }
+            self.async_start_market_stream().await?;
+            log::info!("start public ws");
+        }
 
         let (start_time, _end_time) = self.async_download_latest(verbose).await?;
-        log::info!("download recent {:?}->{:?}", time_string(start_time), time_string(_end_time));
+        log::info!(
+            "download recent {:?}->{:?}",
+            time_string(start_time),
+            time_string(_end_time)
+        );
 
         let rec = self.latest_db_rec(start_time);
 
         let range_from = if force {
             log::info!("force download");
-            0           // from begining
-        }
-        else if rec.is_err() {
+            0 // from begining
+        } else if rec.is_err() {
             log::info!("repave all");
-            0           // from begining
-        }
-        else {
+            0 // from begining
+        } else {
             let t = rec.unwrap().time;
             log::info!("download from {:?}", time_string(t));
 
             t
         };
 
-        self.async_download_range(range_from, start_time, verbose).await?;
+        self.async_download_range(range_from, start_time, verbose)
+            .await?;
 
         Ok(())
     }
@@ -843,7 +778,7 @@ where
             }
 
             let start_time = trades[0].time;
-            let end_time = trades[l-1].time;
+            let end_time = trades[l - 1].time;
 
             if verbose {
                 println!(
@@ -857,8 +792,7 @@ where
             }
 
             let expire_message =
-                TradeDb::expire_control_message(
-                    start_time, end_time, true, "before download_gap");
+                TradeDb::expire_control_message(start_time, end_time + 1, true, "before download_gap");
 
             tx.send(expire_message)?;
 
