@@ -409,7 +409,7 @@ impl Trade {
     pub fn csv_header() -> String {
         format!(
             "{},{},{},{},{}\n",
-            KEY::time_stamp,
+            KEY::timestamp,
             KEY::order_side,
             KEY::price,
             KEY::size,
@@ -1429,6 +1429,7 @@ impl Kline {
         trades
     }
 }
+
 
 pub fn convert_klines_to_trades(klines: Vec<Kline>, window_sec: i64) -> Vec<Trade> {
     let mut trades = Vec::new();

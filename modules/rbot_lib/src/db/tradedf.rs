@@ -71,7 +71,7 @@ pub struct TradeDataFrame {
 }
 
 impl TradeDataFrame {
-    pub fn archive_emd_default() -> MicroSec {
+    pub fn archive_end_default() -> MicroSec {
         NOW() - DAYS(2)
     }
 
@@ -119,7 +119,7 @@ impl TradeDataFrame {
             return archive_start;
         }
 
-        let db_start = self.db.start_time(Self::archive_emd_default());
+        let db_start = self.db.start_time(Self::archive_end_default());
 
         db_start
     }
@@ -127,7 +127,7 @@ impl TradeDataFrame {
     pub fn end_time(&mut self) -> MicroSec {
         let archive_end = self.archive.end_time();
 
-        let db_end = self.get_db_end_time(Self::archive_emd_default());
+        let db_end = self.get_db_end_time(Self::archive_end_default());
 
         if db_end != 0 && archive_end < db_end {
             return db_end;
@@ -139,13 +139,13 @@ impl TradeDataFrame {
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
         let start_time: MicroSec = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .min()
             .unwrap()
             .unwrap_or(0);
         let end_time: MicroSec = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .max()
             .unwrap()

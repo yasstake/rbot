@@ -20,12 +20,13 @@ use rbot_lib::common::AccountPair;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::Kline;
 use rbot_lib::common::LogStatus;
+use rbot_lib::common::FLOOR_SEC;
 use rbot_lib::db::ohlcv_end;
 use rbot_lib::db::ohlcv_start;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::KEY;
 use rbot_lib::net::check_exist;
-use rbot_lib::net::TradePage;
+use rbot_lib::net::RestPage;
 use rust_decimal_macros::dec;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
@@ -167,78 +168,9 @@ impl RestApi for BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        _page: &TradePage,
-    ) -> anyhow::Result<(Vec<Trade>, TradePage)> {
-        let server = &self.server_config;
-
-        let mut klines_buf: Vec<Kline> = vec![];
-
-        let start_time = ohlcv_start(start_time);
-
-        let mut end_time = if end_time == 0 {
-            ohlcv_start(NOW())
-        } else {
-            ohlcv_start(end_time)
-        };
-
-        let page = TradePage::New;
-
-        loop {
-            log::debug!(
-                "get_trade_kline_from: {:?}({:?}) -> {:?}({:?})",
-                time_string(start_time),
-                start_time,
-                time_string(end_time),
-                end_time
-            );
-            let (mut klines, page) = self
-                .get_klines(config, start_time, end_time, &page)
-                .await
-                .with_context(|| {
-                    format!(
-                        "get_trade_klines: start_time={:?} / end_time={:?}",
-                        start_time, end_time
-                    )
-                })?;
-
-            let klines_len = klines.len();
-            if klines_len == 0 {
-                log::debug! {"End of data"};
-                break;
-            }
-
-
-            end_time = klines[0].timestamp - 1; // must be execute before append()
-            log::debug!(
-                "start_time={:?} / end_time={:?} /({:?})rec",
-                time_string(klines[0].timestamp),
-                time_string(klines[klines_len - 1].timestamp),
-                klines_len
-            );
-            log::debug!(
-                "append from {}  to {}",
-                time_string(klines[0].timestamp),
-                time_string(klines[klines.len() - 1].timestamp)
-            );
-
-            // klines_buf.insert(0, .append(&mut klines);
-            klines_buf.splice(0..0, klines);
-
-            if (end_time != 0) && (end_time <= start_time) {
-                log::debug!(
-                    "end fetching data: end_time {}({}) <= start_time {}({})",
-                    time_string(end_time),
-                    end_time,
-                    time_string(start_time),
-                    start_time
-                );
-                break;
-            }
-        }
-
-        let trades = convert_klines_to_trades(klines_buf, self.klines_width());
-
-        Ok((trades, TradePage::Done))
+        _page: &RestPage,
+    ) -> anyhow::Result<(Vec<Trade>, RestPage)> {
+        Err(anyhow!("Bybit does not have get trade by range"))
     }
 
     async fn get_klines(
@@ -246,8 +178,22 @@ impl RestApi for BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: &TradePage,
-    ) -> anyhow::Result<(Vec<Kline>, TradePage)> {
+        page: &RestPage,
+    ) -> anyhow::Result<(Vec<Kline>, RestPage)> {
+        let start_time = FLOOR_SEC(start_time, self.klines_width());
+        // 終わり時間は、TICKの範囲にふくまれていれば全体がかえってくる。
+        let end_time = FLOOR_SEC(end_time, self.klines_width());
+
+        println!("kline start_time {:?} / end_time {:?}", time_string(start_time), time_string(end_time));
+
+        if start_time == end_time {
+            return Ok((vec![], RestPage::Done));
+        }
+
+        if *page == RestPage::Done {
+            return Err(anyhow!("call with RestPage::Done"));
+        }
+
         if start_time == 0 || (end_time == 0) {
             return Err(anyhow!(
                 "end_time({}) or start_time({}) is zero",
@@ -256,9 +202,16 @@ impl RestApi for BybitRestApi {
             ));
         }
 
+        let end_time = if let RestPage::Time(t) = page {
+            t.clone() - 1           // 次のTick全体がかえってくるのをさける。
+        }
+        else {
+            end_time
+        };
+
         let path = "/v5/market/kline";
 
-        let klines_width = self.klines_width();
+        let klines_width = self.klines_width() / 60;        // convert to min
 
         let params = format!(
             "category={}&symbol={}&interval={}&start={}&end={}&limit={}", // 1 min
@@ -285,8 +238,17 @@ impl RestApi for BybitRestApi {
         let mut klines: Vec<Kline> = result.into();
         klines.reverse();
 
-        return Ok((klines, TradePage::Done));
-    }
+        let len = klines.len();
+
+        let page = if len == 0 || klines[0].timestamp <= start_time {
+            RestPage::Done
+        }
+        else {
+            RestPage::Time((klines[0].timestamp))
+        };
+        
+        return Ok((klines, page))
+      }
 
     fn klines_width(&self) -> i64 {
         60
@@ -510,7 +472,7 @@ impl RestApi for BybitRestApi {
 
         let timestamp = timestamp.clone();
         let mut timestamp = Series::from(timestamp.clone());
-        timestamp.rename(KEY::time_stamp);
+        timestamp.rename(KEY::timestamp);
 
         let mut id = df.column("trdMatchID")?.clone();
         id.rename(KEY::id);
@@ -685,10 +647,10 @@ mod bybit_rest_test {
         let api = BybitRestApi::new(&server_config);
 
         let now = NOW();
-        let start_time = now - DAYS(2);
+        let start_time = now - DAYS(10);
 
         let (trades, page) = api
-            .get_trades(&config, start_time, now, &TradePage::New)
+            .get_trades(&config, start_time, now, &RestPage::New)
             .await?;
         let l = trades.len();
         println!(
@@ -700,6 +662,48 @@ mod bybit_rest_test {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_klines() -> anyhow::Result<()>{
+        init_debug_log();
+        let server_config = BybitServerConfig::new(false);
+        let config = BybitConfig::BTCUSDT();
+        let api = BybitRestApi::new(&server_config);
+
+        let now = FLOOR_SEC(NOW(), 60) - HHMM(24, 10);
+        let start_time = now - HHMM(24, 0);
+
+        let (kline, page) = api.get_klines(&config, start_time, now, &RestPage::New).await?;
+        println!("{:?} {:?}", kline.len(), page);
+        println!("start = {:?} / actual = {:?}", time_string(start_time), time_string(kline[0].timestamp));
+        println!("end = {:?} / actual = {:?}", time_string(now), time_string(kline[kline.len()-1].timestamp));
+        println!("end rec = {:?}", kline[kline.len() -1]);
+
+        println!("--");
+
+        let (kline, page) = api.get_klines(&config, start_time, now + HHMM(0, 1), &RestPage::New).await?;
+        println!("{:?} {:?}", kline.len(), page);
+        println!("start = {:?} / actual = {:?}", time_string(start_time), time_string(kline[0].timestamp));
+        println!("end = {:?} / actual = {:?}", time_string(now), time_string(kline[kline.len()-1].timestamp));
+        println!("end rec-1 = {:?}", kline[kline.len() -2]);
+        println!("end rec = {:?}", kline[kline.len() -1]);
+
+        println!("start rec = {:?}", kline[0]);
+
+        println!("--");
+
+        let (kline, page) = api.get_klines(&config, start_time, now, &page).await?;
+
+        println!("{:?}, {:?}", kline.len(), page);
+        println!("start = {:?} / actual = {:?}", time_string(start_time), time_string(kline[0].timestamp));
+        println!("end = {:?} / actual = {:?}", time_string(now), time_string(kline[kline.len()-1].timestamp));
+        println!("end rec = {:?}", kline[kline.len() -1]);
+
+
+        Ok(())
+    }
+
+
 
     #[tokio::test]
     async fn test_new_limit_order() {

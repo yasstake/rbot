@@ -25,7 +25,7 @@ use rbot_lib::common::{
 };
 
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
-use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, TradePage, UdpSender};
+use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender};
 
 use rbot_market::MarketImpl;
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
