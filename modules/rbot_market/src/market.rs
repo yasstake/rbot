@@ -364,7 +364,7 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        let mut df = lock.select_cachedf(start_time, end_time)?;
+        let mut df = lock.select_raw_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))
@@ -377,7 +377,7 @@ where
     ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        let mut df = lock.select_db_cachedf(start_time, end_time)?;
+        let mut df = lock.select_db_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))
@@ -390,11 +390,40 @@ where
     ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        let mut df = lock.select_archive_cachedf(start_time, end_time)?;
+        let mut df = lock.select_archive_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))
     }
+
+    fn select_cache_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        let mut df = lock.select_cache_df(start_time, end_time)?;
+        convert_timems_to_datetime(&mut df)?;
+
+        Ok(PyDataFrame(df))
+    }
+
+    fn select_cache_ohlcv_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+        let mut df = lock.select_cache_ohlcv_df(start_time, end_time)?;
+        convert_timems_to_datetime(&mut df)?;
+
+        Ok(PyDataFrame(df))
+    }
+
+
+
 
     fn ohlcvv(
         &mut self,

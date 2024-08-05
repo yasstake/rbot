@@ -283,6 +283,22 @@ impl BybitMarket {
         MarketImpl::select_archive_trades(self, start_time, end_time)
     }
 
+    fn _select_cache_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        MarketImpl::select_cache_df(self, start_time, end_time)
+    }
+
+    fn _select_cache_ohlcv_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<PyDataFrame> {
+        MarketImpl::select_cache_ohlcv_df(self, start_time, end_time)
+    }
+
     fn ohlcvv(
         &mut self,
         start_time: MicroSec,
