@@ -24,12 +24,12 @@ const PY_FILE_BAR: &str = r#"
 class FileBar:
     def __init__(self, total_files):
         self.progress = tqdm(total=total_files * 100, position=1, delay=1,
-                             bar_format="[{elapsed}]({percentage:>3.0f}%) |{bar}| [ETA:{remaining}]")
+                             bar_format="[{elapsed}] ({percentage:>3.0f}%) |{bar}| [ETA:{remaining}]")
         self.current_file = -1
         self.total_files = total_files
         self.last_progress = 0
 
-        self.file_progress = tqdm(total=0, position=2, delay=1, bar_format="      ({percentage:3.0f}%) |{bar}| {postfix:>} {n_fmt:>8}/{total_fmt} {rate_fmt}",
+        self.file_progress = tqdm(total=0, position=2, delay=1, bar_format="{postfix:7>} ({percentage:3.0f}%) |{bar}| {n_fmt:>8}/{total_fmt} {rate_fmt}",
           unit="B", unit_scale=True
         )
         self.last_file_progress = 0
