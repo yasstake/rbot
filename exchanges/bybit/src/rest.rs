@@ -95,16 +95,14 @@ struct CancelOrderMessage {
     order_id: String,
 }
 
-
-
 pub struct BybitRestApi {
-    server_config: BybitServerConfig
+    server_config: BybitServerConfig,
 }
 
 impl BybitRestApi {
     pub fn new(server_config: &BybitServerConfig) -> Self {
         Self {
-            server_config: server_config.clone()
+            server_config: server_config.clone(),
         }
     }
 }
@@ -169,7 +167,7 @@ impl RestApi for BybitRestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        _page: &TradePage
+        _page: &TradePage,
     ) -> anyhow::Result<(Vec<Trade>, TradePage)> {
         let server = &self.server_config;
 
@@ -183,6 +181,8 @@ impl RestApi for BybitRestApi {
             ohlcv_start(end_time)
         };
 
+        let page = TradePage::New;
+
         loop {
             log::debug!(
                 "get_trade_kline_from: {:?}({:?}) -> {:?}({:?})",
@@ -191,7 +191,8 @@ impl RestApi for BybitRestApi {
                 time_string(end_time),
                 end_time
             );
-            let mut klines = Self::try_get_trade_klines(server, config, start_time, end_time)
+            let (mut klines, page) = self
+                .get_klines(config, start_time, end_time, &page)
                 .await
                 .with_context(|| {
                     format!(
@@ -206,7 +207,6 @@ impl RestApi for BybitRestApi {
                 break;
             }
 
-            klines.reverse();
 
             end_time = klines[0].timestamp - 1; // must be execute before append()
             log::debug!(
@@ -214,10 +214,12 @@ impl RestApi for BybitRestApi {
                 time_string(klines[0].timestamp),
                 time_string(klines[klines_len - 1].timestamp),
                 klines_len
-
             );
-            log::debug!("append from {}  to {}", time_string(klines[0].timestamp), time_string(klines[klines.len() -1].timestamp));
-
+            log::debug!(
+                "append from {}  to {}",
+                time_string(klines[0].timestamp),
+                time_string(klines[klines.len() - 1].timestamp)
+            );
 
             // klines_buf.insert(0, .append(&mut klines);
             klines_buf.splice(0..0, klines);
@@ -234,9 +236,60 @@ impl RestApi for BybitRestApi {
             }
         }
 
-        let trades = convert_klines_to_trades(klines_buf);
+        let trades = convert_klines_to_trades(klines_buf, self.klines_width());
 
         Ok((trades, TradePage::Done))
+    }
+
+    async fn get_klines(
+        &self,
+        config: &MarketConfig,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        page: &TradePage,
+    ) -> anyhow::Result<(Vec<Kline>, TradePage)> {
+        if start_time == 0 || (end_time == 0) {
+            return Err(anyhow!(
+                "end_time({}) or start_time({}) is zero",
+                end_time,
+                start_time
+            ));
+        }
+
+        let path = "/v5/market/kline";
+
+        let klines_width = self.klines_width();
+
+        let params = format!(
+            "category={}&symbol={}&interval={}&start={}&end={}&limit={}", // 1 min
+            config.trade_category.as_str(),
+            config.trade_symbol.as_str(),
+            klines_width, // interval 1 min.
+            microsec_to_bybit_timestamp(start_time),
+            microsec_to_bybit_timestamp(end_time),
+            1000 // max records.
+        );
+
+        let r = Self::get(&self.server_config, path, &params).await;
+
+        if r.is_err() {
+            let r = r.unwrap_err();
+            return Err(r);
+        }
+
+        let message = r.unwrap().body;
+
+        let result = serde_json::from_value::<BybitKlinesResponse>(message)
+            .with_context(|| format!("parse error in try_get_trade_klines"))?;
+
+        let mut klines: Vec<Kline> = result.into();
+        klines.reverse();
+
+        return Ok((klines, TradePage::Done));
+    }
+
+    fn klines_width(&self) -> i64 {
+        60
     }
 
     async fn new_order(
@@ -288,59 +341,32 @@ impl RestApi for BybitRestApi {
 
         let is_maker = order_type.is_maker();
 
-        // in bybit only order id is valid when order is created.
-        let mut order = Order {
-            category: category,
-            symbol: symbol,
-            create_time: msec_to_microsec(result.time),
-            status: OrderStatus::New,
-            order_id: r.order_id,
-            client_order_id: r.order_link_id,
-            order_side: side,
-            order_type: order_type,
-            order_price: if order_type == OrderType::Market {
-                dec![0.0]
-            } else {
-                price.unwrap()
-            },
-            order_size: size,
-            remain_size: size,
-            transaction_id: "".to_string(),
-            update_time: msec_to_microsec(result.time),
-            execute_price: dec![0.0],
-            execute_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            is_maker: is_maker,
-            message: "".to_string(),
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
-            log_id: 0,
-            open_position: dec![0.0],
-            close_position: dec![0.0],
-            position: dec![0.0],
-            profit: dec![0.0],
-            fee: dec![0.0],
-            total_profit: dec![0.0],
+        let mut order = Order::default();
+
+        order.category = category;
+        order.symbol = symbol;
+        order.create_time = msec_to_microsec(result.time);
+        order.status = OrderStatus::New;
+        order.order_id = r.order_id;
+        order.client_order_id = r.order_link_id;
+        order.order_side = side;
+        order.order_type = order_type;
+        order.order_price = if order_type == OrderType::Market {
+            dec![0.0]
+        } else {
+            price.unwrap()
         };
+        order.order_size = size;
+        order.remain_size = size;
+        order.update_time = msec_to_microsec(result.time);
+        order.is_maker = is_maker;
 
         order.update_balance(&config);
 
         return Ok(vec![order]);
     }
 
-    async fn cancel_order(
-        &self,
-        config: &MarketConfig,
-        order_id: &str,
-    ) -> anyhow::Result<Order> {
+    async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         let server = &self.server_config;
 
         let category = config.trade_category.clone();
@@ -363,53 +389,25 @@ impl RestApi for BybitRestApi {
 
         let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
 
-        let mut order = Order {
-            category,
-            symbol: "".to_string(),
-            create_time: msec_to_microsec(result.time),
-            status: OrderStatus::Canceled,
-            order_id: r.order_id,
-            client_order_id: r.order_link_id,
-            order_side: OrderSide::Unknown,
-            order_type: OrderType::Limit,
-            order_price: dec![0.0],
-            order_size: dec![0.0],
-            remain_size: dec![0.0],
-            transaction_id: "".to_string(),
-            update_time: msec_to_microsec(result.time),
-            execute_price: dec![0.0],
-            execute_size: dec![0.0],
-            quote_vol: dec![0.0],
-            commission: dec![0.0],
-            commission_asset: "".to_string(),
-            is_maker: true,
-            message: "".to_string(),
-            commission_home: dec![0.0],
-            commission_foreign: dec![0.0],
-            home_change: dec![0.0],
-            foreign_change: dec![0.0],
-            free_home_change: dec![0.0],
-            free_foreign_change: dec![0.0],
-            lock_home_change: dec![0.0],
-            lock_foreign_change: dec![0.0],
-            log_id: 0,
-            open_position: dec![0.0],
-            close_position: dec![0.0],
-            position: dec![0.0],
-            profit: dec![0.0],
-            fee: dec![0.0],
-            total_profit: dec![0.0],
-        };
+        let mut order = Order::default();
+
+        order.category = category;
+        order.symbol = config.trade_symbol.clone();
+        order.create_time = msec_to_microsec(result.time);
+        order.status = OrderStatus::Canceled;
+        order.order_id = r.order_id;
+        order.client_order_id = r.order_link_id;
+        order.order_side = OrderSide::Unknown;
+        order.order_type = OrderType::Limit;
+        order.update_time = msec_to_microsec(result.time);
+        order.is_maker = true;
 
         order.update_balance(config);
 
         return Ok(order);
     }
 
-    async fn open_orders(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Order>> {
+    async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
 
         let query_string = format!(
@@ -445,9 +443,7 @@ impl RestApi for BybitRestApi {
         Ok(orders)
     }
 
-    async fn get_account(
-        &self,
-    ) -> anyhow::Result<AccountCoins> {
+    async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let server = &self.server_config;
 
         let path = "/v5/account/wallet-balance";
@@ -640,47 +636,6 @@ impl BybitRestApi {
 
         return Ok(result);
     }
-
-    async fn try_get_trade_klines(
-        server: &BybitServerConfig,
-        config: &MarketConfig,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<Vec<Kline>> {
-        if start_time == 0 || (end_time == 0) {
-            return Err(anyhow!(
-                "end_time({}) or start_time({}) is zero",
-                end_time,
-                start_time
-            ));
-        }
-
-        let path = "/v5/market/kline";
-
-        let params = format!(
-            "category={}&symbol={}&interval={}&start={}&end={}&limit={}", // 1 min
-            config.trade_category.as_str(),
-            config.trade_symbol.as_str(),
-            1, // interval 1 min.
-            microsec_to_bybit_timestamp(start_time),
-            microsec_to_bybit_timestamp(end_time),
-            1000 // max records.
-        );
-
-        let r = Self::get(server, path, &params).await;
-
-        if r.is_err() {
-            let r = r.unwrap_err();
-            return Err(r);
-        }
-
-        let message = r.unwrap().body;
-
-        let result = serde_json::from_value::<BybitKlinesResponse>(message)
-            .with_context(|| format!("parse error in try_get_trade_klines"))?;
-
-        return Ok(result.into());
-    }
 }
 
 #[cfg(test)]
@@ -732,7 +687,9 @@ mod bybit_rest_test {
         let now = NOW();
         let start_time = now - DAYS(2);
 
-        let (trades, page) = api.get_trades(&config, start_time, now, &TradePage::New).await?;
+        let (trades, page) = api
+            .get_trades(&config, start_time, now, &TradePage::New)
+            .await?;
         let l = trades.len();
         println!(
             "{:?}-{:?}  {:?} [rec]",
