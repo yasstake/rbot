@@ -147,6 +147,13 @@ impl Bybit {
     pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
     }
+
+    pub fn __str__(&self) -> String {
+        format!(
+            "{{production: {}, enable_order: {}, server_config: {:?} }}",
+            self.production, self.enable_order, self.server_config
+        )
+    }
 }
 
 impl OrderInterfaceImpl<BybitRestApi> for Bybit {
@@ -350,10 +357,26 @@ impl BybitMarket {
     }
 
     #[pyo3(signature = (ndays, *, connect_ws=false, force=false, force_archive=false, force_recent=false, verbose=false))]
-    fn download(&mut self, ndays: i64, connect_ws: bool, force: bool, force_archive: bool, force_recent: bool, verbose: bool) -> anyhow::Result<()>
-    {
+    fn download(
+        &mut self,
+        ndays: i64,
+        connect_ws: bool,
+        force: bool,
+        force_archive: bool,
+        force_recent: bool,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download(self, ndays, connect_ws, force, force_archive, force_recent, verbose).await
+            MarketImpl::async_download(
+                self,
+                ndays,
+                connect_ws,
+                force,
+                force_archive,
+                force_recent,
+                verbose,
+            )
+            .await
         })
     }
 
@@ -405,7 +428,6 @@ impl BybitMarket {
     fn _reset_cache_duration(&mut self) {
         MarketImpl::reset_cache_duration(self)
     }
-
 
     fn _latest_db_rec(&self, search_before: MicroSec) -> anyhow::Result<Trade> {
         let search_before = if 0 < search_before {
@@ -576,11 +598,9 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
         Ok(())
     }
-
 }
 
 impl BybitMarket {
-
     async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
         let api = self.get_restapi();
         let board = api.get_board_snapshot(&self.config).await?;
@@ -604,8 +624,8 @@ mod bybit_test {
         init_debug_log();
         let mut bybit = Bybit::new(false);
         assert_eq!(bybit.get_enable_order_feature(), false);
-        
-        bybit.set_enable_order_feature(true);        
+
+        bybit.set_enable_order_feature(true);
         assert_eq!(bybit.get_enable_order_feature(), true);
     }
 
@@ -689,6 +709,7 @@ mod bybit_test {
 #[cfg(test)]
 mod market_test {
     use rbot_lib::common::init_debug_log;
+    use serde_json::ser;
 
     use crate::BybitConfig;
 
@@ -742,5 +763,19 @@ mod market_test {
         let mut market = BybitMarket::new(&server_config, &market_config, true);
 
         market._download_range(0, 0, true);
+    }
+
+    #[test]
+    fn test_enable_order_feature() {
+        use super::*;
+
+        init_debug_log();
+
+        let mut server = Bybit::new(false);
+
+        assert_eq!(server.get_enable_order_with_my_own_risk(), false);
+
+        server.set_enable_order_with_my_own_risk(true);
+        assert_eq!(server.get_enable_order_with_my_own_risk(), true);
     }
 }
