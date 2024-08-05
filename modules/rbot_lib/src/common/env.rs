@@ -1,10 +1,14 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABUSOLUTELY NO WARRANTY.
 
-use std::env::VarError;
+use std::env::{self, VarError};
+use env_file_reader::{self, read_file};
+use directories::UserDirs;
 
 use hmac::digest::{consts::False, typenum::NotEq};
 use pyo3::{types::{PyAnyMethods, PyModule}, Python};
+
+use super::ServerConfig;
 
 const RBOT_MULTICAST_ADDR: &str = "224.0.0.51";
 const DEFAULT_MULTICAST_PORT: i64 = 3001;
@@ -13,6 +17,64 @@ const DEFAULT_MULTICAST_PORT: i64 = 3001;
 pub fn env_rbot_db_root() -> Result<String, VarError> {
     std::env::var("RBOT_DB_ROOT")
 }
+
+const RBOT_ENV_DIR: &str = ".rusty-bot";
+const API_KEY: &str = "API_KEY";
+const API_SECRET: &str = "API_SECRET";
+
+fn env_reader(exchange_name: &str, key: &str) -> String {
+    if let Ok(v) = env::var(format!("{}_{}", exchange_name, key)) {
+        v
+    }
+    else {
+        "".to_string()
+    }
+}
+
+fn dot_env_reader(exchange_name: &str, production: bool, key: &str) -> String {
+    let user_dir = UserDirs::new().unwrap();
+    let home_dir = user_dir.home_dir();
+
+    let rbot_dir = home_dir.join(RBOT_ENV_DIR);
+
+
+    let env_file = if production {
+        rbot_dir.join(format!("{}.env", exchange_name))
+    }
+    else {
+        rbot_dir.join(format!("{}_TEST.env", exchange_name))
+    };
+
+    // if not file exist. return env file
+    if ! env_file.exists() {
+        return env_reader(&exchange_name, key);
+    }
+
+    let variables = read_file(env_file);
+    
+    if variables.is_err() {
+        return "".to_string();
+    }
+
+    let variables = variables.unwrap();
+
+    let value = variables.get(key);
+    
+    if value.is_none() {
+        return "".to_string()
+    }
+
+    return value.unwrap().clone();
+}
+
+pub fn env_api_key(exchange_name: &str, production:bool) -> String {
+    dot_env_reader(exchange_name, production, "API_KEY")
+}
+
+pub fn env_api_secret(exchange_name: &str, production: bool) -> String{
+    dot_env_reader(exchange_name, production, "API_SECRET")
+}
+
 
 /// Get the multicast address of the rbot.
 pub fn env_rbot_multicast_addr() -> String {

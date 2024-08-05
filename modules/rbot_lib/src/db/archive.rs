@@ -161,8 +161,10 @@ impl TradeArchive {
                 if total_files == -1 {
                     total_files = ndays - i;
 
-                    bar.init(total_files, true, true);
-                    bar.set_total_files(total_files);
+                    if verbose {
+                        bar.init(total_files, true, true);
+                        bar.set_total_files(total_files);
+                    }
                 }
 
                 let url = api.history_web_url(&self.config, date);

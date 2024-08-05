@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
+use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
 
 use crate::BYBIT;
 
@@ -46,23 +46,19 @@ impl BybitServerConfig {
         }
         .to_string();
 
-        let api_key = if let Ok(key) = env::var("BYBIT_API_KEY") {
-            key
-        }
-        else {
+        let api_key = env_api_key(BYBIT, production);
+
+        if api_key == "" {
             println!("API KEY environment variable [BYBIT_API_KEY] is not set");
             log::warn!("API KEY environment variable [BYBIT_API_KEY] is not set");
-            "".to_string()
-        };
-
-        let api_secret = if let Ok(secret) = env::var("BYBIT_API_SECRET") {
-            secret
         }
-        else {
-            println!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
+
+        let api_secret = env_api_secret(BYBIT, production);
+
+        if api_secret == "" {
+        println!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
             log::warn!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
-            "".to_string()
-        };
+        }
 
         return BybitServerConfig {
             production,
@@ -82,6 +78,10 @@ impl BybitServerConfig {
 }
 
 impl ServerConfig for BybitServerConfig {
+    fn get_exchange_name(&self) -> String {
+        BYBIT.to_string()
+    }
+
     fn get_public_ws_server(&self) -> String {
         self.public_ws.clone()
     }

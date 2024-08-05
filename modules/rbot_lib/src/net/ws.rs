@@ -655,6 +655,10 @@ mod test_exchange_ws {
     }
 
     impl ServerConfig for TestServerConfig {
+        fn get_exchange_name(&self) -> String {
+            "BYBIT".to_string()
+        }
+
         fn get_public_ws_server(&self) -> String {
             self.public_ws.clone()
         }
