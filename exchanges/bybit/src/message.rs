@@ -325,39 +325,6 @@ impl Into<Vec<Kline>> for BybitKlinesResponse {
     }
 }
 
-/*
-impl Into<BybitKlines> for BybitKlinesResponse {
-    fn into(self) -> BybitKlines {
-        let mut klines = Vec::new();
-        for kline in self.klines {
-            let timestamp: BybitTimestamp = kline.0.parse().unwrap();
-            let open = Decimal::from_str(&kline.1).unwrap();
-            let high = Decimal::from_str(&kline.2).unwrap();
-            let low = Decimal::from_str(&kline.3).unwrap();
-            let close = Decimal::from_str(&kline.4).unwrap();
-            let volume = Decimal::from_str(&kline.5).unwrap();
-            // let turnover = Decimal::from_str(&kline.6).unwrap();            // ignore turnover
-
-            let kline = BybitKline {
-                timestamp: timestamp,
-                open,
-                high,
-                low,
-                close,
-                volume,
-            };
-
-            klines.push(kline);
-        }
-
-        BybitKlines {
-            category: self.category.clone(),
-            symbol: self.symbol.clone(),
-            klines,
-        }
-    }
-}
-*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]

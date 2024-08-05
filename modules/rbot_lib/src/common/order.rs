@@ -1158,7 +1158,7 @@ impl Order {
 
     // TODO: BackTest時の計算を追加する。
     // 通常は、約定時にサーバからのデータで確定するが、
-    // BackTest時は、ローカルで計算する必要がある。
+    // BackTest時は、ローカルで計���する必要がある。
     fn update_commision(&mut self, config: &MarketConfig) {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();
@@ -1305,7 +1305,47 @@ impl Order {
     }
 }
 
-const KLINE_TIME_UNIT_SEC: i64 = 60 / 4;
+impl Default for Order {
+    fn default() -> Self {
+        Order {
+            category: "".to_string(),
+            symbol: "".to_string(),
+            create_time: 0,
+            status: OrderStatus::Unknown,
+            order_id: "".to_string(),
+            client_order_id: "".to_string(),
+            order_side: OrderSide::Unknown,
+            order_type: OrderType::Unknown,
+            order_price: dec![0.0],
+            order_size: dec![0.0],
+            remain_size: dec![0.0],
+            transaction_id: "".to_string(),
+            update_time: 0,
+            execute_price: dec![0.0],
+            execute_size: dec![0.0],
+            quote_vol: dec![0.0],
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: false,
+            message: "".to_string(),
+            commission_home: dec![0.0],
+            commission_foreign: dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],
+            log_id: 0,
+            open_position: dec![0.0],
+            close_position: dec![0.0],
+            position: dec![0.0],
+            profit: dec![0.0],
+            fee: dec![0.0],
+            total_profit: dec![0.0],
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Kline {
@@ -1337,53 +1377,51 @@ impl Kline {
     }
 
     /// OHLCをTradeに4分割する。
-    pub fn extract_to_trades(&self, unit_sec: i64) -> Vec<Trade> {
+    pub fn extract_to_trades(&self, window_sec: i64) -> Vec<Trade> {
         let mut trades = Vec::new();
 
         let vol = self.volume / Decimal::from(4);
-        let mut remain_vol = self.volume.clone();
-        let tick = SEC(unit_sec);
+        let vol = vol.round_dp(2);
+        let remain_vol = self.volume.clone() - (vol * dec![3.0]);
+        let tick = SEC(window_sec / 4);
 
         let t = Trade::new(
             self.timestamp,
             OrderSide::Buy,
             self.open,
             vol,
-            LogStatus::UnFix,
+            LogStatus::Virtual,
             &format!("KLINE{}-{}", self.timestamp, 0),
         );
         trades.push(t);
 
-        remain_vol -= vol;
 
         let t = Trade::new(
             self.timestamp + tick,
             OrderSide::Buy,
             self.high,
             vol,
-            LogStatus::UnFix,
+            LogStatus::Virtual,
             &format!("KLINE{}-{}", self.timestamp, 1),
         );
         trades.push(t);
-        remain_vol -= vol;
 
         let t = Trade::new(
             self.timestamp + tick * 2,
             OrderSide::Sell,
             self.low,
             vol,
-            LogStatus::UnFix,
+            LogStatus::Virtual,
             &format!("KLINE{}-{}", self.timestamp, 2),
         );
         trades.push(t);
-        remain_vol -= vol;
 
         let t = Trade::new(
             self.timestamp + tick * 3,
-            OrderSide::Buy,
+            OrderSide::Sell,
             self.close,
             remain_vol,
-            LogStatus::UnFix,
+            LogStatus::Virtual,
             &format!("KLINE{}-{}", self.timestamp, 3),
         );
         trades.push(t);
@@ -1392,10 +1430,10 @@ impl Kline {
     }
 }
 
-pub fn convert_klines_to_trades(klines: Vec<Kline>) -> Vec<Trade> {
+pub fn convert_klines_to_trades(klines: Vec<Kline>, window_sec: i64) -> Vec<Trade> {
     let mut trades = Vec::new();
     for kline in klines {
-        let mut kline_trades = kline.extract_to_trades(KLINE_TIME_UNIT_SEC);
+        let mut kline_trades = kline.extract_to_trades(window_sec);
         trades.append(&mut kline_trades);
     }
     trades
@@ -1599,5 +1637,23 @@ mod order_tests {
 
         assert_eq!(LogStatus::UnFixStart, LogStatus::from(log_status.as_str()));
 
+    }
+
+    #[test]
+    fn test_convert_klines() {
+        let kline = Kline::new(
+            1_000_000_000,
+            dec![10.0],
+            dec![12.5],
+            dec![9.3],
+            dec![10.1],
+            dec![39.1]
+        );
+
+        let v_trade = kline.extract_to_trades(40);
+
+        println!("{:?}", v_trade);
+
+        println!("{:?}", v_trade[0].size +v_trade[1].size +v_trade[2].size +v_trade[3].size);
     }
 }
