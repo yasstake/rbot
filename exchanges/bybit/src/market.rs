@@ -93,11 +93,12 @@ impl Bybit {
     //--- OrderInterfaceImpl ----
     #[setter]
     pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
-        self.enable_order = enable_order;
+        self.set_enable_order_feature(enable_order);
     }
+
     #[getter]
     pub fn get_enable_order_with_my_own_risk(&self) -> bool {
-        self.enable_order
+        self.get_enable_order_feature()
     }
 
     pub fn limit_order(
@@ -154,10 +155,12 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
     }
 
     fn set_enable_order_feature(&mut self, enable_order: bool) {
+        log::debug!("set enable order {}", enable_order);
         self.enable_order = enable_order;
     }
 
     fn get_enable_order_feature(&self) -> bool {
+        log::debug!("get enable order {}", self.enable_order);
         self.enable_order
     }
 
@@ -218,11 +221,6 @@ pub struct BybitMarket {
     pub db: Arc<Mutex<TradeDataFrame>>,
     pub board: Arc<RwLock<OrderBook>>,
     pub public_handler: Option<tokio::task::JoinHandle<()>>,
-    // pub user_ws: WebSocketClient<BybitServerConfig, BybitWsOpMessage>,
-    // pub user_handler: Option<tokio::task::JoinHandle<()>>,
-    // pub agent_channel: Arc<RwLock<MultiChannel<MarketMessage>>>,
-    // pub broadcast_message: bool,
-    // pub udp_sender: Option<Arc<Mutex<UdpSender>>>,
 }
 
 #[pymethods]
@@ -242,8 +240,13 @@ impl BybitMarket {
     }
 
     #[getter]
-    fn get_cache_duration(&self) -> MicroSec {
-        MarketImpl::get_cache_duration(self)
+    fn get_start_time(&mut self) -> MicroSec {
+        MarketImpl::start_time(self)
+    }
+
+    #[getter]
+    fn get_end_time(&mut self) -> MicroSec {
+        MarketImpl::end_time(self)
     }
 
     #[getter]
@@ -256,14 +259,6 @@ impl BybitMarket {
         MarketImpl::get_db_info(self)
     }
 
-    fn reset_cache_duration(&mut self) {
-        MarketImpl::reset_cache_duration(self)
-    }
-
-    fn cache_all_data(&mut self) -> anyhow::Result<()> {
-        MarketImpl::cache_all_data(self)
-    }
-
     fn select_trades(
         &mut self,
         start_time: MicroSec,
@@ -272,7 +267,7 @@ impl BybitMarket {
         MarketImpl::select_trades(self, start_time, end_time)
     }
 
-    fn select_db_trades(
+    fn _select_db_trades(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -280,15 +275,13 @@ impl BybitMarket {
         MarketImpl::select_db_trades(self, start_time, end_time)
     }
 
-    fn select_archive_trades(
+    fn _select_archive_trades(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<PyDataFrame> {
         MarketImpl::select_archive_trades(self, start_time, end_time)
     }
-
-
 
     fn ohlcvv(
         &mut self,
@@ -317,10 +310,6 @@ impl BybitMarket {
         MarketImpl::vap(self, start_time, end_time, price_unit)
     }
 
-    fn info(&mut self) -> String {
-        MarketImpl::info(self)
-    }
-
     fn get_board_json(&self, size: usize) -> anyhow::Result<String> {
         MarketImpl::get_board_json(self, size)
     }
@@ -344,29 +333,29 @@ impl BybitMarket {
         MarketImpl::_repr_html_(self)
     }
 
-    #[pyo3(signature = (ndays, force=false, verbose=false))]
-    fn download_archive(&mut self, ndays: i64, force: bool, verbose: bool) -> anyhow::Result<i64> {
-        BLOCK_ON(async { MarketImpl::async_download_archive(self, ndays, force, verbose).await })
-    }
-
-    #[pyo3(signature = (verbose=false))]
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
-        log::debug!("BybitMarket.download_latest(verbose={}", verbose);
-
-        MarketImpl::download_latest(self, verbose)
-    }
-
-    fn download_realtime(
-        &mut self,
-        force: bool,
-        verbose: bool,
-    ) -> anyhow::Result<()> {
+    #[pyo3(signature = (ndays, *, connect_ws=false, force=false, force_archive=false, force_recent=false, verbose=false))]
+    fn download(&mut self, ndays: i64, connect_ws: bool, force: bool, force_archive: bool, force_recent: bool, verbose: bool) -> anyhow::Result<()>
+    {
         BLOCK_ON(async {
-            MarketImpl::async_download_realtime(self, force, verbose).await
+            MarketImpl::async_download(self, ndays, connect_ws, force, force_archive, force_recent, verbose).await
         })
     }
 
+    #[pyo3(signature = (ndays, force=false, verbose=false))]
+    fn _download_archive(&mut self, ndays: i64, force: bool, verbose: bool) -> anyhow::Result<i64> {
+        BLOCK_ON(async { MarketImpl::async_download_archive(self, ndays, force, verbose).await })
+    }
 
+    fn _download_realtime(
+        &mut self,
+        force: bool,
+        connect_ws: bool,
+        verbose: bool,
+    ) -> anyhow::Result<()> {
+        BLOCK_ON(async {
+            MarketImpl::async_download_realtime(self, connect_ws, force, verbose).await
+        })
+    }
 
     fn open_backtest_channel(
         &mut self,
@@ -382,13 +371,23 @@ impl BybitMarket {
         lock.vacuum()
     }
 
-    #[pyo3(signature = (force=false))]
-    fn expire_unfix_data(&mut self, force: bool) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_expire_unfix_data(force).await })
+    fn _cache_all_data(&mut self) -> anyhow::Result<()> {
+        MarketImpl::cache_all_data(self)
     }
 
-    fn _find_latest_gap(&self, force: bool) -> anyhow::Result<(MicroSec, MicroSec)> {
-        MarketImpl::find_latest_gap(self, force)
+    #[pyo3(signature = (verbose=false))]
+    fn _download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
+        log::debug!("BybitMarket.download_latest(verbose={}", verbose);
+
+        MarketImpl::download_latest(self, verbose)
+    }
+
+    fn _get_cache_duration(&self) -> MicroSec {
+        MarketImpl::get_cache_duration(self)
+    }
+
+    fn _reset_cache_duration(&mut self) {
+        MarketImpl::reset_cache_duration(self)
     }
 
 
@@ -412,14 +411,6 @@ impl BybitMarket {
         end_time: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        if verbose {
-            println!(
-                "download_range from={} to={}",
-                time_string(start_time),
-                time_string(end_time)
-            );
-        }
-
         BLOCK_ON(async {
             MarketImpl::async_download_range(self, start_time, end_time, verbose).await
         })
@@ -574,73 +565,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
 impl BybitMarket {
 
-    async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
-        log::debug!("[start] download_gap ");
-        let gap_result = self.find_latest_gap(force);
-        if gap_result.is_err() {
-            log::warn!("no gap found: {:?}", gap_result);
-
-            if verbose {
-                println!("no gap found: {:?}", gap_result);
-                flush_log();
-            }
-
-            return Ok(0);
-        }
-
-        let (unfix_start, unfix_end) = gap_result?;
-
-        //let (unfix_start, unfix_end) = self.find_latest_gap();
-        log::debug!("unfix_start: {:?}, unfix_end: {:?}", unfix_start, unfix_end);
-
-        if verbose {
-            println!(
-                "unfix_start: {:?}({:?}), unfix_end: {:?}({:?})",
-                time_string(unfix_start),
-                unfix_start,
-                time_string(unfix_end),
-                unfix_end
-            );
-            flush_log();
-        }
-
-        if unfix_end != 0 && unfix_end - unfix_start <= HHMM(0, 1) {
-            log::info!("no need to download");
-            return Ok(0);
-        }
-
-        let tx = {
-            let mut lock = self.db.lock().unwrap();
-            lock.open_channel()?
-        };
-
-        let api = self.get_restapi();
-        let (trades, _trade_page) = api
-            .get_trades(&self.get_config(), unfix_start, unfix_end, &TradePage::Done)
-            .await?;
-
-        let rec = trades.len();
-
-        let start_time = if trades[0].time < trades[rec - 1].time {
-            trades[0].time
-        } else {
-            trades[rec - 1].time
-        };
-
-        let expire_message =
-            TradeDb::expire_control_message(start_time, unfix_end, false, "before download_gap");
-        tx.send(expire_message)?;
-
-        tx.send(trades)?;
-
-        if verbose {
-            println!("rec: {}", rec);
-            flush_log();
-        }
-
-        Ok(rec as i64)
-    }
-
     async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
         let api = self.get_restapi();
         let board = api.get_board_snapshot(&self.config).await?;
@@ -654,15 +578,19 @@ impl BybitMarket {
 #[cfg(test)]
 mod bybit_test {
     use rbot_lib::common::init_debug_log;
+    use rbot_market::OrderInterfaceImpl;
     use rust_decimal_macros::dec;
 
     use crate::{Bybit, BybitConfig};
 
     #[test]
     fn test_create() {
-        let bybit = Bybit::new(false);
-
-        assert!(bybit.enable_order == false);
+        init_debug_log();
+        let mut bybit = Bybit::new(false);
+        assert_eq!(bybit.get_enable_order_feature(), false);
+        
+        bybit.set_enable_order_feature(true);        
+        assert_eq!(bybit.get_enable_order_feature(), true);
     }
 
     #[test]
@@ -769,7 +697,7 @@ mod market_test {
         init_debug_log();
         let mut market = BybitMarket::new(&server_config, &market_config, true);
 
-        let rec = market.download_archive(3, false, true);
+        let rec = market._download_archive(3, false, true);
         assert!(rec.is_ok());
     }
 

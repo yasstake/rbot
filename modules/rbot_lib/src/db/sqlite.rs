@@ -59,25 +59,25 @@ pub struct TradeDb {
 impl TradeDb {
     /// delete unstable data, include both edge.
     /// start_time <= (time_stamp) <= end_time
-    pub fn delete_unstable_data(
+    pub fn delete_virtual_data(
         tx: &Transaction,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
         let sql =
-            r#"delete from trades where ($1 <= time_stamp) and (time_stamp < $2) and (status = "U" or status = "Us")"#;
+            r#"delete from trades where ($1 <= time_stamp) and (time_stamp < $2) and status = "V""#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
         Ok(result as i64)
     }
 
-    pub fn delete_unarchived_data(
+    pub fn delete_date_force(
         tx: &Transaction,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2 and (status = 'Us' or status = 'U')"#;
+        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2"#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
@@ -126,96 +126,11 @@ impl TradeDb {
         Ok(tx)
     }
 
-    pub fn latest_fix_trade(
-        &mut self,
-        start_time: MicroSec,
-        force: bool,
-    ) -> anyhow::Result<Option<Trade>> {
-        let sql = if force {
-            r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E") order by time_stamp desc limit 1"#
-        } else {
-            r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "E" or status = "e") order by time_stamp desc limit 1"#
-        };
-
-        let trades = self.select_query(sql, vec![start_time])?;
-
-        if trades.len() == 0 {
-            return Ok(None);
-        }
-
-        log::debug!("latest_fix_trade {}", trades[0].__str__());
-
-        Ok(Some(trades[0].clone()))
-    }
-
-    pub fn latest_fix_time(
-        &mut self,
-        start_time: MicroSec,
-        force: bool,
-    ) -> anyhow::Result<MicroSec> {
-        let trade = self.latest_fix_trade(start_time, force)?;
-
-        if trade.is_none() {
-            return Ok(0);
-        }
-
-        let trade = trade.unwrap();
-
-        Ok(ohlcv_end(trade.time) + 1) // plus 1 microsecond(1us) to avoid duplicate data
-    }
-
-    pub fn first_unfix_trade(&mut self, start_time: MicroSec) -> anyhow::Result<Option<Trade>> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where ($1 < time_stamp) and (status = "U") order by time_stamp limit 1"#;
-        let trades = self.select_query(sql, vec![start_time])?;
-
-        if trades.len() == 0 {
-            return Ok(None);
-        }
-
-        Ok(Some(trades[0].clone()))
-    }
-
-    pub fn first_unfix_time(&mut self, start_time: MicroSec) -> anyhow::Result<MicroSec> {
-        let trade = self.first_unfix_trade(start_time)?;
-        if trade.is_none() {
-            return Ok(0);
-        }
-
-        let trade = trade.unwrap();
-
-        Ok(ohlcv_end(trade.time) - 1) // minus 1 microsecond(1us) to avoid duplicate data
-    }
-
-    /// 2日以内のUnstableデータを削除するメッセージを作成する。
-    /// ２日以内にデータがない場合はエラーを返す。
-    pub fn make_expire_control_message(
-        &mut self,
-        now: MicroSec,
-        force: bool,
-        message: &str,
-    ) -> anyhow::Result<Vec<Trade>> {
-        log::debug!("make_expire_control_message from {}", time_string(now));
-
-        let start_time = now - DAYS(2);
-
-        let fix_time = self.latest_fix_time(start_time, force)?;
-        ensure!(fix_time != 0, "no fix data in 2 days");
-
-        log::debug!(
-            "make_expire_control_message from {} to {} message:{}",
-            time_string(fix_time),
-            time_string(now),
-            message
-        );
-
-        Ok(Self::expire_control_message(fix_time, now, force, message))
-    }
-
     pub fn expire_control_message(
         start_time: MicroSec,
         end_time: MicroSec,
         force: bool,
-        message: &str
+        message: &str,
     ) -> Vec<Trade> {
         let status = if force {
             LogStatus::ExpireControlForce
@@ -229,7 +144,7 @@ impl TradeDb {
         } else {
             start_time
         };
-       
+
         let mut trades: Vec<Trade> = vec![];
         let t = Trade::new(
             start_time,
@@ -262,7 +177,7 @@ impl TradeDb {
             return Ok(0);
         }
 
-        if trades[0].time > trades[trades_len -1].time {
+        if trades[0].time > trades[trades_len - 1].time {
             log::error!("Insert order error(order in reverse) {:?}", trades);
         }
 
@@ -282,13 +197,13 @@ impl TradeDb {
         if log_status == LogStatus::ExpireControl && trades_len == 2 {
             log::debug!("delete unarchived data");
             let tx = self.begin_transaction()?;
-            let rec = Self::delete_unstable_data(&tx, trades[0].time, trades[1].time)?;
+            let rec = Self::delete_virtual_data(&tx, trades[0].time, trades[1].time)?;
             tx.commit()?;
             return Ok(rec);
         } else if log_status == LogStatus::ExpireControlForce && trades_len == 2 {
             log::debug!("delete unarchived data(force");
             let tx = self.begin_transaction()?;
-            let rec = Self::delete_unarchived_data(&tx, trades[0].time, trades[1].time)?;
+            let rec = Self::delete_date_force(&tx, trades[0].time, trades[1].time)?;
             tx.commit()?;
             return Ok(rec);
         }
@@ -401,10 +316,10 @@ impl TradeDb {
                 match rx.recv() {
                     Ok(mut trades) => {
                         if db.first_ws_message {
-                            if trades.len() != 0 && 
-                                (trades[0].status == LogStatus::UnFix 
-                                    || trades[0].status == LogStatus::UnFixStart) {
-
+                            if trades.len() != 0
+                                && (trades[0].status == LogStatus::UnFix
+                                    || trades[0].status == LogStatus::UnFixStart)
+                            {
                                 trades[0].status = LogStatus::UnFixStart;
 
                                 db.first_ws_message = false;
@@ -437,7 +352,6 @@ impl TradeDb {
         return path.exists();
     }
 
-
     fn create_table_if_not_exists(&mut self) -> anyhow::Result<()> {
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
@@ -459,7 +373,6 @@ impl TradeDb {
         Ok(())
     }
 
-
     pub fn vacuum(&self) -> anyhow::Result<()> {
         log::debug!("vacuum db");
 
@@ -469,7 +382,6 @@ impl TradeDb {
 
         Ok(())
     }
-
 
     /// select  cachedf from database
     pub fn select_cachedf(
@@ -592,7 +504,8 @@ impl TradeDb {
     /// Retrieves the earliest time stamp from the trades table in the SQLite database.
     /// Returns a Result containing the earliest time stamp as a MicroSec value, or an Error if the query fails.
     pub fn start_time(&self, since_time: MicroSec) -> MicroSec {
-        let sql = "select time_stamp from trades where $1 < time_stamp order by time_stamp asc limit 1";
+        let sql =
+            "select time_stamp from trades where $1 < time_stamp order by time_stamp asc limit 1";
 
         let r = self.connection.query_row(sql, [since_time], |row| {
             let min: i64 = row.get(0)?;
@@ -646,7 +559,7 @@ impl TradeDb {
         let trades = trades.unwrap();
 
         if trades.len() != 0 {
-            return Some(trades[0].clone()) 
+            return Some(trades[0].clone());
         }
         None
     }
@@ -664,7 +577,7 @@ impl TradeDb {
         let trades = trades.unwrap();
 
         if trades.len() != 0 {
-            return Some(trades[0].clone()) 
+            return Some(trades[0].clone());
         }
         None
     }
