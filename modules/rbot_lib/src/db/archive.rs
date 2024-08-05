@@ -240,7 +240,7 @@ impl TradeArchive {
 
     /// generate 0 row empty cache(stored in memory) df
     pub fn make_empty_cachedf() -> DataFrame {
-        let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+        let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
         let price = Series::new(KEY::price, Vec::<f64>::new());
         let size = Series::new(KEY::size, Vec::<f64>::new());
         let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
@@ -316,7 +316,7 @@ impl TradeArchive {
             .lazy()
             .with_column(col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side))
             .select([
-                col(KEY::time_stamp),
+                col(KEY::timestamp),
                 col(KEY::order_side),
                 col(KEY::price),
                 col(KEY::size),

@@ -6,16 +6,19 @@ use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::PyResult;
 use pyo3::Python;
+use rbot_lib::common::convert_klines_to_trades;
 use rbot_lib::common::flush_log;
 use rbot_lib::common::time_string;
 use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::common::FLOOR_SEC;
+use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
-use rbot_lib::net::TradePage;
+use rbot_lib::net::RestPage;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -600,18 +603,20 @@ where
         &mut self,
         ndays: i64,
         connect_ws: bool,
+        force: bool,
         force_archive: bool,
         force_recent: bool,
-        force: bool,
         verbose: bool,
     ) -> anyhow::Result<()> {
-        let force_archive = if force { true } else { force_archive };
-
+        log::debug!("download ndays={:?}, connect_ws={:?}, force={:?}, force_archive={:?}, force_recent={:?}, verbose={:?}",
+                ndays, connect_ws, force, force_archive, force_recent, verbose
+        );
         let force_recent = if force { true } else { force_recent };
 
         self.async_download_realtime(connect_ws, force_recent, verbose)
             .await?;
 
+        let force_archive = if force { true } else { force_archive };
         self.async_download_archive(ndays, force_archive, verbose)
             .await?;
 
@@ -640,7 +645,8 @@ where
 
         // delete old data from db.
         if archive_end != 0 {
-            let expire = TradeDb::expire_control_message(0, archive_end + 1, true, "download archive");
+            let expire =
+                TradeDb::expire_control_message(0, archive_end + 1, true, "download archive");
 
             log::debug!("expire: {:?}", expire);
 
@@ -707,9 +713,10 @@ where
 
         let (start_time, _end_time) = self.async_download_latest(verbose).await?;
         log::info!(
-            "download recent {:?}->{:?}",
+            "download recent {:?}->{:?} [force={:?}]",
             time_string(start_time),
-            time_string(_end_time)
+            time_string(_end_time),
+            force
         );
 
         let rec = self.latest_db_rec(start_time);
@@ -727,10 +734,107 @@ where
             t
         };
 
-        self.async_download_range(range_from, start_time, verbose)
+        self.async_download_range_virtual(range_from, start_time, verbose)
             .await?;
 
         Ok(())
+    }
+
+    fn calc_db_time(
+        &self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+    ) -> anyhow::Result<(MicroSec, MicroSec)> {
+        let (_start_t, archive_end) = self.get_archive_info()?;
+
+        let archive_end = if archive_end == 0 {
+            TradeDataFrame::archive_end_default()
+        } else {
+            archive_end
+        };
+
+        let time_from = if time_from < archive_end {
+            archive_end
+        } else {
+            time_from
+        };
+
+        let time_to = if time_to == 0 { NOW() } else { time_to };
+
+        Ok((time_from, time_to))
+    }
+
+    async fn async_download_range_virtual(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        if verbose {
+            println!(
+                "download_range_virtual from={}({}) to={}({})",
+                time_from,
+                time_string(time_from),
+                time_to,
+                time_string(time_to)
+            )
+        }
+
+        let tx = self.open_db_channel().await?;
+        let api = self.get_restapi();
+
+        let (time_from, time_to) = self.calc_db_time(time_from, time_to)?;
+
+        let time_to = FLOOR_SEC(time_to, api.klines_width());
+        let expire_to = time_to + api.klines_width() * MICRO_SECOND;
+
+        let expire_message = TradeDb::expire_control_message(
+            time_from,
+            expire_to,
+            true,
+            "before download_range_virtual",
+        );
+
+        tx.send(expire_message)?;
+
+        let mut trade_page = RestPage::New;
+        let mut rec = 0;
+
+        loop {
+            let (klines, page) = api
+                .get_klines(&self.get_config(), time_from, time_to, &trade_page)
+                .await?;
+
+            let l = klines.len();
+
+            if l == 0 {
+                break;
+            }
+
+            let trades: Vec<Trade> = convert_klines_to_trades(klines, api.klines_width());
+
+            if verbose {
+                println!(
+                    "download_range (loop) {}({}) {}({}) {}[rec]",
+                    time_string(time_from),
+                    time_from,
+                    time_string(time_to),
+                    time_to,
+                    l
+                );
+            }
+            let l = trades.len();
+
+            rec += l as i64;
+            tx.send(trades)?;
+
+            if page == RestPage::Done {
+                break;
+            }
+            trade_page = page;
+        }
+
+        Ok(rec)
     }
 
     async fn async_download_range(
@@ -739,16 +843,6 @@ where
         time_to: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        let (_start_t, end_t) = self.get_archive_info()?;
-
-        let end_t = if end_t == 0 {
-            TradeDataFrame::archive_emd_default()
-        } else {
-            end_t
-        };
-
-        let time_from = if time_from < end_t { end_t } else { time_from };
-
         if verbose {
             println!(
                 "download_range from={}({}) to={}({})",
@@ -758,12 +852,17 @@ where
                 time_string(time_to)
             )
         }
+        let (time_from, time_to) = self.calc_db_time(time_from, time_to)?;
+
+        let expire_message =
+            TradeDb::expire_control_message(time_from, time_to, true, "before download_gap");
 
         let tx = self.open_db_channel().await?;
+        tx.send(expire_message)?;
 
         let api = self.get_restapi();
 
-        let mut trade_page = TradePage::New;
+        let mut trade_page = RestPage::New;
         let mut rec = 0;
 
         loop {
@@ -791,11 +890,6 @@ where
                 );
             }
 
-            let expire_message =
-                TradeDb::expire_control_message(start_time, end_time + 1, true, "before download_gap");
-
-            tx.send(expire_message)?;
-
             rec += l as i64;
             tx.send(trades)?;
 
@@ -804,7 +898,7 @@ where
                 flush_log();
             }
 
-            if page == TradePage::Done {
+            if page == RestPage::Done {
                 break;
             }
             trade_page = page;

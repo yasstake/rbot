@@ -19,8 +19,8 @@ use rust_decimal::Decimal;
 use async_trait::async_trait;
 
 
-#[derive(PartialEq)]
-pub enum TradePage {
+#[derive(PartialEq, Debug)]
+pub enum RestPage {
     New,
     Done,
     Time(MicroSec),
@@ -38,16 +38,16 @@ pub trait RestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: &TradePage
-    ) -> anyhow::Result<(Vec<Trade>, TradePage)>;
+        page: &RestPage
+    ) -> anyhow::Result<(Vec<Trade>, RestPage)>;
 
     async fn get_klines(
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: &TradePage
-    )-> anyhow::Result<(Vec<Kline>, TradePage)>;
+        page: &RestPage
+    )-> anyhow::Result<(Vec<Kline>, RestPage)>;
 
     fn klines_width(&self) -> i64;
 
