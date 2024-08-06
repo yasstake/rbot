@@ -1,5 +1,5 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
-// ABUSOLUTELY NO WARRANTY.
+// ABSOLUTELY NO WARRANTY.
 
 use std::io::Write;
 use std::sync::Once;

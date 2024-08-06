@@ -8,6 +8,7 @@ use reqwest::StatusCode;
 // use crossbeam_channel::Receiver;
 use crate::common::time_string;
 use crate::common::AccountCoins;
+use crate::common::Kline;
 use crate::common::{
     BoardTransfer, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, DAYS, TODAY,
 };
@@ -18,8 +19,8 @@ use rust_decimal::Decimal;
 use async_trait::async_trait;
 
 
-#[derive(PartialEq)]
-pub enum TradePage {
+#[derive(PartialEq, Debug)]
+pub enum RestPage {
     New,
     Done,
     Time(MicroSec),
@@ -37,8 +38,18 @@ pub trait RestApi {
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: &TradePage
-    ) -> anyhow::Result<(Vec<Trade>, TradePage)>;
+        page: &RestPage
+    ) -> anyhow::Result<(Vec<Trade>, RestPage)>;
+
+    async fn get_klines(
+        &self,
+        config: &MarketConfig,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        page: &RestPage
+    )-> anyhow::Result<(Vec<Kline>, RestPage)>;
+
+    fn klines_width(&self) -> i64;
 
     async fn new_order(
         &self,
@@ -61,8 +72,6 @@ pub trait RestApi {
     fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame>;
 }
 
-#[async_trait]
-pub trait RestTrait: RestApi + Send + Sync + Clone {}
 
 pub async fn do_rest_request(
     method: Method,
