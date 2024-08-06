@@ -202,6 +202,12 @@ impl OrderType {
     pub fn __repr__(&self) -> String {
         self.to_string()
     }
+
+    pub fn __eq__(&self, other: &str) -> bool {
+        let other = OrderType::from(other);
+
+        *self == other
+    }
 }
 
 impl OrderType {
@@ -229,7 +235,7 @@ fn str_to_order_type(order_type: &str) -> OrderType {
             log::error!("Unknown order type: {:?}", order_type);
             // OrderType::Limit
             // TODO: for debuging purpose
-            panic!("Unknown order type: {:?}", order_type);
+            OrderType::Unknown
         }
     }
 }
@@ -1525,6 +1531,11 @@ mod order_tests {
 //        assert_eq!(OrderStatus::__eq__(OrderStatus::New, "new"), true);
     }
 
+    #[test]
+    fn test_order_type_from_str() {
+        assert!(OrderType::Limit.__eq__("Limit"));
+        assert!(OrderType::Market.__eq__("Market"));
+    }
 
     #[test]
     fn test_update_balance_filled() {
