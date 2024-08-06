@@ -1,8 +1,9 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
-// ABUSOLUTELY NO WARRANTY.
+// ABSOLUTELY NO WARRANTY.
 
 use core::time;
 use std::path::Display;
+use std::str::FromStr as _;
 
 use super::time::MicroSec;
 use super::FeeType;
@@ -69,10 +70,11 @@ where
 }
 
 pub fn string_to_status(s: &str) -> OrderStatus {
-    let order_status: OrderStatus = s.parse().unwrap_or(OrderStatus::Error);
+    let order_status: OrderStatus = s.parse().unwrap_or(OrderStatus::Unknown);
 
     return order_status;
 }
+
 
 #[pymethods]
 impl OrderStatus {
@@ -87,6 +89,13 @@ impl OrderStatus {
     pub fn _html_repr_(&self) -> String {
         return self.to_string();
     }
+
+    fn __eq__(&self, other: &str) -> bool {
+        let status = OrderStatus::from_str(other).unwrap_or(OrderStatus::Unknown);
+
+        *self == status
+    }
+    
 }
 
 #[pyclass]
@@ -100,8 +109,10 @@ pub enum OrderSide {
     #[strum(ascii_case_insensitive)]
     Sell,
     /// Represents an unknown order side.
+    #[strum(ascii_case_insensitive)]
     Unknown,
 }
+
 
 impl OrderSide {
     pub fn from_buy_side(buy_side: bool) -> Self {
@@ -157,6 +168,12 @@ impl OrderSide {
     }
     pub fn _html_repr_(&self) -> String {
         return self.to_string();
+    }
+
+    pub fn __eq__(&self, other: &str) -> bool {
+        let side = OrderSide::from(other);
+
+        *self == side
     }
 }
 
@@ -737,7 +754,7 @@ pub struct Order {
     #[pyo3(get)]
     pub status: OrderStatus,
     #[pyo3(get)]
-    pub order_id: String, // YYYY-MM-DD-SEQ
+    pub order_id: String,
     #[pyo3(get)]
     pub client_order_id: String,
     #[pyo3(get)]
@@ -1443,6 +1460,8 @@ pub fn convert_klines_to_trades(klines: Vec<Kline>, window_sec: i64) -> Vec<Trad
 ///----------------------------- TEST ----------------------------------------------------------
 #[cfg(test)]
 mod order_tests {
+    use std::str::FromStr;
+
     use crate::common::{init_debug_log, PriceType};
 
     use super::*;
@@ -1484,6 +1503,28 @@ mod order_tests {
         order.update_time = 0;
         order
     }
+
+
+    #[test]
+    fn test_order_status_from_str() {
+        let status = OrderStatus::from_str("neW").unwrap_or(OrderStatus::Unknown);
+        println!("{:?}", status);
+
+        assert!(OrderStatus::New.__eq__("new"));
+        assert!(! OrderStatus::New.__eq__("Filled"));
+        assert!(OrderStatus::PartiallyFilled.__eq__("PartiallyFilled"));
+        assert!(OrderStatus::Filled.__eq__("Filled"));
+        assert!(OrderStatus::Canceled.__eq__("Canceled"));
+        assert!(OrderStatus::Rejected.__eq__("Rejected"));
+        assert!(OrderStatus::Error.__eq__("error"));
+        assert!(OrderStatus::Unknown.__eq__("???"));
+        // let status = OrderStatus::from_str("New");
+
+        
+//        assert_eq!(OrderStatus::from("new".to_string()), OrderStatus::New);
+//        assert_eq!(OrderStatus::__eq__(OrderStatus::New, "new"), true);
+    }
+
 
     #[test]
     fn test_update_balance_filled() {
