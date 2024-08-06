@@ -1,5 +1,5 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
-// ABUSOLUTELY NO WARRANTY.
+// ABSOLUTELY NO WARRANTY.
 
 use std::env::{self, VarError};
 use env_file_reader::{self, read_file};
