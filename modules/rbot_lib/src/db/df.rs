@@ -25,7 +25,7 @@ use anyhow::anyhow;
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 pub mod KEY {
-    pub const time_stamp: &str = "timestamp";
+    pub const timestamp: &str = "timestamp";
 
     // for trade
     pub const price: &str = "price";
@@ -106,20 +106,20 @@ pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> Da
     let mask: ChunkedArray<BooleanType>;
 
     if start_time == 0 {
-        mask = df.column(KEY::time_stamp).unwrap().lt(end_time).unwrap();
+        mask = df.column(KEY::timestamp).unwrap().lt(end_time).unwrap();
     } else if end_time == 0 {
         mask = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .gt_eq(start_time)
             .unwrap();
     } else {
         mask = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .gt_eq(start_time)
             .unwrap()
-            & df.column(KEY::time_stamp).unwrap().lt(end_time).unwrap();
+            & df.column(KEY::timestamp).unwrap().lt(end_time).unwrap();
     }
 
     let df = df.filter(&mask).unwrap();
@@ -143,14 +143,14 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
     }
 
     if start_time == 0 {
-        df = df.filter(col(KEY::time_stamp).lt(end_time));
+        df = df.filter(col(KEY::timestamp).lt(end_time));
     } else if end_time == 0 {
-        df = df.filter(col(KEY::time_stamp).gt_eq(start_time));
+        df = df.filter(col(KEY::timestamp).gt_eq(start_time));
     } else {
         df = df.filter(
-            col(KEY::time_stamp)
+            col(KEY::timestamp)
                 .gt_eq(start_time)
-                .and(col(KEY::time_stamp).lt(end_time)),
+                .and(col(KEY::timestamp).lt(end_time)),
         );
     }
 
@@ -158,11 +158,11 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
 }
 
 pub fn start_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::time_stamp).unwrap().min().unwrap()
+    df.column(KEY::timestamp).unwrap().min().unwrap()
 }
 
 pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::time_stamp).unwrap().max().unwrap()
+    df.column(KEY::timestamp).unwrap().max().unwrap()
 }
 
 /// append df2 after df1
@@ -218,7 +218,7 @@ pub fn ohlcv_df(
     }
 
     let option = DynamicGroupOptions {
-        index_column: KEY::time_stamp.into(),
+        index_column: KEY::timestamp.into(),
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
@@ -232,7 +232,7 @@ pub fn ohlcv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .group_by_dynamic(col(KEY::time_stamp), [], option)
+        .group_by_dynamic(col(KEY::timestamp), [], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
             col(KEY::price).max().alias(KEY::high),
@@ -242,7 +242,7 @@ pub fn ohlcv_df(
             col(KEY::price).count().alias(KEY::count),
         ])
         .sort(
-            vec![(KEY::time_stamp).to_string()],
+            vec![(KEY::timestamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
                 nulls_last: vec![false],
@@ -282,7 +282,7 @@ pub fn ohlcvv_df(
     }
 
     let option = DynamicGroupOptions {
-        index_column: KEY::time_stamp.into(),
+        index_column: KEY::timestamp.into(),
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
@@ -295,7 +295,7 @@ pub fn ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
+        .group_by_dynamic(col(KEY::timestamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::price).first().alias(KEY::open),
             col(KEY::price).max().alias(KEY::high),
@@ -303,11 +303,11 @@ pub fn ohlcvv_df(
             col(KEY::price).last().alias(KEY::close),
             col(KEY::size).sum().alias(KEY::volume),
             col(KEY::price).count().alias(KEY::count),
-            col(KEY::time_stamp).min().alias(KEY::start_time),
-            col(KEY::time_stamp).max().alias(KEY::end_time),
+            col(KEY::timestamp).min().alias(KEY::start_time),
+            col(KEY::timestamp).max().alias(KEY::end_time),
         ])
         .sort(
-            vec![KEY::time_stamp.to_string()],
+            vec![KEY::timestamp.to_string()],
             SortMultipleOptions {
                 descending: vec![false],
                 nulls_last: vec![false],
@@ -345,7 +345,7 @@ pub fn ohlcv_from_ohlcvv_df(
     }
 
     let option = DynamicGroupOptions {
-        index_column: KEY::time_stamp.into(),
+        index_column: KEY::timestamp.into(),
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
@@ -358,7 +358,7 @@ pub fn ohlcv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .group_by_dynamic(col(KEY::time_stamp), [], option)
+        .group_by_dynamic(col(KEY::timestamp), [], option)
         .agg([
             col(KEY::open)
                 .sort_by(
@@ -390,7 +390,7 @@ pub fn ohlcv_from_ohlcvv_df(
             col(KEY::count).sum().alias(KEY::count),
         ])
         .sort(
-            vec![(KEY::time_stamp).to_string()],
+            vec![(KEY::timestamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
                 nulls_last: vec![false],
@@ -423,7 +423,7 @@ pub fn ohlcvv_from_ohlcvv_df(
     );
 
     let option = DynamicGroupOptions {
-        index_column: KEY::time_stamp.into(),
+        index_column: KEY::timestamp.into(),
         every: Duration::new(SEC(time_window)), // グループ間隔
         period: Duration::new(SEC(time_window)), // データ取得の幅（グループ間隔と同じでOK)
         offset: Duration::parse("0m"),
@@ -436,7 +436,7 @@ pub fn ohlcvv_from_ohlcvv_df(
     let df = select_df_lazy(df, start_time, end_time);
 
     let result = df
-        .group_by_dynamic(col(KEY::time_stamp), [col(KEY::order_side)], option)
+        .group_by_dynamic(col(KEY::timestamp), [col(KEY::order_side)], option)
         .agg([
             col(KEY::open).first().alias(KEY::open),
             col(KEY::high).max().alias(KEY::high),
@@ -448,7 +448,7 @@ pub fn ohlcvv_from_ohlcvv_df(
             col(KEY::end_time).max().alias(KEY::end_time),
         ])
         .sort(
-            vec![(KEY::time_stamp).to_string()],
+            vec![(KEY::timestamp).to_string()],
             SortMultipleOptions {
                 descending: vec![false],
                 nulls_last: vec![false],
@@ -576,7 +576,7 @@ impl TradeBuffer {
     }
 
     pub fn to_dataframe(&self) -> DataFrame {
-        let time_stamp = Series::new(KEY::time_stamp, self.time_stamp.to_vec());
+        let time_stamp = Series::new(KEY::timestamp, self.time_stamp.to_vec());
         let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
         let price = Series::new(KEY::price, self.price.to_vec());
         let size = Series::new(KEY::size, self.size.to_vec());
@@ -588,7 +588,7 @@ impl TradeBuffer {
 }
 
 pub fn make_empty_ohlcvv() -> DataFrame {
-    let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+    let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
     let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
     let open = Series::new(KEY::open, Vec::<f64>::new());
     let high = Series::new(KEY::high, Vec::<f64>::new());
@@ -608,7 +608,7 @@ pub fn make_empty_ohlcvv() -> DataFrame {
 }
 
 pub fn make_empty_ohlcv() -> DataFrame {
-    let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+    let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
     let open = Series::new(KEY::open, Vec::<f64>::new());
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
@@ -632,7 +632,7 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 }
 
 pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
-    let time = df.column(KEY::time_stamp)?.i64()?.clone();
+    let time = df.column(KEY::timestamp)?.i64()?.clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
     df.with_column(date_time)?;
 
@@ -652,17 +652,17 @@ mod test_df {
         init_debug_log();
 
         let df1 = df![
-            KEY::time_stamp => [1, 2, 3, 4, 5],
+            KEY::timestamp => [1, 2, 3, 4, 5],
             "value" => [11, 12, 13, 14, 15]
         ]?;
 
         let df2 = df![
-            KEY::time_stamp => [5, 6],
+            KEY::timestamp => [5, 6],
             "value" => [25, 26]
         ]?;
 
         let merged_df = df![
-            KEY::time_stamp => [1, 2, 3, 4, 5, 6],
+            KEY::timestamp => [1, 2, 3, 4, 5, 6],
             "value" => [11, 12, 13, 14, 25, 26]
         ]?;
 
@@ -682,16 +682,16 @@ mod test_df {
         assert_eq!(
             merge_df(
                 &df![
-                    KEY::time_stamp => [1, 2],
+                    KEY::timestamp => [1, 2],
                     "value" => [11, 12]
                 ]?,
                 &df![
-                    KEY::time_stamp => [5, 6],
+                    KEY::timestamp => [5, 6],
                     "value" => [25, 26]
                 ]?,
             )?,
             df![
-                KEY::time_stamp => [1,2,5,6],
+                KEY::timestamp => [1,2,5,6],
                 "value" => [11, 12, 25,26]
             ]?
         );
@@ -699,16 +699,16 @@ mod test_df {
         assert_eq!(
             append_df(
                 &df![
-                    KEY::time_stamp => [1, 2],
+                    KEY::timestamp => [1, 2],
                     "value" => [11, 12]
                 ]?,
                 &df![
-                    KEY::time_stamp => [2, 3],
+                    KEY::timestamp => [2, 3],
                     "value" => [25, 26]
                 ]?,
             )?,
             df![
-                KEY::time_stamp => [1,2,2,3],
+                KEY::timestamp => [1,2,2,3],
                 "value" => [11, 12, 25,26]
             ]?
         );
@@ -775,7 +775,7 @@ mod test_df {
     fn make_ohlcv_df() -> DataFrame {
         let df = df!(
             KEY::order_side => &[false, true, false, true],
-            KEY::time_stamp => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
+            KEY::timestamp => &[DAYS(1), DAYS(2), DAYS(3), DAYS(3)],
             KEY::open => &[1.0, 2.0, 3.0, 4.0],
             KEY::high => &[1.0, 2.0, 3.0, 4.0],
             KEY::low => &[1.0, 2.0, 3.0, 4.0],
@@ -789,7 +789,7 @@ mod test_df {
         return df
             .unwrap()
             .sort(
-                [KEY::time_stamp],
+                [KEY::timestamp],
                 SortMultipleOptions {
                     descending: vec![false],
                     nulls_last: vec![false],
@@ -886,7 +886,7 @@ mod test_df {
     fn test_make_ohlcv_datetime() {
         use polars::datatypes::TimeUnit;
 
-        let time = Series::new(KEY::time_stamp, Vec::<MicroSec>::new());
+        let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
 
         let t64 = time.i64().unwrap().clone();
         let date_time = t64.into_datetime(TimeUnit::Microseconds, None);

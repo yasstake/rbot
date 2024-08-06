@@ -1,5 +1,5 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
-// ABUSOLUTELY NO WARRANTY.
+// ABSOLUTELY NO WARRANTY.
 
 use super::SecretString;
 use anyhow::anyhow;
@@ -11,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use zip::read::Config;
 
 pub trait ServerConfig: Send + Sync {
+    fn get_exchange_name(&self) -> String;
     fn get_historical_web_base(&self) -> String;
     fn get_public_ws_server(&self) -> String;
     fn get_user_ws_server(&self) -> String;

@@ -58,14 +58,14 @@ pub struct TradeDb {
 
 impl TradeDb {
     /// delete unstable data, include both edge.
-    /// start_time <= (time_stamp) <= end_time
+    /// start_time <= (timestamp) <= end_time
     pub fn delete_virtual_data(
         tx: &Transaction,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
         let sql =
-            r#"delete from trades where ($1 <= time_stamp) and (time_stamp < $2) and status = "V""#;
+            r#"delete from trades where ($1 <= timestamp) and (timestamp < $2) and status = "V""#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
@@ -77,7 +77,7 @@ impl TradeDb {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        let sql = r#"delete from trades where $1 <= time_stamp and time_stamp < $2"#;
+        let sql = r#"delete from trades where $1 <= timestamp and timestamp < $2"#;
 
         let result = tx.execute(sql, params![start_time, end_time])?;
 
@@ -89,7 +89,7 @@ impl TradeDb {
     pub fn insert_transaction(tx: &Transaction, trades: &Vec<Trade>) -> anyhow::Result<i64> {
         let mut insert_len = 0;
 
-        let sql = r#"insert or replace into trades (time_stamp, action, price, size, status, id)
+        let sql = r#"insert or replace into trades (timestamp, action, price, size, status, id)
                                 values (?1, ?2, ?3, ?4, ?5, ?6) "#;
 
         for rec in trades {
@@ -355,7 +355,7 @@ impl TradeDb {
     fn create_table_if_not_exists(&mut self) -> anyhow::Result<()> {
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS trades (
-            time_stamp    INTEGER,
+            timestamp    INTEGER,
             action  TEXT,
             price   NUMBER,
             size    NUMBER,
@@ -366,7 +366,7 @@ impl TradeDb {
         )?;
 
         self.connection.execute(
-            "CREATE index if not exists time_index on trades(time_stamp)",
+            "CREATE index if not exists time_index on trades(timestamp)",
             (),
         )?;
 
@@ -415,11 +415,11 @@ impl TradeDb {
         let param: Vec<i64>;
 
         if 0 < end_time {
-            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp and time_stamp < $2 order by time_stamp";
+            sql = "select timestamp, action, price, size, status, id from trades where $1 <= timestamp and timestamp < $2 order by timestamp";
             param = vec![start_time, end_time];
         } else {
-            //sql = "select time_stamp, action, price, size, liquid, id from trades where $1 <= time_stamp order by time_stamp";
-            sql = "select time_stamp, action, price, size, status, id from trades where $1 <= time_stamp order by time_stamp";
+            //sql = "select timestamp, action, price, size, liquid, id from trades where $1 <= timestamp order by timestamp";
+            sql = "select timestamp, action, price, size, status, id from trades where $1 <= timestamp order by timestamp";
             param = vec![start_time];
         }
 
@@ -505,7 +505,7 @@ impl TradeDb {
     /// Returns a Result containing the earliest time stamp as a MicroSec value, or an Error if the query fails.
     pub fn start_time(&self, since_time: MicroSec) -> MicroSec {
         let sql =
-            "select time_stamp from trades where $1 < time_stamp order by time_stamp asc limit 1";
+            "select timestamp from trades where $1 < timestamp order by timestamp asc limit 1";
 
         let r = self.connection.query_row(sql, [since_time], |row| {
             let min: i64 = row.get(0)?;
@@ -521,12 +521,12 @@ impl TradeDb {
         return time;
     }
 
-    /// select max(end) time_stamp in db
+    /// select max(end) timestamp in db
     /// returns 0 for no data.
     pub fn end_time(&self, search_from: MicroSec) -> MicroSec {
-        // let sql = "select max(time_stamp) from trades";
+        // let sql = "select max(timestamp) from trades";
         let sql =
-            "select time_stamp from trades where $1 < time_stamp order by time_stamp desc limit 1";
+            "select timestamp from trades where $1 < timestamp order by timestamp desc limit 1";
 
         let r = self.connection.query_row(sql, [search_from], |row| {
             let max: i64 = row.get(0)?;
@@ -546,7 +546,7 @@ impl TradeDb {
     /// 最後のWSの起動時間を探して返す。
     /// 存在しない場合はNone
     pub fn get_last_start_up_rec(&mut self) -> Option<Trade> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where status = "Us" order by time_stamp desc limit 1"#;
+        let sql = r#"select timestamp, action, price, size, status, id from trades where status = "Us" order by timestamp desc limit 1"#;
 
         let trades = self.select_query(sql, vec![]);
 
@@ -566,7 +566,7 @@ impl TradeDb {
 
     // DBにある最新のデータを取得する
     pub fn get_latest_rec(&mut self, search_before: MicroSec) -> Option<Trade> {
-        let sql = r#"select time_stamp, action, price, size, status, id from trades where time_stamp < $1 order by time_stamp desc limit 1"#;
+        let sql = r#"select timestamp, action, price, size, status, id from trades where timestamp < $1 order by timestamp desc limit 1"#;
 
         let trades = self.select_query(sql, vec![search_before]);
 
@@ -679,10 +679,10 @@ impl TradeDb {
 
         // find select db gaps
         let sql = r#"
-        select time_stamp, sub_time from (
-            select time_stamp, time_stamp - lag(time_stamp, 1, 0) OVER (order by time_stamp) sub_time  
-            from trades where $1 < time_stamp) 
-            where $2 < sub_time order by time_stamp
+        select timestamp, sub_time from (
+            select timestamp, timestamp - lag(timestamp, 1, 0) OVER (order by timestamp) sub_time  
+            from trades where $1 < timestamp) 
+            where $2 < sub_time order by timestamp
         "#;
 
         let mut statement = self.connection.prepare(sql).unwrap();

@@ -1,5 +1,5 @@
 // Copyright(c) 2023. yasstake. All rights reserved.
-// ABUSOLUTELY NO WARRANTY.
+// ABSOLUTELY NO WARRANTY.
 
 use std::{
     collections::HashMap,

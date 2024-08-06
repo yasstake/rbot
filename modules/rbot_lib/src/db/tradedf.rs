@@ -71,7 +71,7 @@ pub struct TradeDataFrame {
 }
 
 impl TradeDataFrame {
-    pub fn archive_emd_default() -> MicroSec {
+    pub fn archive_end_default() -> MicroSec {
         NOW() - DAYS(2)
     }
 
@@ -119,7 +119,7 @@ impl TradeDataFrame {
             return archive_start;
         }
 
-        let db_start = self.db.start_time(Self::archive_emd_default());
+        let db_start = self.db.start_time(Self::archive_end_default());
 
         db_start
     }
@@ -127,7 +127,7 @@ impl TradeDataFrame {
     pub fn end_time(&mut self) -> MicroSec {
         let archive_end = self.archive.end_time();
 
-        let db_end = self.get_db_end_time(Self::archive_emd_default());
+        let db_end = self.get_db_end_time(Self::archive_end_default());
 
         if db_end != 0 && archive_end < db_end {
             return db_end;
@@ -139,13 +139,13 @@ impl TradeDataFrame {
 
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
         let start_time: MicroSec = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .min()
             .unwrap()
             .unwrap_or(0);
         let end_time: MicroSec = df
-            .column(KEY::time_stamp)
+            .column(KEY::timestamp)
             .unwrap()
             .max()
             .unwrap()
@@ -199,7 +199,27 @@ impl TradeDataFrame {
         self.cache_duration = 0;
     }
 
-    pub fn select_cachedf(
+    pub fn select_cache_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
+        let df = select_df(&self.cache_df, start_time, end_time);
+
+        Ok(df)
+    }
+
+    pub fn select_cache_ohlcv_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+    ) -> anyhow::Result<DataFrame> {
+        let df = select_df(&self.cache_ohlcvv, start_time, end_time);
+
+        Ok(df)
+    }
+
+    pub fn select_raw_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -207,8 +227,8 @@ impl TradeDataFrame {
         let archive_end = self.get_archive_end_time();
 
         let df = if start_time < archive_end {
-            let df1 = self.select_archive_cachedf(start_time, end_time)?;
-            let df2 = self.select_db_cachedf(archive_end, end_time)?;
+            let df1 = self.select_archive_df(start_time, end_time)?;
+            let df2 = self.select_db_df(archive_end, end_time)?;
             append_df(&df1, &df2)
         } else {
             self.db.select_cachedf(start_time, end_time)
@@ -217,7 +237,7 @@ impl TradeDataFrame {
         df
     }
 
-    pub fn select_archive_cachedf(
+    pub fn select_archive_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -225,7 +245,7 @@ impl TradeDataFrame {
         self.archive.select_cachedf(start_time, end_time)
     }
 
-    pub fn select_db_cachedf(
+    pub fn select_db_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -238,7 +258,7 @@ impl TradeDataFrame {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        self.cache_df = self.select_cachedf(start_time, end_time)?;
+        self.cache_df = self.select_raw_df(start_time, end_time)?;
 
         Ok(self.cache_df.shape().0 as i64)
     }
@@ -324,7 +344,7 @@ impl TradeDataFrame {
 
         // load data and merge cache
         if start_time < df_start_time {
-            let df1 = &self.select_cachedf(start_time, df_start_time)?;
+            let df1 = &self.select_raw_df(start_time, df_start_time)?;
 
             let len = df1.shape().0;
             // データがあった場合のみ更新
@@ -359,7 +379,7 @@ impl TradeDataFrame {
 
         if df_end_time < end_time {
             // 3日先までキャッシュを先読み
-            let df2 = &self.select_cachedf(df_end_time, FLOOR_DAY(end_time + DAYS(4)))?;
+            let df2 = &self.select_raw_df(df_end_time, FLOOR_DAY(end_time + DAYS(4)))?;
 
             log::debug!(
                 "load data after cache(2days) df1={:?} df2={:?}",

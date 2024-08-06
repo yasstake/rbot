@@ -79,6 +79,8 @@ env_logger = { version = "0.11.0" }
 tracing = { version = "0.1.40" }
 tracing-subscriber = { version = "0.3.18" }
 
+env-file-reader = { version="0.3.0" }
+
 directories = "5.0.1"
 
 crossbeam-channel = { version = "0.5.11" }
