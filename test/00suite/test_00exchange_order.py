@@ -26,11 +26,24 @@ def test_limit_order_and_cancel():
     assert(cancel_result.order_size == 0.0)
     assert(cancel_result.remain_size == 0.0)
     assert(cancel_result.free_home_change == 0.0)
-    
+   
     
 
 def test_market_order():
-    pass
+    exchange = Bybit(False)
+    config = BybitConfig.BTCUSDT
+    assert(exchange.production == False)
+    
+    exchange.enable_order_with_my_own_risk = True
+    assert(exchange.enable_order_with_my_own_risk == True)
+    
+    order_result = exchange.market_order(config, "Buy", 0.001)
+    print(order_result)
+    assert(order_result[0].status == "Filled")
+    assert(order_result[0].order_side == "Buy")
+    assert(order_result[0].order_size == 0.001)
+    assert(order_result[0].remain_size == 0)
+    assert(order_result[0].free_home_change == -50_000 * 0.001)
 
         
     
