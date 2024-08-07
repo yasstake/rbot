@@ -22,89 +22,35 @@ pub struct BinanceServerConfig {
     api_secret: SecretString,
 }
 
-#[pymethods]
 impl BinanceServerConfig {
-    #[new]
-    pub fn new(production: bool) -> Self {
+    pub fn new(production: bool) -> ServerConfig {
         let rest_server = if production {
             "https://api.binance.com"            
         } else {
             "https://testnet.binance.vision"
-        }
-        .to_string();
+        };
 
         let public_ws_server = if production {
             "wss://stream.binance.com:9443/ws"            
         } else {
             "wss://testnet.binance.vision/ws"
-        }
-        .to_string();
+        };
 
         let private_ws_server = if production {
             "wss://stream.binance.com:9443"            
         } else {
             "wss://testnet.binance.vision"
-        }
-        .to_string();
+        };
 
-        let api_key = env_api_key(BINANCE, production);
-        if api_key == "" {
-            println!("API KEY environment variable [BINANCE_API_KEY] is not set");
-        }
-
-        let api_secret = env_api_secret(BINANCE, production);
-        if api_secret == "" {
-            println!("API SECRET environment variable [BINANCE_API_SECRET] is not set");
-        }
-
-
-        return BinanceServerConfig {
+        ServerConfig::new(
+            BINANCE,
             production,
             rest_server,
-            public_ws: public_ws_server,
-            private_ws: private_ws_server,
-            history_web_base: "https://data.binance.vision".to_string(),
-            api_key: SecretString::new(&api_key),
-            api_secret: SecretString::new(&api_secret),
-        };
+            public_ws_server,
+            private_ws_server,
+            "https://public.bybit.com",
+        )    
     }
-}
-
-
-impl ServerConfig for BinanceServerConfig {
-    fn get_exchange_name(&self) -> String {
-        BINANCE.to_string()
-    }
-
-    fn get_rest_server(&self) -> String {
-        self.rest_server.clone()
-    }
-
-    fn get_public_ws_server(&self) -> String {
-        self.public_ws.clone()
-    }
-
-    
-    fn get_historical_web_base(&self) -> String {
-        self.history_web_base.clone()
-    }
-    
-    fn get_user_ws_server(&self) -> String {
-        self.private_ws.clone()
-    }
-    
-    fn get_api_key(&self) -> SecretString {
-        self.api_key.clone()
-    }
-    
-    fn get_api_secret(&self) -> SecretString {
-        self.api_secret.clone() 
-    }
-
-    fn is_production(&self) -> bool {
-        self.production
-    }
-    
 }
 
 

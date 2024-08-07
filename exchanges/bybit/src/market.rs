@@ -506,6 +506,12 @@ impl BybitMarket {
             MarketImpl::async_download_range(self, start_time, end_time, verbose).await
         })
     }
+
+    fn open_market_stream(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON (async {
+            self.async_start_market_stream().await
+        })
+    }
 }
 
 impl BybitMarket {

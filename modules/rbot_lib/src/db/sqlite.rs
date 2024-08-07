@@ -1,7 +1,6 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use anyhow::anyhow;
-use anyhow::ensure;
 use anyhow::Context;
 //use anyhow::Result;
 
@@ -411,21 +410,26 @@ impl TradeDb {
     where
         F: FnMut(&Trade) -> anyhow::Result<()>,
     {
-        let sql: &str;
-        let param: Vec<i64>;
+        let mut param: Vec<i64> = vec![];
 
-        if 0 < end_time {
-            sql = "select timestamp, action, price, size, status, id from trades where $1 <= timestamp and timestamp < $2 order by timestamp";
-            param = vec![start_time, end_time];
-        } else {
-            //sql = "select timestamp, action, price, size, liquid, id from trades where $1 <= timestamp order by timestamp";
-            sql = "select timestamp, action, price, size, status, id from trades where $1 <= timestamp order by timestamp";
-            param = vec![start_time];
+        let mut sql = "select timestamp, action, price, size, status, id from trades".to_string();
+
+        if 0 < start_time {
+            sql += " where $1 <= timestamp";
+            param.push(start_time);
         }
 
-        let mut statement = self.connection.prepare(sql)?;
+        if 0 < end_time {
+            if 0 < start_time {
+                sql += " and"
+            }
+            sql += " timestamp < $2";
+            param.push(end_time);
+        }
 
-        let start_time = NOW();
+        sql += " order by timestamp";
+
+        let mut statement = self.connection.prepare(&sql)?;
 
         let _transaction_iter = statement
             .query_map(params_from_iter(param.iter()), |row| {
@@ -444,8 +448,6 @@ impl TradeDb {
                 })
             })
             .with_context(|| format!("select trade error"))?;
-
-        log::debug!("create iter {} microsec", NOW() - start_time);
 
         for trade in _transaction_iter {
             match trade {

@@ -73,7 +73,7 @@ fn dot_env_reader(exchange_name: &str, production: bool, key: &str) -> String {
 }
 
 pub fn env_api_key(exchange_name: &str, production: bool) -> SecretString {
-    let key = dot_env_reader(exchange_name, production, "API_KEY");
+    let key = dot_env_reader(exchange_name, production, API_KEY);
 
     if key == "" {
         println!(
@@ -92,7 +92,7 @@ pub fn env_api_key(exchange_name: &str, production: bool) -> SecretString {
 }
 
 pub fn env_api_secret(exchange_name: &str, production: bool) -> SecretString {
-    let secret = &dot_env_reader(exchange_name, production, "API_SECRET");
+    let secret = &dot_env_reader(exchange_name, production, API_SECRET);
 
     if secret == "" {
         println!(

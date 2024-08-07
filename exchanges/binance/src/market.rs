@@ -459,50 +459,6 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
         self.board.clone()
     }
 
-    fn refresh_order_book(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_refresh_order_book().await })
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
----    
-    fn get_restapi(&self) -> &BybitRestApi {
-        &self.api
-    }
-
-    fn get_config(&self) -> MarketConfig {
-        self.config.clone()
-    }
-
-
-    fn get_db(&self) -> Arc<Mutex<TradeDataFrame>> {
-        self.db.clone()
-    }
-
-    fn get_history_web_base_url(&self) -> String {
-        self.server_config.history_web_base.clone()
-    }
-
-    fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
-        self.board.clone()
-    }
-
-    fn refresh_order_book(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_refresh_order_book().await })
-    }
-
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
