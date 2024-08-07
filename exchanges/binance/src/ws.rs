@@ -16,6 +16,7 @@ use rbot_lib::{
 };
 use tokio::time::sleep;
 
+use crate::Binance;
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
 use crate::BinanceWsRawMessage;
@@ -28,7 +29,7 @@ use anyhow::anyhow;
 /// https://binance-docs.github.io/apidocs/spot/en/#listen-key-spot
 /// Ping/Keep-alive a ListenKey (USER_STREAM)
 /// PUT /api/v3/userDataStream
-/// Keepalive a user data stream to prevent a time out.
+/// Keepalived a user data stream to prevent a time out.
 /// User data streams will close after 60 minutes.
 /// It's recommended to send a ping about every 30 minutes.
 
@@ -168,32 +169,19 @@ pub struct BinancePrivateWsClient {
     _handler: Option<JoinHandle<()>>,
     listen_key: String,
     key_update_handler: Option<JoinHandle<()>>,
+    api: BinanceRestApi,
 }
 
 impl BinancePrivateWsClient {
     pub async fn new(server: &BinanceServerConfig) -> Self {
-        let dummy_config = MarketConfig::new(
-            "dummy",
-            "dummy",
-            "dummy",
-            "dummy",
-            0,
-            PriceType::Home,
-            0,
-            0,
-            0.1,
-            0.0,
-            0.0,
-            FeeType::Home,
-            vec!["dummy".to_string()],
-        );
+        let api = BinanceRestApi::new(&server);
 
-        let listen_key = Self::make_listen_key(server).await.unwrap();
-        let url = Self::make_connect_url(server, &listen_key).unwrap();
+        let listen_key = api.create_listen_key().await.unwrap();
+        let url = api.make_connect_url(&listen_key);
 
         let private_ws = AutoConnectClient::new(
             server,
-            &dummy_config,
+            &MarketConfig::default(),
             &url,
             PING_INTERVAL_SEC,
             SWITCH_INTERVAL_SEC,
@@ -208,6 +196,7 @@ impl BinancePrivateWsClient {
             _handler: None,
             listen_key: listen_key,
             key_update_handler: None,
+            api: BinanceRestApi::new(server)
         }
     }
 
@@ -215,12 +204,12 @@ impl BinancePrivateWsClient {
         self.ws.connect().await;
 
         let key = self.listen_key.clone();
-        let server = self.server.clone();
+        let api = self.api.clone();
 
-        let hander = tokio::task::spawn(async move {
+        let handler = tokio::task::spawn(async move {
             loop {
                 sleep(Duration::from_secs(60 * 60)).await;
-                let r = BinanceRestApi::extend_listen_key(&server, &key).await;
+                let r = api.extend_listen_key(&key).await;
                 log::info!("Extend listen key");
                 if r.is_err() {
                     log::error!("Failed to extend listen key: {:?}", r);
@@ -228,7 +217,7 @@ impl BinancePrivateWsClient {
             }
         });
 
-        self.key_update_handler = Some(hander);
+        self.key_update_handler = Some(handler);
     }
 
     pub async fn open_stream<'a>(
@@ -286,17 +275,13 @@ impl BinancePrivateWsClient {
         Ok(message.convert_multimarketmessage("SPOT"))
     }
 
-    async fn make_listen_key(server: &BinanceServerConfig) -> anyhow::Result<String> {
-        let key = BinanceRestApi::create_listen_key(server).await?;
-
-        Ok(key)
-    }
-
+    /*
     fn make_connect_url(server: &BinanceServerConfig, key: &str) -> anyhow::Result<String> {
         let url = format!("{}/ws/{}", server.get_user_ws_server(), key);
 
         Ok(url)
     }
+    */
 }
 
 #[cfg(test)]
@@ -340,10 +325,11 @@ mod tests {
     #[tokio::test]
     async fn test_make_connect_url() {
         let server = BinanceServerConfig::new(false);
+        let api = BinanceRestApi::new(&server);
         let _config = BinanceConfig::BTCUSDT();
 
-        let key = BinanceRestApi::create_listen_key(&server).await.unwrap();
-        let url = BinancePrivateWsClient::make_connect_url(&server, &key);
+        let key = api.create_listen_key().await.unwrap();
+        let url = api.make_connect_url(&key);
 
         println!("URL: {:?}", url);
     }

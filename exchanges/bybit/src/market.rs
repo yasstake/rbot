@@ -25,7 +25,7 @@ use rbot_lib::common::{
 };
 
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
-use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender};
+use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender, WebSocketClient};
 
 use rbot_market::MarketImpl;
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
@@ -59,7 +59,7 @@ pub const BYBIT: &str = "BYBIT";
 pub struct Bybit {
     production: bool,
     enable_order: bool,
-    server_config: BybitServerConfig,
+    server_config: ServerConfig,
     user_handler: Option<JoinHandle<()>>,
     api: BybitRestApi,
 }
@@ -83,11 +83,11 @@ impl Bybit {
 
     #[getter]
     fn get_production(&self) -> bool {
-        self.server_config.production
+        self.server_config.is_production()
     }
 
     pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
-        return BybitMarket::new(&self.server_config, config, self.production);
+        return BybitMarket::new(&self.server_config, config);
     }
 
     //--- OrderInterfaceImpl ----
@@ -218,11 +218,61 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
 
         Ok(())
     }
+
+    /*
+    async fn async_start_user_stream(&mut self) -> anyhow::Result<()> {
+        let exchange_name = BYBIT.to_string();
+        let server_config = self.server_config.clone();
+
+        self.user_handler = Some(tokio::task::spawn(async move {
+            let mut ws = BybitPrivateWsClient::new(&server_config).await;
+            ws.connect().await;
+
+            let mut market_channel = MARKET_HUB.open_channel();
+            let mut ws_stream = Box::pin(ws.open_stream().await);
+
+            while let Some(message) = ws_stream.next().await {
+                if message.is_err() {
+                    log::error!("Error in ws_stream.recv: {:?}", message);
+                    continue;
+                }
+
+                let message = message.unwrap();
+                match message {
+                    MultiMarketMessage::Order(order) => {
+                        for o in order {
+                            market_channel.send(BroadcastMessage {
+                                exchange: exchange_name.clone(),
+                                category: o.category.clone(),
+                                symbol: o.symbol.clone(),
+                                msg: MarketMessage::Order(o.clone()),
+                            });
+                            log::debug!("Order: {:?}", o);
+                        }
+                    }
+                    MultiMarketMessage::Account(account) => {
+                        market_channel.send(BroadcastMessage {
+                            exchange: exchange_name.clone(),
+                            category: "".to_string(),
+                            symbol: "".to_string(),
+                            msg: MarketMessage::Account(account.clone()),
+                        });
+                    }
+                    _ => {
+                        log::info!("User stream message: {:?}", message);
+                    }
+                }
+            }
+        }));
+
+        Ok(())
+    }
+    */
 }
 
 #[pyclass]
 pub struct BybitMarket {
-    pub server_config: BybitServerConfig,
+    pub server_config: ServerConfig,
     pub api: BybitRestApi,
     pub config: MarketConfig,
     pub db: Arc<Mutex<TradeDataFrame>>,
@@ -233,13 +283,9 @@ pub struct BybitMarket {
 #[pymethods]
 impl BybitMarket {
     #[new]
-    pub fn new(server_config: &BybitServerConfig, config: &MarketConfig, production: bool) -> Self {
+    pub fn new(server_config: &ServerConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BybitMarket::new");
-        BLOCK_ON(async {
-            Self::async_new(server_config, config, production)
-                .await
-                .unwrap()
-        })
+        BLOCK_ON(async { Self::async_new(server_config, config).await.unwrap() })
     }
     #[getter]
     fn get_config(&self) -> MarketConfig {
@@ -339,7 +385,9 @@ impl BybitMarket {
 
     #[getter]
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        MarketImpl::get_board(self)
+        BLOCK_ON(async {
+            MarketImpl::async_get_board(self).await
+        })
     }
 
     #[getter]
@@ -349,7 +397,9 @@ impl BybitMarket {
 
     #[getter]
     fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
-        MarketImpl::get_edge_price(self)
+        BLOCK_ON(async {
+            MarketImpl::async_get_edge_price(self).await
+        })
     }
 
     fn _repr_html_(&self) -> String {
@@ -367,7 +417,7 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download(
+            MarketImpl::async_download::<BybitPublicWsClient>(
                 self,
                 ndays,
                 connect_ws,
@@ -392,7 +442,10 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download_realtime(self, connect_ws, force, verbose).await
+            MarketImpl::async_download_realtime::<BybitPublicWsClient>(
+                self, connect_ws, force, verbose,
+            )
+            .await
         })
     }
 
@@ -416,9 +469,9 @@ impl BybitMarket {
 
     #[pyo3(signature = (verbose=false))]
     fn _download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
-        log::debug!("BybitMarket.download_latest(verbose={}", verbose);
+        log::debug!("BybitMarket._download_latest(verbose={}", verbose);
 
-        MarketImpl::download_latest(self, verbose)
+        BLOCK_ON(async { MarketImpl::async_download_latest(self, verbose).await })
     }
 
     fn _get_cache_duration(&self) -> MicroSec {
@@ -457,14 +510,13 @@ impl BybitMarket {
 
 impl BybitMarket {
     pub async fn async_new(
-        server_config: &BybitServerConfig,
+        server_config: &ServerConfig,
         config: &MarketConfig,
-        production: bool,
     ) -> anyhow::Result<Self> {
-        let db = TradeDataFrame::get(config, server_config.production)
+        let db = TradeDataFrame::get(config, server_config.is_production())
             .with_context(|| format!("Error in TradeTable::open: {:?}", config))?;
 
-        let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
+        // let public_ws = BybitPublicWsClient::new(&server_config, &config).await;
 
         let mut market = BybitMarket {
             server_config: server_config.clone(),
@@ -488,29 +540,12 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         self.config.clone()
     }
 
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)> {
-        log::debug!("download latest(verbose={})", verbose);
-
-        BLOCK_ON(async {
-            log::debug!("download latest");
-            self.async_download_latest(verbose).await
-        })
-    }
-
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>> {
         self.db.clone()
     }
 
     fn get_history_web_base_url(&self) -> String {
-        self.server_config.history_web_base.clone()
-    }
-
-    fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
-        self.board.clone()
-    }
-
-    fn refresh_order_book(&mut self) -> anyhow::Result<()> {
-        BLOCK_ON(async { self.async_refresh_order_book().await })
+        self.server_config.get_historical_web_base()
     }
 
     async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
@@ -521,8 +556,8 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.open_channel()?
-        };
+            lock.open_channel()
+        }?;
 
         let orderbook = self.board.clone();
 
@@ -531,14 +566,17 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
         let hub_channel = MARKET_HUB.open_channel();
 
+        let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
+
+        let exchange_name = config.exchange_name.clone();
+        let trade_category = config.trade_category.clone();
+        let trade_symbol = config.trade_symbol.clone();
+
+//         public_ws.connect().await;
+
+        let _ = self.async_refresh_order_book().await;
+
         self.public_handler = Some(tokio::task::spawn(async move {
-            let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
-
-            let exchange_name = config.exchange_name.clone();
-            let trade_category = config.trade_category.clone();
-            let trade_symbol = config.trade_symbol.clone();
-
-            public_ws.connect().await;
             let ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
@@ -598,16 +636,21 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
 
         Ok(())
     }
-}
 
-impl BybitMarket {
-    async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
-        let api = self.get_restapi();
-        let board = api.get_board_snapshot(&self.config).await?;
-        let mut b = self.board.write().unwrap();
-        b.update(&board);
+    fn get_server_config(&self) -> &ServerConfig {
+        &self.server_config
+    }
 
-        Ok(())
+    fn get_handler(&self) -> Option<JoinHandle<()>> {
+        todo!()
+    }
+
+    fn set_handler(&mut self, handler: Option<JoinHandle<()>>) {
+        todo!()
+    }
+    
+    fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
+        self.board.clone()
     }
 }
 
@@ -721,7 +764,7 @@ mod market_test {
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
-        let market = BybitMarket::new(&server_config, &market_config, true);
+        let market = BybitMarket::new(&server_config, &market_config);
     }
 
     #[ignore]
@@ -732,7 +775,7 @@ mod market_test {
         let market_config = BybitConfig::BTCUSDT();
 
         init_debug_log();
-        let mut market = BybitMarket::new(&server_config, &market_config, true);
+        let mut market = BybitMarket::new(&server_config, &market_config);
 
         let rec = market._download_archive(3, false, true);
         assert!(rec.is_ok());
@@ -745,9 +788,9 @@ mod market_test {
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
-        let mut market = BybitMarket::new(&server_config, &market_config, true);
+        let mut market = BybitMarket::new(&server_config, &market_config);
 
-        let rec = market.download_latest(true);
+        let rec = market._download_latest(true);
         assert!(rec.is_ok());
     }
 
@@ -760,7 +803,7 @@ mod market_test {
         let server_config = BybitServerConfig::new(false);
         let market_config = BybitConfig::BTCUSDT();
 
-        let mut market = BybitMarket::new(&server_config, &market_config, true);
+        let mut market = BybitMarket::new(&server_config, &market_config);
 
         market._download_range(0, 0, true);
     }

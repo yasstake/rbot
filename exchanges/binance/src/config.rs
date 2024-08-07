@@ -1,12 +1,10 @@
 #![allow(non_snake_case)]
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
-use std::env;
-
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
+use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
 
 use crate::BINANCE;
 
@@ -49,11 +47,18 @@ impl BinanceServerConfig {
         }
         .to_string();
 
-        let api_key = env::var("BINANCE_API_KEY").unwrap_or_default();
-        let api_secret = env::var("BINANCE_API_SECRET").unwrap_or_default();
+        let api_key = env_api_key(BINANCE, production);
+        if api_key == "" {
+            println!("API KEY environment variable [BINANCE_API_KEY] is not set");
+        }
+
+        let api_secret = env_api_secret(BINANCE, production);
+        if api_secret == "" {
+            println!("API SECRET environment variable [BINANCE_API_SECRET] is not set");
+        }
+
 
         return BinanceServerConfig {
-
             production,
             rest_server,
             public_ws: public_ws_server,
@@ -67,6 +72,9 @@ impl BinanceServerConfig {
 
 
 impl ServerConfig for BinanceServerConfig {
+    fn get_exchange_name(&self) -> String {
+        BINANCE.to_string()
+    }
 
     fn get_rest_server(&self) -> String {
         self.rest_server.clone()
@@ -96,6 +104,7 @@ impl ServerConfig for BinanceServerConfig {
     fn is_production(&self) -> bool {
         self.production
     }
+    
 }
 
 
@@ -116,9 +125,7 @@ impl BinanceConfig {
         MarketConfig {
             exchange_name: BINANCE.to_string(),            
             price_unit: dec![0.5],
-            price_scale: 2,
             size_unit: dec![0.001],
-            size_scale: 3,
             maker_fee: dec![0.00_01],
             taker_fee: dec![0.00_01],
             price_type: PriceType::Home,
