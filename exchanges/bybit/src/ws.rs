@@ -12,6 +12,7 @@ use rbot_lib::common::Order;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::net::BroadcastMessage;
 use rbot_lib::net::ReceiveMessage;
+use rbot_lib::net::WebSocketClient;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
@@ -80,20 +81,12 @@ impl WsOpMessage for BybitWsOpMessage {
 }
 
 pub struct BybitPublicWsClient {
-    ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
+    ws: AutoConnectClient<BybitWsOpMessage>,
     handler: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl BybitPublicWsClient {
-    fn public_url(server: &BybitServerConfig, config: &MarketConfig) -> String {
-        format!(
-            "{}/{}",
-            server.get_public_ws_server(),
-            config.trade_category
-        )
-    }
-
-    pub async fn new(server: &BybitServerConfig, config: &MarketConfig) -> Self {
+impl WebSocketClient for BybitPublicWsClient {
+    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self {
         let mut public_ws = AutoConnectClient::new(
             server,
             config,
@@ -113,13 +106,11 @@ impl BybitPublicWsClient {
         }
     }
 
-    pub async fn connect(&mut self) {
-        self.ws.connect().await
-    }
-
-    pub async fn open_stream<'a>(
+    async fn open_stream<'a>(
         &'a mut self,
-    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
+    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a + Send {
+        self.ws.connect().await;
+        
         let mut s = Box::pin(self.ws.open_stream().await);
 
         stream! {
@@ -156,6 +147,62 @@ impl BybitPublicWsClient {
             }
         }
     }
+    
+    /*
+    async fn open_channel(&mut self) -> crossbeam_channel::Receiver<MultiMarketMessage> {
+        let mut s: Pin<Box<dyn Stream<Item = Result<ReceiveMessage, String>> + Send>> = 
+            Box::pin(self.ws.open_stream().await);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        tokio::spawn(async move {
+            while let Some(message) = s.next().await {
+                match message {
+                    Ok(m) => {
+                        if let ReceiveMessage::Text(m) = m {
+                            match Self::parse_message(m) {
+                                Err(e) => {
+                                    println!("Parse Error: {:?}", e);
+                                    continue;
+                                }
+                                Ok(m) => {
+                                    let market_message = Self::convert_ws_message(m);
+
+                                    match market_message {
+                                        Err(e) => {
+                                            println!("Convert Error: {:?}", e);
+                                            continue;
+                                        }
+                                        Ok(m) => {
+                                            tx.send(m);                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Receive Error: {:?}", e);
+                    }
+                }
+            }
+        });
+
+        rx
+    }
+    */
+}
+
+impl BybitPublicWsClient {
+    fn public_url(server: &ServerConfig, config: &MarketConfig) -> String {
+        format!(
+            "{}/{}",
+            server.get_public_ws_server(),
+            config.trade_category
+        )
+    }
+
+
+
 
     fn parse_message(message: String) -> Result<BybitPublicWsMessage, String> {
         let m = serde_json::from_str::<BybitPublicWsMessage>(&message);
@@ -174,17 +221,17 @@ impl BybitPublicWsClient {
 }
 
 pub struct BybitPrivateWsClient {
-    ws: AutoConnectClient<BybitServerConfig, BybitWsOpMessage>,
+    ws: AutoConnectClient<BybitWsOpMessage>,
 }
 
 impl BybitPrivateWsClient {
-    pub async fn new(server: &BybitServerConfig) -> Self {
+    pub async fn new(server: &ServerConfig) -> Self {
         let dummy_config = BybitConfig::BTCUSDT();
 
         let mut private_ws = AutoConnectClient::new(
             server,
             &dummy_config,
-            &server.private_ws,
+            &server.get_private_ws_server(),
             PING_INTERVAL_SEC,
             SWITCH_INTERVAL_SEC,
             0,
@@ -203,7 +250,7 @@ impl BybitPrivateWsClient {
         Self { ws: private_ws }
     }
 
-    fn make_auth_message(server: &BybitServerConfig) -> String {
+    fn make_auth_message(server: &ServerConfig) -> String {
         let api_key = server.get_api_key().extract();
         let secret_key = server.get_api_secret().extract();
         let time_stamp = (NOW() / 1_000) + 1_000 * 10; // 10 seconds in the future
@@ -343,6 +390,7 @@ mod bybit_ws_test {
     use crate::ws::BybitPublicWsClient;
     use futures::StreamExt;
     use rbot_lib::common::init_debug_log;
+    use rbot_lib::net::WebSocketClient;
 
     use super::BybitPrivateWsClient;
 
@@ -354,7 +402,7 @@ mod bybit_ws_test {
 
         let mut ws = BybitPublicWsClient::new(&server, &config).await;
 
-        ws.connect().await;
+        // ws.connect().await;
 
         let mut stream = Box::pin(ws.open_stream().await);
 

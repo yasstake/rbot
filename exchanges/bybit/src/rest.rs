@@ -97,11 +97,11 @@ struct CancelOrderMessage {
 }
 
 pub struct BybitRestApi {
-    server_config: BybitServerConfig,
+    server_config: ServerConfig,
 }
 
 impl BybitRestApi {
-    pub fn new(server_config: &BybitServerConfig) -> Self {
+    pub fn new(server_config: &ServerConfig) -> Self {
         Self {
             server_config: server_config.clone(),
         }
@@ -494,7 +494,7 @@ impl RestApi for BybitRestApi {
 
 impl BybitRestApi {
     async fn get(
-        server: &BybitServerConfig,
+        server: &ServerConfig,
         path: &str,
         params: &str,
     ) -> anyhow::Result<BybitRestResponse> {
@@ -508,7 +508,7 @@ impl BybitRestApi {
     }
 
     pub async fn get_sign(
-        server: &BybitServerConfig,
+        server: &ServerConfig,
         path: &str,
         query_string: &str,
     ) -> anyhow::Result<BybitRestResponse> {
@@ -533,12 +533,12 @@ impl BybitRestApi {
         headers.push(("X-BAPI-TIMESTAMP", &timestamp));
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
 
-        let result = rest_get(&server.rest_server, path, headers, Some(query_string), None)
+        let result = rest_get(&server.get_rest_server(), path, headers, Some(query_string), None)
             .await
             .with_context(|| {
                 format!(
                     "get_sign error: {}/{}/{}",
-                    &server.rest_server, path, query_string
+                    &server.get_rest_server(), path, query_string
                 )
             })?;
 
@@ -546,7 +546,7 @@ impl BybitRestApi {
     }
 
     async fn post_sign(
-        server: &BybitServerConfig,
+        server: &ServerConfig,
         path: &str,
         body: &str,
     ) -> anyhow::Result<BybitRestResponse> {

@@ -13,14 +13,21 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
+use rbot_lib::common::MultiMarketMessage;
+use rbot_lib::common::ServerConfig;
 use rbot_lib::common::FLOOR_SEC;
 use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
+use rbot_lib::net::BroadcastMessage;
 use rbot_lib::net::RestPage;
+use rbot_lib::net::WebSocketClient;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::task::JoinHandle;
+use tokio_stream::Stream;
+use tokio_stream::StreamExt as _;
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::BoardItem;
@@ -35,7 +42,7 @@ use anyhow::Context;
 use rbot_lib::{
     common::{
         AccountPair, MarketConfig, MarketStream, MicroSec, Order, OrderSide, OrderType, Trade,
-        DAYS, NOW,
+        MARKET_HUB, NOW,
     },
     db::df::KEY,
 };
@@ -279,13 +286,16 @@ where
     fn get_restapi(&self) -> &T;
     fn get_config(&self) -> MarketConfig;
 
-    /// Download historical log from REST API
-    /// returns start_time and rend_time of the download.
-    fn download_latest(&mut self, verbose: bool) -> anyhow::Result<(i64, i64)>;
+    fn get_server_config(&self) -> &ServerConfig;
 
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>>;
 
+    fn get_handler(&self) -> Option<JoinHandle<()>>;
+    fn set_handler(&mut self, handler: Option<JoinHandle<()>>);
+
     fn get_history_web_base_url(&self) -> String;
+
+    async fn async_start_market_stream(&mut self) -> anyhow::Result<()>;
 
     fn db_start_up_rec(&self) -> PyResult<Py<PyAny>> {
         let db = self.get_db();
@@ -422,9 +432,6 @@ where
         Ok(PyDataFrame(df))
     }
 
-
-
-
     fn ohlcvv(
         &mut self,
         start_time: MicroSec,
@@ -484,9 +491,7 @@ where
 
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>>;
 
-    fn refresh_order_book(&mut self) -> anyhow::Result<()>;
-
-    fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
+    async fn async_get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
         let orderbook = self.get_order_book();
 
         let (mut bids, mut asks) = {
@@ -514,7 +519,7 @@ where
         if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
 
-            self.refresh_order_book()?;
+            self.async_refresh_order_book().await?;
 
             let orderbook = self.get_order_book();
 
@@ -555,7 +560,7 @@ where
         Ok((bids, asks))
     }
 
-    fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
+    async fn async_get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
         let orderbook = self.get_order_book();
 
         let mut edge_price = {
@@ -564,7 +569,7 @@ where
         };
 
         if edge_price.is_err() {
-            self.refresh_order_book()?;
+            self.async_refresh_order_book().await?;
             let lock = orderbook.read().unwrap();
             edge_price = lock.get_edge_price();
         }
@@ -572,7 +577,7 @@ where
         Ok(edge_price.unwrap())
     }
 
-    async fn open_db_channel(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
+    fn open_db_channel(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
@@ -585,10 +590,6 @@ where
     ) -> anyhow::Result<Vec<Trade>> {
         self.get_restapi().get_recent_trades(market_config).await
     }
-
-    /// Download latest data from REST API
-    // fn download_latest(&mut self, verbose: bool) -> i64;
-    async fn async_start_market_stream(&mut self) -> anyhow::Result<()>;
 
     /// open back test channel
     /// returns:
@@ -628,7 +629,7 @@ where
         return Ok((actual_start, actual_end, market_stream));
     }
 
-    async fn async_download(
+    async fn async_download<U>(
         &mut self,
         ndays: i64,
         connect_ws: bool,
@@ -636,13 +637,16 @@ where
         force_archive: bool,
         force_recent: bool,
         verbose: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        U: WebSocketClient + 'static,
+    {
         log::debug!("download ndays={:?}, connect_ws={:?}, force={:?}, force_archive={:?}, force_recent={:?}, verbose={:?}",
                 ndays, connect_ws, force, force_archive, force_recent, verbose
         );
         let force_recent = if force { true } else { force_recent };
 
-        self.async_download_realtime(connect_ws, force_recent, verbose)
+        self.async_download_realtime::<U>(connect_ws, force_recent, verbose)
             .await?;
 
         let force_archive = if force { true } else { force_archive };
@@ -711,7 +715,7 @@ where
             println!("rec: {}", rec);
             flush_log();
         }
-        let tx = self.open_db_channel().await?;
+        let tx = self.open_db_channel()?;
 
         let start_time = trades[0].time;
         let end_time = trades[(rec - 1) as usize].time;
@@ -726,12 +730,15 @@ where
         Ok((start_time, end_time))
     }
 
-    async fn async_download_realtime(
+    async fn async_download_realtime<U>(
         &mut self,
         connect_ws: bool,
         force: bool,
         verbose: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        U: WebSocketClient + 'static,
+    {
         if connect_ws {
             if verbose {
                 println!("connect ws");
@@ -809,7 +816,7 @@ where
             )
         }
 
-        let tx = self.open_db_channel().await?;
+        let tx = self.open_db_channel()?;
         let api = self.get_restapi();
 
         let (time_from, time_to) = self.calc_db_time(time_from, time_to)?;
@@ -886,7 +893,7 @@ where
         let expire_message =
             TradeDb::expire_control_message(time_from, time_to, true, "before download_gap");
 
-        let tx = self.open_db_channel().await?;
+        let tx = self.open_db_channel()?;
         tx.send(expire_message)?;
 
         let api = self.get_restapi();
@@ -934,5 +941,17 @@ where
         }
 
         Ok(rec)
+    }
+
+    async fn async_refresh_order_book(&mut self) -> anyhow::Result<()> {
+        let api = self.get_restapi();
+        let config = self.get_config();
+        let board = api.get_board_snapshot(&config).await?;
+
+        let book = self.get_order_book();
+        let mut lock = book.write().unwrap();
+        lock.update(&board);
+
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABSOLUTELY NO WARRANTY.
 
-use super::SecretString;
+use super::{env_api_key, env_api_secret, SecretString};
 use anyhow::anyhow;
 use pyo3::{pyclass, pymethods, types::PyAnyMethods as _, Bound, PyAny, PyResult};
 use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
@@ -10,15 +10,73 @@ use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 use zip::read::Config;
 
-pub trait ServerConfig: Send + Sync {
-    fn get_exchange_name(&self) -> String;
-    fn get_historical_web_base(&self) -> String;
-    fn get_public_ws_server(&self) -> String;
-    fn get_user_ws_server(&self) -> String;
-    fn get_rest_server(&self) -> String;
-    fn get_api_key(&self) -> SecretString;
-    fn get_api_secret(&self) -> SecretString;
-    fn is_production(&self) -> bool;
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    exchange_name: String,
+    production: bool,
+    rest_server: String,
+    public_ws: String,
+    private_ws: String,
+    history_web_base: String,
+    api_key: SecretString,
+    api_secret: SecretString,
+}
+
+#[pymethods]
+impl ServerConfig {
+    #[new]
+    pub fn new(exchange_name: &str, production: bool, rest_server: &str, 
+        public_ws: &str, private_ws: &str, history_web_base: &str 
+        ) -> Self {
+        ServerConfig {
+            exchange_name: exchange_name.to_string(),
+            production,
+            rest_server: rest_server.to_string(),
+            public_ws: public_ws.to_string(),
+            private_ws:private_ws.to_string(),
+            history_web_base: history_web_base.to_string(),
+            api_key: SecretString::new(&env_api_key(exchange_name, production)),
+            api_secret: SecretString::new(&env_api_secret(exchange_name, production))
+        }
+    }
+
+    pub fn get_exchange_name(&self) -> String {
+        self.exchange_name.to_string()
+    }
+
+    pub fn is_production(&self) -> bool {
+        self.production
+    }
+
+    pub fn get_rest_server(&self) -> String {
+        self.rest_server.clone()
+    }
+
+    pub fn get_public_ws_server(&self) -> String {
+        self.public_ws.clone()
+    }
+
+    pub fn get_private_ws_server(&self) -> String {
+        self.private_ws.clone()
+    }
+
+    pub fn get_historical_web_base(&self) -> String {
+        self.history_web_base.clone()
+    }
+
+    pub fn get_api_key(&self) -> SecretString {
+        self.api_key.clone()
+    }
+
+    pub fn get_api_secret(&self) -> SecretString {
+        self.api_secret.clone()
+    }
+
+    pub fn __repr__(&self) -> PyResult<String> {
+        let repr = serde_json::to_string(&self).unwrap();
+        Ok(repr)
+    }
 }
 
 #[pyclass]
