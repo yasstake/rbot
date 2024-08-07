@@ -5,9 +5,6 @@ use std::path::PathBuf;
 
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
-use polars::prelude::BooleanType;
-use polars::prelude::ChunkCompare;
-use polars::prelude::ChunkedArray;
 use polars::prelude::DataFrame;
 use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
@@ -91,6 +88,7 @@ pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<Data
     Ok(df)
 }
 
+/*
 /// Cutoff start_time to end_time(not include)
 pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> DataFrame {
     log::debug!(
@@ -126,6 +124,7 @@ pub fn select_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> Da
 
     return df;
 }
+*/
 
 /// select df with lazy dataframe
 pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) -> LazyFrame {
@@ -135,26 +134,38 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
         time_string(end_time)
     );
 
-    let mut df = df.clone().lazy();
+    let mut lazy_df = df.clone().lazy();
 
     if start_time == 0 && end_time == 0 {
         log::debug!("preserve select df");
-        return df;
+        return lazy_df;
     }
 
-    if start_time == 0 {
-        df = df.filter(col(KEY::timestamp).lt(end_time));
-    } else if end_time == 0 {
-        df = df.filter(col(KEY::timestamp).gt_eq(start_time));
-    } else {
-        df = df.filter(
-            col(KEY::timestamp)
-                .gt_eq(start_time)
-                .and(col(KEY::timestamp).lt(end_time)),
-        );
+    if 0 < start_time {
+        lazy_df = lazy_df.filter(col(KEY::timestamp).gt_eq(start_time));
     }
 
-    return df;
+    if start_time < 0 {
+        let df_end = end_time_df(&df);
+
+        if let Some(df_end) = df_end {
+            lazy_df = lazy_df.filter(col(KEY::timestamp).gt_eq(df_end + start_time));
+        }        
+    }
+
+    if 0 < end_time {
+        lazy_df = lazy_df.filter(col(KEY::timestamp).lt(end_time));
+    }
+
+    if end_time < 0 {
+        let df_end = end_time_df(&df);
+
+        if let Some(df_end) = df_end {
+            lazy_df = lazy_df.filter(col(KEY::timestamp).lt(df_end + end_time));
+        }
+    }
+
+    return lazy_df;
 }
 
 pub fn start_time_df(df: &DataFrame) -> Option<MicroSec> {
@@ -172,7 +183,7 @@ pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> 
     Ok(df)
 }
 
-/// merge 2 dataframe, if overlap df2 on df1, df1 will be trimmed(overritten by df2)
+/// merge 2 dataframe, if overlap df2 on df1, df1 will be trimmed(overwritten by df2)
 pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
     log::debug!("merge df1={:?}  df2={:?}", df1.shape(), df2.shape());
 
@@ -190,7 +201,7 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
     }
     let df2_start_time = df2_start_time.unwrap();
 
-    let df = select_df(df1, 0, df2_start_time);
+    let df = select_df_lazy(df1, 0, df2_start_time).collect()?;
     if df.shape().0 == 0 {
         return Ok(df2.clone());
     }
@@ -670,7 +681,7 @@ mod test_df {
         log::debug!("{:?}", df);
         assert_eq!(df, merged_df);
 
-        let empty_df = select_df(&df1, 100, 101);
+        let empty_df = select_df_lazy(&df1, 100, 101).collect()?;
         log::debug!("{:?}", empty_df);
 
         let df = merge_df(&empty_df, &df2)?;
@@ -933,7 +944,7 @@ mod test_df {
 
         println!("{:?}", ohlcv);
 
-        convert_timems_to_datetime(&mut ohlcv);
+        let _ = convert_timems_to_datetime(&mut ohlcv);
 
         println!("{:?}", ohlcv);
     }
@@ -956,7 +967,7 @@ mod test_df {
 
         println!("{:?}", ohlcv);
 
-        convert_timems_to_datetime(&mut ohlcv);
+        let _ = convert_timems_to_datetime(&mut ohlcv);
 
         println!("{:?}", ohlcv);
     }

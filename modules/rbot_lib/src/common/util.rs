@@ -6,6 +6,7 @@
 
 use hmac::{Hmac, Mac};
 use polars::export::num::FromPrimitive;
+use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
 use serde::{de, Deserialize as _, Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
@@ -18,9 +19,17 @@ use super::env_rbot_db_root;
 
 
 
+#[pyclass]
 #[derive(Clone, Deserialize)]
 pub struct SecretString {
     secret: String,
+}
+
+#[pymethods]
+impl SecretString {
+    pub fn __repr__(&self) -> String {
+        format!("*******")
+    }
 }
 
 impl SecretString {
