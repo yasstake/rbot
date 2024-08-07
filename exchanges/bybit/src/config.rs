@@ -9,107 +9,43 @@ use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, Price
 
 use crate::BYBIT;
 
+
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BybitServerConfig {
-    pub production: bool,
-    pub rest_server: String,
-    pub public_ws: String,
-    pub private_ws: String,
-    pub history_web_base: String,
-    api_key: SecretString,
-    api_secret: SecretString,
 }
 
-#[pymethods]
 impl BybitServerConfig {
-    #[new]
-    pub fn new(production: bool) -> Self {
+    pub fn new(production: bool) -> ServerConfig {
         let rest_server = if production {
             "https://api.bybit.com"
         } else {
             "https://api-testnet.bybit.com"
-        }
-        .to_string();
+        };
 
         let public_ws_server = if production {
             "wss://stream.bybit.com/v5/public"
         } else {
             "wss://stream-testnet.bybit.com/v5/public"
-        }
-        .to_string();
+        };
 
         let private_ws_server = if production {
             "wss://stream.bybit.com/v5/private"
         } else {
             "wss://stream-testnet.bybit.com/v5/private"
-        }
-        .to_string();
+        };
 
-        let api_key = env_api_key(BYBIT, production);
-
-        if api_key == "" {
-            println!("API KEY environment variable [BYBIT_API_KEY] is not set");
-            log::warn!("API KEY environment variable [BYBIT_API_KEY] is not set");
-        }
-
-        let api_secret = env_api_secret(BYBIT, production);
-
-        if api_secret == "" {
-        println!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
-            log::warn!("API SECRET environment variable [BYBIT_API_SECRET] is not set");
-        }
-
-        return BybitServerConfig {
+        ServerConfig::new(
+            BYBIT,
             production,
             rest_server,
-            public_ws: public_ws_server,
-            private_ws: private_ws_server,
-            history_web_base: "https://public.bybit.com".to_string(),
-            api_key: SecretString::new(&api_key),
-            api_secret: SecretString::new(&api_secret),
-        };
-    }
-
-    pub fn __repr__(&self) -> PyResult<String> {
-        let repr = serde_json::to_string(&self).unwrap();
-        Ok(repr)
+            public_ws_server,
+            private_ws_server,
+            "https://public.bybit.com",
+        )    
     }
 }
 
-impl ServerConfig for BybitServerConfig {
-    fn get_exchange_name(&self) -> String {
-        BYBIT.to_string()
-    }
-
-    fn get_public_ws_server(&self) -> String {
-        self.public_ws.clone()
-    }
-
-    fn get_user_ws_server(&self) -> String {
-        self.private_ws.clone()
-    }
-
-    fn get_rest_server(&self) -> String {
-        self.rest_server.clone()
-    }
-
-    fn get_api_key(&self) -> SecretString {
-        self.api_key.clone()
-    }
-
-    fn get_api_secret(&self) -> SecretString {
-        self.api_secret.clone()
-    }
-
-    fn get_historical_web_base(&self) -> String {
-        self.history_web_base.clone()
-    }
-
-    fn is_production(&self) -> bool {
-        self.production
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[pyclass]

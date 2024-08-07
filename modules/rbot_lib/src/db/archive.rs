@@ -13,7 +13,7 @@ use reqwest::Client;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tokio::io::{AsyncWriteExt as _, BufWriter};
 // Import the `anyhow` crate and the `Result` type.
-use super::{db_path_root, select_df};
+use super::{db_path_root, select_df_lazy};
 use polars::lazy::{
     dsl::{col, lit},
     frame::IntoLazy,
@@ -117,7 +117,7 @@ impl TradeArchive {
     }
 
     pub fn end_time(&mut self) -> MicroSec {
-        self.update_end_time();
+        let _ = self.update_end_time();
         self.end_time
     }
 
@@ -283,7 +283,7 @@ impl TradeArchive {
             df = append_df(&df, &new_df)?;
         }
 
-        df = select_df(&df, start_time, end_time);
+        df = select_df_lazy(&df, start_time, end_time).collect()?;
 
         Ok(df)
     }

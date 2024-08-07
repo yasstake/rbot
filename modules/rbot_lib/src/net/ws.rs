@@ -1,7 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use core::panic;
-// use crossbeam_channel::Receiver;
+use async_stream::stream;
 use futures::stream::SplitSink;
 use futures::stream::SplitStream;
 use futures::SinkExt;
@@ -10,19 +10,27 @@ use futures::StreamExt;
 use strum::Display;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tokio_tungstenite::WebSocketStream;
-use async_stream::stream;
-use tokio::sync::RwLock;
 //use tokio::task::JoinHandle;
 
 use std::sync::Arc;
 
 use crate::common::MarketConfig;
+use crate::common::MultiMarketMessage;
+use crate::common::ServerConfig;
 //use crate::common::MultiMarketMessage;
 use crate::common::{MicroSec, MICRO_SECOND, NOW};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream};
+
+pub trait WebSocketClient {
+    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self;
+    async fn open_stream<'a>(
+        &'a mut self,
+    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + Send + 'a;
+}
 
 pub trait WsOpMessage {
     fn new() -> Self;
@@ -43,35 +51,32 @@ pub enum ReceiveMessage {
     Pong(Vec<u8>),
 }
 
-
-
 #[derive(Debug)]
-pub struct SimpleWebsocket<T, U> {
-    server: T,
+pub struct SimpleWebsocket<U> {
+    server: ServerConfig,
     config: MarketConfig,
     read_stream: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     write_sream: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>>,
     url: String,
     subscribe_message: Arc<RwLock<U>>,
-    init_fn: Option<fn(&T) -> String>,
-    url_generator: Option<fn(&T, &MarketConfig) -> String>,
+    init_fn: Option<fn(&ServerConfig) -> String>,
+    url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
     ping_interval_sec: i64,
     ping_thread: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl<T, U> SimpleWebsocket<T, U>
+impl<U> SimpleWebsocket<U>
 where
-    T: Clone,
     U: WsOpMessage,
 {
     pub fn new(
-        server: &T,
+        server: &ServerConfig,
         config: &MarketConfig,
         url: &str,
         subscribe_message: Arc<RwLock<U>>,
         ping_interval_sec: i64,
-        init_fn: Option<fn(&T) -> String>,
-        url_generator: Option<fn(&T, &MarketConfig) -> String>,
+        init_fn: Option<fn(&ServerConfig) -> String>,
+        url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
     ) -> Self {
         log::debug!("new SimpleWebsocket");
         SimpleWebsocket {
@@ -94,16 +99,7 @@ where
         } else {
             self.url.clone()
         };
-/*
-        log::debug!("start connect: {}", url);
-        let url = reqwest::Url::parse(&url);
 
-        if url.is_err() {
-            log::error!("Invalid URL: {}", self.url);
-        }
-
-        let url = url.unwrap();
-*/
         let client = connect_async(url).await;
         if client.is_err() {
             log::error!("Can't connect to {}", self.url);
@@ -308,11 +304,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct AutoConnectClient<T, U> {
-    server: T,
+pub struct AutoConnectClient<U> {
+    server: ServerConfig,
     config: MarketConfig,
-    client: Option<SimpleWebsocket<T, U>>,
-    next_client: Option<SimpleWebsocket<T, U>>,
+    client: Option<SimpleWebsocket<U>>,
+    next_client: Option<SimpleWebsocket<U>>,
     pub url: String,
     subscribe_message: Arc<RwLock<U>>,
     last_message: String,
@@ -322,24 +318,23 @@ pub struct AutoConnectClient<T, U> {
     sync_mode: bool,
     sync_wait_records: i64, // setting for number of records to sync
     ping_interval: MicroSec,
-    init_fn: Option<fn(&T) -> String>,
-    url_generator: Option<fn(&T, &MarketConfig) -> String>,
+    init_fn: Option<fn(&ServerConfig) -> String>,
+    url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
 }
 
-impl<T, U> AutoConnectClient<T, U>
+impl<U> AutoConnectClient<U>
 where
-    T: Clone,
     U: WsOpMessage,
 {
     pub fn new(
-        server: &T,
+        server: &ServerConfig,
         config: &MarketConfig,
         url: &str,
         ping_interval: MicroSec,
         switch_interval_sec: i64,
         sync_wait_records: i64,
-        init_fn: Option<fn(&T) -> String>,
-        url_generator: Option<fn(&T, &MarketConfig) -> String>,
+        init_fn: Option<fn(&ServerConfig) -> String>,
+        url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
     ) -> Self {
         AutoConnectClient {
             client: None,
@@ -358,14 +353,6 @@ where
             server: server.clone(),
             config: config.clone(),
         }
-    }
-
-    pub fn get_server(&self) -> T {
-        self.server.clone()
-    }
-
-    pub fn get_config(&self) -> MarketConfig {
-        self.config.clone()
     }
 
     pub async fn connect(&mut self) {
@@ -431,7 +418,9 @@ where
         }
     }
 
-    pub async fn open_stream<'a>(&'a mut self) -> impl Stream<Item = Result<ReceiveMessage, String>> + 'a {
+    pub async fn open_stream<'a>(
+        &'a mut self,
+    ) -> impl Stream<Item = Result<ReceiveMessage, String>> + 'a {
         stream! {
             loop {
                 let message = self.receive_text().await;
@@ -530,7 +519,7 @@ where
                             self.last_message = "".to_string();
                             self.sync_mode = false;
                             self.sync_records = 0;
-    
+
                             break;
                         }
                     }
@@ -588,7 +577,10 @@ where
 #[allow(unused_imports)]
 #[cfg(test)]
 mod test_exchange_ws {
-    use crate::common::{init_debug_log, init_log, FeeType, PriceType};
+    use crate::common::SecretString;
+    use crate::common::{
+        env_api_key, env_api_secret, init_debug_log, init_log, FeeType, PriceType,
+    };
     use crate::common::{MarketConfig, ServerConfig, NOW};
     use crate::net::{AutoConnectClient, SimpleWebsocket};
     use async_std::stream::StreamExt;
@@ -598,7 +590,6 @@ mod test_exchange_ws {
     use std::env;
     use std::sync::Arc;
     use tokio::sync::RwLock;
-    use crate::common::SecretString;
 
     use super::WsOpMessage;
 
@@ -615,82 +606,21 @@ mod test_exchange_ws {
     }
 
     impl TestServerConfig {
-        fn new() -> Self {
-            let testnet = false;
-            let rest_server = if testnet {
-                "https://api-testnet.bybit.com"
-            } else {
-                "https://api.bybit.com"
-            }
-            .to_string();
-
-            let public_ws_server = if testnet {
-                "wss://stream-testnet.bybit.com/v5/public"
-            } else {
-                "wss://stream.bybit.com/v5/public"
-            }
-            .to_string();
-
-            let private_ws_server = if testnet {
-                "wss://stream-testnet.bybit.com/v5/private"
-            } else {
-                "wss://stream.bybit.com/v5/private"
-            }
-            .to_string();
-
-            let api_key = env::var("BYBIT_API_KEY").unwrap_or_default();
-            let api_secret = env::var("BYBIT_API_SECRET").unwrap_or_default();
-
-            return TestServerConfig {
-                testnet,
-                rest_server,
-                public_ws: public_ws_server,
-                private_ws: private_ws_server,
-                db_base_dir: "".to_string(),
-                history_web_base: "https://public.bybit.com".to_string(),
-                api_key,
-                api_secret,
-            };
-        }
-    }
-
-    impl ServerConfig for TestServerConfig {
-        fn get_exchange_name(&self) -> String {
-            "BYBIT".to_string()
-        }
-
-        fn get_public_ws_server(&self) -> String {
-            self.public_ws.clone()
-        }
-
-        fn get_user_ws_server(&self) -> String {
-            self.private_ws.clone()
-        }
-
-        fn get_rest_server(&self) -> String {
-            self.rest_server.clone()
-        }
-
-        fn get_api_key(&self) -> SecretString {
-            SecretString::new(&self.api_key)
-        }
-
-        fn get_api_secret(&self) -> SecretString {
-            SecretString::new(&self.api_secret)
-        }
-
-        fn get_historical_web_base(&self) -> String {
-            self.history_web_base.clone()
-        }
-
-        fn is_production(&self) -> bool {
-            false
+        fn new() -> ServerConfig {
+            ServerConfig::new(
+                "BYBIT",
+                false,
+                "https://api-testnet.bybit.com",
+                "wss://stream-testnet.bybit.com/v5/public",
+                "wss://stream-testnet.bybit.com/v5/private",
+                "https://public.bybit.com",
+            )
         }
     }
 
     fn make_market_config() -> MarketConfig {
         MarketConfig {
-            exchange_name: "BYBIT".to_string(),            
+            exchange_name: "BYBIT".to_string(),
             price_unit: dec![0.1],
             size_unit: dec![0.001],
             maker_fee: dec![0.00_01],
@@ -744,7 +674,7 @@ mod test_exchange_ws {
 
             messages
         }
-        
+
         fn to_string(&self) -> String {
             serde_json::to_string(self).unwrap()
         }
@@ -756,12 +686,16 @@ mod test_exchange_ws {
 
     #[test]
     fn test_ping_message() {
-        let message = SimpleWebsocket::<TestServerConfig, TestWsOpMessage>::ping_message();
+        let message = SimpleWebsocket::<TestWsOpMessage>::ping_message();
         println!("PING={:?}", message);
     }
 
-    fn url_generator(server: &TestServerConfig, config: &MarketConfig) -> String {
-        format!("{}/{}", server.get_public_ws_server(), config.trade_category)
+    fn url_generator(server: &ServerConfig, config: &MarketConfig) -> String {
+        format!(
+            "{}/{}",
+            server.get_public_ws_server(),
+            config.trade_category
+        )
     }
 
     #[tokio::test]
@@ -772,8 +706,8 @@ mod test_exchange_ws {
         let mut message = TestWsOpMessage::new();
 
         message.add_params(&vec![
-            "publicTrade.BTCUSDT".to_string(), 
-            "orderbook.200.BTCUSDT".to_string(),                       
+            "publicTrade.BTCUSDT".to_string(),
+            "orderbook.200.BTCUSDT".to_string(),
         ]);
 
         let mut ws = SimpleWebsocket::new(
@@ -789,11 +723,11 @@ mod test_exchange_ws {
         ws.connect().await;
 
         let message = ws.receive_text().await;
-        println!("{}", message.unwrap());
+        println!("Init: {:?}", message.unwrap());
 
         for _i in 0..10 {
             let message = ws.receive_text().await;
-            println!("{}", message.unwrap());
+            println!("{:?}", message.unwrap());
         }
     }
 
@@ -809,7 +743,7 @@ mod test_exchange_ws {
             "orderbook.200.BTCUSDT".to_string(),
         ]);
 
-        let mut ws: AutoConnectClient<TestServerConfig, TestWsOpMessage> = AutoConnectClient::new(
+        let mut ws: AutoConnectClient<TestWsOpMessage> = AutoConnectClient::new(
             &config,
             &make_market_config(),
             &config.get_public_ws_server(),
@@ -820,13 +754,14 @@ mod test_exchange_ws {
             Some(url_generator),
         );
 
-        ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()]).await;
+        ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()])
+            .await;
 
         ws.connect().await;
 
         for _i in 0..10 {
             let message = ws.receive_text().await;
-            println!("{}", message.unwrap());
+            println!("{:?}", message.unwrap());
         }
     }
 
@@ -835,16 +770,8 @@ mod test_exchange_ws {
         init_log();
 
         let config = TestServerConfig::new();
-        /*
-        let mut message = TestWsOpMessage::new();
 
-        message.add_params(&vec![
-            "publicTrade.BTCUSDT".to_string(),
-            "orderbook.200.BTCUSDT".to_string(),
-        ]);
-        */
-
-        let mut ws: AutoConnectClient<TestServerConfig, TestWsOpMessage> = AutoConnectClient::new(
+        let mut ws: AutoConnectClient<TestWsOpMessage> = AutoConnectClient::new(
             &config,
             &make_market_config(),
             &config.get_public_ws_server(),
@@ -855,12 +782,11 @@ mod test_exchange_ws {
             Some(url_generator),
         );
 
-        ws.subscribe(
-            &mut vec![
-                "publicTrade.BTCUSDT".to_string(),
-                "orderbook.200.BTCUSDT".to_string(),
-            ],
-        ).await;
+        ws.subscribe(&mut vec![
+            "publicTrade.BTCUSDT".to_string(),
+            "orderbook.200.BTCUSDT".to_string(),
+        ])
+        .await;
 
         ws.connect().await;
 
@@ -878,7 +804,6 @@ mod test_exchange_ws {
         }
     }
 
-
     #[tokio::test]
     async fn test_websocket_client() {
         init_log();
@@ -891,7 +816,7 @@ mod test_exchange_ws {
             "orderbook.200.BTCUSDT".to_string(),
         ]);
 
-        let mut ws: SimpleWebsocket<TestServerConfig, TestWsOpMessage> = SimpleWebsocket::new(
+        let mut ws: SimpleWebsocket<TestWsOpMessage> = SimpleWebsocket::new(
             &config,
             &make_market_config(),
             &config.get_public_ws_server(),

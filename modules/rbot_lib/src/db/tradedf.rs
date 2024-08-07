@@ -13,8 +13,8 @@ use pyo3_polars::PyDataFrame;
 use crate::{
     common::{time_string, MarketConfig, MicroSec, Trade, DAYS, FLOOR_DAY, NOW},
     db::{
-        append_df, end_time_df, make_empty_ohlcvv, merge_df, ohlcv_start, ohlcvv_df, select_df,
-        start_time_df, TradeBuffer, KEY,
+        append_df, end_time_df, make_empty_ohlcvv, merge_df, ohlcv_start, ohlcvv_df,
+        start_time_df, TradeBuffer, select_df_lazy
     },
     net::RestApi,
 };
@@ -136,7 +136,7 @@ impl TradeDataFrame {
         return archive_end;
     }
 
-
+    /*
     pub fn set_cache_ohlcvv(&mut self, df: DataFrame) -> anyhow::Result<()> {
         let start_time: MicroSec = df
             .column(KEY::timestamp)
@@ -150,6 +150,7 @@ impl TradeDataFrame {
             .max()
             .unwrap()
             .unwrap_or(0);
+
 
         let head = select_df(&self.cache_ohlcvv, 0, start_time);
         let tail = select_df(&self.cache_ohlcvv, end_time, 0);
@@ -172,8 +173,8 @@ impl TradeDataFrame {
 
         Ok(())
     }
+    */
 
-    // TODO: rename to open_channel
     pub fn open_channel(&mut self) -> anyhow::Result<Sender<Vec<Trade>>> {
         self.db.open_channel()
     }
@@ -204,7 +205,7 @@ impl TradeDataFrame {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
-        let df = select_df(&self.cache_df, start_time, end_time);
+        let df = select_df_lazy(&self.cache_df, start_time, end_time).collect()?;
 
         Ok(df)
     }
@@ -214,7 +215,7 @@ impl TradeDataFrame {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
-        let df = select_df(&self.cache_ohlcvv, start_time, end_time);
+        let df = select_df_lazy(&self.cache_ohlcvv, start_time, end_time).collect()?;
 
         Ok(df)
     }
@@ -226,15 +227,19 @@ impl TradeDataFrame {
     ) -> anyhow::Result<DataFrame> {
         let archive_end = self.get_archive_end_time();
 
-        let df = if start_time < archive_end {
+        if start_time <= archive_end {
             let df1 = self.select_archive_df(start_time, end_time)?;
-            let df2 = self.select_db_df(archive_end, end_time)?;
-            append_df(&df1, &df2)
-        } else {
-            self.db.select_cachedf(start_time, end_time)
-        };
 
-        df
+            if archive_end <= end_time || end_time == 0 {
+                let df2 = self.select_db_df(archive_end, end_time)?;
+                append_df(&df1, &df2)
+            }
+            else {
+                Ok(df1)
+            }
+        } else {
+            self.select_db_df(start_time, end_time)
+        }
     }
 
     pub fn select_archive_df(
@@ -258,21 +263,26 @@ impl TradeDataFrame {
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<i64> {
-        self.cache_df = self.select_raw_df(start_time, end_time)?;
+        let df = self.select_raw_df(start_time, end_time)?;
+        let count = df.shape().0;
+        self.cache_df = df;
 
-        Ok(self.cache_df.shape().0 as i64)
+        // TODO: calc ohlcv df
+        Ok(count as i64)
     }
 
     pub fn update_cache_all(&mut self) -> anyhow::Result<()> {
         self.update_cache_df(0, 0)
     }
 
-    pub fn expire_cache_df(&mut self, forget_before: MicroSec) {
+    pub fn expire_cache_df(&mut self, forget_before: MicroSec) -> anyhow::Result<()>{
         let forget_before = FLOOR_DAY(forget_before); // expire by date.
         log::debug!("Expire cache {}", time_string(forget_before));
-        let cache_timing = ohlcv_start(forget_before);
-        self.cache_df = select_df(&self.cache_df, cache_timing, 0);
-        self.cache_ohlcvv = select_df(&self.cache_ohlcvv, cache_timing, 0);
+
+        self.cache_df = select_df_lazy(&self.cache_df, forget_before, 0).collect()?;
+        self.cache_ohlcvv = select_df_lazy(&self.cache_ohlcvv, forget_before, 0).collect()?;
+
+        Ok(())
     }
 
     pub fn update_cache_df(
@@ -366,14 +376,14 @@ impl TradeDataFrame {
                 let ohlcv1 = ohlcvv_df(&self.cache_df, ohlcv1_start, ohlcv1_end, OHLCV_WINDOW_SEC)?;
 
                 if ohlcv1.shape().0 != 0 {
-                    let ohlcv2 = select_df(&self.cache_ohlcvv, ohlcv1_end, 0);
+                    let ohlcv2 = select_df_lazy(&self.cache_ohlcvv, ohlcv1_end, 0).collect()?;
                     self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2)?;
                 }
             }
         } else {
             // expire cache ducarion * 2
             if df_start_time < start_time - self.cache_duration * 2 {
-                self.expire_cache_df(start_time - self.cache_duration);
+                self.expire_cache_df(start_time - self.cache_duration)?;
             }
         }
 
@@ -405,7 +415,7 @@ impl TradeDataFrame {
                     "ohlcVV cache update diff after {} ",
                     time_string(ohlcv2_start),
                 );
-                let ohlcv1 = select_df(&self.cache_ohlcvv, 0, ohlcv2_start);
+                let ohlcv1 = select_df_lazy(&self.cache_ohlcvv, 0, ohlcv2_start).collect()?;
                 let ohlcv2 = ohlcvv_df(&self.cache_df, ohlcv2_start, ohlcv2_end, OHLCV_WINDOW_SEC)?;
 
                 self.cache_ohlcvv = merge_df(&ohlcv1, &ohlcv2)?;

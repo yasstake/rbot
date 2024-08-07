@@ -23,7 +23,7 @@ mod archive_test {
         let config = BybitConfig::BTCUSDT();
 
         let archive =
-            TradeArchive::new(&config, server_config.production);
+            TradeArchive::new(&config, server_config.is_production());
 
         archive
     }
