@@ -5,6 +5,7 @@ use futures::StreamExt;
 use rbot_lib::common::PriceType;
 use rbot_lib::common::FeeType;
 use rbot_lib::net::ReceiveMessage;
+use rbot_lib::net::WebSocketClient;
 // use serde::{Deserialize as _, Serialize as _};
 use tokio::task::JoinHandle;
 
@@ -75,12 +76,12 @@ impl WsOpMessage for BinanceWsOpMessage {
 }
 
 pub struct BinancePublicWsClient {
-    ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
+    ws: AutoConnectClient<BinanceWsOpMessage>,
     _handler: Option<JoinHandle<()>>,
 }
 
-impl BinancePublicWsClient {
-    pub async fn new(server: &BinanceServerConfig, config: &MarketConfig) -> Self {
+impl WebSocketClient for BinancePublicWsClient {
+    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self {
         let mut public_ws = AutoConnectClient::new(
             server,
             config,
@@ -100,13 +101,9 @@ impl BinancePublicWsClient {
         }
     }
 
-    pub async fn connect(&mut self) {
-        self.ws.connect().await
-    }
-
-    pub async fn open_stream<'a>(
+    async fn open_stream<'a>(
         &'a mut self,
-    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a {
+    ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + 'a + Send {
         let mut s = Box::pin(self.ws.open_stream().await);
 
         stream! {
@@ -143,7 +140,9 @@ impl BinancePublicWsClient {
             }
         }
     }
+}
 
+impl BinancePublicWsClient{
     fn parse_message(message: String) -> anyhow::Result<BinancePublicWsMessage> {
         let m = serde_json::from_str::<BinanceWsRawMessage>(&message);
 
@@ -164,8 +163,8 @@ impl BinancePublicWsClient {
 }
 
 pub struct BinancePrivateWsClient {
-    ws: AutoConnectClient<BinanceServerConfig, BinanceWsOpMessage>,
-    server: BinanceServerConfig,
+    ws: AutoConnectClient<BinanceWsOpMessage>,
+    server: ServerConfig,
     _handler: Option<JoinHandle<()>>,
     listen_key: String,
     key_update_handler: Option<JoinHandle<()>>,
@@ -173,8 +172,8 @@ pub struct BinancePrivateWsClient {
 }
 
 impl BinancePrivateWsClient {
-    pub async fn new(server: &BinanceServerConfig) -> Self {
-        let api = BinanceRestApi::new(&server);
+    pub async fn new(server: &ServerConfig) -> Self {
+        let api = BinanceRestApi::new(server);
 
         let listen_key = api.create_listen_key().await.unwrap();
         let url = api.make_connect_url(&listen_key);
@@ -275,13 +274,6 @@ impl BinancePrivateWsClient {
         Ok(message.convert_multimarketmessage("SPOT"))
     }
 
-    /*
-    fn make_connect_url(server: &BinanceServerConfig, key: &str) -> anyhow::Result<String> {
-        let url = format!("{}/ws/{}", server.get_user_ws_server(), key);
-
-        Ok(url)
-    }
-    */
 }
 
 #[cfg(test)]
@@ -297,7 +289,7 @@ mod tests {
 
         let mut client = BinancePublicWsClient::new(&server, &config).await;
 
-        client.connect().await;
+        // client.connect().await;
 
         let stream = client.open_stream().await;
 

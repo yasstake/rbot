@@ -286,12 +286,7 @@ where
     fn get_restapi(&self) -> &T;
     fn get_config(&self) -> MarketConfig;
 
-    fn get_server_config(&self) -> &ServerConfig;
-
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>>;
-
-    fn get_handler(&self) -> Option<JoinHandle<()>>;
-    fn set_handler(&mut self, handler: Option<JoinHandle<()>>);
 
     fn get_history_web_base_url(&self) -> String;
 

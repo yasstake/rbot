@@ -13,13 +13,6 @@ use crate::BINANCE;
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct BinanceServerConfig {
-    pub production: bool,
-    pub rest_server: String,
-    pub public_ws: String,
-    pub private_ws: String,
-    pub history_web_base: String,
-    api_key: SecretString,
-    api_secret: SecretString,
 }
 
 impl BinanceServerConfig {
