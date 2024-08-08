@@ -383,7 +383,7 @@ impl TradeDb {
     }
 
     /// select  cachedf from database
-    pub fn select_cachedf(
+    pub fn fetch_cachedf(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
