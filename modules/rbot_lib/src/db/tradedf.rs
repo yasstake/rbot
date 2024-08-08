@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    convert_timems_to_datetime, ohlcv_df, ohlcv_end, ohlcv_floor_fix_time, ohlcv_from_ohlcvv_df, ohlcvv_from_ohlcvv_df, vap_df, TradeArchive, TradeDb
+    convert_timems_to_datetime, ohlcv_df, ohlcv_floor_fix_time, ohlcv_from_ohlcvv_df, ohlcvv_from_ohlcvv_df, vap_df, TradeArchive, TradeDb
 };
 use anyhow::anyhow;
 
@@ -66,7 +66,6 @@ pub struct TradeDataFrame {
 
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
-    cache_duration: MicroSec,
 }
 
 impl TradeDataFrame {
@@ -189,14 +188,6 @@ impl TradeDataFrame {
         T: RestApi,
     {
         self.archive.download(api, ndays, force, verbose).await
-    }
-
-    pub fn get_cache_duration(&self) -> MicroSec {
-        return self.cache_duration;
-    }
-
-    pub fn reset_cache_duration(&mut self) {
-        self.cache_duration = 0;
     }
 
     pub fn select_cache_df(
@@ -663,7 +654,6 @@ impl TradeDataFrame {
 
             cache_df: df,
             cache_ohlcvv: ohlcv,
-            cache_duration: 0,
         })
     }
 }
