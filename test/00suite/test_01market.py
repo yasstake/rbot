@@ -3,12 +3,14 @@ import pytest
 import rbot
 
 from rbot import Bybit, BybitConfig, time_string, DAYS, NOW, HHMM
+from rbot import Binance, BinanceConfig
 
 @pytest.mark.parametrize(
     "exchange, config",
     [
             (Bybit(False), BybitConfig.BTCUSDT),
-            (Bybit(False), BybitConfig.BTCUSDC)
+            (Bybit(False), BybitConfig.BTCUSDC),
+            (Binance(False), BinanceConfig.BTCUSDT)
     ]
 )
 def test_get_config(exchange, config):
@@ -18,9 +20,15 @@ def test_get_config(exchange, config):
     print("config = ", c2)
     assert(c2 == config)
 
-def test_start_time_and_db_info():
-    exchange = Bybit(False)
-    config = BybitConfig.BTCUSDT
+@pytest.mark.parametrize(
+    "exchange, config",
+    [
+            (Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(False), BybitConfig.BTCUSDC),
+            (Binance(False), BinanceConfig.BTCUSDT)
+    ]
+)
+def test_start_time_and_db_info(exchange, config):
     market = exchange.open_market(config)
     
     market.download(3, verbose=True)
@@ -43,9 +51,15 @@ def test_start_time_and_db_info():
     
     assert(db_start - ac_end <= 15_000_000)     # ohlcv interval
     
-def test_df_merged():
-    exchange = Bybit(False)
-    config = BybitConfig.BTCUSDT
+@pytest.mark.parametrize(
+    "exchange, config",
+    [
+            (Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(False), BybitConfig.BTCUSDC),
+            (Binance(False), BinanceConfig.BTCUSDT)
+    ]
+)
+def test_df_merged(exchange, config):
     market = exchange.open_market(config)
     
     market.download(3, verbose=True)
@@ -73,9 +87,15 @@ def test_df_merged():
     assert(ac_start == min_time)
     assert(db_end == end_time)
     
-def test_download_latest():
-    exchange = Bybit(False)
-    config = BybitConfig.BTCUSDT
+@pytest.mark.parametrize(
+    "exchange, config",
+    [
+            (Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(False), BybitConfig.BTCUSDC),
+            (Binance(False), BinanceConfig.BTCUSDT)
+    ]
+)
+def test_download_latest(exchange, config):
     market = exchange.open_market(config)
     
     market.download(3, verbose=True)

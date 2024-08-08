@@ -1,9 +1,14 @@
+import pytest
 
-from rbot import Bybit, BybitConfig
-
-def test_limit_order_and_cancel():
-    exchange = Bybit(False)
-    config = BybitConfig.BTCUSDT
+from rbot import Bybit, BybitConfig, Binance, BinanceConfig
+@pytest.mark.parametrize(
+    "exchange, config",
+    [
+            (Bybit(False), BybitConfig.BTCUSDT),
+            (Binance(False), BinanceConfig.BTCUSDT),
+    ]
+)
+def test_limit_order_and_cancel(exchange, config):
     assert(exchange.production == False)
     
     exchange.enable_order_with_my_own_risk = True
