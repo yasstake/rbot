@@ -197,16 +197,31 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
 
     let df2_start_time = start_time_df(df2);
     if df2_start_time.is_none() {
-        return Err(anyhow!("cannot find time stamp {:?}", df2));
+        return Err(anyhow!("cannot find dataframe start timestamp {:?}", df2));
     }
     let df2_start_time = df2_start_time.unwrap();
 
-    let df = select_df_lazy(df1, 0, df2_start_time).collect()?;
-    if df.shape().0 == 0 {
-        return Ok(df2.clone());
+    let df2_end_time = end_time_df(df2);
+    if df2_end_time.is_none() {
+        return Err(anyhow!("cannot find dataframe end timestamp {:?}", df2));
     }
+    let df2_end_time = df2_end_time.unwrap();
 
-    let df = df.vstack(df2)?;
+    let df_before = select_df_lazy(df1, 0, df2_start_time).collect()?;
+    let df = if df_before.shape().0 == 0 {
+        df2.clone()
+    }
+    else {
+        append_df(&df_before, df2)?
+    };
+
+    let df_after = select_df_lazy(df1, df2_end_time, 0).collect()?;
+    let df = if df_after.shape().0 == 0 {
+        df
+    }
+    else {
+        append_df(&df, &df_after)?
+    };
 
     Ok(df)
 }

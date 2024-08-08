@@ -328,18 +328,6 @@ where
         ))
     }
 
-    fn get_cache_duration(&self) -> MicroSec {
-        let db = self.get_db();
-        let lock = db.lock().unwrap();
-        lock.get_cache_duration()
-    }
-
-    fn reset_cache_duration(&mut self) {
-        let db = self.get_db();
-        let mut lock = db.lock().unwrap();
-        lock.reset_cache_duration();
-    }
-
     fn cache_all_data(&mut self) -> anyhow::Result<()> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
@@ -374,7 +362,7 @@ where
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
 
-        let mut df = lock.select_raw_df(start_time, end_time)?;
+        let mut df = lock.fetch_cache_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))
@@ -387,7 +375,7 @@ where
     ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        let mut df = lock.select_db_df(start_time, end_time)?;
+        let mut df = lock.fetch_db_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))
@@ -400,7 +388,7 @@ where
     ) -> anyhow::Result<PyDataFrame> {
         let db = self.get_db();
         let mut lock = db.lock().unwrap();
-        let mut df = lock.select_archive_df(start_time, end_time)?;
+        let mut df = lock.fetch_archive_df(start_time, end_time)?;
         convert_timems_to_datetime(&mut df)?;
 
         Ok(PyDataFrame(df))

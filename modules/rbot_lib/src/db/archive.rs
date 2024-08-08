@@ -266,7 +266,7 @@ impl TradeArchive {
     }
 
     /// load from archived paquet file retrive specifed time frame.
-    pub fn select_cachedf(
+    pub fn fetch_cachedf(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
