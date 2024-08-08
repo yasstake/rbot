@@ -162,12 +162,10 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
     }
 
     fn set_enable_order_feature(&mut self, enable_order: bool) {
-        log::debug!("set enable order {}", enable_order);
         self.enable_order = enable_order;
     }
 
     fn get_enable_order_feature(&self) -> bool {
-        log::debug!("get enable order {}", self.enable_order);
         self.enable_order
     }
 
@@ -218,56 +216,6 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
 
         Ok(())
     }
-
-    /*
-    async fn async_start_user_stream(&mut self) -> anyhow::Result<()> {
-        let exchange_name = BYBIT.to_string();
-        let server_config = self.server_config.clone();
-
-        self.user_handler = Some(tokio::task::spawn(async move {
-            let mut ws = BybitPrivateWsClient::new(&server_config).await;
-            ws.connect().await;
-
-            let mut market_channel = MARKET_HUB.open_channel();
-            let mut ws_stream = Box::pin(ws.open_stream().await);
-
-            while let Some(message) = ws_stream.next().await {
-                if message.is_err() {
-                    log::error!("Error in ws_stream.recv: {:?}", message);
-                    continue;
-                }
-
-                let message = message.unwrap();
-                match message {
-                    MultiMarketMessage::Order(order) => {
-                        for o in order {
-                            market_channel.send(BroadcastMessage {
-                                exchange: exchange_name.clone(),
-                                category: o.category.clone(),
-                                symbol: o.symbol.clone(),
-                                msg: MarketMessage::Order(o.clone()),
-                            });
-                            log::debug!("Order: {:?}", o);
-                        }
-                    }
-                    MultiMarketMessage::Account(account) => {
-                        market_channel.send(BroadcastMessage {
-                            exchange: exchange_name.clone(),
-                            category: "".to_string(),
-                            symbol: "".to_string(),
-                            msg: MarketMessage::Account(account.clone()),
-                        });
-                    }
-                    _ => {
-                        log::info!("User stream message: {:?}", message);
-                    }
-                }
-            }
-        }));
-
-        Ok(())
-    }
-    */
 }
 
 #[pyclass]
@@ -458,7 +406,7 @@ impl BybitMarket {
     }
 
     fn vaccum(&self) -> anyhow::Result<()> {
-        let mut lock = self.db.lock().unwrap();
+        let lock = self.db.lock().unwrap();
 
         lock.vacuum()
     }
@@ -546,7 +494,8 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         self.server_config.get_historical_web_base()
     }
 
-    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
+    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> 
+    {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
             return Ok(());
@@ -633,18 +582,6 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         }));
 
         Ok(())
-    }
-
-    fn get_server_config(&self) -> &ServerConfig {
-        &self.server_config
-    }
-
-    fn get_handler(&self) -> Option<JoinHandle<()>> {
-        todo!()
-    }
-
-    fn set_handler(&mut self, handler: Option<JoinHandle<()>>) {
-        todo!()
     }
     
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {

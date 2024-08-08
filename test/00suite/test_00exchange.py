@@ -1,21 +1,21 @@
 import pytest
 
-from rbot import Bybit, init_debug_log
+from rbot import Bybit, init_debug_log, Binance
 
-"""
 @pytest.mark.parametrize(
     "exchange, production",
     [
             (Bybit(False), False),
-            (Bybit(True), True)
+            (Bybit(True), True),
+            (Binance(False), False),
+            (Binance(True), True)
     ]
 )
-"""
-def test_get_property():
-    exchange = Bybit(False)
+def test_get_property(exchange, production):
+#    exchange = Bybit(False)
     
     # get_production
-    assert(exchange.production == False)
+    assert(exchange.production == production)
     print(exchange)    
     # get_enable_order_with_my_own_risk
     assert(exchange.enable_order_with_my_own_risk == False)

@@ -147,51 +147,8 @@ impl WebSocketClient for BybitPublicWsClient {
             }
         }
     }
-    
-    /*
-    async fn open_channel(&mut self) -> crossbeam_channel::Receiver<MultiMarketMessage> {
-        let mut s: Pin<Box<dyn Stream<Item = Result<ReceiveMessage, String>> + Send>> = 
-            Box::pin(self.ws.open_stream().await);
-
-        let (tx, rx) = crossbeam_channel::unbounded();
-
-        tokio::spawn(async move {
-            while let Some(message) = s.next().await {
-                match message {
-                    Ok(m) => {
-                        if let ReceiveMessage::Text(m) = m {
-                            match Self::parse_message(m) {
-                                Err(e) => {
-                                    println!("Parse Error: {:?}", e);
-                                    continue;
-                                }
-                                Ok(m) => {
-                                    let market_message = Self::convert_ws_message(m);
-
-                                    match market_message {
-                                        Err(e) => {
-                                            println!("Convert Error: {:?}", e);
-                                            continue;
-                                        }
-                                        Ok(m) => {
-                                            tx.send(m);                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("Receive Error: {:?}", e);
-                    }
-                }
-            }
-        });
-
-        rx
-    }
-    */
 }
-
+    
 impl BybitPublicWsClient {
     fn public_url(server: &ServerConfig, config: &MarketConfig) -> String {
         format!(
@@ -200,9 +157,6 @@ impl BybitPublicWsClient {
             config.trade_category
         )
     }
-
-
-
 
     fn parse_message(message: String) -> Result<BybitPublicWsMessage, String> {
         let m = serde_json::from_str::<BybitPublicWsMessage>(&message);

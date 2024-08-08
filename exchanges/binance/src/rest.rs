@@ -21,11 +21,11 @@ use anyhow::Context;
 
 #[derive(Clone, Debug)]
 pub struct BinanceRestApi {
-    server_config: BinanceServerConfig,
+    server_config: ServerConfig,
 }
 
 impl BinanceRestApi {
-    pub fn new(server_config: &BinanceServerConfig) -> Self {
+    pub fn new(server_config: &ServerConfig) -> Self {
         Self {
             server_config: server_config.clone()
         }
@@ -40,11 +40,10 @@ impl RestApi for BinanceRestApi {
         &self,
         config: &MarketConfig,
     ) -> anyhow::Result<BoardTransfer> {
-        let server = &self.server_config;
         let path = "/api/v3/depth";
         let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
-        let message = Self::get(server, path, &params)
+        let message = self.get(path, &params)
             .await
             .with_context(|| format!("get_board_snapshot error"))?;
 
@@ -65,7 +64,7 @@ impl RestApi for BinanceRestApi {
         let path = "/api/v3/trades";
         let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
-        let messasge = Self::get(server, path, &params)
+        let messasge = self.get(path, &params)
             .await
             .with_context(|| format!("get_recent_trades error"))?;
 
@@ -144,7 +143,7 @@ impl RestApi for BinanceRestApi {
             body = format!("{}&newClientOrderId={}", body, cliend_order_id);
         }
 
-        let message = Self::post_sign(&server, path, body.as_str())
+        let message = self.post_sign(path, body.as_str())
             .await
             .with_context(|| format!("new_order error"))?;
 
@@ -162,12 +161,10 @@ impl RestApi for BinanceRestApi {
         config: &MarketConfig,
         order_id: &str,
     ) -> anyhow::Result<Order> {
-        let server = &self.server_config;
-
         let path = "/api/v3/order";
         let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
 
-        let message = Self::delete_sign(&server, path, body.as_str())
+        let message = self.delete_sign(path, body.as_str())
             .await
             .with_context(|| format!("cancel_order error"))?;
 
@@ -181,12 +178,10 @@ impl RestApi for BinanceRestApi {
         &self,
         config: &MarketConfig,
     ) -> anyhow::Result<Vec<Order>> {
-        let server = &self.server_config;
-
         let path = "/api/v3/openOrders";
         let query = format!("symbol={}", config.trade_symbol);
 
-        let message = Self::get_sign(server, &path, Some(&query))
+        let message = self.get_sign(&path, Some(&query))
             .await
             .with_context(|| format!("open_orders error"))?;
 
@@ -198,10 +193,9 @@ impl RestApi for BinanceRestApi {
     }
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
-        let server = &self.server_config;
         let path = "/api/v3/account";
 
-        let message = Self::get_sign(server, path, None)
+        let message = self.get_sign(path, None)
             .await
             .with_context(|| format!("get_account error"))?;
 
@@ -317,7 +311,8 @@ impl RestApi for BinanceRestApi {
 }
 
 impl BinanceRestApi {
-    async fn get(server: &BinanceServerConfig, path: &str, params: &str) -> anyhow::Result<Value> {
+    async fn get(&self, path: &str, params: &str) -> anyhow::Result<Value> {
+        let server = &self.server_config;
         let query = format!("{}?{}", path, params);
 
         log::debug!("path{} / body: {}", path, query);
@@ -333,10 +328,11 @@ impl BinanceRestApi {
     }
 
     async fn get_sign(
-        server: &BinanceServerConfig,
+        &self,
         path: &str,
         params: Option<&str>,
     ) -> anyhow::Result<Value> {
+        let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
 
@@ -367,10 +363,11 @@ impl BinanceRestApi {
     }
 
     async fn post_sign(
-        server: &BinanceServerConfig,
+        &self,
         path: &str,
         body: &str,
     ) -> anyhow::Result<Value> {
+        let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
 
@@ -398,10 +395,11 @@ impl BinanceRestApi {
     }
 
     async fn post_key(
-        server: &BinanceServerConfig,
+        &self,
         path: &str,
         body: &str,
     ) -> anyhow::Result<Value> {
+        let server = &self.server_config;
         let api_key = server.get_api_key().extract();
 
         let mut headers: Vec<(&str, &str)> = vec![];
@@ -414,10 +412,12 @@ impl BinanceRestApi {
     }
 
     async fn put_key(
-        server: &BinanceServerConfig,
+        &self,
         path: &str,
         body: &str,
     ) -> anyhow::Result<Value> {
+        let server = &self.server_config;
+
         let api_key = server.get_api_key().extract();
 
         let mut headers: Vec<(&str, &str)> = vec![];
@@ -430,10 +430,12 @@ impl BinanceRestApi {
     }
 
     pub async fn delete_sign(
-        server: &BinanceServerConfig,
+        &self,
         path: &str,
         body: &str,
     ) -> anyhow::Result<Value> {
+        let server = &self.server_config;
+
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
 
@@ -477,9 +479,7 @@ impl BinanceRestApi {
     }
 
     pub async fn create_listen_key(&self) -> anyhow::Result<String> {
-        let server = &self.server_config;
-
-        let message = Self::post_key(server, "/api/v3/userDataStream", "")
+        let message = self.post_key("/api/v3/userDataStream", "")
             .await
             .with_context(|| format!("create_listen_key error"))?;
 
@@ -493,10 +493,8 @@ impl BinanceRestApi {
     }
 
     pub async fn extend_listen_key(&self, key: &str) -> anyhow::Result<()> {
-        let server = &self.server_config;
-
         let path = format!("/api/v3/userDataStream?listenKey={}", key);
-        let _message = Self::put_key(server, path.as_str(), "")
+        let _message = self.put_key( path.as_str(), "")
             .await
             .with_context(|| format!("extend_listen_key error"))?;
 
@@ -506,11 +504,11 @@ impl BinanceRestApi {
     pub fn make_connect_url(&self, key: &str) -> String {
         let server = &self.server_config;
 
-        format!("{}/ws/{}", server.get_user_ws_server(), key)        
+        format!("{}/ws/{}", server.get_public_ws_server(), key)        
     }
 
     pub async fn get_historical_trades(
-        server: &BinanceServerConfig,
+        &self, 
         config: &MarketConfig,
         from_id: i64,
         from_time: MicroSec,
@@ -526,7 +524,7 @@ impl BinanceRestApi {
             )
         };
 
-        let result = Self::get(&server, path, &params).await?;
+        let result = self.get(path, &params).await?;
 
         let binance_trades: Vec<BinanceTradeMessage> = serde_json::from_value(result)?;
 
@@ -676,12 +674,7 @@ mod binance_api_test {
         let config = BinanceConfig::BTCUSDT();
         let api = BinanceRestApi::new(&server);
 
-
-        init_debug_log();
-        let server = BinanceServerConfig::new(false);
-        let config = BinanceConfig::BTCUSDT();
-
-        let result = BinanceRestApi::get_historical_trades(&server, &config, 0, 0).await;
+        let result = api.get_historical_trades(&config, 0, 0).await;
         println!("result: {:?}", result);
     }
 
@@ -692,10 +685,8 @@ mod binance_api_test {
         let api = BinanceRestApi::new(&server);
 
         init_debug_log();
-        let server = BinanceServerConfig::new(false);
-        let config = BinanceConfig::BTCUSDT();
 
-        let result = BinanceRestApi::get_historical_trades(&server, &config, 10000, 0).await;
+        let result = api.get_historical_trades(&config, 10000, 0).await;
         println!("result: {:?}", result);
     }
 
