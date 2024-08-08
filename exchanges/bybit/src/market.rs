@@ -474,14 +474,6 @@ impl BybitMarket {
         BLOCK_ON(async { MarketImpl::async_download_latest(self, verbose).await })
     }
 
-    fn _get_cache_duration(&self) -> MicroSec {
-        MarketImpl::get_cache_duration(self)
-    }
-
-    fn _reset_cache_duration(&mut self) {
-        MarketImpl::reset_cache_duration(self)
-    }
-
     fn _latest_db_rec(&self, search_before: MicroSec) -> anyhow::Result<Trade> {
         let search_before = if 0 < search_before {
             search_before

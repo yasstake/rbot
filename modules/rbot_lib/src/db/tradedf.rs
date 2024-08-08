@@ -20,8 +20,7 @@ use crate::{
 };
 
 use super::{
-    convert_timems_to_datetime, ohlcv_df, ohlcv_floor_fix_time, ohlcv_from_ohlcvv_df,
-    ohlcvv_from_ohlcvv_df, vap_df, TradeArchive, TradeDb,
+    convert_timems_to_datetime, ohlcv_df, ohlcv_floor_fix_time, ohlcv_from_ohlcvv_df, ohlcvv_from_ohlcvv_df, vap_df, TradeArchive, TradeDb
 };
 use anyhow::anyhow;
 
@@ -67,7 +66,6 @@ pub struct TradeDataFrame {
 
     cache_df: DataFrame,
     cache_ohlcvv: DataFrame,
-    cache_duration: MicroSec,
 }
 
 impl TradeDataFrame {
@@ -192,14 +190,6 @@ impl TradeDataFrame {
         self.archive.download(api, ndays, force, verbose).await
     }
 
-    pub fn get_cache_duration(&self) -> MicroSec {
-        return self.cache_duration;
-    }
-
-    pub fn reset_cache_duration(&mut self) {
-        self.cache_duration = 0;
-    }
-
     pub fn select_cache_df(
         &mut self,
         start_time: MicroSec,
@@ -220,7 +210,7 @@ impl TradeDataFrame {
         Ok(df)
     }
 
-    pub fn select_raw_df(
+    pub fn fetch_cache_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
@@ -228,51 +218,39 @@ impl TradeDataFrame {
         let archive_end = self.get_archive_end_time();
 
         if start_time <= archive_end {
-            let df1 = self.select_archive_df(start_time, end_time)?;
+            let df1 = self.fetch_archive_df(start_time, end_time)?;
 
             if archive_end <= end_time || end_time == 0 {
-                let df2 = self.select_db_df(archive_end, end_time)?;
+                let df2 = self.fetch_db_df(archive_end, end_time)?;
                 append_df(&df1, &df2)
             }
             else {
                 Ok(df1)
             }
         } else {
-            self.select_db_df(start_time, end_time)
+            self.fetch_db_df(start_time, end_time)
         }
     }
 
-    pub fn select_archive_df(
+    pub fn fetch_archive_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
-        self.archive.select_cachedf(start_time, end_time)
+        self.archive.fetch_cachedf(start_time, end_time)
     }
 
-    pub fn select_db_df(
+    pub fn fetch_db_df(
         &mut self,
         start_time: MicroSec,
         end_time: MicroSec,
     ) -> anyhow::Result<DataFrame> {
-        self.db.select_cachedf(start_time, end_time)
+        self.db.fetch_cachedf(start_time, end_time)
     }
 
-    pub fn load_cachedf(
-        &mut self,
-        start_time: MicroSec,
-        end_time: MicroSec,
-    ) -> anyhow::Result<i64> {
-        let df = self.select_raw_df(start_time, end_time)?;
-        let count = df.shape().0;
-        self.cache_df = df;
-
-        // TODO: calc ohlcv df
-        Ok(count as i64)
-    }
 
     pub fn update_cache_all(&mut self) -> anyhow::Result<()> {
-        self.update_cache_df(0, 0)
+        self.update_cache_df(0, 0, true)
     }
 
     pub fn expire_cache_df(&mut self, forget_before: MicroSec) -> anyhow::Result<()>{
@@ -285,6 +263,75 @@ impl TradeDataFrame {
         Ok(())
     }
 
+    fn _update_cache_df(
+        &mut self,
+        df: &DataFrame
+    ) -> anyhow::Result<()>
+    {
+        self.cache_df = merge_df(&self.cache_df, df)?;
+
+        let ohlcvv = ohlcvv_df(df, 0, 0, OHLCV_WINDOW_SEC)?;
+        self.cache_ohlcvv = merge_df(&self.cache_ohlcvv, &ohlcvv)?;
+
+        Ok(())
+    }
+
+    pub fn update_cache_df(
+        &mut self,
+        start_time: MicroSec,
+        end_time: MicroSec,
+        force: bool
+    ) -> anyhow::Result<()> {
+        let start_time = if start_time != 0 {
+            FLOOR_DAY(start_time - DAYS(1))
+        }
+        else {
+            0
+        };
+
+        let end_time = if end_time != 0 {
+            FLOOR_DAY(end_time + DAYS(3))
+        }
+        else {
+            0
+        };
+
+        let df_start = start_time_df(&self.cache_df).unwrap_or(0);
+        let df_end = end_time_df(&self.cache_df).unwrap_or(0);
+
+        if force || df_start == 0 {
+            let df = self.fetch_cache_df(start_time, end_time)?;
+            self._update_cache_df(&df)?;
+        }
+        else {
+            let start_time = if start_time <= df_start {
+                start_time
+            }
+            else {
+                if df_start < start_time - DAYS(4) {
+                    self.expire_cache_df(FLOOR_DAY(start_time - DAYS(2)))?;
+                }
+
+                ohlcv_start(df_end)
+            };
+
+            let end_time = if df_end <= end_time || end_time == 0 {
+                end_time
+            }
+            else {
+                df_start
+            };
+            
+            if start_time < end_time || end_time == 0 {
+                let df = self.fetch_cache_df(start_time, end_time)?;
+                self._update_cache_df(&df)?;
+            }
+        };
+
+        Ok(())
+    }
+
+    /*
     pub fn update_cache_df(
         &mut self,
         start_time: MicroSec,
@@ -424,16 +471,17 @@ impl TradeDataFrame {
 
         Ok(())
     }
+    */
 
     fn _ohlcvv_df(
         &mut self,
-        mut start_time: MicroSec,
+        start_time: MicroSec,
         end_time: MicroSec,
         time_window_sec: i64,
     ) -> anyhow::Result<DataFrame> {
-        start_time = ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
+        let start_time = ohlcv_floor_fix_time(start_time, time_window_sec); // 開始tickは確定足、終了は未確定足もOK.
 
-        self.update_cache_df(start_time, end_time)?;
+        self.update_cache_df(start_time, end_time, false)?;
 
         if time_window_sec % OHLCV_WINDOW_SEC == 0 {
             ohlcvv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
@@ -444,12 +492,10 @@ impl TradeDataFrame {
 
     pub fn py_ohlcvv_polars(
         &mut self,
-        mut start_time: MicroSec,
+        start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = ohlcv_floor_fix_time(start_time, window_sec); // 開始tickは確定足、終了は未確定足もOK.
-
         let mut df = self._ohlcvv_df(start_time, end_time, window_sec)?;
 
         convert_timems_to_datetime(&mut df)?;
@@ -465,7 +511,7 @@ impl TradeDataFrame {
     ) -> anyhow::Result<DataFrame> {
         start_time = ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
 
-        self.update_cache_df(start_time, end_time)?;
+        self.update_cache_df(start_time, end_time, false)?;
 
         if time_window_sec % OHLCV_WINDOW_SEC == 0 {
             ohlcv_from_ohlcvv_df(&self.cache_ohlcvv, start_time, end_time, time_window_sec)
@@ -476,12 +522,10 @@ impl TradeDataFrame {
 
     pub fn py_ohlcv_polars(
         &mut self,
-        mut start_time: MicroSec,
+        start_time: MicroSec,
         end_time: MicroSec,
         window_sec: i64,
     ) -> anyhow::Result<PyDataFrame> {
-        start_time = ohlcv_start(start_time); // 開始tickは確定足、終了は未確定足もOK.
-
         let mut df = self._ohlcv_df(start_time, end_time, window_sec)?;
         convert_timems_to_datetime(&mut df)?;
         let df = PyDataFrame(df);
@@ -495,6 +539,7 @@ impl TradeDataFrame {
         end_time: MicroSec,
         price_unit: i64,
     ) -> anyhow::Result<PyDataFrame> {
+       
         let df = self.vap(start_time, end_time, price_unit)?;
 
         let py_df = PyDataFrame(df);
@@ -508,7 +553,7 @@ impl TradeDataFrame {
         end_time: MicroSec,
         price_unit: i64,
     ) -> anyhow::Result<DataFrame> {
-        self.update_cache_df(start_time, end_time)?;
+        self.update_cache_df(start_time, end_time, false)?;
         let df = vap_df(&self.cache_df, start_time, end_time, price_unit);
 
         Ok(df)
@@ -609,7 +654,6 @@ impl TradeDataFrame {
 
             cache_df: df,
             cache_ohlcvv: ohlcv,
-            cache_duration: 0,
         })
     }
 }
