@@ -722,6 +722,7 @@ where
     let result = check_exist(url.as_str()).await;
 
     if result.is_err() {
+        log::info!("archive not found: url = {}", url);
         return Ok(false);
     }
 

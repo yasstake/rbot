@@ -1,16 +1,16 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use crate::{
-    binance_order_status_vec_to_orders,
-    BinanceAccountInformation, BinanceCancelOrderResponse, BinanceOrderResponse,
-    BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig, BinanceTradeMessage,
+    binance_order_status_vec_to_orders, BinanceAccountInformation, BinanceCancelOrderResponse,
+    BinanceOrderResponse, BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig,
+    BinanceTradeMessage,
 };
 
 use anyhow::anyhow;
 use polars::frame::DataFrame;
 use rbot_lib::{
     common::{
-        flush_log, hmac_sign, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW
+        flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW
     },
     net::{rest_delete, rest_get, rest_post, rest_put, RestApi, RestPage},
 };
@@ -27,23 +27,20 @@ pub struct BinanceRestApi {
 impl BinanceRestApi {
     pub fn new(server_config: &ServerConfig) -> Self {
         Self {
-            server_config: server_config.clone()
+            server_config: server_config.clone(),
         }
     }
 }
 
-
 impl RestApi for BinanceRestApi {
     /// https://binance-docs.github.io/apidocs/spot/en/#order-book
 
-    async fn get_board_snapshot(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<BoardTransfer> {
+    async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
         let path = "/api/v3/depth";
         let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
-        let message = self.get(path, &params)
+        let message = self
+            .get(path, &params)
             .await
             .with_context(|| format!("get_board_snapshot error"))?;
 
@@ -53,18 +50,14 @@ impl RestApi for BinanceRestApi {
     }
 
     /// https://binance-docs.github.io/apidocs/spot/en/#recent-trades-list
-    async fn get_recent_trades(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Trade>> {
+    async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
         log::debug!("get_recent_trades: {:?}", &config.trade_symbol);
-
-        let server = &self.server_config;
 
         let path = "/api/v3/trades";
         let params = format!("symbol={}&limit=1000", &config.trade_symbol);
 
-        let messasge = self.get(path, &params)
+        let messasge = self
+            .get(path, &params)
             .await
             .with_context(|| format!("get_recent_trades error"))?;
 
@@ -85,14 +78,85 @@ impl RestApi for BinanceRestApi {
         Ok(result)
     }
 
+    // 25 widghts => 6000 weights/min = 240 req per sec => 120 for safty. 8ms/Reqa
     async fn get_trades(
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
         end_time: MicroSec,
-        page: &RestPage
+        page: &RestPage,
     ) -> anyhow::Result<(Vec<Trade>, RestPage)> {
-        todo!()
+        log::debug!("get_recent_trades: {:?}", &config.trade_symbol);
+
+        let path = "/api/v3/historicalTrades";
+
+        let mut params = format!("symbol={}&limit=1000", &config.trade_symbol);
+
+        if RestPage::New == *page {
+            let trades = self.get_recent_trades(config).await?;
+
+            let id: i64 = trades[0].id.parse()?;
+
+            return Ok((trades, RestPage::Int(id)));
+        }
+        else if RestPage::Done == *page{
+            return Err(anyhow!("called with RestPage::Done"))
+        }
+
+        let page_id: i64;
+
+        if let RestPage::Int(id) = page {
+            page_id = *id;
+
+            if 1000 < page_id {
+                params += &format!("&fromId={}", page_id - 1000);
+            }
+            else {
+                params += &format!("&fromId={}", 0);
+            }
+        }
+        else {
+            log::error!("unknown page {:?}", page);
+
+            return Err(anyhow!("unknown page{:?}", page));
+        }
+
+        let messasge = self
+            .get(path, &params)
+            .await
+            .with_context(|| format!("get_trades error"))?;
+
+        let trades: Vec<BinanceTradeMessage> = serde_json::from_value(messasge)?;
+
+        let mut result: Vec<Trade> = vec![];
+
+        if trades.len() == 0 {
+            return Ok((vec![], RestPage::Done));
+        }
+
+        for t in trades {
+            let trade: Trade = t.to_trade();
+
+            if trade.time < start_time {
+                log::debug!("trade: [{}]{:?}", start_time, trade);
+
+                continue;
+            }
+
+            let id: i64 = trade.id.parse()?;
+            if page_id <= id {
+                continue;
+            }
+
+            result.push(trade);
+        }
+
+        if result.len() < 1000 {
+            Ok((result, RestPage::Done))
+        } else {
+            let page = RestPage::Int(result[0].id.parse()?);
+            Ok((result, page))
+        }
     }
 
     async fn get_klines(
@@ -143,7 +207,8 @@ impl RestApi for BinanceRestApi {
             body = format!("{}&newClientOrderId={}", body, cliend_order_id);
         }
 
-        let message = self.post_sign(path, body.as_str())
+        let message = self
+            .post_sign(path, body.as_str())
             .await
             .with_context(|| format!("new_order error"))?;
 
@@ -154,17 +219,13 @@ impl RestApi for BinanceRestApi {
         Ok(orders)
     }
 
-
     /// https://binance-docs.github.io/apidocs/spot/en/#cancel-all-open-orders-on-a-symbol-trade
-    async fn cancel_order(
-        &self,
-        config: &MarketConfig,
-        order_id: &str,
-    ) -> anyhow::Result<Order> {
+    async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         let path = "/api/v3/order";
         let body = format!("symbol={}&orderId={}", config.trade_symbol, order_id);
 
-        let message = self.delete_sign(path, body.as_str())
+        let message = self
+            .delete_sign(path, body.as_str())
             .await
             .with_context(|| format!("cancel_order error"))?;
 
@@ -174,14 +235,12 @@ impl RestApi for BinanceRestApi {
     }
 
     /// https://binance-docs.github.io/apidocs/spot/en/#current-open-orders-user_data
-    async fn open_orders(
-        &self,
-        config: &MarketConfig,
-    ) -> anyhow::Result<Vec<Order>> {
+    async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let path = "/api/v3/openOrders";
         let query = format!("symbol={}", config.trade_symbol);
 
-        let message = self.get_sign(&path, Some(&query))
+        let message = self
+            .get_sign(&path, Some(&query))
             .await
             .with_context(|| format!("open_orders error"))?;
 
@@ -195,7 +254,8 @@ impl RestApi for BinanceRestApi {
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let path = "/api/v3/account";
 
-        let message = self.get_sign(path, None)
+        let message = self
+            .get_sign(path, None)
             .await
             .with_context(|| format!("get_account error"))?;
 
@@ -204,44 +264,44 @@ impl RestApi for BinanceRestApi {
         Ok(account.into_coins())
     }
 
-    
     async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
         todo!()
     }
-    
+
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
-        todo!()
-    }
-    
-    fn archive_has_header(&self) -> bool {
-        todo!()
-    }
-    
-    fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame> {
-        let _ = df;
-        todo!()
-    }
-    
-    /*
-    fn format_historical_data_url(
-        history_web_base: &str,
-        category: &str,
-        symbol: &str,
-        yyyy: i64,
-        mm: i64,
-        dd: i64,
-    ) -> String {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
-        let category = category.to_lowercase();
+        let category = config.trade_category.to_lowercase();
+
+        let (yyyy, mm, dd) = split_yyyymmdd(date);
+
         if category == "spot" {
             return format!(
                 "{}/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
-                history_web_base, category, symbol, symbol, yyyy, mm, dd
+                self.server_config.get_historical_web_base(),
+                config.trade_category,
+                config.trade_symbol,
+                config.trade_symbol,
+                yyyy, 
+                mm, 
+                dd
             );
         } else {
             log::error!("Unknown category {}", category);
             return "".to_string();
         }
+    }
+
+    fn archive_has_header(&self) -> bool {
+        false
+    }
+
+    fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame> {
+        let _ = df;
+        todo!()
+    }
+
+    /*
+    fn format_historical_data_url(
     }
 
     fn line_to_trade(_line: &str) -> Trade {
@@ -258,7 +318,7 @@ impl RestApi for BinanceRestApi {
     /// example;
     ///  630277243,16681.46000000,0.00298000,49.71075080,1668816000029,True,True
     ///  630277244,16681.43000000,0.00299000,49.87747570,1668816000053,True,True
-    ///  630277245,16681.00000000,0.00299000,49.87619000,1668816000075,True,True    
+    ///  630277245,16681.00000000,0.00299000,49.87619000,1668816000075,True,True
     fn rec_to_trade(rec: &StringRecord) -> Trade {
         let id = rec.get(0).unwrap_or_default().to_string();
         let price = rec
@@ -327,11 +387,7 @@ impl BinanceRestApi {
         Self::parse_binance_result(response)
     }
 
-    async fn get_sign(
-        &self,
-        path: &str,
-        params: Option<&str>,
-    ) -> anyhow::Result<Value> {
+    async fn get_sign(&self, path: &str, params: Option<&str>) -> anyhow::Result<Value> {
         let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
@@ -362,11 +418,7 @@ impl BinanceRestApi {
         Self::parse_binance_result(message)
     }
 
-    async fn post_sign(
-        &self,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<Value> {
+    async fn post_sign(&self, path: &str, body: &str) -> anyhow::Result<Value> {
         let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
@@ -394,11 +446,7 @@ impl BinanceRestApi {
         return format!("{}&signature={}", message, sign);
     }
 
-    async fn post_key(
-        &self,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<Value> {
+    async fn post_key(&self, path: &str, body: &str) -> anyhow::Result<Value> {
         let server = &self.server_config;
         let api_key = server.get_api_key().extract();
 
@@ -411,11 +459,7 @@ impl BinanceRestApi {
         Self::parse_binance_result(result)
     }
 
-    async fn put_key(
-        &self,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<Value> {
+    async fn put_key(&self, path: &str, body: &str) -> anyhow::Result<Value> {
         let server = &self.server_config;
 
         let api_key = server.get_api_key().extract();
@@ -429,11 +473,7 @@ impl BinanceRestApi {
         Self::parse_binance_result(result)
     }
 
-    pub async fn delete_sign(
-        &self,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<Value> {
+    pub async fn delete_sign(&self, path: &str, body: &str) -> anyhow::Result<Value> {
         let server = &self.server_config;
 
         let api_key = server.get_api_key().extract();
@@ -479,7 +519,8 @@ impl BinanceRestApi {
     }
 
     pub async fn create_listen_key(&self) -> anyhow::Result<String> {
-        let message = self.post_key("/api/v3/userDataStream", "")
+        let message = self
+            .post_key("/api/v3/userDataStream", "")
             .await
             .with_context(|| format!("create_listen_key error"))?;
 
@@ -494,21 +535,22 @@ impl BinanceRestApi {
 
     pub async fn extend_listen_key(&self, key: &str) -> anyhow::Result<()> {
         let path = format!("/api/v3/userDataStream?listenKey={}", key);
-        let _message = self.put_key( path.as_str(), "")
+        let _message = self
+            .put_key(path.as_str(), "")
             .await
             .with_context(|| format!("extend_listen_key error"))?;
 
         Ok(())
     }
-    
+
     pub fn make_connect_url(&self, key: &str) -> String {
         let server = &self.server_config;
 
-        format!("{}/ws/{}", server.get_public_ws_server(), key)        
+        format!("{}/ws/{}", server.get_public_ws_server(), key)
     }
 
     pub async fn get_historical_trades(
-        &self, 
+        &self,
         config: &MarketConfig,
         from_id: i64,
         from_time: MicroSec,
@@ -550,9 +592,9 @@ impl BinanceRestApi {
 mod binance_api_test {
     use super::*;
     use crate::BinanceConfig;
-    use rbot_lib::common::init_debug_log;
+    use rbot_lib::common::{init_debug_log, DAYS};
     use rust_decimal_macros::dec;
-    
+
     #[tokio::test]
     async fn test_board_snapshot() -> anyhow::Result<()> {
         let server = BinanceServerConfig::new(false);
@@ -578,6 +620,23 @@ mod binance_api_test {
     }
 
     #[tokio::test]
+    async fn test_trades() -> anyhow::Result<()> {
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+        let api = BinanceRestApi::new(&server);
+
+        let (trades, page) = api.get_trades(&config, 0, 0, &RestPage::New).await?;
+        println!("first: {:?}", trades[0]);
+        println!("end t: {:?}", trades[trades.len() - 1]);
+
+        let (trades, page) = api.get_trades(&config, 0, 0, &page).await?;
+        println!("first: {:?}", trades[0]);
+        println!("end t: {:?}", trades[trades.len() - 1]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_klines() {
         let server = BinanceServerConfig::new(false);
         let config = BinanceConfig::BTCUSDT();
@@ -593,18 +652,18 @@ mod binance_api_test {
         let config = BinanceConfig::BTCUSDT();
         let api = BinanceRestApi::new(&server);
 
-        let result = api.new_order(
-            &config,
-            OrderSide::Buy,
-            dec![50000],
-            dec![0.001],
-            OrderType::Limit,
-            None,
-        )
-        .await;
+        let result = api
+            .new_order(
+                &config,
+                OrderSide::Buy,
+                dec![50000],
+                dec![0.001],
+                OrderType::Limit,
+                None,
+            )
+            .await;
         println!("result: {:?}", result);
     }
-
 
     #[tokio::test]
     async fn test_new_order_market() {
@@ -614,26 +673,24 @@ mod binance_api_test {
 
         init_debug_log();
 
-        let result = api.new_order(
-            &config,
-            OrderSide::Buy,
-            dec![0],
-            dec![0.001],
-            OrderType::Market,
-            None,
-        )
-        .await;
+        let result = api
+            .new_order(
+                &config,
+                OrderSide::Buy,
+                dec![0],
+                dec![0.001],
+                OrderType::Market,
+                None,
+            )
+            .await;
         println!("result: {:?}", result);
     }
-
-
 
     #[tokio::test]
     async fn test_open_orders() {
         let server = BinanceServerConfig::new(false);
         let config = BinanceConfig::BTCUSDT();
         let api = BinanceRestApi::new(&server);
-
 
         init_debug_log();
 
@@ -690,5 +747,14 @@ mod binance_api_test {
         println!("result: {:?}", result);
     }
 
+    #[test]
+    fn test_historical_trade_url() {
+        let server = BinanceServerConfig::new(false);
+        let config = BinanceConfig::BTCUSDT();
+        let api = BinanceRestApi::new(&server);
 
+
+        let url = api.history_web_url(&config, NOW() - DAYS(2));
+        println!("url={}", url);
+    }
 }

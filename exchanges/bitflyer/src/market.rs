@@ -238,67 +238,28 @@ impl BitflyerMarket {
     }
 
     /*--------------　ここまでコピペ　--------------------------*/
-
-    #[allow(unused_variables)]
-    #[pyo3(signature = (*, ndays, force = false, verbose=true, archive_only=false, low_priority=false))]
-    pub fn download(
+    #[pyo3(signature = (ndays, *, connect_ws=false, force=false, force_archive=false, force_recent=false, verbose=false))]
+    fn download(
         &mut self,
         ndays: i64,
+        connect_ws: bool,
         force: bool,
+        force_archive: bool,
+        force_recent: bool,
         verbose: bool,
-        archive_only: bool,
-        low_priority: bool,
-    ) -> i64 {
-        /*
-        log::info!("log download: {} days", ndays);
-        if verbose {
-            println!("log download: {} days", ndays);
-            flush_log();
-        }
-
-        let mut download_rec: i64 = 0;
-
-        let tx = &self.db.start_thread();
-
-        let now = NOW();
-
-        for i in 0..ndays {
-            let date = latest_date - i * DAYS(1);
-
-            if !force && self.validate_db_by_date(date) {
-                log::info!("{} is valid", time_string(date));
-
-                if verbose {
-                    println!("{} skip download", time_string(date));
-                    flush_log();
-                }
-                continue;
-            }
-
-            match self.download_log(tx, date, low_priority, verbose) {
-                Ok(rec) => {
-                    log::info!("downloaded: {}", download_rec);
-                    download_rec += rec;
-                }
-                Err(e) => {
-                    log::error!("Error in download_log: {:?}", e);
-                    if verbose {
-                        println!("Error in download_log: {:?}", e);
-                    }
-                }
-            }
-        }
-
-        if ! archive_only {
-            let rec = self.download_latest(verbose);
-            download_rec += rec;
-        }
-        // let expire_message = self.db.connection.make_expire_control_message(now);
-        // tx.send(expire_message).unwrap();
-
-        download_rec
-        */
-        0
+    ) -> anyhow::Result<()> {
+        BLOCK_ON(async {
+            MarketImpl::async_download::<BybitPublicWsClient>(
+                self,
+                ndays,
+                connect_ws,
+                force,
+                force_archive,
+                force_recent,
+                verbose,
+            )
+            .await
+        })
     }
 
     /// Download klines and store ohlcv cache.
