@@ -117,7 +117,7 @@ mod archive_test {
         let mut archive = create_archive();
         init_debug_log();
 
-        let df = archive.select_cachedf(0, 0)?;
+        let df = archive.fetch_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
 
@@ -263,7 +263,7 @@ mod archive_test {
 
         let now = NOW();
 
-        let df = archive.select_cachedf(0, 0)?;
+        let df = archive.fetch_cachedf(0, 0)?;
 
         log::debug!("{:?}", df);
         log::debug!("{:?}", df.shape());
