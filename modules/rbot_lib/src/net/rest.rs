@@ -3,6 +3,7 @@
 
 use anyhow::anyhow;
 use anyhow::Context;
+use polars::lazy::frame::LazyFrame;
 use reqwest::StatusCode;
 
 // use crossbeam_channel::Receiver;

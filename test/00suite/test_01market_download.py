@@ -42,16 +42,18 @@ from rbot import init_log
 @pytest.mark.parametrize(
     "exchange, config",
     [
-            #(Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(False), BybitConfig.BTCUSDT),
             (Binance(False), BinanceConfig.BTCUSDT),
     ]
 )
 def test_download_archive(exchange, config):
     market = exchange.open_market(config)
 
-    init_log()
+    init_debug_log()
 
-    market._download_archive(ndays=3, verbose=True)
+    market._download_archive(ndays=4, verbose=True)
+    
+    print(market._select_archive_trades(0, 0))
 
     
 def test_download():
