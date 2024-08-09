@@ -7,12 +7,12 @@ use crate::{
 };
 
 use anyhow::anyhow;
-use polars::frame::DataFrame;
+use polars::{chunked_array::ops::ChunkCast as _, datatypes::DataType, frame::DataFrame, series::Series};
 use rbot_lib::{
     common::{
-        flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus, MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW
-    },
-    net::{rest_delete, rest_get, rest_post, rest_put, RestApi, RestPage},
+        flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus,
+        MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW,
+    }, db::KEY, net::{rest_delete, rest_get, rest_post, rest_put, RestApi, RestPage}
 };
 use rust_decimal::Decimal;
 use serde_json::Value;
@@ -98,9 +98,8 @@ impl RestApi for BinanceRestApi {
             let id: i64 = trades[0].id.parse()?;
 
             return Ok((trades, RestPage::Int(id)));
-        }
-        else if RestPage::Done == *page{
-            return Err(anyhow!("called with RestPage::Done"))
+        } else if RestPage::Done == *page {
+            return Err(anyhow!("called with RestPage::Done"));
         }
 
         let page_id: i64;
@@ -110,12 +109,10 @@ impl RestApi for BinanceRestApi {
 
             if 1000 < page_id {
                 params += &format!("&fromId={}", page_id - 1000);
-            }
-            else {
+            } else {
                 params += &format!("&fromId={}", 0);
             }
-        }
-        else {
+        } else {
             log::error!("unknown page {:?}", page);
 
             return Err(anyhow!("unknown page{:?}", page));
@@ -281,8 +278,8 @@ impl RestApi for BinanceRestApi {
                 config.trade_category,
                 config.trade_symbol,
                 config.trade_symbol,
-                yyyy, 
-                mm, 
+                yyyy,
+                mm,
                 dd
             );
         } else {
@@ -294,10 +291,47 @@ impl RestApi for BinanceRestApi {
     fn archive_has_header(&self) -> bool {
         false
     }
-
+    
+    /// log_df format as below;
+    ///     ID(0)      price(1)   size(2)                  timestamp[ms](4)  is_buyer(5)
+    /// ┌────────────┬──────────┬──────────┬─────────────┬───────────────┬──────────┬──────────┐
+    /// │ column_1   ┆ column_2 ┆ column_3 ┆ column_4    ┆ column_5      ┆ column_6 ┆ column_7 │
+    /// │ ---        ┆ ---      ┆ ---      ┆ ---         ┆ ---           ┆ ---      ┆ ---      │
+    /// │ i64        ┆ f64      ┆ f64      ┆ f64         ┆ i64           ┆ bool     ┆ bool     │
+    /// ╞════════════╪══════════╪══════════╪═════════════╪═══════════════╪══════════╪══════════╡
+    /// │ 3730692451 ┆ 56022.0  ┆ 0.005    ┆ 280.11      ┆ 1722988800052 ┆ true     ┆ true     │
     fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame> {
         let _ = df;
-        todo!()
+        println!("{:?}", df);
+
+        let df = df.clone();
+
+        let timestamp = df.select_at_idx(4).unwrap().i64()? * 1_000;
+        let timestamp = timestamp.cast(&DataType::Int64)?;
+
+        let timestamp = timestamp.clone();
+        let mut timestamp = Series::from(timestamp.clone());
+        timestamp.rename(KEY::timestamp);
+
+        let id_org = df.select_at_idx(0).unwrap();
+        let id_org = id_org.cast(&DataType::String)?;        
+        let mut id = Series::from(id_org.clone());
+        id.rename(KEY::id);
+
+        let mut side = df.select_at_idx(5).unwrap().clone();
+        side.rename(KEY::order_side);
+
+        let mut price = df.select_at_idx(1).unwrap().clone();
+        price.rename(KEY::price);
+
+        let mut size = df.select_at_idx(2).unwrap().clone();
+        size.rename(KEY::size);
+
+        let df = DataFrame::new(vec![timestamp, side, price, size, id])?;
+
+
+        Ok(df)
+
     }
 
     /*
@@ -752,7 +786,6 @@ mod binance_api_test {
         let server = BinanceServerConfig::new(false);
         let config = BinanceConfig::BTCUSDT();
         let api = BinanceRestApi::new(&server);
-
 
         let url = api.history_web_url(&config, NOW() - DAYS(2));
         println!("url={}", url);
