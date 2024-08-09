@@ -25,6 +25,8 @@ use rbot_lib::net::RestPage;
 use rbot_lib::net::WebSocketClient;
 use rust_decimal_macros::dec;
 use std::sync::{Arc, Mutex, RwLock};
+use std::thread::sleep;
+use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt as _;
@@ -286,12 +288,7 @@ where
     fn get_restapi(&self) -> &T;
     fn get_config(&self) -> MarketConfig;
 
-    fn get_server_config(&self) -> &ServerConfig;
-
     fn get_db(&self) -> Arc<Mutex<TradeDataFrame>>;
-
-    fn get_handler(&self) -> Option<JoinHandle<()>>;
-    fn set_handler(&mut self, handler: Option<JoinHandle<()>>);
 
     fn get_history_web_base_url(&self) -> String;
 
@@ -876,13 +873,8 @@ where
                 time_string(time_to)
             )
         }
-        let (time_from, time_to) = self.calc_db_time(time_from, time_to)?;
-
-        let expire_message =
-            TradeDb::expire_control_message(time_from, time_to, true, "before download_gap");
 
         let tx = self.open_db_channel()?;
-        tx.send(expire_message)?;
 
         let api = self.get_restapi();
 
@@ -890,6 +882,7 @@ where
         let mut rec = 0;
 
         loop {
+            let now = NOW();
             let (trades, page) = api
                 .get_trades(&self.get_config(), time_from, time_to, &trade_page)
                 .await?;
@@ -905,9 +898,11 @@ where
 
             if verbose {
                 println!(
-                    "download_range (loop) {}({}) {}({}) {}[rec]",
+                    "download_range (loop) ID:{}  {}({}) /  ID:{} {}({}) {}[rec]",
+                    trades[0].id,
                     time_string(start_time),
                     start_time,
+                    trades[l -1].id,
                     time_string(end_time),
                     end_time,
                     l
@@ -926,6 +921,11 @@ where
                 break;
             }
             trade_page = page;
+
+            let duration = NOW() - now;
+            if duration < 10_000 {
+                sleep(Duration::from_millis(((10_000 - duration) / 1_000) as u64));
+            }
         }
 
         Ok(rec)

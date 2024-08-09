@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
-use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
+use rbot_lib::common::{FeeType, MarketConfig, PriceType, ServerConfig};
 
 use crate::BYBIT;
 

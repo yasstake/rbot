@@ -1,7 +1,8 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
 use std::fs::File;
-use std::path::PathBuf;
+use std::io::{BufReader, Cursor, Read};
+use std::path::{Path, PathBuf};
 
 use crate::common::Trade;
 use crate::common::{time_string, MicroSec, SEC};
@@ -80,12 +81,37 @@ pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame> {
 pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
     log::debug!("reading csv file = {:?}", source_path);
 
-    let df = CsvReadOptions::default()
-        .with_has_header(has_header)
-        .try_into_reader_with_file_path(Some(source_path.clone()))?
-        .finish()?;
+    let suffix = source_path.extension().unwrap_or_default();
+    let suffix = suffix.to_ascii_lowercase();
 
-    Ok(df)
+    if suffix == "gz" || suffix == "csv" {
+        let df = CsvReadOptions::default()
+            .with_has_header(has_header)
+            .try_into_reader_with_file_path(Some(source_path.clone()))?
+            .finish()?;
+
+        return Ok(df);
+    } else if suffix == "zip" {
+        let file = File::open(source_path)?;
+        let mut archive = ZipArchive::new(file)?;
+
+        // Assuming there's only one file in the zip
+        let mut csv_file = archive.by_index(0)?;
+        let mut csv_data = Vec::new();
+
+        csv_file.read_to_end(&mut csv_data)?;
+        let cursor = Cursor::new(csv_data);
+
+        let df = CsvReadOptions::default()
+            .with_has_header(has_header)
+            .into_reader_with_file_handle(cursor)
+            .finish()?;
+
+        return Ok(df);
+    }
+
+    return Err(anyhow!("Unknown file type {:?}", source_path));
+    //let lazy = LazyCsvReader::new(source_path).with_has_header(has_header).finish()?;
 }
 
 /*
@@ -150,7 +176,7 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
 
         if let Some(df_end) = df_end {
             lazy_df = lazy_df.filter(col(KEY::timestamp).gt_eq(df_end + start_time));
-        }        
+        }
     }
 
     if 0 < end_time {
@@ -210,16 +236,14 @@ pub fn merge_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
     let df_before = select_df_lazy(df1, 0, df2_start_time).collect()?;
     let df = if df_before.shape().0 == 0 {
         df2.clone()
-    }
-    else {
+    } else {
         append_df(&df_before, df2)?
     };
 
     let df_after = select_df_lazy(df1, df2_end_time, 0).collect()?;
     let df = if df_after.shape().0 == 0 {
         df
-    }
-    else {
+    } else {
         append_df(&df, &df_after)?
     };
 
@@ -287,8 +311,6 @@ pub fn ohlcv_df(
         }
     }
 }
-
-
 
 pub fn ohlcvv_df(
     df: &DataFrame,
@@ -556,6 +578,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
 }
 
 pub struct TradeBuffer {
+    pub id: Vec<String>,
     pub time_stamp: Vec<MicroSec>,
     pub order_side: Vec<bool>,
     pub price: Vec<f64>,
@@ -565,22 +588,32 @@ pub struct TradeBuffer {
 impl TradeBuffer {
     pub fn new() -> Self {
         return TradeBuffer {
-            time_stamp: Vec::new(),
-            price: Vec::new(),
-            size: Vec::new(),
-            order_side: Vec::new(),
+            id: vec![],
+            time_stamp: vec![],
+            price: vec![],
+            size: vec![],
+            order_side: vec![],
         };
     }
 
     #[allow(unused)]
     pub fn clear(&mut self) {
+        self.id.clear();
         self.time_stamp.clear();
         self.price.clear();
         self.size.clear();
         self.order_side.clear();
     }
 
-    pub fn push(&mut self, timestamp: MicroSec, order_side: bool, price: f64, size: f64) {
+    pub fn push(
+        &mut self,
+        timestamp: MicroSec,
+        id: String,
+        order_side: bool,
+        price: f64,
+        size: f64,
+    ) {
+        self.id.push(id);
         self.time_stamp.push(timestamp);
         self.order_side.push(order_side);
         self.price.push(price);
@@ -595,6 +628,7 @@ impl TradeBuffer {
     }
 
     pub fn push_trade(&mut self, trade: &Trade) {
+        self.id.push(trade.id.clone());
         self.time_stamp.push(trade.time);
         self.price.push(trade.price.to_f64().unwrap());
         self.size.push(trade.size.to_f64().unwrap());
@@ -602,12 +636,13 @@ impl TradeBuffer {
     }
 
     pub fn to_dataframe(&self) -> DataFrame {
+        let id = Series::new(KEY::id, self.id.to_vec());
         let time_stamp = Series::new(KEY::timestamp, self.time_stamp.to_vec());
         let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
         let price = Series::new(KEY::price, self.price.to_vec());
         let size = Series::new(KEY::size, self.size.to_vec());
 
-        let df = DataFrame::new(vec![time_stamp, order_side, price, size]).unwrap();
+        let df = DataFrame::new(vec![time_stamp, order_side, price, size, id]).unwrap();
 
         return df;
     }
@@ -665,6 +700,7 @@ pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
     Ok(())
 }
 
+use ::zip::ZipArchive;
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
 
@@ -948,7 +984,13 @@ mod test_df {
         let mut trade_buffer = TradeBuffer::new();
 
         for i in 0..1000000 {
-            trade_buffer.push(i * 1_00, true, (i * 2) as f64, (i * 3) as f64);
+            trade_buffer.push(
+                i * 1_00,
+                "id-1".to_string(),
+                true,
+                (i * 2) as f64,
+                (i * 3) as f64,
+            );
         }
 
         let df = trade_buffer.to_dataframe();
@@ -969,9 +1011,15 @@ mod test_df {
         let mut trade_buffer = TradeBuffer::new();
 
         for i in 0..1000000 {
-            let side = i%2 == 0;
+            let side = i % 2 == 0;
 
-            trade_buffer.push(i * 1_00, side, (i * 2) as f64, (i * 3) as f64);
+            trade_buffer.push(
+                i * 1_00,
+                "id2".to_string(),
+                side,
+                (i * 2) as f64,
+                (i * 3) as f64,
+            );
         }
 
         let df = trade_buffer.to_dataframe();
@@ -986,5 +1034,4 @@ mod test_df {
 
         println!("{:?}", ohlcv);
     }
-
 }

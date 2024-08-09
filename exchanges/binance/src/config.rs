@@ -13,13 +13,6 @@ use crate::BINANCE;
 #[derive(Clone, Debug)]
 #[pyclass]
 pub struct BinanceServerConfig {
-    pub production: bool,
-    pub rest_server: String,
-    pub public_ws: String,
-    pub private_ws: String,
-    pub history_web_base: String,
-    api_key: SecretString,
-    api_secret: SecretString,
 }
 
 impl BinanceServerConfig {
@@ -48,7 +41,7 @@ impl BinanceServerConfig {
             rest_server,
             public_ws_server,
             private_ws_server,
-            "https://public.bybit.com",
+            "https://data.binance.vision",
         )    
     }
 }
@@ -80,7 +73,7 @@ impl BinanceConfig {
             foreign_currency: "BTC".to_string(),
             market_order_price_slip: dec![0.5],
             board_depth: 1000,
-            trade_category: "SPOT".to_string(),
+            trade_category: "spot".to_string(),
             trade_symbol: "BTCUSDT".to_string(),
             public_subscribe_channel: vec![
                 "btcusdt@trade".to_string(),

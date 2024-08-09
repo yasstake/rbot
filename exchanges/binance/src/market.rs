@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{AccountCoins, Trade, DAYS};
+use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS};
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
@@ -21,7 +21,7 @@ use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
 use rbot_lib::db::TradeDataFrame;
-use rbot_lib::net::{BroadcastMessage, RestApi};
+use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 use tokio::task::JoinHandle;
@@ -46,7 +46,7 @@ pub const BINANCE:&str = "BINANCE";
 pub struct Binance {
     production: bool,
     enable_order: bool,
-    server_config: BinanceServerConfig,
+    server_config: ServerConfig,
     user_handler: Option<JoinHandle<()>>,
     api: BinanceRestApi,
 }
@@ -54,6 +54,7 @@ pub struct Binance {
 #[pymethods]
 impl Binance {
     #[new]
+    #[pyo3(signature = (production=false))]
     pub fn new(production: bool) -> Self {
         let server_config = BinanceServerConfig::new(production);
 
@@ -70,7 +71,7 @@ impl Binance {
 
     #[getter]
     fn get_production(&self) -> bool {
-        self.server_config.production
+        self.server_config.is_production()
     }
 
     pub fn open_market(&self, config: &MarketConfig) -> BinanceMarket {
@@ -80,11 +81,12 @@ impl Binance {
     //--- OrderInterfaceImpl ----
     #[setter]
     pub fn set_enable_order_with_my_own_risk(&mut self, enable_order: bool) {
-        OrderInterfaceImpl::set_enable_order_feature(self, enable_order)
+        self.set_enable_order_feature(enable_order);
     }
+
     #[getter]
     pub fn get_enable_order_with_my_own_risk(&self) -> bool {
-        OrderInterfaceImpl::get_enable_order_feature(self)
+        self.get_enable_order_feature()
     }
 
     pub fn limit_order(
@@ -132,6 +134,13 @@ impl Binance {
 
     pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
+    }
+
+    pub fn __str__(&self) -> String {
+        format!(
+            "{{production: {}, enable_order: {}, server_config: {:?} }}",
+            self.production, self.enable_order, self.server_config
+        )
     }
 }
 
@@ -200,7 +209,7 @@ impl OrderInterfaceImpl<BinanceRestApi> for Binance {
 
 #[pyclass]
 pub struct BinanceMarket {
-    server_config: BinanceServerConfig,
+    server_config: ServerConfig,
     config: MarketConfig,
     api: BinanceRestApi,
     pub db: Arc<Mutex<TradeDataFrame>>,
@@ -211,17 +220,12 @@ pub struct BinanceMarket {
 #[pymethods]
 impl BinanceMarket {
     #[new]
-    pub fn new(server_config: &BinanceServerConfig, config: &MarketConfig) -> Self {
+    pub fn new(server_config: &ServerConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BinanceMarket::new");
         BLOCK_ON(async { 
-            Self::async_new(server_config, config, server_config.production).await.unwrap() 
+            Self::async_new(server_config, config).await.unwrap() 
         })
     }
-    #[getter]
-    fn get_config(&self) -> MarketConfig {
-        MarketImpl::get_config(self)
-    }
-
     #[getter]
     fn get_config(&self) -> MarketConfig {
         MarketImpl::get_config(self)
@@ -320,7 +324,9 @@ impl BinanceMarket {
 
     #[getter]
     fn get_board(&mut self) -> anyhow::Result<(PyDataFrame, PyDataFrame)> {
-        MarketImpl::get_board(self)
+        BLOCK_ON(async {
+            MarketImpl::async_get_board(self).await
+        })
     }
 
     #[getter]
@@ -330,7 +336,9 @@ impl BinanceMarket {
 
     #[getter]
     fn get_edge_price(&mut self) -> anyhow::Result<(Decimal, Decimal)> {
-        MarketImpl::get_edge_price(self)
+        BLOCK_ON(async {
+            MarketImpl::async_get_edge_price(self).await
+        })
     }
 
     fn _repr_html_(&self) -> String {
@@ -348,7 +356,7 @@ impl BinanceMarket {
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download(
+            MarketImpl::async_download::<BinancePublicWsClient>(
                 self,
                 ndays,
                 connect_ws,
@@ -373,7 +381,7 @@ impl BinanceMarket {
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download_realtime(self, connect_ws, force, verbose).await
+            MarketImpl::async_download_realtime::<BinancePublicWsClient> (self, connect_ws, force, verbose).await
         })
     }
 
@@ -386,7 +394,7 @@ impl BinanceMarket {
     }
 
     fn vaccum(&self) -> anyhow::Result<()> {
-        let mut lock = self.db.lock().unwrap();
+        let lock = self.db.lock().unwrap();
 
         lock.vacuum()
     }
@@ -402,14 +410,6 @@ impl BinanceMarket {
         BLOCK_ON(async {
             MarketImpl::async_download_latest(self, verbose).await
         })
-    }
-
-    fn _get_cache_duration(&self) -> MicroSec {
-        MarketImpl::get_cache_duration(self)
-    }
-
-    fn _reset_cache_duration(&mut self) {
-        MarketImpl::reset_cache_duration(self)
     }
 
     fn _latest_db_rec(&self, search_before: MicroSec) -> anyhow::Result<Trade> {
@@ -452,14 +452,11 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
     }
 
     fn get_history_web_base_url(&self) -> String {
-        self.server_config.history_web_base.clone()
+        self.server_config.get_historical_web_base()
     }
 
-    fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
-        self.board.clone()
-    }
-
-    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
+    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> 
+    {
         if self.public_handler.is_some() {
             log::info!("market stream is already running.");
             return Ok(());
@@ -467,8 +464,8 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
 
         let db_channel = {
             let mut lock = self.db.lock().unwrap();
-            lock.open_channel()?
-        };
+            lock.open_channel()
+        }?;
 
         let orderbook = self.board.clone();
 
@@ -477,14 +474,17 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
 
         let hub_channel = MARKET_HUB.open_channel();
 
+        let mut public_ws = BinancePublicWsClient::new(&server_config, &config).await;
+
+        let exchange_name = config.exchange_name.clone();
+        let trade_category = config.trade_category.clone();
+        let trade_symbol = config.trade_symbol.clone();
+
+//         public_ws.connect().await;
+
+        let _ = self.async_refresh_order_book().await;
+
         self.public_handler = Some(tokio::task::spawn(async move {
-            let mut public_ws = BybitPublicWsClient::new(&server_config, &config).await;
-
-            let exchange_name = config.exchange_name.clone();
-            let trade_category = config.trade_category.clone();
-            let trade_symbol = config.trade_symbol.clone();
-
-            public_ws.connect().await;
             let ws_stream = public_ws.open_stream().await;
             let mut ws_stream = Box::pin(ws_stream);
 
@@ -544,16 +544,20 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
 
         Ok(())
     }
-
+    
+    fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
+        self.board.clone()
+    }
+    
 
 }
 
 impl BinanceMarket {
     async fn async_new(
-        server_config: &BinanceServerConfig,
+        server_config: &ServerConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<Self> {
-        let db = TradeDataFrame::get(config, server_config.production)
+        let db = TradeDataFrame::get(config, server_config.is_production())
             .with_context(|| format!("Error in TradeTable::open: {:?}", config))?;
 
 
@@ -569,102 +573,14 @@ impl BinanceMarket {
         Ok(market)
     }
 
-    async fn async_start_market_stream(&mut self) -> anyhow::Result<()> {
-        if self.public_handler.is_some() {
-            log::info!("market stream is already running.");
-            return Ok(());
-        }
 
-        let db_channel = {
-            let mut lock = self.db.lock().unwrap();
-            lock.open_channel()
-        }?;
-
-        let orderbook = self.board.clone();
-
-        let server_config = self.server_config.clone();
-        let config = self.config.clone();
-
-        let hub_channel = MARKET_HUB.open_channel();
-
-        self.public_handler = Some(tokio::task::spawn(async move {
-            let mut public_ws = BinancePublicWsClient::new(&server_config, &config).await;
-
-            let exchange_name = config.exchange_name.clone();
-            let trade_category = config.trade_category.clone();
-            let trade_symbol = config.trade_symbol.clone();
-
-            public_ws.connect().await;
-
-            let _ = Self::async_refresh_order_book(&orderbook, &server_config, &config).await;
-
-            sleep(std::time::Duration::from_secs(1));
-
-            let ws_stream = public_ws.open_stream().await;
-            let mut ws_stream = Box::pin(ws_stream);
-
-            loop {
-                let message = ws_stream.next().await;
-                if message.is_none() {
-                    log::error!("Error in ws_stream.recv: {:?}", message);
-                    continue;
-                }
-
-                let message = message.unwrap();
-
-                if message.is_err() {
-                    log::error!("Error in ws_stream.recv: {:?}", message);
-                    continue;
-                }
-
-                let messages = message.unwrap();
-
-                match messages {
-                    MultiMarketMessage::Trade(trade) => {
-                        log::debug!("Trade: {:?}", trade);
-                        let r = db_channel.send(trade.clone());
-
-                        if r.is_err() {
-                            log::error!("Error in db_channel.send: {:?}", r);
-                        }
-
-                        for message in trade {
-                            let r = hub_channel.send(BroadcastMessage {
-                                exchange: exchange_name.clone(),
-                                category: trade_category.clone(),
-                                symbol: trade_symbol.clone(),
-                                msg: MarketMessage::Trade(message),
-                            });
-                            if r.is_err() {
-                                log::error!("Error in hub_channel.send: {:?}", r);
-                            }
-                        }
-                    }
-                    MultiMarketMessage::Orderbook(board) => {
-                        Self::update_orderbook(&orderbook, &board);
-                    }
-                    MultiMarketMessage::Control(control) => {
-                        if control.status == false {
-                            log::error!("Control message: {:?}", control);
-                        }
-                    }
-                    _ => {
-                        log::info!("Market stream message: {:?}", messages);
-                    }
-                }
-            }
-        }));
-
-        Ok(())
-    }
-
-
+/*
     async fn async_refresh_order_book(
+        &self,
         orderbook: &Arc<RwLock<OrderBook>>,
-        server: &BinanceServerConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<()> {
-        let transfer = BinanceRestApi::get_board_snapshot(&server, &config).await?;
+        let transfer = self.api.get_board_snapshot(&config).await?;
 
         let orderbook = orderbook.clone();
         Self::update_orderbook(&orderbook, &transfer);
@@ -702,113 +618,7 @@ impl BinanceMarket {
 
         b.update(&transfer);
     }
-
-    async fn async_download_gap(&mut self, force: bool, verbose: bool) -> anyhow::Result<i64> {
-        log::debug!("[start] download_gap ");
-
-        let gap_result = self.find_latest_gap_trade(force);
-        if gap_result.is_err() {
-            log::warn!("no gap found: {:?}", gap_result);
-            return Ok(0);
-        }
-
-        let start_time = NOW();
-        let (unfix_start, unfix_end) = gap_result.unwrap();
-
-        if verbose {
-            if let Some(t) = unfix_start.clone() {
-                println!("unfix_start: {:?}", t.__str__());
-            }
-            if let Some(t) = unfix_end.clone() {
-                println!("unfix_end  : {:?}", t.__str__());
-            }
-            flush_log();
-        }
-
-        let unfix_start_id = if let Some(trade) = unfix_start {
-            trade.id.parse::<i64>().unwrap()
-        } else {
-            log::warn!("no gap start found: {:?}", unfix_start);
-            return Ok(0);
-        };
-
-        let unfix_end_id = if let Some(trade) = unfix_end {
-            trade.id.parse::<i64>().unwrap_or_default()
-        } else {
-            0
-        };
-
-        let mut from_id = unfix_start_id + 1;
-        let mut insert_len: i64 = 0;
-
-        let tx = { self.db.lock().unwrap().start_thread().await };
-
-        loop {
-            if from_id == unfix_end_id {
-                log::debug!("from_id == unfix_end_id: {:?}", from_id);
-                break;
-            }
-
-            log::debug!("download recent from_id: {:?}", from_id);
-            let mut trades = BinanceRestApi::get_historical_trades(
-                &self.server_config,
-                &self.config,
-                from_id,
-                0,
-            )
-            .await?;
-
-            let l = trades.len();
-
-            if l == 0 {
-                if verbose {
-                    println!("end of data");
-                }
-                break;
-            }
-
-            if verbose {
-                println!(
-                    "Downloaded: from:{}({})[{}]  to:{}({})[{}]",
-                    time_string(trades[0].time),
-                    trades[0].time,
-                    trades[0].id,
-                    time_string(trades[l - 1].time),
-                    trades[l - 1].time,
-                    trades[l - 1].id
-                );
-                flush_log();
-            }
-
-            let trade_id = trades[l - 1].id.parse::<i64>()?;
-            from_id = trade_id + 1;
-
-            if unfix_end_id == 0 {
-                trades.retain(|t| t.time <= start_time);
-            } else {
-                trades.retain(|t| {
-                    (t.id.parse::<i64>().unwrap() <= unfix_end_id) && (t.time <= start_time)
-                });
-            }
-
-            let l = trades.len();
-            log::debug!("Trim downloaded: {:?}", l);
-
-            if l == 0 {
-                break;
-            }
-
-            trades[0].status = LogStatus::FixRestApiStart;
-            trades[l - 1].status = LogStatus::FixRestApiEnd;
-
-            tx.send(trades)?;
-
-            insert_len += l as i64;
-            log::debug!("inserted: {}", l);
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-        Ok(insert_len)
-    }
+*/
 }
 
 #[cfg(test)]
@@ -828,7 +638,7 @@ mod binance_market_test {
 
         log::debug!("market build complete");
 
-        let r = market.download_latest(true);
+        let r = market._download_latest(true);
 
         assert!(r.is_ok());
         log::debug!("download {:?}", r);
@@ -836,23 +646,6 @@ mod binance_market_test {
         sleep(std::time::Duration::from_secs(5));
     }
 
-    #[test]
-    fn test_dowlad_gap() {
-        // init_debug_log();
-        use super::*;
-        let server_config = BinanceServerConfig::new(true);
-        let config = BinanceConfig::BTCUSDT();
-
-        let mut market = BinanceMarket::new(&server_config, &config);
-
-        log::debug!("market build complete");
-
-        let r = market.download_gap(true, true);
-
-        assert!(r.is_ok());
-
-        sleep(std::time::Duration::from_secs(60));
-    }
 }
 
 #[cfg(test)]
@@ -871,12 +664,12 @@ mod test_market_impl {
 
         //let binance = Binance::new(true);
 
-        let mut market = BinanceMarket::async_new(&server, &market_config, true).await?;
+        let mut market = BinanceMarket::async_new(&server, &market_config).await?;
         //let mut market = binance.open_market(&market_config);
 
         let rec = market.async_download_latest(true).await.unwrap();
 
-        assert!(rec > 0);
+        assert!(rec.0 > 0);
 
         Ok(())
     }
@@ -890,22 +683,10 @@ mod test_market_impl {
 
         let mut market = BinanceMarket::new(&server, &market_config);
 
-        let rec = market.download_latest(true).unwrap();
-        assert!(rec > 0);
+        let rec = market._download_latest(true).unwrap();
+        assert!(rec.0 > 0);
     }
 
-    #[test]
-    fn test_download_gap() {
-
-        use super::*;
-        let server = BinanceServerConfig::new(true);
-        let market_config = BinanceConfig::BTCUSDT();
-
-        let mut market = BinanceMarket::new(&server, &market_config);
-
-        let rec = market.download_gap(false, true).unwrap();
-        assert!(rec > 0);
-    }
 
     use rust_decimal_macros::dec;
 
