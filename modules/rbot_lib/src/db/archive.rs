@@ -1,6 +1,7 @@
 use crate::{
     common::{
-        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade, DAYS, FLOOR_DAY, MIN, NOW, TODAY
+        date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade,
+        DAYS, FLOOR_DAY, MIN, NOW, TODAY,
     },
     db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
     net::{check_exist, RestApi},
@@ -90,7 +91,7 @@ impl TradeArchive {
             latest_archive_date: 0,
             start_time: 0,
             end_time: 0,
-            end_time_update_t: 0,            
+            end_time_update_t: 0,
         };
 
         let r = my.analyze();
@@ -103,11 +104,7 @@ impl TradeArchive {
             my.start_time(),
             time_string(my.start_time())
         );
-        log::debug!(
-            "E: {:?} ({:?})",
-            my.end_time(),
-            time_string(my.end_time())
-        );
+        log::debug!("E: {:?} ({:?})", my.end_time(), time_string(my.end_time()));
 
         return my;
     }
@@ -185,8 +182,7 @@ impl TradeArchive {
                         }
                     })
                     .await?;
-            }
-             else {
+            } else {
                 if verbose {
                     // text_bar.set_message(format!("skip download [{}]", date_time_string(date)));
                 }
@@ -197,9 +193,11 @@ impl TradeArchive {
         self.analyze()?;
 
         if verbose {
-            bar.print(&format!("Archived data: from:[{}] to:[{}]",
-                time_string(self.start_time()), time_string(self.end_time()))
-        );
+            bar.print(&format!(
+                "Archived data: from:[{}] to:[{}]",
+                time_string(self.start_time()),
+                time_string(self.end_time())
+            ));
         }
 
         Ok(count)
@@ -440,8 +438,8 @@ impl TradeArchive {
         Ok(timestamp)
     }
 
-    pub fn update_end_time(&mut self) -> anyhow::Result<()>{
-        if   self.end_time_update_t < NOW() + ARCHIVE_CHECK_INTERVAL {
+    pub fn update_end_time(&mut self) -> anyhow::Result<()> {
+        if self.end_time_update_t < NOW() + ARCHIVE_CHECK_INTERVAL {
             return Ok(());
         }
 
@@ -452,7 +450,7 @@ impl TradeArchive {
             return Err(anyhow!("no data in archive"));
         }
 
-        self.end_time = dates[len -1 ] + DAYS(1);
+        self.end_time = dates[len - 1] + DAYS(1);
 
         self.end_time_update_t = NOW();
         Ok(())
@@ -626,21 +624,26 @@ impl TradeArchive {
 
         let file_path = PathBuf::from(file_path);
 
-        // load to paquet
-        log::debug!("read log csv to df");
-        let has_header = api.archive_has_header();
-        let df = csv_to_df(&file_path, has_header)?;
-        log::debug!("load to df {:?}", df.shape());
+        let suffix = file_path.extension().unwrap_or_default();
+        let suffix = suffix.to_ascii_lowercase();
 
-        let mut archive_df = api.logdf_to_archivedf(&df)?;
-        log::debug!("archive df shape={:?}", archive_df.shape());
+        if suffix == "gz" || suffix == "csv" || suffix == "zip" {
+            log::debug!("read log csv to df");
+            let has_header = api.archive_has_header();
+            let df = csv_to_df(&file_path, has_header)?;
 
-        log::debug!("store paquet");
-        let paquet_file = self.file_path(date);
-        let rec = df_to_parquet(&mut archive_df, &paquet_file)?;
-        log::debug!("done {} [rec]", rec);
+            let mut archive_df = api.logdf_to_archivedf(&df)?;
+            log::debug!("archive df shape={:?}", archive_df.shape());
 
-        Ok(rec)
+            log::debug!("store paquet");
+            let paquet_file = self.file_path(date);
+            let rec = df_to_parquet(&mut archive_df, &paquet_file)?;
+            log::debug!("done {} [rec]", rec);
+
+            return Ok(rec)
+        }
+
+        Err(anyhow!("Unknown file type {:?}", file_path))
     }
 }
 
@@ -722,6 +725,7 @@ where
     let result = check_exist(url.as_str()).await;
 
     if result.is_err() {
+        log::info!("archive not found: url = {}", url);
         return Ok(false);
     }
 
@@ -760,4 +764,3 @@ mod archive_test {
         Ok(())
     }
 }
-
