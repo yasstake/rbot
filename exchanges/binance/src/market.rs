@@ -687,6 +687,34 @@ mod test_market_impl {
         assert!(rec.0 > 0);
     }
 
+    #[test]
+    fn test_download() {
+        init_debug_log();
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server, &market_config);
+
+        market.download(3, false, false, false, false, true).unwrap();
+    }
+
+    #[test]
+    fn test_download_archive() {
+        init_debug_log();
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server, &market_config);
+
+        market._download_archive(3, false, true).unwrap();
+
+        let trades = market._select_archive_trades(0, 0);
+
+        println!("{:?}", trades);
+    }
+
 
     use rust_decimal_macros::dec;
 
@@ -707,4 +735,6 @@ mod test_market_impl {
             None);
         assert!(rec.is_ok());
     }
+
+
 }

@@ -243,9 +243,10 @@ impl TradeArchive {
         let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
         let price = Series::new(KEY::price, Vec::<f64>::new());
         let size = Series::new(KEY::size, Vec::<f64>::new());
-        let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
+        let order_side = Series::new(KEY::order_side, Vec::<String>::new());
+        let id = Series::new(KEY::id, Vec::<String>::new());
 
-        let df = DataFrame::new(vec![time, order_side, price, size]).unwrap();
+        let df = DataFrame::new(vec![time, order_side, price, size, id]).unwrap();
 
         return df;
     }
@@ -312,16 +313,6 @@ impl TradeArchive {
 
         log::debug!("{:?}", df);
 
-        let df = df
-            .lazy()
-            .with_column(col(KEY::order_side).eq(lit("Buy")).alias(KEY::order_side))
-            .select([
-                col(KEY::timestamp),
-                col(KEY::order_side),
-                col(KEY::price),
-                col(KEY::size),
-            ])
-            .collect()?;
 
         log::debug!("read into DataFrame complete");
 
@@ -736,7 +727,7 @@ where
 mod archive_test {
     use std::{path::PathBuf, str::FromStr};
 
-    use crate::common::{init_debug_log, NOW};
+    use crate::{common::{init_debug_log, NOW}, db::TradeArchive};
 
     use super::log_download_tmp;
 
