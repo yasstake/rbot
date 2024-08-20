@@ -60,11 +60,13 @@ def test_download_archive(exchange, config):
     "exchange, config",
     [
             (Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(True), BybitConfig.BTCUSDT),
             (Binance(False), BinanceConfig.BTCUSDT),
+            (Binance(True), BinanceConfig.BTCUSDT),
     ]
 )
 def test_download(exchange, config):
     market = exchange.open_market(config)
 
-    market.download(3, force=True)    
+    market.download(3, force=True, verbose=True)    
     

@@ -930,8 +930,11 @@ where
             trade_page = page;
 
             let duration = NOW() - now;
-            if duration < 10_000 {
-                sleep(Duration::from_millis(((10_000 - duration) / 1_000) as u64));
+            if duration < 250_000 {
+                sleep(Duration::from_millis(((250_000 - duration) / 1_000) as u64));
+            }
+            else {
+                sleep(Duration::from_millis(150));
             }
         }
 
