@@ -594,7 +594,7 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
         time_to: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        self._async_download_range(time_from, time_to, verbose).await
+        self._async_download_range_virtual(time_from, time_to, verbose).await
     }
 
 }
