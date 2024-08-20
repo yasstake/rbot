@@ -393,6 +393,12 @@ impl BinanceMarket {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 
+    fn open_market_stream(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON (async {
+            self.async_start_market_stream().await
+        })
+    }
+
     fn vaccum(&self) -> anyhow::Result<()> {
         let lock = self.db.lock().unwrap();
 
@@ -555,7 +561,7 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
         time_to: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
-        let time_from = if time_from == 0 {
+        let time_from = if time_from == 0 || time_from < NOW() - DAYS(2) {
             FLOOR_DAY(NOW() - DAYS(1))
         }
         else {
