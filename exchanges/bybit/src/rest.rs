@@ -10,6 +10,9 @@ use polars::chunked_array::ops::ChunkCast as _;
 use polars::datatypes::DataType;
 use polars::export::num::FromPrimitive;
 use polars::frame::DataFrame;
+use polars::lazy::dsl::col;
+use polars::lazy::dsl::lit;
+use polars::lazy::frame::IntoLazy;
 use polars::series::Series;
 use rbot_lib::common::convert_klines_to_trades;
 use rbot_lib::common::split_yyyymmdd;
@@ -487,6 +490,7 @@ impl RestApi for BybitRestApi {
         size.rename(KEY::size);
 
         let df = DataFrame::new(vec![timestamp, side, price, size, id])?;
+
 
         Ok(df)
     }

@@ -756,4 +756,22 @@ mod market_test {
         server.set_enable_order_with_my_own_risk(true);
         assert_eq!(server.get_enable_order_with_my_own_risk(), true);
     }
+
+    #[test]
+    fn test_ohlcvv() {
+        use super::*;
+
+        init_debug_log();
+
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let ohlcv = market.ohlcv(0, 0, 60);
+        println!("{:?}", ohlcv);
+
+        let ohlcvv = market.ohlcvv(0, 0, 60);
+        println!("{:?}", ohlcvv);
+    }
 }

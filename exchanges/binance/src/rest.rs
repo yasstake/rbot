@@ -7,7 +7,7 @@ use crate::{
 };
 
 use anyhow::anyhow;
-use polars::{chunked_array::ops::ChunkCast as _, datatypes::DataType, frame::DataFrame, series::Series};
+use polars::{chunked_array::{ops::{ChunkApply, ChunkCast as _}, ChunkedArray}, datatypes::DataType, frame::DataFrame, prelude::NamedFrom as _, series::{IntoSeries, Series}};
 use rbot_lib::{
     common::{
         flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus,
@@ -271,6 +271,7 @@ impl RestApi for BinanceRestApi {
 
         let (yyyy, mm, dd) = split_yyyymmdd(date);
 
+        // TODO: implement other than spot
         if category == "spot" {
             return format!(
                 "{}/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
@@ -317,9 +318,24 @@ impl RestApi for BinanceRestApi {
         let id_org = id_org.cast(&DataType::String)?;        
         let mut id = Series::from(id_org.clone());
         id.rename(KEY::id);
+        
+        let side = df.select_at_idx(5).unwrap().clone();
 
-        let mut side = df.select_at_idx(5).unwrap().clone();
-        side.rename(KEY::order_side);
+        let side_vec: Vec<String> = side.bool()?.into_iter().map(|order_side| {
+            match order_side {
+                Some(true) => {
+                    "Buy".to_string()
+                },
+                Some(false) => {
+                    "Sell".to_string()
+                }
+                _ => {
+                    log::error!("unknown side in log");
+                    "Unknown".to_string()
+                }
+            } 
+        }).collect();
+        let side = Series::new(KEY::order_side, side_vec);
 
         let mut price = df.select_at_idx(1).unwrap().clone();
         price.rename(KEY::price);

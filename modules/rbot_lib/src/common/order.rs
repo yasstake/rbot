@@ -272,8 +272,6 @@ impl Default for LogStatus {
 
 impl From<&str> for LogStatus {
     fn from(status: &str) -> Self {
-        log::debug!("{}", status);
-
         match status {
             "Us" => LogStatus::UnFixStart,
             "U" => LogStatus::UnFix,

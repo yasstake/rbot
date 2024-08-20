@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use crate::common::Trade;
+use crate::common::{OrderSide, Trade};
 use crate::common::{time_string, MicroSec, SEC};
 use polars::prelude::DataFrame;
 use polars::prelude::Duration;
@@ -204,6 +204,12 @@ pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
 
 /// append df2 after df1
 pub fn append_df(df1: &DataFrame, df2: &DataFrame) -> anyhow::Result<DataFrame> {
+    if df1.shape().1 != df2.shape().1 {
+        println!("shape mismatch df1={:?}, df2={:?}", df1.shape(), df2.shape());
+        println!("{:?}", df1);
+        println!("{:?}", df2);
+    }
+
     let df = df1.vstack(df2)?;
 
     Ok(df)
@@ -580,7 +586,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
 pub struct TradeBuffer {
     pub id: Vec<String>,
     pub time_stamp: Vec<MicroSec>,
-    pub order_side: Vec<bool>,
+    pub order_side: Vec<String>,
     pub price: Vec<f64>,
     pub size: Vec<f64>,
 }
@@ -609,13 +615,13 @@ impl TradeBuffer {
         &mut self,
         timestamp: MicroSec,
         id: String,
-        order_side: bool,
+        order_side: &OrderSide,
         price: f64,
         size: f64,
     ) {
         self.id.push(id);
         self.time_stamp.push(timestamp);
-        self.order_side.push(order_side);
+        self.order_side.push(order_side.to_string());
         self.price.push(price);
         self.size.push(size);
     }
@@ -632,7 +638,7 @@ impl TradeBuffer {
         self.time_stamp.push(trade.time);
         self.price.push(trade.price.to_f64().unwrap());
         self.size.push(trade.size.to_f64().unwrap());
-        self.order_side.push(trade.order_side.is_buy_side());
+        self.order_side.push(trade.order_side.to_string());
     }
 
     pub fn to_dataframe(&self) -> DataFrame {
@@ -650,7 +656,7 @@ impl TradeBuffer {
 
 pub fn make_empty_ohlcvv() -> DataFrame {
     let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
-    let order_side = Series::new(KEY::order_side, Vec::<bool>::new());
+    let order_side = Series::new(KEY::order_side, Vec::<String>::new());
     let open = Series::new(KEY::open, Vec::<f64>::new());
     let high = Series::new(KEY::high, Vec::<f64>::new());
     let low = Series::new(KEY::low, Vec::<f64>::new());
@@ -987,7 +993,7 @@ mod test_df {
             trade_buffer.push(
                 i * 1_00,
                 "id-1".to_string(),
-                true,
+                &OrderSide::Buy,
                 (i * 2) as f64,
                 (i * 3) as f64,
             );
@@ -1011,12 +1017,10 @@ mod test_df {
         let mut trade_buffer = TradeBuffer::new();
 
         for i in 0..1000000 {
-            let side = i % 2 == 0;
-
             trade_buffer.push(
                 i * 1_00,
                 "id2".to_string(),
-                side,
+                &OrderSide::Sell,
                 (i * 2) as f64,
                 (i * 3) as f64,
             );
