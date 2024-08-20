@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS};
+use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
@@ -20,7 +20,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
-use rbot_lib::db::TradeDataFrame;
+use rbot_lib::db::{TradeArchive, TradeDataFrame};
 use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
@@ -433,7 +433,7 @@ impl BinanceMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            MarketImpl::async_download_range(self, start_time, end_time, verbose).await
+            MarketImpl::_async_download_range(self, start_time, end_time, verbose).await
         })
     }
 }
@@ -548,8 +548,22 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         self.board.clone()
     }
-    
 
+    async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        let time_from = if time_from == 0 {
+            FLOOR_DAY(NOW() - DAYS(1))
+        }
+        else {
+            time_from
+        };
+
+        self._async_download_range(time_from, time_to, verbose).await
+    }
 }
 
 impl BinanceMarket {

@@ -443,7 +443,7 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            MarketImpl::async_download_range(self, start_time, end_time, verbose).await
+            MarketImpl::_async_download_range(self, start_time, end_time, verbose).await
         })
     }
 
@@ -587,6 +587,16 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         self.board.clone()
     }
+
+    async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        self._async_download_range(time_from, time_to, verbose).await
+    }
+
 }
 
 #[cfg(test)]

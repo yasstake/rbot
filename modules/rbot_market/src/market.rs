@@ -755,7 +755,7 @@ where
             t
         };
 
-        self.async_download_range_virtual(range_from, start_time, verbose)
+        self.async_download_range(range_from, start_time, verbose)
             .await?;
 
         Ok(())
@@ -785,7 +785,7 @@ where
         Ok((time_from, time_to))
     }
 
-    async fn async_download_range_virtual(
+    async fn _async_download_range_virtual(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
@@ -859,6 +859,13 @@ where
     }
 
     async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64>;
+
+    async fn _async_download_range(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
