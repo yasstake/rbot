@@ -443,7 +443,7 @@ impl BybitMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            MarketImpl::async_download_range(self, start_time, end_time, verbose).await
+            MarketImpl::_async_download_range(self, start_time, end_time, verbose).await
         })
     }
 
@@ -587,6 +587,16 @@ impl MarketImpl<BybitRestApi> for BybitMarket {
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         self.board.clone()
     }
+
+    async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        self._async_download_range_virtual(time_from, time_to, verbose).await
+    }
+
 }
 
 #[cfg(test)]
@@ -755,5 +765,23 @@ mod market_test {
 
         server.set_enable_order_with_my_own_risk(true);
         assert_eq!(server.get_enable_order_with_my_own_risk(), true);
+    }
+
+    #[test]
+    fn test_ohlcvv() {
+        use super::*;
+
+        init_debug_log();
+
+        let server_config = BybitServerConfig::new(false);
+        let market_config = BybitConfig::BTCUSDT();
+
+        let mut market = BybitMarket::new(&server_config, &market_config);
+
+        let ohlcv = market.ohlcv(0, 0, 60);
+        println!("{:?}", ohlcv);
+
+        let ohlcvv = market.ohlcvv(0, 0, 60);
+        println!("{:?}", ohlcvv);
     }
 }

@@ -41,6 +41,7 @@ members = [
     "modules/rbot_blockon",
     "modules/rbot_server",
     "modules/rbot_blockon",
+    "modules/ccxt",
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit",
@@ -51,13 +52,13 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 
-
 [workspace.dependencies]
 rbot_lib = {path="modules/rbot_lib"}
 rbot_session = {path="modules/rbot_session"}
 rbot_server = {path="modules/rbot_server"}
 rbot_market = {path="modules/rbot_market"}
 rbot_blockon = {path="modules/rbot_blockon"}
+ccxt = {path="modules/ccxt"}
 
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }

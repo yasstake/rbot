@@ -755,7 +755,7 @@ where
             t
         };
 
-        self.async_download_range_virtual(range_from, start_time, verbose)
+        self.async_download_range(range_from, start_time, verbose)
             .await?;
 
         Ok(())
@@ -785,7 +785,7 @@ where
         Ok((time_from, time_to))
     }
 
-    async fn async_download_range_virtual(
+    async fn _async_download_range_virtual(
         &mut self,
         time_from: MicroSec,
         time_to: MicroSec,
@@ -863,6 +863,13 @@ where
         time_from: MicroSec,
         time_to: MicroSec,
         verbose: bool,
+    ) -> anyhow::Result<i64>;
+
+    async fn _async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
     ) -> anyhow::Result<i64> {
         if verbose {
             println!(
@@ -923,8 +930,11 @@ where
             trade_page = page;
 
             let duration = NOW() - now;
-            if duration < 10_000 {
-                sleep(Duration::from_millis(((10_000 - duration) / 1_000) as u64));
+            if duration < 250_000 {
+                sleep(Duration::from_millis(((250_000 - duration) / 1_000) as u64));
+            }
+            else {
+                sleep(Duration::from_millis(150));
             }
         }
 

@@ -31,17 +31,17 @@ def test_get_config(exchange, config):
 def test_start_time_and_db_info(exchange, config):
     market = exchange.open_market(config)
     
-    market.download(3, verbose=True)
+    market.download(3, verbose=True, force=True)
     
     start_time = market.start_time
     end_time = market.end_time   
-    print("total ", start_time, "/", end_time)
+    print("total ", time_string(start_time), "/", time_string(end_time))
 
     ac_start, ac_end = market.archive_info
-    print("archive ", ac_start, "/", ac_end)
+    print("archive ", time_string(ac_start), "/", time_string(ac_end))
 
     db_start, db_end = market.db_info
-    print("db      ", db_start, "/", db_end)
+    print("db      ", time_string(db_start), "/", time_string(db_end))
 
     assert(start_time < end_time)
     assert(start_time + DAYS(1) <= end_time)
@@ -49,7 +49,8 @@ def test_start_time_and_db_info(exchange, config):
     assert(start_time == ac_start)
     assert(end_time == db_end)
     
-    assert(db_start - ac_end <= 15_000_000)     # ohlcv interval
+    gap =  db_start - ac_end
+    assert(gap <= 15_000_000)     # ohlcv interval
     
 @pytest.mark.parametrize(
     "exchange, config",

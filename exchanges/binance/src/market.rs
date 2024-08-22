@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS};
+use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
@@ -20,7 +20,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
-use rbot_lib::db::TradeDataFrame;
+use rbot_lib::db::{TradeArchive, TradeDataFrame};
 use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
@@ -393,6 +393,12 @@ impl BinanceMarket {
         MarketImpl::open_backtest_channel(self, time_from, time_to)
     }
 
+    fn open_market_stream(&mut self) -> anyhow::Result<()> {
+        BLOCK_ON (async {
+            self.async_start_market_stream().await
+        })
+    }
+
     fn vaccum(&self) -> anyhow::Result<()> {
         let lock = self.db.lock().unwrap();
 
@@ -433,7 +439,7 @@ impl BinanceMarket {
         verbose: bool,
     ) -> anyhow::Result<i64> {
         BLOCK_ON(async {
-            MarketImpl::async_download_range(self, start_time, end_time, verbose).await
+            MarketImpl::_async_download_range(self, start_time, end_time, verbose).await
         })
     }
 }
@@ -548,8 +554,22 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
     fn get_order_book(&self) -> Arc<RwLock<OrderBook>> {
         self.board.clone()
     }
-    
 
+    async fn async_download_range(
+        &mut self,
+        time_from: MicroSec,
+        time_to: MicroSec,
+        verbose: bool,
+    ) -> anyhow::Result<i64> {
+        let time_from = if time_from == 0 || time_from < NOW() - DAYS(2) {
+            FLOOR_DAY(NOW() - DAYS(1))
+        }
+        else {
+            time_from
+        };
+
+        self._async_download_range(time_from, time_to, verbose).await
+    }
 }
 
 impl BinanceMarket {
@@ -687,6 +707,34 @@ mod test_market_impl {
         assert!(rec.0 > 0);
     }
 
+    #[test]
+    fn test_download() {
+        init_debug_log();
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server, &market_config);
+
+        market.download(3, false, false, false, false, true).unwrap();
+    }
+
+    #[test]
+    fn test_download_archive() {
+        init_debug_log();
+        use super::*;
+        let server = BinanceServerConfig::new(true);
+        let market_config = BinanceConfig::BTCUSDT();
+
+        let mut market = BinanceMarket::new(&server, &market_config);
+
+        market._download_archive(3, false, true).unwrap();
+
+        let trades = market._select_archive_trades(0, 0);
+
+        println!("{:?}", trades);
+    }
+
 
     use rust_decimal_macros::dec;
 
@@ -707,4 +755,6 @@ mod test_market_impl {
             None);
         assert!(rec.is_ok());
     }
+
+
 }

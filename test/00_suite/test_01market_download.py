@@ -51,15 +51,22 @@ def test_download_archive(exchange, config):
 
     init_debug_log()
 
-    market._download_archive(ndays=4, verbose=True)
+    market._download_archive(ndays=5, verbose=True)
     
     print(market._select_archive_trades(0, 0))
 
     
-def test_download():
-    exchange = Bybit(production=False)
-    config = BybitConfig.BTCUSDT
+@pytest.mark.parametrize(
+    "exchange, config",
+    [
+            (Bybit(False), BybitConfig.BTCUSDT),
+            (Bybit(True), BybitConfig.BTCUSDT),
+            (Binance(False), BinanceConfig.BTCUSDT),
+            (Binance(True), BinanceConfig.BTCUSDT),
+    ]
+)
+def test_download(exchange, config):
     market = exchange.open_market(config)
 
-    market.download(3)    
+    market.download(3, force=True, verbose=True)    
     
