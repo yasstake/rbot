@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use futures::Stream;
 use futures::StreamExt;
-use rbot_lib::common::PriceType;
-use rbot_lib::common::FeeType;
 use rbot_lib::net::ReceiveMessage;
 use rbot_lib::net::WebSocketClient;
 // use serde::{Deserialize as _, Serialize as _};

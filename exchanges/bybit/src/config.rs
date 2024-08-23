@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, ExchangeConfig};
+use rbot_lib::common::{FeeType, MarketConfig, ExchangeConfig};
 
 use crate::BYBIT;
 
@@ -71,7 +71,6 @@ impl BybitConfig {
             "BTC",
             "USDT",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,
@@ -94,7 +93,6 @@ impl BybitConfig {
             "ETH",
             "USDT",            
             0.01,
-            PriceType::Home,
             0.01,
             200,
             0.1,
@@ -119,7 +117,6 @@ impl BybitConfig {
             "BTC",
             "USDC",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,
@@ -147,7 +144,6 @@ impl BybitConfig {
             "ETH",
             "USDC",            
             0.01,
-            PriceType::Home,
             0.01,
             200,
             0.1,
@@ -171,7 +167,6 @@ impl BybitConfig {
             "MNT",
             "USDT",            
             0.0001,
-            PriceType::Home,
             1.0,
             200,
             0.1,
@@ -194,7 +189,6 @@ impl BybitConfig {
             "MNT",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -218,7 +212,6 @@ impl BybitConfig {
             "SOL",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -241,7 +234,6 @@ impl BybitConfig {
             "SOL",
             "USDC",            
             0.01,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -265,7 +257,6 @@ impl BybitConfig {
             "USDC",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -313,7 +304,6 @@ mod test_bybit_config {
             "BTC",
             "USDT",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,

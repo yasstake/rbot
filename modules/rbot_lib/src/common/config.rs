@@ -108,13 +108,6 @@ pub enum FeeType {
     Foreign,
     Both,
 }
-#[pyclass]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum PriceType {
-    Home,
-    Foreign,
-    Both,
-}
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -132,8 +125,6 @@ pub struct MarketConfig {
     pub maker_fee: Decimal,
     pub taker_fee: Decimal,
 
-    #[pyo3(set)]
-    pub price_type: PriceType,
     #[pyo3(set)]
     pub fee_type: FeeType,
 
@@ -200,7 +191,6 @@ impl MarketConfig {
         foreign_currency: &str,
         home_currency: &str,
         price_unit: f64,
-        price_type: PriceType,
         size_unit: f64,
         board_depth: u32,
         market_order_price_slip: f64,
@@ -225,7 +215,6 @@ impl MarketConfig {
             size_unit: Decimal::from_f64(size_unit).unwrap(),
             maker_fee,
             taker_fee,
-            price_type,
             fee_type,
             home_currency: home_currency.to_string(),
             foreign_currency: foreign_currency.to_string(),
@@ -307,7 +296,6 @@ impl Default for MarketConfig {
             "default_foreign_currency",
             "default_home_currency",
             0.01,
-            PriceType::Home,
             0.01,
             10,
             0.0,

@@ -579,7 +579,7 @@ where
 mod test_exchange_ws {
     use crate::common::SecretString;
     use crate::common::{
-        env_api_key, env_api_secret, init_debug_log, init_log, FeeType, PriceType,
+        env_api_key, env_api_secret, init_debug_log, init_log, FeeType,
     };
     use crate::common::{MarketConfig, ExchangeConfig, NOW};
     use crate::net::{AutoConnectClient, SimpleWebsocket};
@@ -626,7 +626,6 @@ mod test_exchange_ws {
             size_unit: dec![0.001],
             maker_fee: dec![0.00_01],
             taker_fee: dec![0.00_01],
-            price_type: PriceType::Home,
             fee_type: FeeType::Home,
             home_currency: "USDT".to_string(),
             foreign_currency: "BTC".to_string(),

@@ -1466,7 +1466,7 @@ pub fn convert_klines_to_trades(klines: Vec<Kline>, window_sec: i64) -> Vec<Trad
 mod order_tests {
     use std::str::FromStr;
 
-    use crate::common::{init_debug_log, PriceType};
+    use crate::common::{init_debug_log};
 
     use super::*;
 
@@ -1477,7 +1477,6 @@ mod order_tests {
             "BTC",
             "USDT",
             0.01,
-            PriceType::Home,
             0.001,
             1000,
             0.0001,

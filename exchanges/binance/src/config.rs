@@ -4,7 +4,7 @@
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 
-use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ExchangeConfig};
+use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, SecretString, ExchangeConfig};
 
 use crate::BINANCE;
 
@@ -68,7 +68,6 @@ impl BinanceConfig {
             size_unit: dec![0.001],
             maker_fee: dec![0.00_01],
             taker_fee: dec![0.00_01],
-            price_type: PriceType::Home,
             fee_type: FeeType::Home,
             home_currency: "USDT".to_string(),
             foreign_currency: "BTC".to_string(),
