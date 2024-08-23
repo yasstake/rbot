@@ -1,7 +1,7 @@
 // Copyright(c) 2022-2023. yasstake. All rights reserved.
 
-use core::panic;
 use async_stream::stream;
+use core::panic;
 use futures::stream::SplitSink;
 use futures::stream::SplitStream;
 use futures::SinkExt;
@@ -19,14 +19,14 @@ use std::sync::Arc;
 
 use crate::common::MarketConfig;
 use crate::common::MultiMarketMessage;
-use crate::common::ServerConfig;
+use crate::common::ExchangeConfig;
 //use crate::common::MultiMarketMessage;
 use crate::common::{MicroSec, MICRO_SECOND, NOW};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream};
 
 pub trait WebSocketClient {
-    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self;
+    async fn new(server: &ExchangeConfig, config: &MarketConfig) -> Self;
     async fn open_stream<'a>(
         &'a mut self,
     ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + Send + 'a;
@@ -53,14 +53,14 @@ pub enum ReceiveMessage {
 
 #[derive(Debug)]
 pub struct SimpleWebsocket<U> {
-    server: ServerConfig,
+    server: ExchangeConfig,
     config: MarketConfig,
     read_stream: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     write_sream: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>>,
     url: String,
     subscribe_message: Arc<RwLock<U>>,
-    init_fn: Option<fn(&ServerConfig) -> String>,
-    url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
+    init_fn: Option<fn(&ExchangeConfig) -> String>,
+    url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
     ping_interval_sec: i64,
     ping_thread: Option<tokio::task::JoinHandle<()>>,
 }
@@ -70,13 +70,13 @@ where
     U: WsOpMessage,
 {
     pub fn new(
-        server: &ServerConfig,
+        server: &ExchangeConfig,
         config: &MarketConfig,
         url: &str,
         subscribe_message: Arc<RwLock<U>>,
         ping_interval_sec: i64,
-        init_fn: Option<fn(&ServerConfig) -> String>,
-        url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
+        init_fn: Option<fn(&ExchangeConfig) -> String>,
+        url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
     ) -> Self {
         log::debug!("new SimpleWebsocket");
         SimpleWebsocket {
@@ -305,7 +305,7 @@ where
 
 #[derive(Debug)]
 pub struct AutoConnectClient<U> {
-    server: ServerConfig,
+    server: ExchangeConfig,
     config: MarketConfig,
     client: Option<SimpleWebsocket<U>>,
     next_client: Option<SimpleWebsocket<U>>,
@@ -318,8 +318,8 @@ pub struct AutoConnectClient<U> {
     sync_mode: bool,
     sync_wait_records: i64, // setting for number of records to sync
     ping_interval: MicroSec,
-    init_fn: Option<fn(&ServerConfig) -> String>,
-    url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
+    init_fn: Option<fn(&ExchangeConfig) -> String>,
+    url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
 }
 
 impl<U> AutoConnectClient<U>
@@ -327,14 +327,14 @@ where
     U: WsOpMessage,
 {
     pub fn new(
-        server: &ServerConfig,
+        server: &ExchangeConfig,
         config: &MarketConfig,
         url: &str,
         ping_interval: MicroSec,
         switch_interval_sec: i64,
         sync_wait_records: i64,
-        init_fn: Option<fn(&ServerConfig) -> String>,
-        url_generator: Option<fn(&ServerConfig, &MarketConfig) -> String>,
+        init_fn: Option<fn(&ExchangeConfig) -> String>,
+        url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
     ) -> Self {
         AutoConnectClient {
             client: None,
@@ -581,7 +581,7 @@ mod test_exchange_ws {
     use crate::common::{
         env_api_key, env_api_secret, init_debug_log, init_log, FeeType, PriceType,
     };
-    use crate::common::{MarketConfig, ServerConfig, NOW};
+    use crate::common::{MarketConfig, ExchangeConfig, NOW};
     use crate::net::{AutoConnectClient, SimpleWebsocket};
     use async_std::stream::StreamExt;
     use rust_decimal_macros::dec;
@@ -606,10 +606,11 @@ mod test_exchange_ws {
     }
 
     impl TestServerConfig {
-        fn new() -> ServerConfig {
-            ServerConfig::new(
+        fn new() -> ExchangeConfig {
+            ExchangeConfig::new(
                 "BYBIT",
                 false,
+                "https://api-testnet.bybit.com",
                 "https://api-testnet.bybit.com",
                 "wss://stream-testnet.bybit.com/v5/public",
                 "wss://stream-testnet.bybit.com/v5/private",
@@ -690,7 +691,7 @@ mod test_exchange_ws {
         println!("PING={:?}", message);
     }
 
-    fn url_generator(server: &ServerConfig, config: &MarketConfig) -> String {
+    fn url_generator(server: &ExchangeConfig, config: &MarketConfig) -> String {
         format!(
             "{}/{}",
             server.get_public_ws_server(),

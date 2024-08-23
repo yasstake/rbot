@@ -1,7 +1,7 @@
 // Copyright(c) 2022-4. yasstake. All rights reserved.
 // ABSOLUTELY NO WARRANTY.
 
-use super::{env_api_key, env_api_secret, SecretString};
+use super::{env_api_key, env_api_secret, get_market_config, get_server_config, list_exchange, list_symbols, SecretString};
 use anyhow::anyhow;
 use pyo3::{pyclass, pymethods, types::PyAnyMethods as _, Bound, PyAny, PyResult};
 use rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG;
@@ -12,10 +12,11 @@ use zip::read::Config;
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
+pub struct ExchangeConfig {
     exchange_name: String,
     production: bool,
-    rest_server: String,
+    public_api: String,
+    private_api: String, 
     public_ws: String,
     private_ws: String,
     history_web_base: String,
@@ -24,21 +25,42 @@ pub struct ServerConfig {
 }
 
 #[pymethods]
-impl ServerConfig {
+impl ExchangeConfig {
     #[new]
-    pub fn new(exchange_name: &str, production: bool, rest_server: &str, 
+    pub fn new(exchange_name: &str, production: bool, public_api: &str, private_api: &str,
         public_ws: &str, private_ws: &str, history_web_base: &str 
         ) -> Self {
-        ServerConfig {
+        ExchangeConfig {
             exchange_name: exchange_name.to_string(),
             production,
-            rest_server: rest_server.to_string(),
+            public_api: public_api.to_string(),
+            private_api: private_api.to_string(),
             public_ws: public_ws.to_string(),
             private_ws:private_ws.to_string(),
             history_web_base: history_web_base.to_string(),
             api_key: SecretString::new(&env_api_key(exchange_name, production)),
             api_secret: SecretString::new(&env_api_secret(exchange_name, production))
         }
+    }
+
+    #[staticmethod]
+    #[pyo3 (signature=(exchange_name, production=true))]
+    pub fn open(exchange_name: &str, production: bool) -> anyhow::Result<ExchangeConfig> {
+        get_server_config(exchange_name, production)
+    }
+
+    #[classattr]
+    pub fn exchanges() -> anyhow::Result<Vec<String>> {
+        list_exchange()
+    }
+
+    #[getter]
+    pub fn get_symbols(&self) -> anyhow::Result<Vec<String>> {
+        list_symbols(&self.exchange_name)
+    }
+
+    pub fn open_market(&self, symbol: &str) -> anyhow::Result<MarketConfig>{
+        get_market_config(&self.exchange_name, symbol)
     }
 
     pub fn get_exchange_name(&self) -> String {
@@ -50,7 +72,7 @@ impl ServerConfig {
     }
 
     pub fn get_rest_server(&self) -> String {
-        self.rest_server.clone()
+        self.public_api.clone()
     }
 
     pub fn get_public_ws_server(&self) -> String {

@@ -41,7 +41,6 @@ members = [
     "modules/rbot_blockon",
     "modules/rbot_server",
     "modules/rbot_blockon",
-    "modules/ccxt",
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit",
@@ -58,7 +57,6 @@ rbot_session = {path="modules/rbot_session"}
 rbot_server = {path="modules/rbot_server"}
 rbot_market = {path="modules/rbot_market"}
 rbot_blockon = {path="modules/rbot_blockon"}
-ccxt = {path="modules/ccxt"}
 
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }

@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, ServerConfig};
+use rbot_lib::common::{FeeType, MarketConfig, PriceType, ExchangeConfig};
 
 use crate::BYBIT;
 
@@ -16,7 +16,7 @@ pub struct BybitServerConfig {
 }
 
 impl BybitServerConfig {
-    pub fn new(production: bool) -> ServerConfig {
+    pub fn new(production: bool) -> ExchangeConfig {
         let rest_server = if production {
             "https://api.bybit.com"
         } else {
@@ -35,9 +35,10 @@ impl BybitServerConfig {
             "wss://stream-testnet.bybit.com/v5/private"
         };
 
-        ServerConfig::new(
+        ExchangeConfig::new(
             BYBIT,
             production,
+            rest_server,
             rest_server,
             public_ws_server,
             private_ws_server,

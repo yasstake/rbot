@@ -16,7 +16,7 @@ use rbot_lib::net::WebSocketClient;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
-use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ServerConfig, NOW};
+use rbot_lib::common::{hmac_sign, MarketConfig, MultiMarketMessage, ExchangeConfig, NOW};
 
 use rbot_lib::net::{AutoConnectClient, WsOpMessage};
 use tokio::task::JoinHandle;
@@ -86,7 +86,7 @@ pub struct BybitPublicWsClient {
 }
 
 impl WebSocketClient for BybitPublicWsClient {
-    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self {
+    async fn new(server: &ExchangeConfig, config: &MarketConfig) -> Self {
         let mut public_ws = AutoConnectClient::new(
             server,
             config,
@@ -150,7 +150,7 @@ impl WebSocketClient for BybitPublicWsClient {
 }
     
 impl BybitPublicWsClient {
-    fn public_url(server: &ServerConfig, config: &MarketConfig) -> String {
+    fn public_url(server: &ExchangeConfig, config: &MarketConfig) -> String {
         format!(
             "{}/{}",
             server.get_public_ws_server(),
@@ -179,7 +179,7 @@ pub struct BybitPrivateWsClient {
 }
 
 impl BybitPrivateWsClient {
-    pub async fn new(server: &ServerConfig) -> Self {
+    pub async fn new(server: &ExchangeConfig) -> Self {
         let dummy_config = BybitConfig::BTCUSDT();
 
         let mut private_ws = AutoConnectClient::new(
@@ -204,7 +204,7 @@ impl BybitPrivateWsClient {
         Self { ws: private_ws }
     }
 
-    fn make_auth_message(server: &ServerConfig) -> String {
+    fn make_auth_message(server: &ExchangeConfig) -> String {
         let api_key = server.get_api_key().extract();
         let secret_key = server.get_api_secret().extract();
         let time_stamp = (NOW() / 1_000) + 1_000 * 10; // 10 seconds in the future

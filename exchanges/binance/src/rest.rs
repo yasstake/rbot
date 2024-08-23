@@ -11,7 +11,7 @@ use polars::{chunked_array::{ops::{ChunkApply, ChunkCast as _}, ChunkedArray}, d
 use rbot_lib::{
     common::{
         flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus,
-        MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW,
+        MarketConfig, MicroSec, Order, OrderSide, OrderType, ExchangeConfig, Trade, NOW,
     }, db::KEY, net::{rest_delete, rest_get, rest_post, rest_put, RestApi, RestPage}
 };
 use rust_decimal::Decimal;
@@ -21,11 +21,11 @@ use anyhow::Context;
 
 #[derive(Clone, Debug)]
 pub struct BinanceRestApi {
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
 }
 
 impl BinanceRestApi {
-    pub fn new(server_config: &ServerConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig) -> Self {
         Self {
             server_config: server_config.clone(),
         }

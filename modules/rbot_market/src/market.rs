@@ -14,7 +14,7 @@ use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
 use rbot_lib::common::MultiMarketMessage;
-use rbot_lib::common::ServerConfig;
+use rbot_lib::common::ExchangeConfig;
 use rbot_lib::common::FLOOR_SEC;
 use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;

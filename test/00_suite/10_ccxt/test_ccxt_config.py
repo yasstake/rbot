@@ -47,8 +47,6 @@ class CCXTExchange:
 
         api = urls['api']
         
-        print(api)
-
         host_map = SafeDict({"hostname": host_name})
         
         if 'public' in api:
@@ -96,8 +94,8 @@ class CCXTExchange:
         server_info = {
             'exchange_name': self.exchange_name,
             'production': self.production,
-            'public_url': public_url,
-            'private-url': private_url,
+            'public_api': public_url,
+            'private_api': private_url,
             'historical_web_base': historical_web_base,
             'public_ws_server': public_ws_server,
             'private_ws_server': private_ws_server
@@ -106,6 +104,11 @@ class CCXTExchange:
         return server_info
 
     def home_currency(self, market):
+        if 'quote' in market:
+            return market['quote']
+        
+        print('no [quote] in market')
+        
         if 'info' in market:
             info = market['info']
             if 'quoteCoin' in info:
@@ -115,12 +118,15 @@ class CCXTExchange:
             elif "quote_asset" in info:
                 return info['quote_asset']
             
-        if 'quote' in market:
-            return market['quote']
 
         raise("unknown home currency")
 
     def foreign_currency(self, market):
+        if 'base' in market:
+            return market['base']
+
+        print("no [base] in market")
+        
         if 'info' in market:
             info = market['info']
             if 'baseCoin' in info:
@@ -130,8 +136,6 @@ class CCXTExchange:
             elif 'base_asset' in info:
                 return info['base_asset']
         
-        if 'base' in market:
-            return market['base']
 
         raise("unknown foreign currency")
 
@@ -144,13 +148,12 @@ class CCXTExchange:
             
                 if 'minOrderQty' in lot_size_filter:
                     min_size = lot_size_filter['minOrderQty']
-                    return min_size
+                    return float(min_size)
             elif 'filters' in info:
                 filter = [f for f in info['filters'] if f['filterType'] == "LOT_SIZE"]
-                print("filter", filter)
                 if 'minQty'  in filter[0]:
                     min_size = filter[0]['minQty']
-                    return min_size
+                    return float(min_size)
 
         return 0        
 
@@ -165,7 +168,6 @@ class CCXTExchange:
             if 'lotSizeFilter' in info:
                 lot_size_filter = info['lotSizeFilter']
                 if 'basePrecision' in lot_size_filter:
-                    print("have base precision")
                     size_unit = lot_size_filter['basePrecision']
                 else:
                     size_unit = calculate_precision(self.min_order_size(info))
@@ -205,10 +207,54 @@ class CCXTExchange:
 
         raise('unknown price unit')
 
+    def get_fee_side(self):
+        market = self.market
+        if 'feeSide' in market:
+            if market['feeSide'] == 'get':
+                return 'home'
+            else:
+                print(market['feeSide'])
+                return "foreign"
+    
+        if 'spot' in market:
+            if market['spot']:
+                return "home"
+        
+        if 'linear' in market:
+            if market['linear']:
+                return 'home'
+        if 'inverse' in market:
+            if market['inverse']:
+                return 'foreign'
+        
+        return "UNKNOWN"
 
+    def get_quote(self):
+        market = self.market
+        
+        if 'quote' in market:
+            return market['quote']
+        
+        raise("unknown quote")
+    
+    def get_settle(self):
+        market = self.market
+        
+        if 'settle' in market:
+            return market['settle']
+
+        raise('unknown settle')
+    
+    def get_base(self):
+        market = self.market
+        if 'base' in market:
+            return market['base']
+        
+        raise('unknown base')
         
     def open_market(self, unified_symbol):
         market = self.exchange.market(unified_symbol)
+        self.market = market
         
         # --------- exchange_name -------------
         exchange_name = self.exchange.id
@@ -236,6 +282,9 @@ class CCXTExchange:
         home_currency = self.home_currency(market)    
         foreign_currency = self.foreign_currency(market)    
         
+        settle_currency = self.get_settle()
+        quote_currency = self.get_quote()
+        
         # ------ min_size -----------------------        
         min_size = self.min_order_size(market)
 
@@ -259,12 +308,19 @@ class CCXTExchange:
             'trade_symbol': trade_symbol,
             'home_currency': home_currency,
             'foreign_currency': foreign_currency,
+            'quote_currency': quote_currency,
+#            'settle_currency': settle_currency,
             'size_unit': size_unit,
             'min_size': min_size,
             'price_unit': price_unit,
             'maker_fee': maker_fee,
             'taker_fee': taker_fee,
         }
+
+        if settle_currency != None:        
+            market_info['settle_currency'] = settle_currency
+        #else:
+        #    print("skip", settle_currency)
         
         return market_info
 
@@ -288,24 +344,6 @@ def test_list_markets(exchange, production):
     for m in market:
         print(exchange.open_market(m))
 
-def test_maek_exchange_info():
-    info_list = []
-    
-    exchanges = [
-            ('bybit', True),
-            ('binance', True), 
-            ('bitflyer', False),
-            ('bitbank', False),
-            ('hyperliquid', True),            
-            ]
-    
-    for ex, production in exchanges:
-        info_list.append(make_exchange_info(ex, production))
-    
-    print(json.dumps(info_list, indent=4))
-    
-    with open('/tmp/exchange.json', 'w') as file:
-        json.dump(info_list, file, indent=4)
 
 
 def make_exchange_info(exchange_name, has_testnet):
@@ -341,6 +379,8 @@ def make_exchange_info(exchange_name, has_testnet):
     
     return exchange_info
 
+
+
 """
     {"bitbank":{
         'production': {},
@@ -350,7 +390,72 @@ def make_exchange_info(exchange_name, has_testnet):
         }]
     }
 """        
+@pytest.mark.parametrize(
+    'exchange_name, symbol',
+    [
+            ('bitbank', "BTC/JPY"),
+            ('bitflyer',"BTC/JPY"),
+            ('binance', "BTC/USDT"),
+            ('bitget', "BTC/USDT"),
+            ('bybit', "BTC/USDT"),
+            ('binance', "BTC/USDT:USDT"),
+            ('bitget', "BTC/USDT:USDT"),
+            ('bybit', "BTC/USDT:USDT"),
+            ('bitmex', "BTC/USD"),
+    ]
+)
+def test_print_ccxt_market(exchange_name, symbol):
+    exchange = CCXTExchange(exchange_name, True)        
+
+    print(exchange.list_markets()) 
+    
+    exchange.open_market(symbol)
+    print(exchange.market)   
+    
+    print(exchange.get_fee_side())
+
+
+@pytest.mark.parametrize(
+    'exchange_name, symbol',
+    [
+            ('bitflyer',"BTC/JPY"),
+    ]
+)
+def test_print_ccxt_market2(exchange_name, symbol):
+    exchange = CCXTExchange(exchange_name, True)        
+
+    print(exchange.list_markets()) 
+    
+    exchange.open_market(symbol)
+    print(exchange.market)   
+    
+    print(exchange.get_fee_side())
+    print(exchange.get_settle())
+
+    info = make_exchange_info(exchange_name, True)
+    
+    print(json.dumps(info, indent=4))
+    
+def main():
+    info_list = []
+    
+    exchanges = [
+            ('bybit', True),
+            ('binance', True), 
+            # ('bitflyer', False),
+            ('bitbank', False),
+            ('hyperliquid', True),            
+            ]
+    
+    for ex, production in exchanges:
+        info_list.append(make_exchange_info(ex, production))
+    
+    # print(json.dumps(info_list, indent=4))
+    
+    with open('/tmp/exchange.json', 'w') as file:
+        json.dump(info_list, file, indent=4)
+    
 
 if __name__ == '__main__':
-    test_maek_exchange_info()
+    main()
     

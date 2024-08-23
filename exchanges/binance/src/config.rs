@@ -4,7 +4,7 @@
 use pyo3::{pyclass, pymethods};
 use rust_decimal_macros::dec;
 
-use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ServerConfig};
+use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, PriceType, SecretString, ExchangeConfig};
 
 use crate::BINANCE;
 
@@ -16,7 +16,7 @@ pub struct BinanceServerConfig {
 }
 
 impl BinanceServerConfig {
-    pub fn new(production: bool) -> ServerConfig {
+    pub fn new(production: bool) -> ExchangeConfig {
         let rest_server = if production {
             "https://api.binance.com"            
         } else {
@@ -35,9 +35,10 @@ impl BinanceServerConfig {
             "wss://testnet.binance.vision"
         };
 
-        ServerConfig::new(
+        ExchangeConfig::new(
             BINANCE,
             production,
+            rest_server,
             rest_server,
             public_ws_server,
             private_ws_server,

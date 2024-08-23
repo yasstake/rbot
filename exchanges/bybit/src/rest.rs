@@ -46,7 +46,7 @@ use anyhow::Result;
 
 use rbot_lib::common::{
     hmac_sign, msec_to_microsec, MarketConfig, MicroSec, Order, OrderSide, OrderStatus, OrderType,
-    ServerConfig, Trade, NOW,
+    ExchangeConfig, Trade, NOW,
 };
 
 use rbot_lib::net::{rest_get, rest_post, RestApi};
@@ -100,11 +100,11 @@ struct CancelOrderMessage {
 }
 
 pub struct BybitRestApi {
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
 }
 
 impl BybitRestApi {
-    pub fn new(server_config: &ServerConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig) -> Self {
         Self {
             server_config: server_config.clone(),
         }
@@ -498,7 +498,7 @@ impl RestApi for BybitRestApi {
 
 impl BybitRestApi {
     async fn get(
-        server: &ServerConfig,
+        server: &ExchangeConfig,
         path: &str,
         params: &str,
     ) -> anyhow::Result<BybitRestResponse> {
@@ -512,7 +512,7 @@ impl BybitRestApi {
     }
 
     pub async fn get_sign(
-        server: &ServerConfig,
+        server: &ExchangeConfig,
         path: &str,
         query_string: &str,
     ) -> anyhow::Result<BybitRestResponse> {
@@ -550,7 +550,7 @@ impl BybitRestApi {
     }
 
     async fn post_sign(
-        server: &ServerConfig,
+        server: &ExchangeConfig,
         path: &str,
         body: &str,
     ) -> anyhow::Result<BybitRestResponse> {

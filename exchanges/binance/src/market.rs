@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS, FLOOR_DAY};
+use rbot_lib::common::{AccountCoins, ExchangeConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
 use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
@@ -46,7 +46,7 @@ pub const BINANCE:&str = "BINANCE";
 pub struct Binance {
     production: bool,
     enable_order: bool,
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
     user_handler: Option<JoinHandle<()>>,
     api: BinanceRestApi,
 }
@@ -209,7 +209,7 @@ impl OrderInterfaceImpl<BinanceRestApi> for Binance {
 
 #[pyclass]
 pub struct BinanceMarket {
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
     config: MarketConfig,
     api: BinanceRestApi,
     pub db: Arc<Mutex<TradeDataFrame>>,
@@ -220,7 +220,7 @@ pub struct BinanceMarket {
 #[pymethods]
 impl BinanceMarket {
     #[new]
-    pub fn new(server_config: &ServerConfig, config: &MarketConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BinanceMarket::new");
         BLOCK_ON(async { 
             Self::async_new(server_config, config).await.unwrap() 
@@ -574,7 +574,7 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
 
 impl BinanceMarket {
     async fn async_new(
-        server_config: &ServerConfig,
+        server_config: &ExchangeConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<Self> {
         let db = TradeDataFrame::get(config, server_config.is_production())

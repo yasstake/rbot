@@ -4,10 +4,8 @@
 
 use pyo3::{pymodule, types::PyModule, wrap_pyfunction, Bound, PyResult};
 use rbot_lib::{common::{
-    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, 
-    FeeType, PriceType,
-    BoardItem, MarketConfig, Order, OrderSide, OrderStatus, OrderType, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
-}, db::{get_data_root, set_data_root, __delete_data_root}};
+    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, BoardItem, FeeType, MarketConfig, Order, OrderSide, OrderStatus, OrderType, PriceType, ExchangeConfig, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
+}, db::{__delete_data_root, get_data_root, set_data_root}};
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
@@ -49,6 +47,7 @@ fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 
     // classes
+    m.add_class::<ExchangeConfig>()?;
     m.add_class::<MarketConfig>()?;
     m.add_class::<OrderStatus>()?;
     m.add_class::<AccountPair>()?;

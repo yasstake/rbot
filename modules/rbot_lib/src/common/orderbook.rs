@@ -23,7 +23,7 @@ use crate::common::MarketConfig;
 use rmp_serde::to_vec;
 
 use super::{
-    order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ServerConfig,
+    order, string_to_decimal, MicroSec, Order, OrderSide, OrderStatus, OrderType, ExchangeConfig,
 };
 
 static ALL_BOARD: Lazy<Mutex<OrderBookList>> = Lazy::new(|| Mutex::new(OrderBookList::new()));
