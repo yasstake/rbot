@@ -1466,26 +1466,12 @@ pub fn convert_klines_to_trades(klines: Vec<Kline>, window_sec: i64) -> Vec<Trad
 mod order_tests {
     use std::str::FromStr;
 
-    use crate::common::{init_debug_log};
+    use crate::common::{init_debug_log, ExchangeConfig};
 
     use super::*;
-
     fn create_config() -> MarketConfig {
-        let config = MarketConfig::new(
-            "BINANCE",
-            "SPOT",
-            "BTC",
-            "USDT",
-            0.01,
-            0.001,
-            1000,
-            0.0001,
-            0.001,
-            0.001,
-            FeeType::Home,
-            vec!["".to_string()],
-            None,
-        );
+        let exchange = ExchangeConfig::open("binance", true).unwrap();
+        let config = exchange.open_market("BTC/USDT").unwrap();
 
         config
     }

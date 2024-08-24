@@ -1,11 +1,9 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use super::{MarketConfig, ExchangeConfig};
+use super::{ExchangeConfig, FeeType, MarketConfig};
 
 use anyhow::anyhow;
-
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ExchangeJson {
@@ -15,36 +13,36 @@ pub struct ExchangeJson {
     private_api: String,
     historical_web_base: String,
     public_ws_server: String,
-    private_ws_server: String
+    private_ws_server: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MarketJson {
-    symbol: String,             //  "BTC/USDT",
-    exchange_name: String,      //  "bybit",
-    trade_category: String,     //: "spot",
-    trade_symbol: String,       //  "BTCUSDT",
-    home_currency: String,      //  "USDT",
-    foreign_currency: String,   //  "BTC",
-    quote_currency: String,       // "USDT"
-    settle_currency: Option<String>,    // "USDT"
-    size_unit:      f64,       //  1e-06,
-    min_size:       f64,       //  "0.000048",
-    price_unit:     f64,        //   0.01,
-    maker_fee:      f64,        //  0.001,
-    taker_fee:      f64,        //  0.001
+    symbol: String,           //  "BTC/USDT",
+    exchange_name: String,    //  "bybit",
+    trade_category: String,   //: "spot",
+    trade_symbol: String,     //  "BTCUSDT",
+    home_currency: String,    //  "USDT",
+    foreign_currency: String, //  "BTC",
+    quote_currency: String,   // "USDT"
+    settle_currency: String,  // "USDT"
+    size_unit: f64,           //  1e-06,
+    min_size: f64,            //  "0.000048",
+    price_unit: f64,          //   0.01,
+    maker_fee: f64,           //  0.001,
+    taker_fee: f64,           //  0.001
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ExchangeConfigJson{
-    exchange:   String,
+pub struct ExchangeConfigJson {
+    exchange: String,
     production: ExchangeJson,
-    testnet:    Option<ExchangeJson>,
-    markets:    Vec<MarketJson>
+    testnet: Option<ExchangeJson>,
+    markets: Vec<MarketJson>,
 }
 
 fn get_exchange_config(exchange_name: &str) -> anyhow::Result<ExchangeConfigJson> {
-    let json_str = include_str!("./exchange.json");    
+    let json_str = include_str!("./exchange.json");
 
     let exchanges = serde_json::from_str::<Vec<ExchangeConfigJson>>(&json_str)?;
 
@@ -59,30 +57,27 @@ fn get_exchange_config(exchange_name: &str) -> anyhow::Result<ExchangeConfigJson
     Err(anyhow!("now found echange {:?}", exchange_name))
 }
 
-
 pub fn get_server_config(exchange_name: &str, production: bool) -> anyhow::Result<ExchangeConfig> {
     let exchange_config = get_exchange_config(exchange_name)?;
 
     let exchange = if production {
         exchange_config.production
-    }
-    else {
+    } else {
         if let Some(config) = exchange_config.testnet {
             config
-        }
-        else {
-            return Err(anyhow!("Exchange [] dose not have testnet"))
+        } else {
+            return Err(anyhow!("Exchange [] dose not have testnet"));
         }
     };
 
     Ok(ExchangeConfig::new(
-        &exchange.exchange_name, 
-        exchange.production, 
+        &exchange.exchange_name,
+        exchange.production,
         &exchange.public_api,
         &exchange.private_api,
-        &exchange.public_ws_server, 
-        &exchange.private_ws_server, 
-        &exchange.historical_web_base
+        &exchange.public_ws_server,
+        &exchange.private_ws_server,
+        &exchange.historical_web_base,
     ))
 }
 
@@ -97,34 +92,41 @@ fn get_market_json(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketJs
         }
     }
 
-    Err(anyhow!("not found market ({}) in exchange({})", symbol, exchange_name))
+    Err(anyhow!(
+        "not found market ({}) in exchange({})",
+        symbol,
+        exchange_name
+    ))
 }
 
 pub fn get_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketConfig> {
     let market = get_market_json(exchange_name, symbol)?;
 
-    /*/
+    let fee_type = if market.settle_currency == market.foreign_currency {
+        FeeType::Foreign
+    } else {
+        FeeType::Home
+    };
+
     Ok(MarketConfig::new(
-        exchange_name, 
-        &market.trade_category, 
-        &market.foreign_currency, 
-        &market.home_currency, 
-        market.price_unit, 
-        market.price_type, 
-        market.size_unit, 
-        board_depth, 
-        market_order_price_slip, 
-        market.maker_fee, 
-        market.taker_fee, 
-        market.fee_type, 
-        public_subscribe_channel, 
-        market.trade_symbol))
-        */
-    Err(anyhow!("not summport"))    
+        exchange_name.clone(),
+        &market.trade_category.clone(),
+        &market.trade_symbol.clone(),
+        &market.foreign_currency.clone(),
+        &market.home_currency.clone(),
+        &market.quote_currency.clone(),
+        &market.settle_currency.clone(),
+        market.price_unit,
+        market.size_unit,
+        market.min_size,
+        market.maker_fee,
+        market.taker_fee,
+        fee_type,
+    ))
 }
 
 pub fn list_exchange() -> anyhow::Result<Vec<String>> {
-    let json_str = include_str!("./exchange.json");    
+    let json_str = include_str!("./exchange.json");
 
     let exchanges = serde_json::from_str::<Vec<ExchangeConfigJson>>(&json_str)?;
 
@@ -134,7 +136,7 @@ pub fn list_exchange() -> anyhow::Result<Vec<String>> {
         exchange_list.push(exchange.exchange)
     }
 
-    return Ok(exchange_list)
+    return Ok(exchange_list);
 }
 
 pub fn list_symbols(exchange_name: &str) -> anyhow::Result<Vec<String>> {

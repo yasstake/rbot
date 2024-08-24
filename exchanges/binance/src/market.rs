@@ -1,7 +1,6 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::sleep;
 
 use anyhow::Context;
 use futures::StreamExt;
@@ -9,7 +8,6 @@ use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
 use rbot_lib::common::{AccountCoins, ExchangeConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
-use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::MarketStream;
@@ -18,7 +16,6 @@ use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
-use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
 use rbot_lib::db::{TradeArchive, TradeDataFrame};
 use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
@@ -31,7 +28,7 @@ use rbot_market::MarketImpl;
 use rbot_market::OrderInterfaceImpl;
 // use rbot_market::MarketInterface;
 
-use crate::BinancePrivateWsClient;
+use crate::{BinancePrivateWsClient, BINANCE_BOARD_DEPTH};
 use crate::BinancePublicWsClient;
 use crate::BinanceRestApi;
 use crate::BinanceServerConfig;
@@ -586,7 +583,7 @@ impl BinanceMarket {
             api: BinanceRestApi::new(server_config),
             config: config.clone(),
             db: db,
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(&config, BINANCE_BOARD_DEPTH))),
             public_handler: None,
         };
 
@@ -643,6 +640,8 @@ impl BinanceMarket {
 
 #[cfg(test)]
 mod binance_market_test {
+    use std::thread::sleep;
+
     use rbot_lib::common::init_debug_log;
 
     use crate::BinanceConfig;

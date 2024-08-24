@@ -630,13 +630,11 @@ mod test_exchange_ws {
             home_currency: "USDT".to_string(),
             foreign_currency: "BTC".to_string(),
             market_order_price_slip: dec![0.01],
-            board_depth: 200,
             trade_category: "linear".to_string(),
             trade_symbol: "BTCUSDT".to_string(),
-            public_subscribe_channel: vec![
-                "publicTrade.BTCUSDT".to_string(),
-                "orderbook.200.BTCUSDT".to_string(),
-            ],
+            quote_currency: "USDT".to_string(),
+            settle_currency: "USDT".to_string(),
+            min_size: dec![0.0],
         }
     }
 

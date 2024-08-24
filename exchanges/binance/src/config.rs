@@ -62,24 +62,24 @@ impl BinanceConfig {
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("binance", "BTC/USDT:USDT").unwrap()
+
+        /*
         MarketConfig {
-            exchange_name: BINANCE.to_string(),            
-            price_unit: dec![0.5],
-            size_unit: dec![0.001],
-            maker_fee: dec![0.00_01],
-            taker_fee: dec![0.00_01],
-            fee_type: FeeType::Home,
-            home_currency: "USDT".to_string(),
-            foreign_currency: "BTC".to_string(),
-            market_order_price_slip: dec![0.5],
-            board_depth: 1000,
-            trade_category: "spot".to_string(),
-            trade_symbol: "BTCUSDT".to_string(),
-            public_subscribe_channel: vec![
-                "btcusdt@trade".to_string(),
-                "btcusdt@depth@100ms".to_string(),
-            ],
+            exchange_name:BINANCE.to_string(),
+            price_unit:dec![0.5],
+            size_unit:dec![0.001],
+            maker_fee:dec![0.00_01],
+            taker_fee:dec![0.00_01],
+            fee_type:FeeType::Home,
+            home_currency:"USDT".to_string(),
+            foreign_currency:"BTC".to_string(),
+            market_order_price_slip:dec![0.5],
+            board_depth:1000,trade_category:"spot".to_string(),trade_symbol:"BTCUSDT".to_string(), 
+            quote_currency: "USDT".to_string(), 
+            settle_currency: Some("USDT".to_string()), 
         }
+        */
     }
 }
 

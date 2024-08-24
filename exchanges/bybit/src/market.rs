@@ -30,7 +30,7 @@ use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, Ud
 use rbot_market::MarketImpl;
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
 
-use crate::market;
+use crate::{market, BYBIT_BOARD_DEPTH};
 use crate::message::BybitUserWsMessage;
 
 use crate::rest::BybitRestApi;
@@ -469,7 +469,7 @@ impl BybitMarket {
             api: BybitRestApi::new(server_config),
             config: config.clone(),
             db: db,
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(&config, BYBIT_BOARD_DEPTH))),
             public_handler: None,
         };
 

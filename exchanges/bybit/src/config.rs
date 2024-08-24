@@ -65,7 +65,9 @@ impl BybitConfig {
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
-        MarketConfig::new(
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDT:USDT").unwrap()
+        /*
+        MarketConfig::::new(
             BYBIT,
             "linear",
             "BTC",
@@ -83,10 +85,13 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     #[classattr]
     pub fn ETHUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "ETH/USDT:USDT").unwrap()
+        /*    
         let config = MarketConfig::new(
             BYBIT,
             "linear",
@@ -107,10 +112,14 @@ impl BybitConfig {
         );
 
         config
+        */
     }
 
     #[classattr]
     pub fn BTCUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDC:USDC").unwrap()
+
+    /*        
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
@@ -132,12 +141,16 @@ impl BybitConfig {
 
         config.trade_symbol = "BTCPERP".to_string();
         config
+        */
     }
 
 
 
     #[classattr]
     pub fn ETHUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "ETH/USDC:USDC").unwrap()
+
+    /*        
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
@@ -157,10 +170,14 @@ impl BybitConfig {
             Some("ETHPERP")
         );
         config
+        */
     }
 
     #[classattr]
     pub fn MNTUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "MNT/USDT:USDT").unwrap()
+
+        /*        
         MarketConfig::new(
             BYBIT,
             "linear",
@@ -179,10 +196,14 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     #[classattr]
     pub fn MNTUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "MNT/USDC:USDC").unwrap()
+            
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
@@ -201,11 +222,15 @@ impl BybitConfig {
             ],
             Some("MNT-PERP")
         )
+        */
     }
 
 
     #[classattr]
     pub fn SOLUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "SOL/USDT:USDT").unwrap()
+
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
@@ -224,10 +249,14 @@ impl BybitConfig {
             ],
             None
         )
+        */
     }
 
     #[classattr]
     pub fn SOLUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "SOL/USDC:USDC").unwrap()
+
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
@@ -246,11 +275,15 @@ impl BybitConfig {
             ],
             Some("SOLPERP")
         )
+        */
     }
 
 
     #[classattr]
     pub fn USDCUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "USDC/USDT:USDT").unwrap()
+
+        /*        
         MarketConfig::new(
             BYBIT,
             "linear",
@@ -269,6 +302,7 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     pub fn __repr__(&self) -> PyResult<String> {
@@ -298,7 +332,14 @@ mod test_bybit_config {
         let config = BybitConfig::BTCUSDT();
         println!("{:?}", config);
 
-        let new_config = MarketConfig::new(
+        let new_config =
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDT:USDT").unwrap();
+
+        /*
+       
+         MarketConfig::new(
+    
+
             BYBIT,
             "linear",
             "BTC",
@@ -316,7 +357,10 @@ mod test_bybit_config {
             ],
             None
         );
+        */
 
         assert_eq!(config, new_config);
+
+        println!("{:?}", config);
     }
 }

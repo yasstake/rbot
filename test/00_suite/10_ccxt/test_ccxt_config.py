@@ -309,7 +309,6 @@ class CCXTExchange:
             'home_currency': home_currency,
             'foreign_currency': foreign_currency,
             'quote_currency': quote_currency,
-#            'settle_currency': settle_currency,
             'size_unit': size_unit,
             'min_size': min_size,
             'price_unit': price_unit,
@@ -319,8 +318,8 @@ class CCXTExchange:
 
         if settle_currency != None:        
             market_info['settle_currency'] = settle_currency
-        #else:
-        #    print("skip", settle_currency)
+        else:
+            market_info['settle_currency'] = ""
         
         return market_info
 

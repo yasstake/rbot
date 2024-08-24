@@ -98,7 +98,10 @@ impl WebSocketClient for BybitPublicWsClient {
             None,
         );
 
-        public_ws.subscribe(&config.public_subscribe_channel).await;
+        public_ws.subscribe(&vec![
+            format!("publicTrade.{}", &config.trade_category),
+            format!("orderbook.200.{}", &config.trade_category)
+        ]).await;
 
         Self {
             ws: public_ws,

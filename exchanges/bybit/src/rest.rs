@@ -56,6 +56,7 @@ use crate::message::microsec_to_bybit_timestamp;
 use crate::message::BybitAccountCoin;
 use crate::message::BybitAccountResponse;
 use crate::message::BybitAccountStatus;
+use crate::BYBIT_BOARD_DEPTH;
 
 use super::config::BybitServerConfig;
 use super::message::BybitKlinesResponse;
@@ -121,7 +122,7 @@ impl RestApi for BybitRestApi {
             "category={}&symbol={}&limit={}",
             config.trade_category.as_str(),
             config.trade_symbol.as_str(),
-            config.board_depth
+            BYBIT_BOARD_DEPTH
         );
 
         let r = Self::get(server, path, &params).await.with_context(|| {

@@ -435,13 +435,13 @@ pub struct OrderBook {
 }
 
 impl OrderBook {
-    pub fn new(config: &MarketConfig) -> Self {
+    pub fn new(config: &MarketConfig, depth: u32) -> Self {
         let exchange_name = config.exchange_name.clone();
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
         let path = OrderBookList::make_path(config);
-        let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
+        let board = Arc::new(Mutex::new(OrderBookRaw::new(depth)));
 
         ALL_BOARD.lock().unwrap().register(&path, board.clone());
 
@@ -473,7 +473,7 @@ impl OrderBook {
         let category = config.trade_category.clone();
         let symbol = config.trade_symbol.clone();
 
-        let board = Arc::new(Mutex::new(OrderBookRaw::new(config.board_depth)));
+        let board = Arc::new(Mutex::new(OrderBookRaw::new(0)));
 
         {
             let mut board_lock = board.lock().unwrap();

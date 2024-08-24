@@ -91,7 +91,10 @@ impl WebSocketClient for BinancePublicWsClient {
             None,
         );
 
-        public_ws.subscribe(&config.public_subscribe_channel).await;
+        public_ws.subscribe(&vec![
+            format!("{}@trade", config.trade_symbol.to_lowercase()),
+            format!("{}@depth@100ms",  config.trade_symbol.to_lowercase())
+        ]).await;
 
         Self {
             ws: public_ws,
