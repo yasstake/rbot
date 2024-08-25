@@ -11,7 +11,7 @@ use pyo3::{
     Python,
 };
 
-use super::{SecretString, ServerConfig};
+use super::{SecretString, ExchangeConfig};
 
 const RBOT_MULTICAST_ADDR: &str = "224.0.0.51";
 const DEFAULT_MULTICAST_PORT: i64 = 3001;

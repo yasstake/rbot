@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 
-use rbot_lib::common::{FeeType, MarketConfig, PriceType, ServerConfig};
+use rbot_lib::common::{FeeType, MarketConfig, ExchangeConfig};
 
 use crate::BYBIT;
 
@@ -16,7 +16,7 @@ pub struct BybitServerConfig {
 }
 
 impl BybitServerConfig {
-    pub fn new(production: bool) -> ServerConfig {
+    pub fn new(production: bool) -> ExchangeConfig {
         let rest_server = if production {
             "https://api.bybit.com"
         } else {
@@ -35,9 +35,10 @@ impl BybitServerConfig {
             "wss://stream-testnet.bybit.com/v5/private"
         };
 
-        ServerConfig::new(
+        ExchangeConfig::new(
             BYBIT,
             production,
+            rest_server,
             rest_server,
             public_ws_server,
             private_ws_server,
@@ -64,13 +65,14 @@ impl BybitConfig {
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
-        MarketConfig::new(
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDT:USDT").unwrap()
+        /*
+        MarketConfig::::new(
             BYBIT,
             "linear",
             "BTC",
             "USDT",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,
@@ -83,17 +85,19 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     #[classattr]
     pub fn ETHUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "ETH/USDT:USDT").unwrap()
+        /*    
         let config = MarketConfig::new(
             BYBIT,
             "linear",
             "ETH",
             "USDT",            
             0.01,
-            PriceType::Home,
             0.01,
             200,
             0.1,
@@ -108,17 +112,20 @@ impl BybitConfig {
         );
 
         config
+        */
     }
 
     #[classattr]
     pub fn BTCUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDC:USDC").unwrap()
+
+    /*        
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
             "BTC",
             "USDC",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,
@@ -134,19 +141,22 @@ impl BybitConfig {
 
         config.trade_symbol = "BTCPERP".to_string();
         config
+        */
     }
 
 
 
     #[classattr]
     pub fn ETHUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "ETH/USDC:USDC").unwrap()
+
+    /*        
         let mut config = MarketConfig::new(
             BYBIT,
             "linear",
             "ETH",
             "USDC",            
             0.01,
-            PriceType::Home,
             0.01,
             200,
             0.1,
@@ -160,17 +170,20 @@ impl BybitConfig {
             Some("ETHPERP")
         );
         config
+        */
     }
 
     #[classattr]
     pub fn MNTUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "MNT/USDT:USDT").unwrap()
+
+        /*        
         MarketConfig::new(
             BYBIT,
             "linear",
             "MNT",
             "USDT",            
             0.0001,
-            PriceType::Home,
             1.0,
             200,
             0.1,
@@ -183,17 +196,20 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     #[classattr]
     pub fn MNTUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "MNT/USDC:USDC").unwrap()
+            
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
             "MNT",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -206,18 +222,21 @@ impl BybitConfig {
             ],
             Some("MNT-PERP")
         )
+        */
     }
 
 
     #[classattr]
     pub fn SOLUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "SOL/USDT:USDT").unwrap()
+
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
             "SOL",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -230,17 +249,20 @@ impl BybitConfig {
             ],
             None
         )
+        */
     }
 
     #[classattr]
     pub fn SOLUSDC() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "SOL/USDC:USDC").unwrap()
+
+        /*
         MarketConfig::new(
             BYBIT,
             "linear",
             "SOL",
             "USDC",            
             0.01,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -253,18 +275,21 @@ impl BybitConfig {
             ],
             Some("SOLPERP")
         )
+        */
     }
 
 
     #[classattr]
     pub fn USDCUSDT() -> MarketConfig {
+        ExchangeConfig::open_exchange_market("bybit", "USDC/USDT:USDT").unwrap()
+
+        /*        
         MarketConfig::new(
             BYBIT,
             "linear",
             "USDC",
             "USDT",            
             0.0001,
-            PriceType::Home,
             0.1,
             200,
             0.1,
@@ -277,6 +302,7 @@ impl BybitConfig {
             ],
             None,
         )
+        */
     }
 
     pub fn __repr__(&self) -> PyResult<String> {
@@ -306,13 +332,19 @@ mod test_bybit_config {
         let config = BybitConfig::BTCUSDT();
         println!("{:?}", config);
 
-        let new_config = MarketConfig::new(
+        let new_config =
+        ExchangeConfig::open_exchange_market("bybit", "BTC/USDT:USDT").unwrap();
+
+        /*
+       
+         MarketConfig::new(
+    
+
             BYBIT,
             "linear",
             "BTC",
             "USDT",
             0.1,
-            PriceType::Home,
             0.001,
             200,
             0.1,
@@ -325,7 +357,10 @@ mod test_bybit_config {
             ],
             None
         );
+        */
 
         assert_eq!(config, new_config);
+
+        println!("{:?}", config);
     }
 }

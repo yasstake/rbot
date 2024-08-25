@@ -21,16 +21,16 @@ use rbot_lib::common::{
     convert_klines_to_trades, flush_log, time_string, to_naive_datetime, AccountCoins, AccountPair,
     BoardItem, BoardTransfer, LogStatus, MarketConfig, MarketMessage, MarketStream, MicroSec,
     MultiMarketMessage, Order, OrderBook, OrderBookRaw, OrderSide, OrderStatus, OrderType,
-    ServerConfig, Trade, DAYS, FLOOR_DAY, HHMM, MARKET_HUB, NOW, SEC,
+    ExchangeConfig, Trade, DAYS, FLOOR_DAY, HHMM, MARKET_HUB, NOW, SEC,
 };
 
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
 use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender, WebSocketClient};
 
-use rbot_market::MarketImpl;
+use rbot_market::{extract_or_generate_config, MarketImpl};
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
 
-use crate::market;
+use crate::{market, BYBIT_BOARD_DEPTH};
 use crate::message::BybitUserWsMessage;
 
 use crate::rest::BybitRestApi;
@@ -59,7 +59,7 @@ pub const BYBIT: &str = "BYBIT";
 pub struct Bybit {
     production: bool,
     enable_order: bool,
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
     user_handler: Option<JoinHandle<()>>,
     api: BybitRestApi,
 }
@@ -86,8 +86,10 @@ impl Bybit {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
-        return BybitMarket::new(&self.server_config, config);
+    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BybitMarket> {
+        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+
+        return Ok(BybitMarket::new(&self.server_config, &config));
     }
 
     //--- OrderInterfaceImpl ----
@@ -144,7 +146,7 @@ impl Bybit {
         BLOCK_ON(async { OrderInterfaceImpl::get_account(self).await })
     }
 
-    pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
+    pub fn open_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
     }
 
@@ -220,7 +222,7 @@ impl OrderInterfaceImpl<BybitRestApi> for Bybit {
 
 #[pyclass]
 pub struct BybitMarket {
-    pub server_config: ServerConfig,
+    pub server_config: ExchangeConfig,
     pub api: BybitRestApi,
     pub config: MarketConfig,
     pub db: Arc<Mutex<TradeDataFrame>>,
@@ -231,7 +233,7 @@ pub struct BybitMarket {
 #[pymethods]
 impl BybitMarket {
     #[new]
-    pub fn new(server_config: &ServerConfig, config: &MarketConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BybitMarket::new");
         BLOCK_ON(async { Self::async_new(server_config, config).await.unwrap() })
     }
@@ -456,7 +458,7 @@ impl BybitMarket {
 
 impl BybitMarket {
     pub async fn async_new(
-        server_config: &ServerConfig,
+        server_config: &ExchangeConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<Self> {
         let db = TradeDataFrame::get(config, server_config.is_production())
@@ -469,7 +471,7 @@ impl BybitMarket {
             api: BybitRestApi::new(server_config),
             config: config.clone(),
             db: db,
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(&config, BYBIT_BOARD_DEPTH))),
             public_handler: None,
         };
 
@@ -615,12 +617,6 @@ mod bybit_test {
 
         bybit.set_enable_order_feature(true);
         assert_eq!(bybit.get_enable_order_feature(), true);
-    }
-
-    #[test]
-    fn test_open_market() {
-        let market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
-        assert!(market.get_config().trade_symbol == "BTCUSDT");
     }
 
     #[test]

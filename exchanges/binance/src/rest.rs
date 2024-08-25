@@ -11,7 +11,7 @@ use polars::{chunked_array::{ops::{ChunkApply, ChunkCast as _}, ChunkedArray}, d
 use rbot_lib::{
     common::{
         flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus,
-        MarketConfig, MicroSec, Order, OrderSide, OrderType, ServerConfig, Trade, NOW,
+        MarketConfig, MicroSec, Order, OrderSide, OrderType, ExchangeConfig, Trade, NOW,
     }, db::KEY, net::{rest_delete, rest_get, rest_post, rest_put, RestApi, RestPage}
 };
 use rust_decimal::Decimal;
@@ -21,11 +21,11 @@ use anyhow::Context;
 
 #[derive(Clone, Debug)]
 pub struct BinanceRestApi {
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
 }
 
 impl BinanceRestApi {
-    pub fn new(server_config: &ServerConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig) -> Self {
         Self {
             server_config: server_config.clone(),
         }
@@ -274,17 +274,29 @@ impl RestApi for BinanceRestApi {
         // TODO: implement other than spot
         if category == "spot" {
             return format!(
-                "{}/data/{}/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
+                "{}/data/spot/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
                 self.server_config.get_historical_web_base(),
-                config.trade_category,
                 config.trade_symbol,
                 config.trade_symbol,
                 yyyy,
                 mm,
                 dd
             );
-        } else {
-            log::error!("Unknown category {}", category);
+        } else if category == "linear" {
+            // https://data.binance.vision/data/futures/um/daily/trades/BTCUSDT/BTCUSDT-trades-2024-08-23.zip
+
+            return format!(
+                "{}/data/futures/um/daily/trades/{}/{}-trades-{:04}-{:02}-{:02}.zip",
+                self.server_config.get_historical_web_base(),
+                config.trade_symbol,
+                config.trade_symbol,
+                yyyy,
+                mm,
+                dd
+            );
+        }
+        else {
+            log::error!("Unknown category category{}, config={:?}, web_base={}", category, config, self.server_config.get_historical_web_base());
             return "".to_string();
         }
     }
@@ -642,7 +654,7 @@ impl BinanceRestApi {
 mod binance_api_test {
     use super::*;
     use crate::BinanceConfig;
-    use rbot_lib::common::{init_debug_log, DAYS};
+    use rbot_lib::common::{init_debug_log, init_log, DAYS};
     use rust_decimal_macros::dec;
 
     #[tokio::test]
@@ -803,7 +815,12 @@ mod binance_api_test {
         let config = BinanceConfig::BTCUSDT();
         let api = BinanceRestApi::new(&server);
 
+        init_log();
+
         let url = api.history_web_url(&config, NOW() - DAYS(2));
         println!("url={}", url);
+
+
+        assert!(url != "");
     }
 }

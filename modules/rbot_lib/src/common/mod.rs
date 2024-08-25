@@ -15,6 +15,7 @@ mod hub;
 mod bar;
 mod calc_class;
 mod text_message;
+mod ccxt_config;
 
 pub use time::*;
 pub use order::*;
@@ -29,4 +30,6 @@ pub use hub::*;
 pub use bar::*;
 pub use calc_class::*;
 pub use text_message::*;
+pub use ccxt_config::*;
+
 

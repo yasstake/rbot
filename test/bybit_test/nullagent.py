@@ -76,7 +76,7 @@ runner = Runner()
 from rbot import init_debug_log
 #init_log()
 
-market.download_archive(13, verbose=True)
+market.download(ndays=13, verbose=True)
 
 
 session = runner.back_test(

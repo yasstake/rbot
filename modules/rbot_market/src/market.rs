@@ -14,7 +14,7 @@ use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
 use rbot_lib::common::MultiMarketMessage;
-use rbot_lib::common::ServerConfig;
+use rbot_lib::common::ExchangeConfig;
 use rbot_lib::common::FLOOR_SEC;
 use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;
@@ -56,6 +56,25 @@ macro_rules! check_if_enable_order {
             return Err(anyhow!("Order feature is disabled, you can enable exchange property 'enable_order_with_my_own_risk' to True"));
         }
     };
+}
+
+
+pub fn extract_or_generate_config(exchange_name: &str, config: &PyAny) -> anyhow::Result<MarketConfig> {
+    let t = config.get_type();
+    let name = t.name()?;    
+
+    if *name == *"MarketConfig" || *name == *"builtins.MarketConfig"{
+        println!("MarktConfig");
+
+        let config = config.extract::<MarketConfig>()?;
+        return Ok(config)
+    }
+    else if *name == *"builtins.str" {
+        let symbol = config.extract::<String>()?;
+        return Ok(ExchangeConfig::open_exchange_market(exchange_name, &symbol)?);
+    }
+
+    Err(anyhow!("unsupported type {:?}", name))
 }
 
 pub trait OrderInterface {
@@ -754,6 +773,8 @@ where
 
             t
         };
+
+
 
         self.async_download_range(range_from, start_time, verbose)
             .await?;

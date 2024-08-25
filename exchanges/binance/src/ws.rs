@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use futures::Stream;
 use futures::StreamExt;
-use rbot_lib::common::PriceType;
-use rbot_lib::common::FeeType;
 use rbot_lib::net::ReceiveMessage;
 use rbot_lib::net::WebSocketClient;
 // use serde::{Deserialize as _, Serialize as _};
@@ -12,7 +10,7 @@ use tokio::task::JoinHandle;
 use async_stream::stream;
 
 use rbot_lib::{
-    common::{MarketConfig, MultiMarketMessage, ServerConfig, NOW},
+    common::{MarketConfig, MultiMarketMessage, ExchangeConfig, NOW},
     net::{AutoConnectClient, WsOpMessage},
 };
 use tokio::time::sleep;
@@ -81,7 +79,7 @@ pub struct BinancePublicWsClient {
 }
 
 impl WebSocketClient for BinancePublicWsClient {
-    async fn new(server: &ServerConfig, config: &MarketConfig) -> Self {
+    async fn new(server: &ExchangeConfig, config: &MarketConfig) -> Self {
         let mut public_ws = AutoConnectClient::new(
             server,
             config,
@@ -93,7 +91,10 @@ impl WebSocketClient for BinancePublicWsClient {
             None,
         );
 
-        public_ws.subscribe(&config.public_subscribe_channel).await;
+        public_ws.subscribe(&vec![
+            format!("{}@trade", config.trade_symbol.to_lowercase()),
+            format!("{}@depth@100ms",  config.trade_symbol.to_lowercase())
+        ]).await;
 
         Self {
             ws: public_ws,
@@ -164,7 +165,7 @@ impl BinancePublicWsClient{
 
 pub struct BinancePrivateWsClient {
     ws: AutoConnectClient<BinanceWsOpMessage>,
-    server: ServerConfig,
+    server: ExchangeConfig,
     _handler: Option<JoinHandle<()>>,
     listen_key: String,
     key_update_handler: Option<JoinHandle<()>>,
@@ -172,7 +173,7 @@ pub struct BinancePrivateWsClient {
 }
 
 impl BinancePrivateWsClient {
-    pub async fn new(server: &ServerConfig) -> Self {
+    pub async fn new(server: &ExchangeConfig) -> Self {
         let api = BinanceRestApi::new(server);
 
         let listen_key = api.create_listen_key().await.unwrap();

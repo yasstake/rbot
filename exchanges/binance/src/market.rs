@@ -1,15 +1,13 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::sleep;
 
 use anyhow::Context;
 use futures::StreamExt;
 use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
-use rbot_lib::common::{AccountCoins, ServerConfig, Trade, DAYS, FLOOR_DAY};
+use rbot_lib::common::{AccountCoins, ExchangeConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
-use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::MarketStream;
@@ -18,7 +16,6 @@ use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
-use rbot_lib::common::{flush_log, LogStatus};
 use rbot_lib::common::{time_string, NOW};
 use rbot_lib::db::{TradeArchive, TradeDataFrame};
 use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
@@ -27,11 +24,11 @@ use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 
 // use rbot_market::OrderInterface;
-use rbot_market::MarketImpl;
+use rbot_market::{extract_or_generate_config, MarketImpl};
 use rbot_market::OrderInterfaceImpl;
 // use rbot_market::MarketInterface;
 
-use crate::BinancePrivateWsClient;
+use crate::{BinancePrivateWsClient, BINANCE_BOARD_DEPTH};
 use crate::BinancePublicWsClient;
 use crate::BinanceRestApi;
 use crate::BinanceServerConfig;
@@ -46,7 +43,7 @@ pub const BINANCE:&str = "BINANCE";
 pub struct Binance {
     production: bool,
     enable_order: bool,
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
     user_handler: Option<JoinHandle<()>>,
     api: BinanceRestApi,
 }
@@ -74,8 +71,10 @@ impl Binance {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &MarketConfig) -> BinanceMarket {
-        return BinanceMarket::new(&self.server_config, config);
+    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BinanceMarket> {
+        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+        
+        Ok(BinanceMarket::new(&self.server_config, &config))
     }
 
     //--- OrderInterfaceImpl ----
@@ -132,7 +131,7 @@ impl Binance {
         BLOCK_ON(async { OrderInterfaceImpl::get_account(self).await })
     }
 
-    pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
+    pub fn open_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
     }
 
@@ -209,7 +208,7 @@ impl OrderInterfaceImpl<BinanceRestApi> for Binance {
 
 #[pyclass]
 pub struct BinanceMarket {
-    server_config: ServerConfig,
+    server_config: ExchangeConfig,
     config: MarketConfig,
     api: BinanceRestApi,
     pub db: Arc<Mutex<TradeDataFrame>>,
@@ -220,7 +219,7 @@ pub struct BinanceMarket {
 #[pymethods]
 impl BinanceMarket {
     #[new]
-    pub fn new(server_config: &ServerConfig, config: &MarketConfig) -> Self {
+    pub fn new(server_config: &ExchangeConfig, config: &MarketConfig) -> Self {
         log::debug!("open market BinanceMarket::new");
         BLOCK_ON(async { 
             Self::async_new(server_config, config).await.unwrap() 
@@ -574,7 +573,7 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
 
 impl BinanceMarket {
     async fn async_new(
-        server_config: &ServerConfig,
+        server_config: &ExchangeConfig,
         config: &MarketConfig,
     ) -> anyhow::Result<Self> {
         let db = TradeDataFrame::get(config, server_config.is_production())
@@ -586,7 +585,7 @@ impl BinanceMarket {
             api: BinanceRestApi::new(server_config),
             config: config.clone(),
             db: db,
-            board: Arc::new(RwLock::new(OrderBook::new(&config))),
+            board: Arc::new(RwLock::new(OrderBook::new(&config, BINANCE_BOARD_DEPTH))),
             public_handler: None,
         };
 
@@ -643,6 +642,8 @@ impl BinanceMarket {
 
 #[cfg(test)]
 mod binance_market_test {
+    use std::thread::sleep;
+
     use rbot_lib::common::init_debug_log;
 
     use crate::BinanceConfig;
