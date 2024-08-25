@@ -315,19 +315,19 @@ impl Runner {
         // 2. download market data
         Python::with_gil(|py| {
             if self.execute_mode == ExecuteMode::Real || self.execute_mode == ExecuteMode::Dry {
-                market.call_method0("start_market_stream")?;
+                market.call_method0("open_market_stream")?;
 
                 if self.verbose {
-                    println!("--- start market stream ---");
+                    println!("--- open market stream ---");
                     flush_log();
                 }
             }
 
             if self.execute_mode == ExecuteMode::Real {
-                exchange.call_method0("start_user_stream")?;
+                exchange.call_method0("open_user_stream")?;
 
                 if self.verbose {
-                    println!("--- start user stream ---");
+                    println!("--- open user stream ---");
                     flush_log();
                 }
             }

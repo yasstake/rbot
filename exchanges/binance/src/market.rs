@@ -24,7 +24,7 @@ use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 
 // use rbot_market::OrderInterface;
-use rbot_market::MarketImpl;
+use rbot_market::{extract_or_generate_config, MarketImpl};
 use rbot_market::OrderInterfaceImpl;
 // use rbot_market::MarketInterface;
 
@@ -71,8 +71,10 @@ impl Binance {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &MarketConfig) -> BinanceMarket {
-        return BinanceMarket::new(&self.server_config, config);
+    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BinanceMarket> {
+        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+        
+        Ok(BinanceMarket::new(&self.server_config, &config))
     }
 
     //--- OrderInterfaceImpl ----
@@ -129,7 +131,7 @@ impl Binance {
         BLOCK_ON(async { OrderInterfaceImpl::get_account(self).await })
     }
 
-    pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
+    pub fn open_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
     }
 

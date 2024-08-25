@@ -6,6 +6,21 @@ def test_list_exchange():
     print(ExchangeConfig.exchanges)
     pass
 
+
+    exchange = ExchangeConfig.open('bybit')
+
+@pytest.mark.parametrize(
+    "exchange, production",
+    [
+            ('bybit', True),
+            ('binance', True)
+    ]
+)
+def test_open_exchange(exchange, production):
+    exchange = ExchangeConfig.open(exchange)
+    print(exchange)    
+
+
 def test_list_symbols():
     exchange = ExchangeConfig.open('bybit')
     

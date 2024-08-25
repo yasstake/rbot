@@ -62,7 +62,7 @@ impl BinanceConfig {
 
     #[classattr]
     pub fn BTCUSDT() -> MarketConfig {
-        ExchangeConfig::open_exchange_market("binance", "BTC/USDT:USDT").unwrap()
+        ExchangeConfig::open_exchange_market("binance", "BTC/USDT").unwrap()
 
         /*
         MarketConfig {

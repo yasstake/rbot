@@ -27,7 +27,7 @@ use rbot_lib::common::{
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
 use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender, WebSocketClient};
 
-use rbot_market::MarketImpl;
+use rbot_market::{extract_or_generate_config, MarketImpl};
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
 
 use crate::{market, BYBIT_BOARD_DEPTH};
@@ -86,8 +86,10 @@ impl Bybit {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &MarketConfig) -> BybitMarket {
-        return BybitMarket::new(&self.server_config, config);
+    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BybitMarket> {
+        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+
+        return Ok(BybitMarket::new(&self.server_config, &config));
     }
 
     //--- OrderInterfaceImpl ----
@@ -144,7 +146,7 @@ impl Bybit {
         BLOCK_ON(async { OrderInterfaceImpl::get_account(self).await })
     }
 
-    pub fn start_user_stream(&mut self) -> anyhow::Result<()> {
+    pub fn open_user_stream(&mut self) -> anyhow::Result<()> {
         BLOCK_ON(async { OrderInterfaceImpl::async_start_user_stream(self).await })
     }
 
@@ -615,12 +617,6 @@ mod bybit_test {
 
         bybit.set_enable_order_feature(true);
         assert_eq!(bybit.get_enable_order_feature(), true);
-    }
-
-    #[test]
-    fn test_open_market() {
-        let market = Bybit::new(false).open_market(&BybitConfig::BTCUSDT());
-        assert!(market.get_config().trade_symbol == "BTCUSDT");
     }
 
     #[test]
