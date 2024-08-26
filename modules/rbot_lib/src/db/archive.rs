@@ -620,8 +620,7 @@ impl TradeArchive {
 
         if suffix == "gz" || suffix == "csv" || suffix == "zip" {
             log::debug!("read log csv to df");
-            let has_header = api.archive_has_header();
-            let df = csv_to_df(&file_path, has_header)?;
+            let df = csv_to_df(&file_path)?;
 
             let mut archive_df = api.logdf_to_archivedf(&df)?;
             log::debug!("archive df shape={:?}", archive_df.shape());

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::common::{OrderSide, Trade};
 use crate::common::{time_string, MicroSec, SEC};
+use csv::ReaderBuilder;
+use flate2::read::GzDecoder;
 use polars::prelude::DataFrame;
 use polars::prelude::Duration;
 use polars::prelude::DynamicGroupOptions;
@@ -77,9 +79,47 @@ pub fn parquet_to_df(path: &PathBuf) -> anyhow::Result<DataFrame> {
     Ok(df)
 }
 
+
+fn has_csv_header(source_path: &PathBuf) -> anyhow::Result<bool> {
+    let suffix = source_path.extension().unwrap_or_default();
+    let suffix = suffix.to_ascii_lowercase();
+
+    if suffix == "csv" {
+        let file = File::open(source_path)?;
+        let reader = BufReader::new(file);
+
+        let csv = ReaderBuilder::new().has_headers(true).from_reader(reader);
+        return Ok(csv.has_headers())
+    }
+    else if suffix == "gz" {
+        let file = File::open(source_path)?;
+        let decoder = GzDecoder::new(file);
+        let reader = BufReader::new(decoder);
+
+        let csv = ReaderBuilder::new().has_headers(true).from_reader(reader);
+        return Ok(csv.has_headers())
+    }
+    else if suffix == "zip" {
+        let file = File::open(source_path)?;
+        let mut archive = ZipArchive::new(file)?;
+
+        // Assuming there's only one file in the zip
+        let csv_file = archive.by_index(0)?;
+        let reader = BufReader::new(csv_file);
+
+        let csv = ReaderBuilder::new().has_headers(true).from_reader(reader);
+        return Ok(csv.has_headers())
+    }
+
+    Err(anyhow!("unsupported file type {:?}", source_path))
+}
+
+
 /// import csv format into dataframe
-pub fn csv_to_df(source_path: &PathBuf, has_header: bool) -> anyhow::Result<DataFrame> {
-    log::debug!("reading csv file = {:?}", source_path);
+pub fn csv_to_df(source_path: &PathBuf) -> anyhow::Result<DataFrame> {
+    let has_header = has_csv_header(source_path)?;
+
+    log::debug!("reading csv file = {:?}, header = {:?}", source_path, has_header);
 
     let suffix = source_path.extension().unwrap_or_default();
     let suffix = suffix.to_ascii_lowercase();
@@ -706,6 +746,7 @@ pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
     Ok(())
 }
 
+use tokio::time::error::Elapsed;
 use ::zip::ZipArchive;
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;

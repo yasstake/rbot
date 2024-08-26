@@ -69,7 +69,6 @@ pub trait RestApi {
     async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>;
 
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String;
-    fn archive_has_header(&self) -> bool;
     fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame>;
 }
 

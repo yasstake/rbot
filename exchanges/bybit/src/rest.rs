@@ -454,10 +454,6 @@ impl RestApi for BybitRestApi {
         )
     }
 
-    fn archive_has_header(&self) -> bool {
-        true
-    }
-
     async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
         let url = self.history_web_url(config, date);
 

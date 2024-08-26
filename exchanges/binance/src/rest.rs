@@ -301,9 +301,6 @@ impl RestApi for BinanceRestApi {
         }
     }
 
-    fn archive_has_header(&self) -> bool {
-        false
-    }
     
     /// log_df format as below;
     ///     ID(0)      price(1)   size(2)                  timestamp[ms](4)  is_buyer(5)

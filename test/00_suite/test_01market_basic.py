@@ -2,6 +2,8 @@ import pytest
 
 from rbot import Bybit, BybitConfig, Binance, BinanceConfig, init_debug_log
 
+from time import sleep
+
 
 @pytest.mark.parametrize(
     "exchange, config",
@@ -9,6 +11,7 @@ from rbot import Bybit, BybitConfig, Binance, BinanceConfig, init_debug_log
             (Bybit(False), BybitConfig.BTCUSDT),
             (Binance(False), BinanceConfig.BTCUSDT),
             (Binance(False), "BTC/USDT"),
+            (Binance(False), "BTC/USDT:USDT"),
     ]
 )
 def test_call_all_methods(exchange, config):
@@ -16,8 +19,9 @@ def test_call_all_methods(exchange, config):
     
     market = exchange.open_market(config)
     
-    init_debug_log()
-    market.download(ndays=2, verbose=True)
+    market.download(ndays=3, verbose=True)
+    
+    sleep(1)
     
     print("market = ", market)
     

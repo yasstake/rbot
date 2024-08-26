@@ -97,7 +97,7 @@ impl TradeDataFrame {
     pub fn get_archive_end_time(&mut self) -> MicroSec {
         self.archive.end_time()
     }
-
+    
     pub fn get_db_start_time(&self, since_time: MicroSec) -> MicroSec {
         self.db.start_time(since_time)
     }

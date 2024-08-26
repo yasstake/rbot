@@ -360,6 +360,13 @@ where
         Ok((start_time, end_time))
     }
 
+    fn get_archive_end(&self) -> anyhow::Result<MicroSec> {
+        let db = self.get_db();
+        let mut lock = db.lock().unwrap();
+
+        Ok(lock.end_time())
+    }
+
     fn get_db_info(&self) -> anyhow::Result<(MicroSec, MicroSec)> {
         let db = self.get_db();
         let lock = db.lock().unwrap();
@@ -774,8 +781,6 @@ where
             t
         };
 
-
-
         self.async_download_range(range_from, start_time, verbose)
             .await?;
 
@@ -901,6 +906,9 @@ where
                 time_string(time_to)
             )
         }
+
+        let archive_end = self.get_archive_info();
+
 
         let tx = self.open_db_channel()?;
 
