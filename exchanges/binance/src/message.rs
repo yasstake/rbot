@@ -158,12 +158,12 @@ pub struct BinanceWsTradeMessage {
     pub t: BinanceMessageId, // "t":3200243634           Trade ID
     pub p: String,           // "p":"26132.02000000"     Price
     pub q: String,           // "q":"0.00244000"         Quantity
-    pub b: BinanceMessageId, // "b":22161265544          Buyer order ID
-    pub a: BinanceMessageId, // "a":22161265465          Seller order ID
+    // pub b: BinanceMessageId, // "b":22161265544          Buyer order ID
+    // pub a: BinanceMessageId, // "a":22161265465          Seller order ID
     #[serde(rename = "T")]
     pub time: i64, // "T":1693226465429        Trade time
     pub m: bool,             // "m":false                Is the buyer the market maker?
-    pub M: bool,             // "M":true                 Ignore
+    // pub M: bool,             // "M":true                 Ignore
 }
 
 impl BinanceWsTradeMessage {

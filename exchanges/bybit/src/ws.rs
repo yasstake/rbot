@@ -99,8 +99,8 @@ impl WebSocketClient for BybitPublicWsClient {
         );
 
         public_ws.subscribe(&vec![
-            format!("publicTrade.{}", &config.trade_category),
-            format!("orderbook.200.{}", &config.trade_category)
+            format!("publicTrade.{}", &config.trade_symbol),
+            format!("orderbook.200.{}", &config.trade_symbol)
         ]).await;
 
         Self {
