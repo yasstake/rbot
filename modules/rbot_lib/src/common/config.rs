@@ -205,7 +205,7 @@ impl MarketConfig {
     pub fn round_size(&self, size: Decimal) -> anyhow::Result<Decimal> {
         let size = round(self.size_unit, size)?;
 
-        if self.min_size != dec![0.0] && size <= self.min_size {
+        if self.min_size != dec![0.0] && size < self.min_size {
             return Err(anyhow!("below min size size={}, min_size={}", size, self.min_size));
         }
 
