@@ -221,7 +221,7 @@ impl TradeArchive {
         loop {
             log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-            if has_web_archive(api, &self.config, latest).await? {
+            if api.has_web_archive(&self.config, latest).await? {
                 self.latest_archive_date = latest;
                 return Ok(latest);
             }
@@ -582,11 +582,9 @@ impl TradeArchive {
         T: RestApi,
         F: FnMut(i64, i64),
     {
-        let config = &self.config.clone();
+        let has_archive_file = self.has_local_archive(date);
 
-        let has_csv_file = self.has_local_archive(date);
-
-        if has_csv_file && !force {
+        if has_archive_file && !force {
             return Ok(0);
         }
 
@@ -604,6 +602,13 @@ impl TradeArchive {
         if verbose && force {
             log::debug!("force download");
         }
+
+        let parquet_file = self.file_path(date);
+
+        api.web_archive_to_parquet::<T, F>(&self.config, &parquet_file, date, f).await
+
+
+        /*
 
         let url = api.history_web_url(config, date);
 
@@ -634,6 +639,7 @@ impl TradeArchive {
         }
 
         Err(anyhow!("Unknown file type {:?}", file_path))
+        */
     }
 }
 

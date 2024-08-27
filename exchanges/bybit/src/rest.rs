@@ -113,6 +113,10 @@ impl BybitRestApi {
 }
 
 impl RestApi for BybitRestApi {
+    fn get_exchange(&self) -> ExchangeConfig {
+        self.server_config.clone()
+    }
+
     async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
         let server = &self.server_config;
 
@@ -422,7 +426,7 @@ impl RestApi for BybitRestApi {
             .with_context(|| {
                 format!(
                     "get_account error: {}/{}/{}",
-                    &server.get_rest_server(),
+                    &server.get_public_api(),
                     path,
                     &query_string
                 )
@@ -501,9 +505,9 @@ impl BybitRestApi {
     ) -> anyhow::Result<BybitRestResponse> {
         let query = format!("{}?{}", path, params);
 
-        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
+        let response = rest_get(&server.get_public_api(), &query, vec![], None, None)
             .await
-            .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
+            .with_context(|| format!("rest_get error: {}/{}", &server.get_public_api(), &query))?;
 
         Self::parse_rest_response(response)
     }
@@ -534,12 +538,12 @@ impl BybitRestApi {
         headers.push(("X-BAPI-TIMESTAMP", &timestamp));
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
 
-        let result = rest_get(&server.get_rest_server(), path, headers, Some(query_string), None)
+        let result = rest_get(&server.get_public_api(), path, headers, Some(query_string), None)
             .await
             .with_context(|| {
                 format!(
                     "get_sign error: {}/{}/{}",
-                    &server.get_rest_server(), path, query_string
+                    &server.get_public_api(), path, query_string
                 )
             })?;
 
@@ -567,9 +571,9 @@ impl BybitRestApi {
         headers.push(("X-BAPI-RECV-WINDOW", recv_window));
         headers.push(("Content-Type", "application/json"));
 
-        let response = rest_post(&server.get_rest_server(), path, headers, &body)
+        let response = rest_post(&server.get_public_api(), path, headers, &body)
             .await
-            .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("post_sign error {}/{}", server.get_public_api(), path))?;
 
         Self::parse_rest_response(response)
     }

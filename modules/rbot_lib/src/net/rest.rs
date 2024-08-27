@@ -1,18 +1,25 @@
 // Copyright(c) 2023-4. yasstake. All rights reserved.
 // Abloultely no warranty.
 
+use std::path::PathBuf;
+
 use anyhow::anyhow;
 use anyhow::Context;
 use polars::lazy::frame::LazyFrame;
 use reqwest::StatusCode;
+use tempfile::tempdir;
 
 // use crossbeam_channel::Receiver;
 use crate::common::time_string;
 use crate::common::AccountCoins;
+use crate::common::ExchangeConfig;
 use crate::common::Kline;
 use crate::common::{
     BoardTransfer, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, DAYS, TODAY,
 };
+use crate::db::csv_to_df;
+use crate::db::df_to_parquet;
+use crate::db::log_download_tmp;
 use polars::frame::DataFrame;
 use reqwest::Method;
 use rust_decimal::Decimal;
@@ -30,6 +37,8 @@ pub enum RestPage {
 }
 
 pub trait RestApi {
+    fn get_exchange(&self) -> ExchangeConfig;
+
     async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer>;
 
     async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
@@ -70,6 +79,66 @@ pub trait RestApi {
 
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String;
     fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame>;
+
+    async fn has_web_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
+        let url = self.history_web_url(config, date);
+        let result = check_exist(url.as_str()).await;
+    
+        if result.is_err() {
+            log::info!("archive not found: url = {}", url);
+            return Ok(false);
+        }
+    
+        Ok(result.unwrap())
+    }
+
+    async fn web_archive_to_parquet<T, F>(
+        &self,
+        config: &MarketConfig,
+        parquet_file: &PathBuf,
+        date: MicroSec,
+        f: F,
+    ) -> anyhow::Result<i64>
+    where
+        T: RestApi,
+        F: FnMut(i64, i64),
+    {
+        let url = self.history_web_url(config, date);
+
+        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
+
+        let file_path = log_download_tmp(&url, tmp_dir.path(), f)
+            .await
+            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
+
+        let file_path = PathBuf::from(file_path);
+
+        let suffix = file_path.extension().unwrap_or_default();
+        let suffix = suffix.to_ascii_lowercase();
+
+        if suffix == "gz" || suffix == "csv" || suffix == "zip" {
+            log::debug!("read log csv to df");
+            let df = csv_to_df(&file_path)?;
+
+            let mut archive_df = self.logdf_to_archivedf(&df)?;
+            log::debug!("archive df shape={:?}", archive_df.shape());
+
+            log::debug!("store paquet");
+            let rec = df_to_parquet(&mut archive_df, &parquet_file)?;
+            log::debug!("done {} [rec]", rec);
+
+            return Ok(rec)
+        }
+
+        Err(anyhow!("Unknown file type {:?}", file_path))
+    }
+
+
+
+
+
+
+
 }
 
 

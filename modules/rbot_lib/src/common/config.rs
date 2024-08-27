@@ -89,8 +89,12 @@ impl ExchangeConfig {
         self.production
     }
 
-    pub fn get_rest_server(&self) -> String {
+    pub fn get_public_api(&self) -> String {
         self.public_api.clone()
+    }
+
+    pub fn get_private_api(&self) -> String {
+        self.private_api.clone()
     }
 
     pub fn get_public_ws_server(&self) -> String {
