@@ -340,23 +340,12 @@ impl Runner {
                     flush_log();
                 }
 
-                let kwargs = if self.verbose {
-                    vec![("verbose", true)]
-                } else {
-                    vec![("verbose", false)]
-                };
+                let kwargs =
+                    vec![("connect_ws", true), ("verbose", self.verbose)];
 
-                //let kwargs = kwargs.into_py_dict_bound(py);
                 let kwargs = kwargs.into_py_dict_bound(py);
-                market.call_method("download_latest", (), Some(&kwargs))?;
+                market.call_method("download", (5, ), Some(&kwargs))?;
                 log::debug!("download_latest is done");
-                market.call_method("download_gap", (), Some(&kwargs))?;
-                log::debug!("download_gap is done");
-
-                let kwargs = vec![("ndays", 10)];
-                let kwargs = kwargs.into_py_dict_bound(py);
-                market.call_method("download_archive", (), Some(&kwargs))?;
-                log::debug!("download_archive is done");
             }
 
             Ok::<(), anyhow::Error>(()) // Add type annotation for Result
@@ -535,7 +524,13 @@ impl Runner {
         let mut bar = PyRunningBar::new();
 
         if self.verbose {
-            bar.init(duration, true, true);
+            if self.execute_mode == ExecuteMode::BackTest {
+                bar.init(duration, true, true, true);
+            }
+            else {
+                bar.init(duration, false, true, true);
+            }
+
 
             if production {
                 bar.print("========= CONNECT PRODUCTION NET  ==========");

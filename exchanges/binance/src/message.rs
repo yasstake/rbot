@@ -7,14 +7,12 @@ use pyo3::{pyclass, pymethods};
 use rbot_lib::common::{
     msec_to_microsec, orderside_deserialize, orderstatus_deserialize, ordertype_deserialize,
     string_to_decimal, string_to_f64, AccountCoins, BoardItem, BoardTransfer, Coin, ControlMessage,
-    LogStatus, MarketConfig, MultiMarketMessage, Order, OrderSide,
-    OrderStatus, OrderType, Trade,
+    LogStatus, MarketConfig, MultiMarketMessage, Order, OrderSide, OrderStatus, OrderType, Trade,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
 use std::str::FromStr;
-
 
 pub type BinanceMessageId = u64;
 
@@ -29,18 +27,16 @@ impl Into<BinancePublicWsMessage> for BinanceWsRawMessage {
     fn into(self) -> BinancePublicWsMessage {
         match self {
             BinanceWsRawMessage::message(m) => m,
-            BinanceWsRawMessage::reply(r) => BinancePublicWsMessage::Control(
-                if let Some(msg) = r.result {
+            BinanceWsRawMessage::reply(r) => {
+                BinancePublicWsMessage::Control(if let Some(msg) = r.result {
                     msg
-                }
-                else {
+                } else {
                     "None".to_string()
-                }
-            )
+                })
+            }
         }
     }
 }
-
 
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,8 +158,8 @@ pub struct BinanceWsTradeMessage {
     // pub a: BinanceMessageId, // "a":22161265465          Seller order ID
     #[serde(rename = "T")]
     pub time: i64, // "T":1693226465429        Trade time
-    pub m: bool,             // "m":false                Is the buyer the market maker?
-    // pub M: bool,             // "M":true                 Ignore
+    pub m: bool, // "m":false                Is the buyer the market maker?
+                 // pub M: bool,             // "M":true                 Ignore
 }
 
 impl BinanceWsTradeMessage {
@@ -461,28 +457,6 @@ pub fn binance_order_response_vec_to_orders(
     orders
 }
 
-/*
-BinaceCanceOrderResponse will parse below json.
-
-{
-  "symbol": "LTCBTC",
-  "origClientOrderId": "myOrder1",
-  "orderId": 4,
-  "orderListId": -1, //Unless part of an OCO, the value will always be -1.
-  "clientOrderId": "cancelMyOrder1",
-  "transactTime": 1684804350068,
-  "price": "2.00000000",
-  "origQty": "1.00000000",
-  "executedQty": "0.00000000",
-  "cummulativeQuoteQty": "0.00000000",
-  "status": "CANCELED",
-  "timeInForce": "GTC",
-  "type": "LIMIT",
-  "side": "BUY",
-  "selfTradePreventionMode": "NONE"
-}
-*/
-
 #[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
@@ -662,12 +636,9 @@ impl BinanceAccountUpdate {
             coins.push(coin);
         }
 
-        AccountCoins {
-            coins: coins,
-        }
+        AccountCoins { coins: coins }
     }
 }
-
 
 #[pyclass]
 #[derive(Debug, Serialize, Deserialize)]
@@ -870,7 +841,6 @@ impl BinanceExecutionReport {
     }
 }
 
-
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "e")]
@@ -879,7 +849,6 @@ pub enum BinanceUserWsMessage {
     balanceUpdate(BinanceBalanceUpdate),
     executionReport(BinanceExecutionReport),
 }
-
 
 impl BinanceUserWsMessage {
     pub fn convert_multimarketmessage(&self, category: &str) -> MultiMarketMessage {
@@ -903,7 +872,6 @@ impl BinanceUserWsMessage {
         message
     }
 }
-
 
 /*
 https://binance-docs.github.io/apidocs/spot/en/#account-information-user_data
@@ -1152,14 +1120,34 @@ impl BinanceOrderStatus {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod binance_message_test {
     use crate::config::BinanceConfig;
     // use crate::config::BinanceServerConfig;
     use super::*;
+
+    /*------- rest response ---- */
+    /*
+    BinaceCanceOrderResponse will parse below json.
+
+    {
+      "symbol": "LTCBTC",
+      "origClientOrderId": "myOrder1",
+      "orderId": 4,
+      "orderListId": -1, //Unless part of an OCO, the value will always be -1.
+      "clientOrderId": "cancelMyOrder1",
+      "transactTime": 1684804350068,
+      "price": "2.00000000",
+      "origQty": "1.00000000",
+      "executedQty": "0.00000000",
+      "cummulativeQuoteQty": "0.00000000",
+      "status": "CANCELED",
+      "timeInForce": "GTC",
+      "type": "LIMIT",
+      "side": "BUY",
+      "selfTradePreventionMode": "NONE"
+    }
+    */
 
     #[test]
     fn test_binance_public_ws_message() {
@@ -1170,15 +1158,13 @@ mod binance_message_test {
         println!("{:?}", message);
     }
 
-    const TRADE_WS: &str = r#"{"e":"trade","E":1693226465430,"s":"BTCUSDT","t":3200243634,"p":"26132.02000000","q":"0.00244000","b":22161265544,"a":22161265465,"T":1693226465429,"m":false,"M":true}"#;        
+    const TRADE_WS: &str = r#"{"e":"trade","E":1693226465430,"s":"BTCUSDT","t":3200243634,"p":"26132.02000000","q":"0.00244000","b":22161265544,"a":22161265465,"T":1693226465429,"m":false,"M":true}"#;
     #[test]
     fn test_binance_trade_message() {
-
         let message: BinanceWsTradeMessage = serde_json::from_str(TRADE_WS).unwrap();
 
         println!("{:?}", message);
     }
-
 
     const BOARD_UPDATE: &str = r#"{"e":"depthUpdate","E":1693266904308,"s":"BTCUSDT","U":38531387766,"u":38531387832,"b":[["26127.87000000","20.79393000"],["26126.82000000","0.02674000"],["26125.95000000","0.00000000"],["26125.78000000","0.38302000"],["26125.68000000","0.00000000"],["26125.10000000","0.00000000"],["26125.05000000","0.00000000"],["26124.76000000","0.00000000"],["26124.75000000","0.21458000"],["26114.84000000","1.14830000"],["26114.15000000","0.00000000"],["26090.85000000","0.00000000"],["26090.84000000","0.00000000"],["26090.32000000","2.29642000"],["26090.31000000","3.82738000"],["26087.99000000","0.03733000"],["26084.34000000","0.00000000"],["25553.07000000","0.13647000"],["25500.81000000","0.14160000"],["25496.85000000","0.00000000"],["25284.00000000","0.03996000"],["24827.83000000","0.00000000"],["24300.17000000","0.00000000"],["23772.50000000","0.00047000"],["23515.08000000","0.00000000"],["18289.50000000","0.00000000"],["13063.93000000","0.00091000"]],"a":[["26127.88000000","5.58099000"],["26128.39000000","0.20072000"],["26128.79000000","0.21483000"],["26129.26000000","0.38297000"],["26129.52000000","0.00000000"],["26129.53000000","0.00000000"],["26134.50000000","0.06000000"],["26134.99000000","1.07771000"],["26135.10000000","0.00700000"],["26155.27000000","0.00050000"],["26155.28000000","0.00000000"],["27027.87000000","0.00200000"],["27290.25000000","0.00000000"],["27817.92000000","0.00000000"],["28345.58000000","0.00000000"]]}"#;
     #[test]
@@ -1191,7 +1177,7 @@ mod binance_message_test {
     #[test]
     fn test_multi_market_message() {
         let trade: BinanceWsTradeMessage = serde_json::from_str(TRADE_WS).unwrap();
-        let trade = BinancePublicWsMessage::Trade(trade);        
+        let trade = BinancePublicWsMessage::Trade(trade);
         let message: MultiMarketMessage = trade.into();
         println!("{:?}", message);
 
@@ -1200,8 +1186,6 @@ mod binance_message_test {
         let message: MultiMarketMessage = board.into();
         println!("{:?}", message);
     }
-
-
 
     const HISTORY: &str = r#"[{"id":990877266,"price":"26092.63000000","qty":"0.00046000","quoteQty":"12.00260980","time":1692935644243,"isBuyerMaker":false,"isBestMatch":true},{"id":990877267,"price":"26093.10000000","qty":"0.00189000","quoteQty":"49.31595900","time":1692935644243,"isBuyerMaker":false,"isBestMatch":true},{"id":990877268,"price":"26093.75000000","qty":"0.00209000","quoteQty":"54.53593750","time":1692935644276,"isBuyerMaker":false,"isBestMatch":true},{"id":990877269,"price":"26094.00000000","qty":"0.00306000","quoteQty":"79.84764000","time":1692935647281,"isBuyerMaker":false,"isBestMatch":true},{"id":990877270,"price":"26094.00000000","qty":"0.00075000","quoteQty":"19.57050000","time":1692935647283,"isBuyerMaker":false,"isBestMatch":true}]"#;
 
@@ -1228,14 +1212,12 @@ mod binance_message_test {
         ]
       }"#;
 
-    
     #[test]
     fn test_binance_rest_board_update_message() {
         let message: BinanceRestBoard = serde_json::from_str(REST_BOARD).unwrap();
 
         println!("{:?}", message);
     }
-    
 
     #[test]
     fn test_binance_ws_message() {
@@ -1247,8 +1229,10 @@ mod binance_message_test {
     }
 
     #[test]
-    fn test_binance_order_response() -> anyhow::Result<()>{
-        let order: BinanceOrderResponse = serde_json::from_str(r#"{"symbol":"BTCUSDT","orderId":28,"orderListId":-1,"clientOrderId":"6gCrw2kRUAF9CvJDGP16IP","transactTime":1507725176595,"price":"0.00000000","origQty":"10.00000000","executedQty":"10.00000000","cummulativeQuoteQty":"10.00000000","status":"FILLED","timeInForce":"GTC","type":"MARKET","side":"SELL","workingTime":1507725176595,"selfTradePreventionMode":"NONE","fills":[{"price":"4000.00000000","qty":"1.00000000","commission":"4.00000000","commissionAsset":"USDT","tradeId":56},{"price":"3999.00000000","qty":"5.00000000","commission":"19.99500000","commissionAsset":"USDT","tradeId":57},{"price":"3998.00000000","qty":"2.00000000","commission":"7.99600000","commissionAsset":"USDT","tradeId":58},{"price":"3997.00000000","qty":"1.00000000","commission":"3.99700000","commissionAsset":"USDT","tradeId":59},{"price":"3995.00000000","qty":"1.00000000","commission":"3.99500000","commissionAsset":"USDT","tradeId":60}]}"#)?;
+    fn test_binance_order_response() -> anyhow::Result<()> {
+        let order: BinanceOrderResponse = serde_json::from_str(
+            r#"{"symbol":"BTCUSDT","orderId":28,"orderListId":-1,"clientOrderId":"6gCrw2kRUAF9CvJDGP16IP","transactTime":1507725176595,"price":"0.00000000","origQty":"10.00000000","executedQty":"10.00000000","cummulativeQuoteQty":"10.00000000","status":"FILLED","timeInForce":"GTC","type":"MARKET","side":"SELL","workingTime":1507725176595,"selfTradePreventionMode":"NONE","fills":[{"price":"4000.00000000","qty":"1.00000000","commission":"4.00000000","commissionAsset":"USDT","tradeId":56},{"price":"3999.00000000","qty":"5.00000000","commission":"19.99500000","commissionAsset":"USDT","tradeId":57},{"price":"3998.00000000","qty":"2.00000000","commission":"7.99600000","commissionAsset":"USDT","tradeId":58},{"price":"3997.00000000","qty":"1.00000000","commission":"3.99700000","commissionAsset":"USDT","tradeId":59},{"price":"3995.00000000","qty":"1.00000000","commission":"3.99500000","commissionAsset":"USDT","tradeId":60}]}"#,
+        )?;
         println!("{:?}", order);
 
         let config = BinanceConfig::BTCUSDT();
@@ -1316,7 +1300,6 @@ mod binance_message_test {
         println!("{:?}", order_response);
     }
 
-
     #[test]
     fn test_binance_account_inforamtion() {
         let order_response: BinanceAccountInformation = serde_json::from_str(
@@ -1339,7 +1322,6 @@ mod binance_message_test {
         println!("{:?}", coins);
     }
 
-    
     #[test]
     fn test_binance_order_status() {
         let order_response: BinanceOrderStatus = serde_json::from_str(
@@ -1360,7 +1342,6 @@ mod binance_message_test {
         println!("{:?}", order_response);
     }
 
-
     /*------------ Private WS ------------------------*/
     #[test]
     fn test_account_update() {
@@ -1378,10 +1359,10 @@ mod binance_message_test {
                   }
                 ]
               }
-            "#).unwrap();
+            "#,
+        )
+        .unwrap();
 
         println!("{:?}", account_update);
     }
-
 }
-

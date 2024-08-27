@@ -19,84 +19,101 @@ const PY_TQDM_NOTEBOOK: &str = r#"
 from tqdm.notebook import tqdm
 "#;
 
-const PY_FILE_BAR: &str = r#"
+const PY_BAR: &str = include_str!("./bar.py");
 
-class FileBar:
-    def __init__(self, total_files):
-        self.progress = tqdm(total=total_files * 100, position=1, delay=1,
-                             bar_format="[{elapsed}] ({percentage:>3.0f}%) |{bar}| [ETA:{remaining}]")
-        self.current_file = -1
-        self.total_files = total_files
-        self.last_progress = 0
 
-        self.file_progress = tqdm(total=0, position=2, delay=1, bar_format="{postfix:7>} ({percentage:3.0f}%) |{bar}| {n_fmt:>8}/{total_fmt} {rate_fmt}",
-          unit="B", unit_scale=True
-        )
-        self.last_file_progress = 0
-        self.current_file_size = 0
 
-    def set_total_files(self, value):
-        self.progress.reset(total=value * 100)
-        self.current_file = -1
-        self.total_files = value
-        self.last_progress = 0
-        self.last_file_progress = 0
-        self.current_file_size = 0
-        self.file_progress.reset(total=0)
+pub struct PyRestBar {
+    bar: Py<PyAny>,
+    enable: bool,
+    verbose_print: bool,
+}
 
-    def set_file_size(self, size):
-        self.current_file_size = size
-        self.last_file_progress = 0
-        self.file_progress.reset(total=size)
+impl PyRestBar {
+    pub fn new() -> Self {
+        let none = Python::with_gil(|py|{
+            Python::None(py)
+        });
 
-    def set_file_progress(self, value):
-        diff = value - self.last_file_progress
-        if diff > 0:
-            self.file_progress.update(diff)
+        Self {
+            bar: none,
+            enable: false,
+            verbose_print: false
+        }
+    }
 
-        self.last_file_progress = value
+    pub fn init(&mut self, total_duration: i64, enable: bool, verbose_print: bool) {
+        let py_script = if is_notebook() {
+            format!("{}{}", PY_TQDM_NOTEBOOK, PY_BAR)
+        } else {
+            format!("{}{}", PY_TQDM_PYTHON, PY_BAR)
+        };
 
-        if self.current_file <= 0:
-            return
+        Python::with_gil(|py| {
+            let py_module =
+                PyModule::from_code_bound(py, &py_script, "py_file_bar.py", "py_file_bar");
 
-        self.set_progress(
-            self.current_file * 100 +
-            (value * 100 / self.current_file_size)
-        )
+            if py_module.is_err() {
+                log::error!("py_file_bar tqdm bar class create error")
+            }
 
-    def set_progress(self, value):
-        diff = value - self.last_progress
-        if diff > 0:
-            self.progress.update(diff)
+            let py_module = py_module.unwrap();
 
-        self.last_progress = value
+            let progress_class = py_module.getattr("RestBar").unwrap();
+            let bar = progress_class.call1((total_duration,)).unwrap();
 
-    def next_file(self, name, size):
-        self.current_file += 1
-        self.set_progress(self.current_file * 100)
+            self.bar = bar.into();
+            self.enable = enable;
+            self.verbose_print = verbose_print;
+        });
+    }
 
-        self.last_file_progress = 0
-        self.current_file_size = size
-        self.file_progress.reset(total =size)
-        self.file_progress.set_description(name)
-        self.file_progress.set_postfix_str(
-            f"[{self.current_file + 1} / {self.total_files}]"
-        )
+    pub fn diff_update(&mut self, diff: i64) {
+        if ! self.enable {
+            return;
+        }
+        let bar = self.bar.borrow_mut();
 
-    def set_progress(self, value):
-        diff = value - self.last_progress
-        if diff > 0:
-            self.progress.update(diff)
+        Python::with_gil(|py| {
+            // ignore err.
+            let _r = bar.call_method1(py, "diff_update", (diff,));
+        })
+    }
 
-        self.last_progress = value
+    pub fn set_status(&mut self, message: &str) {
+        if ! self.enable {
+            return;
+        }
+        let bar = self.bar.borrow_mut();
 
-    def print(self, value):
-        self.progress.write(value)
+        Python::with_gil(|py| {
+            // ignore err.
+            let _r = bar.call_method1(py, "set_status", (message,));
+        })
+    }
 
-    def close(self):
-        self.progress.close()
-        self.file_progress.close()
-"#;
+    pub fn print(&mut self, m: &str) {
+        if ! self.verbose_print {
+            return;
+        }
+
+        let bar = self.bar.borrow_mut();
+
+
+        Python::with_gil(|py| {
+            if self.enable {
+                let _r = bar.call_method1(py, "print", (m,));
+            }
+            else {
+                println!("{}", m);
+            }
+        });
+    }
+}
+
+
+
+
 
 pub struct PyFileBar {
     bar: Py<PyAny>,
@@ -119,9 +136,9 @@ impl PyFileBar {
 
     pub fn init(&mut self, total_files: i64, enable: bool, verbose_print: bool) {
         let py_script = if is_notebook() {
-            format!("{}{}", PY_TQDM_NOTEBOOK, PY_FILE_BAR)
+            format!("{}{}", PY_TQDM_NOTEBOOK, PY_BAR)
         } else {
-            format!("{}{}", PY_TQDM_PYTHON, PY_FILE_BAR)
+            format!("{}{}", PY_TQDM_PYTHON, PY_BAR)
         };
 
         Python::with_gil(|py| {
@@ -212,38 +229,6 @@ impl PyFileBar {
 
 const PY_RUNNING_BAR: &str = r#"
 
-class ProgressBar:
-    def __init__(self, max_value):
-        self.progress = tqdm(total=max_value, position=1,
-                             bar_format="[{elapsed}]({percentage:>2.0f}%) |{bar}| [ETA:{remaining}]")
-        self.last_progress = 0
-        self.status = tqdm(total=0, position=2, bar_format="{postfix:<}")
-        self.order = tqdm(total=0, position=3, bar_format="{postfix:<}")
-        self.profit = tqdm(total=0, position=4, bar_format="{postfix:>}")
-
-    def set_progress(self, value):
-        diff = value - self.last_progress
-        if diff > 0:
-            self.progress.update(diff)
-
-        self.last_progress = value
-
-    def print_message(self, value):
-        self.status.set_postfix_str(value)
-
-    def print_order(self, value):
-        self.order.set_postfix_str(value)
-
-    def print_profit(self, value):
-        self.profit.set_postfix_str(value)
-
-    def print(self, value):
-        self.progress.write(value)
-
-    def close(self):
-        self.progress.close()
-        self.status.close()
-        self.profit.close()
 "#;
 
 pub struct PyRunningBar {
@@ -265,11 +250,11 @@ impl PyRunningBar {
         }
     }
 
-    pub fn init(&mut self, total_duration: i64, enable: bool, verbose_print: bool) {
+    pub fn init(&mut self, total_duration: i64, has_bar: bool, enable: bool, verbose_print: bool) {
         let py_script = if is_notebook() {
-            format!("{}{}", PY_TQDM_NOTEBOOK, PY_RUNNING_BAR)
+            format!("{}{}", PY_TQDM_NOTEBOOK, PY_BAR)
         } else {
-            format!("{}{}", PY_TQDM_PYTHON, PY_RUNNING_BAR)
+            format!("{}{}", PY_TQDM_PYTHON, PY_BAR)
         };
 
         Python::with_gil(|py| {
@@ -283,7 +268,7 @@ impl PyRunningBar {
             let py_module = py_module.unwrap();
 
             let progress_class = py_module.getattr("ProgressBar").unwrap();
-            let bar = progress_class.call1((total_duration,)).unwrap();
+            let bar = progress_class.call1((total_duration, has_bar)).unwrap();
 
             self.bar = bar.into();
             self.enable = enable;
@@ -358,7 +343,21 @@ impl PyRunningBar {
 mod test_bar {
     use std::thread;
 
-    use super::{PyFileBar, PyRunningBar};
+    use crate::common::DAYS;
+
+    use super::{PyFileBar, PyRestBar, PyRunningBar};
+
+    #[test]
+    fn test_py_restbar() {
+        let mut bar = PyRestBar::new();
+        bar.init(DAYS(1), true, true);
+
+        for i in 0..10000 {
+            bar.diff_update(5000000);
+            thread::sleep(std::time::Duration::from_millis(5));
+            bar.set_status(&format!("count {}", i));
+        }
+    }
 
 
     #[test]
@@ -385,7 +384,23 @@ mod test_bar {
     #[test]
     fn test_init_bar() {
         let mut bar = PyRunningBar::new();
-        bar.init(1000, true, true);
+        bar.init(1000, true, true, true);
+
+        bar.set_progress(100);
+        bar.message("NOW IN PROGRESS");
+        bar.profit("SO MUCH PROFIT");
+        bar.print("log message");
+        bar.order("MYORDER");
+        bar.message("NOW IN PROGRESS2");
+        bar.profit("SO MUCH PROFIT2");
+        bar.set_progress(200);
+    }
+
+
+    #[test]
+    fn test_init_no_bar() {
+        let mut bar = PyRunningBar::new();
+        bar.init(1000, false, true, true);
 
         bar.set_progress(100);
         bar.message("NOW IN PROGRESS");

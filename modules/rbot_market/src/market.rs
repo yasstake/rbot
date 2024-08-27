@@ -15,6 +15,7 @@ use rbot_lib::common::MarketMessage;
 
 use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::ExchangeConfig;
+use rbot_lib::common::PyRestBar;
 use rbot_lib::common::FLOOR_SEC;
 use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;
@@ -897,6 +898,8 @@ where
         time_to: MicroSec,
         verbose: bool,
     ) -> anyhow::Result<i64> {
+        let mut time_from = time_from;
+
         if verbose {
             println!(
                 "download_range from={}({}) to={}({})",
@@ -908,7 +911,13 @@ where
         }
 
         let archive_end = self.get_archive_info();
+        if archive_end.is_ok() {
+            let (_start, end) = archive_end.unwrap();
 
+            if time_from < end {
+                time_from = end;
+            }
+        }
 
         let tx = self.open_db_channel()?;
 
@@ -916,6 +925,18 @@ where
 
         let mut trade_page = RestPage::New;
         let mut rec = 0;
+
+        let mut bar = PyRestBar::new();
+
+        if verbose {
+            let range = if time_to == 0 {
+                NOW() - time_from
+            }
+            else {
+                time_to - time_from
+            };
+            bar.init(range, true, true);
+        }
 
         loop {
             let now = NOW();
@@ -933,7 +954,8 @@ where
             let end_time = trades[l - 1].time;
 
             if verbose {
-                println!(
+                bar.diff_update(end_time - start_time);
+                bar.set_status(&format!(
                     "download_range (loop) ID:{}  {}({}) /  ID:{} {}({}) {}[rec]",
                     trades[0].id,
                     time_string(start_time),
@@ -942,16 +964,11 @@ where
                     time_string(end_time),
                     end_time,
                     l
-                );
+                ));
             }
 
             rec += l as i64;
             tx.send(trades)?;
-
-            if verbose {
-                println!("rec: {}", rec);
-                flush_log();
-            }
 
             if page == RestPage::Done {
                 break;
