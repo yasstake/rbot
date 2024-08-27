@@ -956,13 +956,11 @@ where
             if verbose {
                 bar.diff_update(end_time - start_time);
                 bar.set_status(&format!(
-                    "download_range (loop) ID:{}  {}({}) /  ID:{} {}({}) {}[rec]",
+                    "Downloading... [{}] {} ->  [{}] {} {}[rec]",
                     trades[0].id,
                     time_string(start_time),
-                    start_time,
                     trades[l -1].id,
                     time_string(end_time),
-                    end_time,
                     l
                 ));
             }
