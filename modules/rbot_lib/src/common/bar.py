@@ -17,7 +17,6 @@ class RestBar:
 
     def close(self):
         self.progress.close()
-        self.file_progress.close()
 
 
 class FileBar:
@@ -81,13 +80,6 @@ class FileBar:
         self.file_progress.set_postfix_str(
             f"[{self.current_file + 1} / {self.total_files}]"
         )
-
-    def set_progress(self, value):
-        diff = value - self.last_progress
-        if diff > 0:
-            self.progress.update(diff)
-
-        self.last_progress = value
 
     def print(self, value):
         self.progress.write(value)
