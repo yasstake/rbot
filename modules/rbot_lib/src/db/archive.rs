@@ -605,7 +605,7 @@ impl TradeArchive {
 
         let parquet_file = self.file_path(date);
 
-        api.web_archive_to_parquet::<T, F>(&self.config, &parquet_file, date, f).await
+        api.web_archive_to_parquet::<F>(&self.config, &parquet_file, date, f).await
 
 
         /*

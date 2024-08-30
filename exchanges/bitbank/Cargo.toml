@@ -38,6 +38,8 @@ tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
 
+tempfile = {workspace=true}
+
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]
 version = "0.21.2"

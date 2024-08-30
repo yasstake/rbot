@@ -458,13 +458,6 @@ impl RestApi for BybitRestApi {
         )
     }
 
-    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
-        let url = self.history_web_url(config, date);
-
-        let result = check_exist(&url).await?;
-
-        Ok(result)
-    }
 
     /// create DataFrame with columns;
     ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)

@@ -1,11 +1,18 @@
 
+use std::{fs::File, io::BufReader, path::PathBuf};
+use tempfile::tempdir;
+
+
 use polars::frame::DataFrame;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use rbot_lib::{common::{split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade}, net::{check_exist, RestApi, RestPage}};
+use rbot_lib::{common::{split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade}, db::{df_to_parquet, log_download_tmp, TradeBuffer}, net::{check_exist, rest_get, RestApi, RestPage}};
 
+use crate::{BitbankRestResponse, BitbankTransactions};
+
+use anyhow::{anyhow, Context as _};
 
 const BITBANK_BOARD_DEPTH: u32 = 200;
 
@@ -402,13 +409,29 @@ impl RestApi for BitbankRestApi {
         )
     }
 
-    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
-        let url = self.history_web_url(config, date);
+    /* 
+    async fn has_web_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
+        let server = self.server_config.get_public_api();
 
-        let result = check_exist(&url).await?;
+        let (yyyy, mm, dd) = split_yyyymmdd(date);
 
-        Ok(result)
+        let path = format!(
+            "/{}/transactions/{:04}{:02}{:02}",
+            config.trade_symbol, yyyy, mm, dd
+        );
+
+
+        let response = rest_get(&server, &path, vec![], None, None).await?;
+
+        let rest_response: BitbankRestResponse = serde_json::from_str(&response)?;
+
+        if rest_response.success == 0 {
+            return Err(anyhow!("archive get error {:?}", rest_response.data));
+        }
+        
+        Ok(true)
     }
+    */
 
     /// create DataFrame with columns;
     ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
@@ -442,6 +465,54 @@ impl RestApi for BitbankRestApi {
         */
         todo!()
     }
+
+
+    async fn web_archive_to_parquet<F>(
+        &self,
+        config: &MarketConfig,
+        parquet_file: &PathBuf,
+        date: MicroSec,
+        f: F,
+    ) -> anyhow::Result<i64>
+    where
+        F: FnMut(i64, i64),
+    {
+        let url = self.history_web_url(config, date);
+
+        let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
+
+        let file_path = log_download_tmp(&url, tmp_dir.path(), f)
+            .await
+            .with_context(|| format!("log_download_tmp error {}->{:?}", url, tmp_dir))?;
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+        let response: BitbankRestResponse = serde_json::from_reader(reader)?;
+
+        if response.success == 0 {
+            return Err(anyhow!("rest response error"));
+        }
+
+        let mut buffer = TradeBuffer::new();
+
+        match response.data {
+            crate::BitbankRestData::Transactions(transactions) => {
+                for t in transactions {
+                    buffer.push_trade(&t.into())
+                }
+
+                let mut df = buffer.to_dataframe();
+
+                let rec = df_to_parquet(&mut df, &parquet_file)?;
+                log::debug!("done {} [rec]", rec);
+    
+                return Ok(rec)
+            }
+        }
+
+        //        Err(anyhow!("unknown type"))
+    }
+
+
 }
 
 /*
@@ -660,7 +731,9 @@ pub struct Depth {
 
 #[cfg(test)]
 mod bitbank_test{
-    use rbot_lib::{common::{ExchangeConfig, MarketConfig, NOW}, net::RestApi};
+    use std::{path::PathBuf, str::FromStr};
+
+    use rbot_lib::{common::{ExchangeConfig, MarketConfig, DAYS, NOW}, net::RestApi};
 
     use crate::BitbankRestApi;
 
@@ -677,4 +750,32 @@ mod bitbank_test{
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_has_archive() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let result = api.has_web_archive(&config, NOW()).await ;
+        println!("{:?}", result);
+
+        let result = api.has_web_archive(&config, NOW() - DAYS(1)).await ;
+        println!("{:?}", result);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_download_paquet() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let file = PathBuf::from_str("/tmp/test.parquet")?;
+
+        let result = api.web_archive_to_parquet(&config, &file, NOW() - DAYS(1), |_f, _f2| {}).await;
+        println!("{:?}", result);
+
+        Ok(())
+    }
 }

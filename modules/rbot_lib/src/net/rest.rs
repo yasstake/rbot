@@ -75,8 +75,6 @@ pub trait RestApi {
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins>;
 
-    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool>;
-
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String;
     fn logdf_to_archivedf(&self, df: &DataFrame) -> anyhow::Result<DataFrame>;
 
@@ -92,7 +90,7 @@ pub trait RestApi {
         Ok(result.unwrap())
     }
 
-    async fn web_archive_to_parquet<T, F>(
+    async fn web_archive_to_parquet<F>(
         &self,
         config: &MarketConfig,
         parquet_file: &PathBuf,
@@ -100,7 +98,6 @@ pub trait RestApi {
         f: F,
     ) -> anyhow::Result<i64>
     where
-        T: RestApi,
         F: FnMut(i64, i64),
     {
         let url = self.history_web_url(config, date);
@@ -132,10 +129,6 @@ pub trait RestApi {
 
         Err(anyhow!("Unknown file type {:?}", file_path))
     }
-
-
-
-
 
 
 

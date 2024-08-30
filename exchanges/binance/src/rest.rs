@@ -265,10 +265,6 @@ impl RestApi for BinanceRestApi {
         Ok(account.into_coins())
     }
 
-    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
-        todo!()
-    }
-
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         let category = config.trade_category.to_lowercase();
