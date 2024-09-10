@@ -134,6 +134,8 @@ pub enum FeeType {
 #[pyclass]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketConfig {
+    #[pyo3(get)]
+    pub unified_symbol: String,
     #[pyo3(set)]
     pub exchange_name: String,
     #[pyo3(set, get)]
@@ -218,6 +220,8 @@ impl MarketConfig {
 
     #[new]
     pub fn new(
+        unified_symbol: &str,
+
         exchange_name: &str,
         trade_category: &str,
         trade_symbol: &str,
@@ -244,6 +248,7 @@ impl MarketConfig {
         let min_size = Decimal::from_f64(min_size).unwrap();
 
         Self {
+            unified_symbol: unified_symbol.to_string(),
             exchange_name:exchange_name.to_string(),
             trade_category:trade_category.to_string(),
             trade_symbol:trade_symbol.to_string(),
@@ -326,6 +331,7 @@ impl MarketConfig {
 impl Default for MarketConfig {
     fn default() -> Self {
         MarketConfig::new(
+            "default_unified_symbol",
             "default_exchange",
             "default_trade_category",
             "default_trade_symbol",

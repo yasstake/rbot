@@ -5,7 +5,12 @@ use std::path::PathBuf;
 
 use anyhow::anyhow;
 use anyhow::Context;
+use parquet::column::page::Page;
+use parquet::format::PageType;
 use polars::lazy::frame::LazyFrame;
+use pyo3::Py;
+use pyo3::PyAny;
+use pyo3::Python;
 use reqwest::StatusCode;
 use tempfile::tempdir;
 
@@ -26,6 +31,10 @@ use rust_decimal::Decimal;
 //use crate::db::KEY::low;
 use async_trait::async_trait;
 
+use super::create_ccxt_none;
+use super::CcxtOrderBook;
+use super::CcxtTrade;
+
 
 #[derive(PartialEq, Debug)]
 pub enum RestPage {
@@ -36,12 +45,67 @@ pub enum RestPage {
     Key(String)
 }
 
+
+
 pub trait RestApi {
     fn get_exchange(&self) -> ExchangeConfig;
 
-    async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer>;
+    fn get_ccxt_handle(&self) -> Py<PyAny>{
+        return create_ccxt_none();
+    }
 
-    async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>;
+    fn get_page_type(&self) -> RestPage {
+        RestPage::Int(0)
+    }
+
+    async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
+        let ccxt = self.get_ccxt_handle();
+
+        let board = Python::with_gil(|py| {
+            let params = (config.unified_symbol.clone(), );
+            let board = ccxt.call_method1(py, "get_board_snapshot", params)?;
+
+            let board_json = board.extract::<String>(py)?;
+
+            let board_json = serde_json::from_str::<CcxtOrderBook>(&board_json)?;
+            
+
+            let board: BoardTransfer = board_json.into();
+
+            Ok(board)
+        });
+
+        board
+    }
+
+    async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>>
+    {
+        let ccxt = self.get_ccxt_handle();
+
+        let trades = Python::with_gil(|py| {
+            let params = (config.unified_symbol.clone(), );
+            let trades = ccxt.call_method1(py, "get_recent_trades", params)?;
+
+            let trades = trades.extract::<String>(py);
+            if trades.is_err() {
+                return Err(anyhow!("get_recent_trade: error  {:?}", trades));
+            }
+
+            let trades = trades.unwrap();
+
+            let trades = serde_json::from_str::<Vec<CcxtTrade>>(&trades)?;
+            
+            Ok(trades)
+        })?;
+
+        let mut recent: Vec<Trade> = vec![];
+
+        for t in trades {
+            recent.push(t.into());
+        }
+
+        Ok(recent)
+    }
 
     async fn get_trades(
         &self,
@@ -49,7 +113,33 @@ pub trait RestApi {
         start_time: MicroSec,
         end_time: MicroSec,
         page: &RestPage
-    ) -> anyhow::Result<(Vec<Trade>, RestPage)>;
+    ) -> anyhow::Result<(Vec<Trade>, RestPage)>{
+        let ccxt = self.get_ccxt_handle();
+
+        let trades = Python::with_gil(|py| {
+            let params = (config.unified_symbol.clone(), );
+            let trades = ccxt.call_method1(py, "get_trades", params)?;
+
+            let trades = trades.extract::<String>(py);
+            if trades.is_err() {
+                return Err(anyhow!("get_trade: error  {:?}", trades));
+            }
+  
+            let trades = trades.unwrap();
+    
+            let trades = serde_json::from_str::<Vec<CcxtTrade>>(&trades)?;
+            
+            Ok(trades)
+        })?;
+
+
+        let mut recent: Vec<Trade> = vec![];
+        for t in trades {
+            recent.push(t.into());
+        }
+
+        Ok((recent, RestPage::Done))
+    }
 
     async fn get_klines(
         &self,
