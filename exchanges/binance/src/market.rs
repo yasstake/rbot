@@ -74,6 +74,11 @@ impl Binance {
     pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BinanceMarket> {
         let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
         
+        if config.trade_category != "spot"{
+            return Err(anyhow!{"not supported trade category {:?}", config.trade_category});
+        }
+
+
         Ok(BinanceMarket::new(&self.server_config, &config))
     }
 

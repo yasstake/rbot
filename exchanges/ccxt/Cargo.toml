@@ -1,17 +1,15 @@
 [package]
-name = "bitbank"
+name = "ccxt"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
 rbot_lib = {workspace = true}
 rbot_blockon = {workspace = true}
 rbot_market = {workspace = true}
 
-reqwest = {workspace=true}
 anyhow = {workspace = true}
 
 chrono = {workspace = true}
@@ -37,8 +35,6 @@ pyo3-polars = {workspace = true}
 tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
-
-tempfile = {workspace=true}
 
 # https://pyo3.rs/v0.13.2/faq
 [dependencies.pyo3]

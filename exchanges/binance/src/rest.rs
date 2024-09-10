@@ -34,6 +34,10 @@ impl BinanceRestApi {
 
 impl RestApi for BinanceRestApi {
     /// https://binance-docs.github.io/apidocs/spot/en/#order-book
+    /// 
+    fn get_exchange(&self) -> ExchangeConfig {
+        self.server_config.clone()
+    }
 
     async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
         let path = "/api/v3/depth";
@@ -261,10 +265,6 @@ impl RestApi for BinanceRestApi {
         Ok(account.into_coins())
     }
 
-    async fn has_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
-        todo!()
-    }
-
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
         // https://data.binance.vision/data/spot/daily/trades/BTCBUSD/BTCBUSD-trades-2022-11-19.zip
         let category = config.trade_category.to_lowercase();
@@ -301,9 +301,6 @@ impl RestApi for BinanceRestApi {
         }
     }
 
-    fn archive_has_header(&self) -> bool {
-        false
-    }
     
     /// log_df format as below;
     ///     ID(0)      price(1)   size(2)                  timestamp[ms](4)  is_buyer(5)
@@ -440,9 +437,9 @@ impl BinanceRestApi {
         log::debug!("path{} / body: {}", path, query);
         flush_log();
 
-        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
+        let response = rest_get(&server.get_public_api(), &query, vec![], None, None)
             .await
-            .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
+            .with_context(|| format!("rest_get error: {}/{}", &server.get_public_api(), &query))?;
 
         log::debug!("path{} / body: {}", path, response);
 
@@ -465,12 +462,12 @@ impl BinanceRestApi {
         };
 
         let query = Self::sign_with_timestamp(&api_secret, &q);
-        let message = rest_get(&server.get_rest_server(), path, headers, Some(&query), None)
+        let message = rest_get(&server.get_public_api(), path, headers, Some(&query), None)
             .await
             .with_context(|| {
                 format!(
                     "binance_get_sign error {}/{}",
-                    server.get_rest_server(),
+                    server.get_public_api(),
                     path
                 )
             })?;
@@ -491,9 +488,9 @@ impl BinanceRestApi {
         let body = Self::sign_with_timestamp(&api_secret, body);
 
         log::debug!("path{} / body: {}", path, body);
-        let message = rest_post(&server.get_rest_server(), path, headers, &body)
+        let message = rest_post(&server.get_public_api(), path, headers, &body)
             .await
-            .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("post_sign error {}/{}", server.get_public_api(), path))?;
 
         Self::parse_binance_result(message)
     }
@@ -514,9 +511,9 @@ impl BinanceRestApi {
 
         let mut headers: Vec<(&str, &str)> = vec![];
         headers.push(("X-MBX-APIKEY", &api_key));
-        let result = rest_post(&server.get_rest_server(), path, headers, body)
+        let result = rest_post(&server.get_public_api(), path, headers, body)
             .await
-            .with_context(|| format!("post_key error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("post_key error {}/{}", server.get_public_api(), path))?;
 
         Self::parse_binance_result(result)
     }
@@ -528,9 +525,9 @@ impl BinanceRestApi {
 
         let mut headers: Vec<(&str, &str)> = vec![];
         headers.push(("X-MBX-APIKEY", &api_key));
-        let result = rest_put(&server.get_rest_server(), path, headers, body)
+        let result = rest_put(&server.get_public_api(), path, headers, body)
             .await
-            .with_context(|| format!("post_key error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("post_key error {}/{}", server.get_public_api(), path))?;
 
         Self::parse_binance_result(result)
     }
@@ -547,9 +544,9 @@ impl BinanceRestApi {
         let body = Self::sign_with_timestamp(&api_secret, body);
 
         log::debug!("path{} / body: {}", path, body);
-        let result = rest_delete(&server.get_rest_server(), path, headers, &body)
+        let result = rest_delete(&server.get_public_api(), path, headers, &body)
             .await
-            .with_context(|| format!("delete_sign error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("delete_sign error {}/{}", server.get_public_api(), path))?;
 
         Self::parse_binance_result(result)
     }

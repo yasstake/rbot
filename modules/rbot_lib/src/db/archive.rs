@@ -221,7 +221,7 @@ impl TradeArchive {
         loop {
             log::debug!("check log exist = {}({})", time_string(latest), latest);
 
-            if has_web_archive(api, &self.config, latest).await? {
+            if api.has_web_archive(&self.config, latest).await? {
                 self.latest_archive_date = latest;
                 return Ok(latest);
             }
@@ -582,11 +582,9 @@ impl TradeArchive {
         T: RestApi,
         F: FnMut(i64, i64),
     {
-        let config = &self.config.clone();
+        let has_archive_file = self.has_local_archive(date);
 
-        let has_csv_file = self.has_local_archive(date);
-
-        if has_csv_file && !force {
+        if has_archive_file && !force {
             return Ok(0);
         }
 
@@ -605,6 +603,13 @@ impl TradeArchive {
             log::debug!("force download");
         }
 
+        let parquet_file = self.file_path(date);
+
+        api.web_archive_to_parquet::<F>(&self.config, &parquet_file, date, f).await
+
+
+        /*
+
         let url = api.history_web_url(config, date);
 
         let tmp_dir = tempdir().with_context(|| "create tmp dir error")?;
@@ -620,8 +625,7 @@ impl TradeArchive {
 
         if suffix == "gz" || suffix == "csv" || suffix == "zip" {
             log::debug!("read log csv to df");
-            let has_header = api.archive_has_header();
-            let df = csv_to_df(&file_path, has_header)?;
+            let df = csv_to_df(&file_path)?;
 
             let mut archive_df = api.logdf_to_archivedf(&df)?;
             log::debug!("archive df shape={:?}", archive_df.shape());
@@ -635,6 +639,7 @@ impl TradeArchive {
         }
 
         Err(anyhow!("Unknown file type {:?}", file_path))
+        */
     }
 }
 

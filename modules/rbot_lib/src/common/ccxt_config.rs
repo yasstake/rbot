@@ -109,7 +109,8 @@ pub fn get_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<Ma
     };
 
     Ok(MarketConfig::new(
-        exchange_name.clone(),
+        symbol,
+        exchange_name, 
         &market.trade_category.clone(),
         &market.trade_symbol.clone(),
         &market.foreign_currency.clone(),

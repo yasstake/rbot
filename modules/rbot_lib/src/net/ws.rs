@@ -620,22 +620,10 @@ mod test_exchange_ws {
     }
 
     fn make_market_config() -> MarketConfig {
-        MarketConfig {
-            exchange_name: "BYBIT".to_string(),
-            price_unit: dec![0.1],
-            size_unit: dec![0.001],
-            maker_fee: dec![0.00_01],
-            taker_fee: dec![0.00_01],
-            fee_type: FeeType::Home,
-            home_currency: "USDT".to_string(),
-            foreign_currency: "BTC".to_string(),
-            market_order_price_slip: dec![0.01],
-            trade_category: "linear".to_string(),
-            trade_symbol: "BTCUSDT".to_string(),
-            quote_currency: "USDT".to_string(),
-            settle_currency: "USDT".to_string(),
-            min_size: dec![0.0],
-        }
+        let server = ExchangeConfig::open("bybit", false).unwrap();
+        let config = server.open_market("BTC/USDT").unwrap();
+
+        config
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
