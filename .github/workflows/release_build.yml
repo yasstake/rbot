@@ -55,7 +55,7 @@ jobs:
         command: build
         args: -m ./Cargo.toml --release -o dist --find-interpreter 
     - name: Upload wheels
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: dist
@@ -72,7 +72,7 @@ jobs:
         command: build
         args: -v -m ./Cargo.toml --universal2 --release --sdist -o dist --find-interpreter
     - name: Upload wheels
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: dist
