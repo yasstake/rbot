@@ -49,7 +49,6 @@ rbot_server = {path="modules/rbot_server"}
 rbot_market = {path="modules/rbot_market"}
 rbot_blockon = {path="modules/rbot_blockon"}
 
-pyo3 = { version = "0.23.5", features = ["rust_decimal", "auto-initialize", "abi3-py38", "anyhow", "extension-module"] }
 
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
@@ -151,3 +150,7 @@ once_cell = { version = "1.19.0" }
 
 actix-web={version="4.5"}
 actix-rt={version="2.9"}
+
+pyo3 = { version = "0.23.5", features = ["rust_decimal", "abi3-py38", "anyhow", "extension-module"] }
+
+
