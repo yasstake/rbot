@@ -60,6 +60,7 @@ jobs:
         name: windows_wheels
         path: windows_dist
 
+
   macos-intel:
     runs-on: macos-latest
     steps:
@@ -70,9 +71,23 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -v -m ./Cargo.toml --universal2 --release --sdist -o macos_dist --find-interpreter
+        args: -v -m ./Cargo.toml --universal2 --release -o macos_dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
         name: macos_wheels
         path: macos_dist
+
+  windows-sdist:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: PyO3/maturin-action@v1
+      with:
+        command: build
+        args: -m ./Cargo.toml --sdist -o sdist --find-interpreter 
+    - name: Upload wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: sdist
+        path: sdist
