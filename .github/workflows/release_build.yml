@@ -20,7 +20,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: -m ./Cargo.toml --release -o dist --find-interpreter 
+        args: -m ./Cargo.toml --release -o linux_dist --find-interpreter 
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
@@ -39,7 +39,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: wheels
-        path: dist
+        path: linux_dist
 
   windows:
     runs-on: windows-latest
@@ -53,12 +53,12 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -m ./Cargo.toml --release -o dist --find-interpreter 
+        args: -m ./Cargo.toml --release -o windows_dist --find-interpreter 
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
         name: wheels
-        path: dist
+        path: windows_dist
 
   macos-intel:
     runs-on: macos-latest
@@ -70,9 +70,9 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -v -m ./Cargo.toml --universal2 --release --sdist -o dist --find-interpreter
+        args: -v -m ./Cargo.toml --universal2 --release --sdist -o macos_dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
         name: wheels
-        path: dist
+        path: macos_dist
