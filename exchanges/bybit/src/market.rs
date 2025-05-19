@@ -9,7 +9,7 @@ use crossbeam_channel::Sender;
 use csv::StringRecord;
 
 use futures::StreamExt;
-use polars::export::num::FromPrimitive;
+use polars::prelude::*;
 use pyo3::ffi::getter;
 
 use std::sync::{Arc, Mutex, RwLock};
@@ -27,7 +27,7 @@ use rbot_lib::common::{
 use rbot_lib::db::{db_full_path, TradeArchive, TradeDataFrame, TradeDb, KEY};
 use rbot_lib::net::{latest_archive_date, BroadcastMessage, RestApi, RestPage, UdpSender, WebSocketClient};
 
-use rbot_market::{extract_or_generate_config, MarketImpl};
+use rbot_market::{generate_market_config, MarketImpl};
 use rbot_market::{MarketInterface, OrderInterface, OrderInterfaceImpl};
 
 use crate::{market, BYBIT_BOARD_DEPTH};
@@ -86,8 +86,8 @@ impl Bybit {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BybitMarket> {
-        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+    pub fn open_market(&self, symbol: &str) -> anyhow::Result<BybitMarket> {
+        let config = generate_market_config(&self.server_config.get_exchange_name(), symbol)?;
 
         return Ok(BybitMarket::new(&self.server_config, &config));
     }

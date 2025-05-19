@@ -8,7 +8,6 @@ use chrono::Datelike as _;
 use csv::StringRecord;
 use polars::chunked_array::ops::ChunkCast as _;
 use polars::datatypes::DataType;
-use polars::export::num::FromPrimitive;
 use polars::frame::DataFrame;
 use polars::lazy::dsl::col;
 use polars::lazy::dsl::lit;
@@ -469,21 +468,21 @@ impl RestApi for BybitRestApi {
 
         let timestamp = timestamp.clone();
         let mut timestamp = Series::from(timestamp.clone());
-        timestamp.rename(KEY::timestamp);
+        timestamp.rename(KEY::timestamp.into());
 
         let mut id = df.column("trdMatchID")?.clone();
-        id.rename(KEY::id);
+        id.rename(KEY::id.into());
 
         let mut side = df.column("side")?.clone();
-        side.rename(KEY::order_side);
+        side.rename(KEY::order_side.into());
 
         let mut price = df.column("price")?.clone();
-        price.rename(KEY::price);
+        price.rename(KEY::price.into());
 
         let mut size = df.column("size")?.clone();
-        size.rename(KEY::size);
+        size.rename(KEY::size.into());
 
-        let df = DataFrame::new(vec![timestamp, side, price, size, id])?;
+        let df = DataFrame::new(vec![timestamp.into(), side.into(), price.into(), size.into(), id.into()])?;
 
 
         Ok(df)

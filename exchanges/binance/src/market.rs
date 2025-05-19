@@ -16,15 +16,15 @@ use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::Order;
 use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
-use rbot_lib::common::{time_string, NOW};
-use rbot_lib::db::{TradeArchive, TradeDataFrame};
-use rbot_lib::net::{BroadcastMessage, RestApi, WebSocketClient as _};
+use rbot_lib::common::NOW;
+use rbot_lib::db::TradeDataFrame;
+use rbot_lib::net::{BroadcastMessage, WebSocketClient as _};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 use tokio::task::JoinHandle;
 
 // use rbot_market::OrderInterface;
-use rbot_market::{extract_or_generate_config, MarketImpl};
+use rbot_market::{generate_market_config, MarketImpl};
 use rbot_market::OrderInterfaceImpl;
 // use rbot_market::MarketInterface;
 
@@ -71,8 +71,8 @@ impl Binance {
         self.server_config.is_production()
     }
 
-    pub fn open_market(&self, config: &PyAny) -> anyhow::Result<BinanceMarket> {
-        let config = extract_or_generate_config(&self.server_config.get_exchange_name(), config)?;
+    pub fn open_market(&self, symbol: &str) -> anyhow::Result<BinanceMarket> {
+        let config = generate_market_config(&self.server_config.get_exchange_name(), symbol)?;
         
         if config.trade_category != "spot"{
             return Err(anyhow!{"not supported trade category {:?}", config.trade_category});
@@ -93,6 +93,7 @@ impl Binance {
         self.get_enable_order_feature()
     }
 
+    #[pyo3(signature = (market_config, side, price, size, client_order_id=None))]
     pub fn limit_order(
         &self,
         market_config: &MarketConfig,
@@ -107,6 +108,7 @@ impl Binance {
         })
     }
 
+    #[pyo3(signature = (market_config, side, size, client_order_id=None))]
     pub fn market_order(
         &self,
         market_config: &MarketConfig,

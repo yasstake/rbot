@@ -5,9 +5,9 @@
 
 
 use hmac::{Hmac, Mac};
-use polars::export::num::FromPrimitive;
 use pyo3::{pyclass, pymethods};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use serde::{de, Deserialize as _, Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
 use serde_json::Value;

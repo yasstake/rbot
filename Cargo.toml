@@ -18,18 +18,7 @@ rbot_lib = {path="modules/rbot_lib"}
 rbot_session = {path="modules/rbot_session"}
 rbot_server = {path="modules/rbot_server"}
 rbot_market = {path="modules/rbot_market"}
-
-
-
-
-# https://pyo3.rs/v0.13.2/faq
-[dependencies.pyo3]
-version = "0.21.2"
-features = ["rust_decimal", "auto-initialize", "abi3-py38", "anyhow"]
-
-[features]
-extension-module = ["pyo3/extension-module"]
-#default = ["extension-module"]
+pyo3 = { workspace = true, features = ["extension-module"] }
 
 
 [workspace]
@@ -60,6 +49,7 @@ rbot_server = {path="modules/rbot_server"}
 rbot_market = {path="modules/rbot_market"}
 rbot_blockon = {path="modules/rbot_blockon"}
 
+
 bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
 bybit = { path = "./exchanges/bybit" }
@@ -82,14 +72,14 @@ tracing-subscriber = { version = "0.3.18" }
 
 env-file-reader = { version="0.3.0" }
 
-directories = "5.0.1"
+directories = {version= "6.0.0"}
 
 crossbeam-channel = { version = "0.5.11" }
 
-thiserror = { version = "1.0.50" }
+thiserror = { version = "2.0.12" }
 
-strum_macros = { version = "0.26.0" }
-strum = { version = "0.26.0", features = ["derive"] }
+strum_macros = { version = "0.27.1" }
+strum = { version = "0.27.1", features = ["derive"] }
 
 async-stream = { version = "0.3.5" }
 
@@ -97,43 +87,45 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1.14" }
 async-trait = {version="0.1.81"}
 
-rusqlite = { version = "0.32.0", features = ["bundled"] }
+rusqlite = { version = "0.35.0", features = ["bundled"] }
 
-polars = { version = "0.41.3", features = [
+polars = { version = "0.46.0", features = [
         "lazy",
         "ndarray",
         "dtype-time",
         "object",
-         "round_series",
-         "temporal",
-         "pivot",
-         "dynamic_group_by",
-         "polars-ops",
-         "polars-plan",
-         "cum_agg",
-         "serde",
-         "object",
-         "list_to_struct",
-         "decompress",
-         "parquet"
+        "round_series",
+        "temporal",
+        "pivot",
+        "dynamic_group_by",
+        "cum_agg",
+        "serde",
+        "list_to_struct",
+        "decompress",
+        "parquet",
         ]}
 
-pyo3-polars = { version = "0.15.0" }
-polars-io = {version = "0.41.3", features=["avro", "parquet"]}
+polars-lazy = {version = "0.46.0"}
+polars-io = {version = "0.46.0", features=["avro", "parquet"]}
+pyo3-polars = {version = "0.20.0"}
+polars-arrow = {version = "0.46.0"}
+arrow = {version = "55.1.0"}
 
-arrow = "52.1.0"
-parquet = "52.1.0"
 
-ndarray = { version = "0.15" }
-numpy = { version = "0.21.0" }
+parquet = "55.1.0"
+
+numpy = { version = "0.23.0" }
+
+
+ndarray = { version = "0.16.1" }
 
 reqwest = { version = "0.12.2", features = ["blocking", "gzip", "stream"] }
 futures = { version = "0.3" }
 flate2 = { version = "1.0.24" }
-async-compression = {version="0.4.11", features = ["all"] }
+#async-compression = {version="0.4.23", features = ["all"] }
 
 csv = { version = "1.2.2" }
-zip = { version = "2.1.1" }
+zip = { version = "3.0.0" }
 
 tempfile = { version = "3.8.0" }
 
@@ -148,8 +140,7 @@ hmac = { version = "0.12.1" }
 sha2 = { version = "0.10.7" }
 hex = { version = "0.4.3" }
 
-#tungstenite = { version = "0.21", features = ["native-tls"] }
-tokio-tungstenite = { version = "0.23.1", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
 
 async-std = { version = "1.12", features = ["attributes"] }
 
@@ -159,3 +150,7 @@ once_cell = { version = "1.19.0" }
 
 actix-web={version="4.5"}
 actix-rt={version="2.9"}
+
+pyo3 = { version = "0.23.5", features = ["rust_decimal", "abi3-py38", "anyhow", "extension-module"] }
+
+

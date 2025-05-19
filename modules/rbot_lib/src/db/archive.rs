@@ -240,13 +240,13 @@ impl TradeArchive {
 
     /// generate 0 row empty cache(stored in memory) df
     pub fn make_empty_cachedf() -> DataFrame {
-        let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
-        let price = Series::new(KEY::price, Vec::<f64>::new());
-        let size = Series::new(KEY::size, Vec::<f64>::new());
-        let order_side = Series::new(KEY::order_side, Vec::<String>::new());
-        let id = Series::new(KEY::id, Vec::<String>::new());
+        let time = Series::new(KEY::timestamp.into(), Vec::<MicroSec>::new());
+        let price = Series::new(KEY::price.into(), Vec::<f64>::new());
+        let size = Series::new(KEY::size.into(), Vec::<f64>::new());
+        let order_side = Series::new(KEY::order_side.into(), Vec::<String>::new());
+        let id = Series::new(KEY::id.into(), Vec::<String>::new());
 
-        let df = DataFrame::new(vec![time, order_side, price, size, id]).unwrap();
+        let df = DataFrame::new(vec![time.into(), order_side.into(), price.into(), size.into(), id.into()]).unwrap();
 
         return df;
     }

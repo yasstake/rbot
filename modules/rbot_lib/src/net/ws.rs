@@ -164,7 +164,7 @@ where
                 tokio::time::sleep(Duration::from_millis(random as u64)).await;
                 let user_ping = U::get_ping_message();
                 if user_ping != "" {
-                    let message = Message::Text(user_ping);
+                    let message = Message::Text(user_ping.into());
                     Self::_send_message(&mut write_stream, message).await;
                 }
             }
@@ -188,7 +188,7 @@ where
     }
 
     pub async fn send_text(&mut self, message: String) {
-        let message = Message::Text(message);
+        let message = Message::Text(message.into());
         self.send_message(message).await;
     }
 
@@ -220,18 +220,18 @@ where
         log::debug!("*>PING*>");
         let t = NOW();
         let message = format!("{:?}", t).into_bytes();
-        self.send_message(Message::Ping(message)).await;
+        self.send_message(Message::Ping(message.into())).await;
     }
 
     pub fn ping_message() -> Message {
         let t = NOW();
         let message = format!("{:?}", t).into_bytes();
-        Message::Ping(message)
+        Message::Ping(message.into())
     }
 
     pub async fn send_pong(&mut self, message: Vec<u8>) {
         log::debug!("*>PONG*>: {:?}", message);
-        self.send_message(Message::Pong(message)).await;
+        self.send_message(Message::Pong(message.into())).await;
     }
 
     pub async fn close(&mut self) {
@@ -274,19 +274,19 @@ where
 
             match message {
                 Message::Text(t) => {
-                    return Ok(ReceiveMessage::Text(t));
+                    return Ok(ReceiveMessage::Text(t.to_string()));
                 }
                 Message::Binary(b) => {
                     log::debug!("BINARY: {:?}", b);
                 }
                 Message::Ping(p) => {
                     log::debug!("<PING<: {:?}", p);
-                    self.send_pong(p.clone()).await;
-                    return Ok(ReceiveMessage::Ping(p));
+                    self.send_pong(p.clone().into()).await;
+                    return Ok(ReceiveMessage::Ping(p.into()));
                 }
                 Message::Pong(p) => {
                     log::debug!("<PONG<: {:?}", p);
-                    return Ok(ReceiveMessage::Pong(p));
+                    return Ok(ReceiveMessage::Pong(p.into()));
                 }
                 Message::Close(c) => {
                     log::debug!("CLOSE: {:?}", c);

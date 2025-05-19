@@ -1,7 +1,7 @@
 // Copyright(c) 2024. yasstake. All rights reserved.
 
 use crossbeam_channel::Sender;
-use pyo3::IntoPy;
+
 use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::PyResult;
@@ -13,7 +13,6 @@ use rbot_lib::common::AccountCoins;
 use rbot_lib::common::LogStatus;
 use rbot_lib::common::MarketMessage;
 
-use rbot_lib::common::MultiMarketMessage;
 use rbot_lib::common::ExchangeConfig;
 use rbot_lib::common::PyRestBar;
 use rbot_lib::common::FLOOR_SEC;
@@ -21,16 +20,14 @@ use rbot_lib::common::MICRO_SECOND;
 use rbot_lib::db::convert_timems_to_datetime;
 use rbot_lib::db::TradeDataFrame;
 use rbot_lib::db::TradeDb;
-use rbot_lib::net::BroadcastMessage;
+
 use rbot_lib::net::RestPage;
 use rbot_lib::net::WebSocketClient;
 use rust_decimal_macros::dec;
+use std::cmp::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
-use tokio::task::JoinHandle;
-use tokio_stream::Stream;
-use tokio_stream::StreamExt as _;
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::BoardItem;
@@ -50,6 +47,8 @@ use rbot_lib::{
     db::df::KEY,
 };
 
+use pyo3::prelude::*;
+
 macro_rules! check_if_enable_order {
     ($s: expr) => {
         if !$s.get_enable_order_feature() {
@@ -59,23 +58,8 @@ macro_rules! check_if_enable_order {
     };
 }
 
-
-pub fn extract_or_generate_config(exchange_name: &str, config: &PyAny) -> anyhow::Result<MarketConfig> {
-    let t = config.get_type();
-    let name = t.name()?;    
-
-    if *name == *"MarketConfig" || *name == *"builtins.MarketConfig"{
-        println!("MarktConfig");
-
-        let config = config.extract::<MarketConfig>()?;
-        return Ok(config)
-    }
-    else if *name == *"builtins.str" {
-        let symbol = config.extract::<String>()?;
-        return Ok(ExchangeConfig::open_exchange_market(exchange_name, &symbol)?);
-    }
-
-    Err(anyhow!("unsupported type {:?}", name))
+pub fn generate_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketConfig> {
+    ExchangeConfig::open_exchange_market(exchange_name, &symbol)
 }
 
 pub trait OrderInterface {
@@ -515,18 +499,23 @@ where
             return Ok((PyDataFrame(bids), PyDataFrame(asks)));
         }
 
-        let bids_edge: f64 = bids
+        let bids_edge = bids
             .column(KEY::price)
             .unwrap()
-            .max()
-            .unwrap()
-            .unwrap_or(0.0);
-        let asks_edge: f64 = asks
+            .f64()
+            .unwrap();
+
+        let bids_edge = bids_edge.iter().max_by(|a,b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        let bids_edge = bids_edge.unwrap().unwrap_or(0.0);
+
+        let asks_edge = asks
             .column(KEY::price)
             .unwrap()
-            .min()
-            .unwrap()
-            .unwrap_or(0.0);
+            .f64()
+            .unwrap();
+
+        let asks_edge = asks_edge.iter().min_by(|a,b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        let asks_edge = asks_edge.unwrap().unwrap_or(0.0);
 
         if asks_edge < bids_edge || bids_edge == 0.0 || asks_edge == 0.0 {
             log::warn!("bids_edge({}) < asks_edge({})", bids_edge, asks_edge);
@@ -931,8 +920,7 @@ where
         if verbose {
             let range = if time_to == 0 {
                 NOW() - time_from
-            }
-            else {
+            } else {
                 time_to - time_from
             };
             bar.init(range, true, true);
@@ -959,7 +947,7 @@ where
                     "Downloading... [{}] {} ->  [{}] {} {}[rec]",
                     trades[0].id,
                     time_string(start_time),
-                    trades[l -1].id,
+                    trades[l - 1].id,
                     time_string(end_time),
                     l
                 ));
@@ -976,8 +964,7 @@ where
             let duration = NOW() - now;
             if duration < 250_000 {
                 sleep(Duration::from_millis(((250_000 - duration) / 1_000) as u64));
-            }
-            else {
+            } else {
                 sleep(Duration::from_millis(150));
             }
         }
