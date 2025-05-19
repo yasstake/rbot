@@ -15,7 +15,6 @@ use rbot_lib::{
 };
 use tokio::time::sleep;
 
-use crate::Binance;
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
 use crate::BinanceWsRawMessage;

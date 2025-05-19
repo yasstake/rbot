@@ -1,6 +1,6 @@
 [package]
 name = "binance"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,10 +33,6 @@ futures = {workspace=true}
 async-stream = {workspace = true}
 
 
-# https://pyo3.rs/v0.13.2/faq
-[dependencies.pyo3]
-version = "0.21.2"
-features = ["rust_decimal", "auto-initialize", "abi3-py38"]
+pyo3 = { workspace = true }
 
-[features]
-extension-module = ["pyo3/extension-module"]
+

@@ -25,6 +25,8 @@ use anyhow::anyhow;
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 pub mod KEY {
+    use polars::prelude::PlSmallStr;
+
     pub const timestamp: &str = "timestamp";
 
     // for trade
@@ -235,11 +237,11 @@ pub fn select_df_lazy(df: &DataFrame, start_time: MicroSec, end_time: MicroSec) 
 }
 
 pub fn start_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::timestamp).unwrap().min().unwrap()
+    df.column(KEY::timestamp).unwrap().i64().unwrap().min().map(|x| x as MicroSec)
 }
 
 pub fn end_time_df(df: &DataFrame) -> Option<MicroSec> {
-    df.column(KEY::timestamp).unwrap().max().unwrap()
+    df.column(KEY::timestamp).unwrap().i64().unwrap().max().map(|x| x as MicroSec)
 }
 
 /// append df2 after df1
@@ -344,6 +346,7 @@ pub fn ohlcv_df(
                 nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
+                limit: None,
             },
         )
         .collect();
@@ -407,6 +410,7 @@ pub fn ohlcvv_df(
                 nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
+                limit: None,
             },
         )
         .collect();
@@ -462,6 +466,7 @@ pub fn ohlcv_from_ohlcvv_df(
                         nulls_last: vec![false],
                         multithreaded: true,
                         maintain_order: true,
+                        limit: None,
                     },
                 )
                 .first()
@@ -476,6 +481,7 @@ pub fn ohlcv_from_ohlcvv_df(
                         nulls_last: vec![false],
                         multithreaded: true,
                         maintain_order: true,
+                        limit: None,
                     },
                 )
                 .last()
@@ -490,6 +496,7 @@ pub fn ohlcv_from_ohlcvv_df(
                 nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
+                limit: None,
             },
         )
         .collect();
@@ -548,6 +555,7 @@ pub fn ohlcvv_from_ohlcvv_df(
                 nulls_last: vec![false],
                 maintain_order: true,
                 multithreaded: true,
+                limit: None,
             },
         )
         .collect();
@@ -596,29 +604,32 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
                 nulls_last: vec![false],
                 multithreaded: true,
                 maintain_order: true,
+                limit: None,
             },
         )
         .unwrap();
 
     let price = vap.column(KEY::price).unwrap().clone();
-    let buy_vol = vap
+    let mut buy_vol = vap
         .column("true")
         .unwrap()
         .fill_null(FillNullStrategy::Zero)
-        .unwrap()
-        .rename(KEY::buy_volume)
-        .clone();
-    let sell_vol = vap
+        .unwrap();
+
+    buy_vol.rename(KEY::buy_volume.into()).clone();
+
+
+    let mut sell_vol = vap
         .column("false")
         .unwrap()
         .fill_null(FillNullStrategy::Zero)
-        .unwrap()
-        .rename(KEY::sell_volume)
-        .clone();
+        .unwrap();
 
-    let total_vol = (&buy_vol + &sell_vol).unwrap().rename(KEY::volume).clone();
+    sell_vol.rename(KEY::sell_volume.into());
 
-    let df = DataFrame::new(vec![price, buy_vol, sell_vol, total_vol]).unwrap();
+    let total_vol = buy_vol.clone() + sell_vol.clone();
+
+    let df = DataFrame::new(vec![price.into(), buy_vol.into(), sell_vol.into(), total_vol.unwrap().into()]).unwrap();
 
     df
 }
@@ -682,32 +693,32 @@ impl TradeBuffer {
     }
 
     pub fn to_dataframe(&self) -> DataFrame {
-        let id = Series::new(KEY::id, self.id.to_vec());
-        let time_stamp = Series::new(KEY::timestamp, self.time_stamp.to_vec());
-        let order_side = Series::new(KEY::order_side, self.order_side.to_vec());
-        let price = Series::new(KEY::price, self.price.to_vec());
-        let size = Series::new(KEY::size, self.size.to_vec());
+        let id = Series::new(KEY::id.into(), self.id.to_vec());
+        let time_stamp = Series::new(KEY::timestamp.into(), self.time_stamp.to_vec());
+        let order_side = Series::new(KEY::order_side.into(), self.order_side.to_vec());
+        let price = Series::new(KEY::price.into(), self.price.to_vec());
+        let size = Series::new(KEY::size.into(), self.size.to_vec());
 
-        let df = DataFrame::new(vec![time_stamp, order_side, price, size, id]).unwrap();
+        let df = DataFrame::new(vec![time_stamp.into(), order_side.into(), price.into(), size.into(), id.into() ]).unwrap();
 
         return df;
     }
 }
 
 pub fn make_empty_ohlcvv() -> DataFrame {
-    let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
-    let order_side = Series::new(KEY::order_side, Vec::<String>::new());
-    let open = Series::new(KEY::open, Vec::<f64>::new());
-    let high = Series::new(KEY::high, Vec::<f64>::new());
-    let low = Series::new(KEY::low, Vec::<f64>::new());
-    let close = Series::new(KEY::close, Vec::<f64>::new());
-    let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<i64>::new());
-    let start_time = Series::new(KEY::start_time, Vec::<MicroSec>::new());
-    let end_time = Series::new(KEY::end_time, Vec::<MicroSec>::new());
+    let time = Series::new(KEY::timestamp.into(), Vec::<MicroSec>::new());
+    let order_side = Series::new(KEY::order_side.into(), Vec::<String>::new());
+    let open = Series::new(KEY::open.into(), Vec::<f64>::new());
+    let high = Series::new(KEY::high.into(), Vec::<f64>::new());
+    let low = Series::new(KEY::low.into(), Vec::<f64>::new());
+    let close = Series::new(KEY::close.into(), Vec::<f64>::new());
+    let vol = Series::new(KEY::volume.into(), Vec::<f64>::new());
+    let count = Series::new(KEY::count.into(), Vec::<i64>::new());
+    let start_time = Series::new(KEY::start_time.into(), Vec::<MicroSec>::new());
+    let end_time = Series::new(KEY::end_time.into(), Vec::<MicroSec>::new());
 
     let df = DataFrame::new(vec![
-        time, order_side, open, high, low, close, vol, count, start_time, end_time,
+        time.into(), order_side.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into(), start_time.into(), end_time.into(),
     ])
     .unwrap();
 
@@ -715,15 +726,15 @@ pub fn make_empty_ohlcvv() -> DataFrame {
 }
 
 pub fn make_empty_ohlcv() -> DataFrame {
-    let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
-    let open = Series::new(KEY::open, Vec::<f64>::new());
-    let high = Series::new(KEY::high, Vec::<f64>::new());
-    let low = Series::new(KEY::low, Vec::<f64>::new());
-    let close = Series::new(KEY::close, Vec::<f64>::new());
-    let vol = Series::new(KEY::volume, Vec::<f64>::new());
-    let count = Series::new(KEY::count, Vec::<i64>::new());
+    let time = Series::new(KEY::timestamp.into(), Vec::<MicroSec>::new());
+    let open = Series::new(KEY::open.into(), Vec::<f64>::new());
+    let high = Series::new(KEY::high.into(), Vec::<f64>::new());
+    let low = Series::new(KEY::low.into(), Vec::<f64>::new());
+    let close = Series::new(KEY::close.into(), Vec::<f64>::new());
+    let vol = Series::new(KEY::volume.into(), Vec::<f64>::new());
+    let count = Series::new(KEY::count.into(), Vec::<i64>::new());
 
-    let df = DataFrame::new(vec![time, open, high, low, close, vol, count]).unwrap();
+    let df = DataFrame::new(vec![time.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
 
     return df;
 }
@@ -870,6 +881,7 @@ mod test_df {
                     nulls_last: vec![false],
                     multithreaded: true,
                     maintain_order: false,
+                    limit: None,
                 },
             )
             .collect()
@@ -904,6 +916,7 @@ mod test_df {
                     nulls_last: vec![false],
                     multithreaded: true,
                     maintain_order: true,
+                    limit: None,
                 },
             )
             .unwrap();
@@ -995,20 +1008,20 @@ mod test_df {
     fn test_make_ohlcv_datetime() {
         use polars::datatypes::TimeUnit;
 
-        let time = Series::new(KEY::timestamp, Vec::<MicroSec>::new());
+        let time = Series::new(KEY::timestamp.into(), Vec::<MicroSec>::new());
 
         let t64 = time.i64().unwrap().clone();
         let date_time = t64.into_datetime(TimeUnit::Microseconds, None);
 
-        let t = Series::new("time", date_time);
-        let open = Series::new(KEY::open, Vec::<f64>::new());
-        let high = Series::new(KEY::high, Vec::<f64>::new());
-        let low = Series::new(KEY::low, Vec::<f64>::new());
-        let close = Series::new(KEY::close, Vec::<f64>::new());
-        let vol = Series::new(KEY::volume, Vec::<f64>::new());
-        let count = Series::new(KEY::count, Vec::<f64>::new());
+        let t = Series::new("time".into(), date_time);
+        let open = Series::new(KEY::open.into(), Vec::<f64>::new());
+        let high = Series::new(KEY::high.into(), Vec::<f64>::new());
+        let low = Series::new(KEY::low.into(), Vec::<f64>::new());
+        let close = Series::new(KEY::close.into(), Vec::<f64>::new());
+        let vol = Series::new(KEY::volume.into(), Vec::<f64>::new());
+        let count = Series::new(KEY::count.into(), Vec::<f64>::new());
 
-        let df = DataFrame::new(vec![t, open, high, low, close, vol, count]).unwrap();
+        let df = DataFrame::new(vec![t.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
 
         println!("{:?}", df);
     }

@@ -4,7 +4,7 @@ use crossbeam_channel::Receiver;
 use pyo3::{
     pyclass, pymethods,
     types::{IntoPyDict, PyAnyMethods},
-    Bound, Py, PyAny, PyErr, Python,
+    Bound, Py, PyAny, PyErr, Python, PyResult,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 
@@ -922,12 +922,18 @@ impl Runner {
             return Ok(());
         }
 
-        Python::with_gil(|py| {
-            let session = py_session.borrow_mut(py);
-            agent.call_method1("on_init", (session,))
-        })?;
-
-        Ok(())
+        let result = 
+        Python::with_gil(|py| -> PyResult<()> {
+            let mut session = py_session.borrow_mut(py);
+            agent.call_method1("on_init", (session,))?;
+            Ok(())
+        });
+    
+        if result.is_ok() {
+            return Ok(());
+        }
+         
+        Err(anyhow::Error::new(result.unwrap_err()))
     }
 
     fn call_agent_on_tick(

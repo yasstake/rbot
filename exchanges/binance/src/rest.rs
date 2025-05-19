@@ -2,12 +2,12 @@
 
 use crate::{
     binance_order_status_vec_to_orders, BinanceAccountInformation, BinanceCancelOrderResponse,
-    BinanceOrderResponse, BinanceOrderStatus, BinanceRestBoard, BinanceServerConfig,
+    BinanceOrderResponse, BinanceOrderStatus, BinanceRestBoard,
     BinanceTradeMessage,
 };
 
 use anyhow::anyhow;
-use polars::{chunked_array::{ops::{ChunkApply, ChunkCast as _}, ChunkedArray}, datatypes::DataType, frame::DataFrame, prelude::NamedFrom as _, series::{IntoSeries, Series}};
+use polars::{chunked_array::ops::ChunkCast as _, datatypes::DataType, frame::DataFrame, prelude::NamedFrom as _, series::Series};
 use rbot_lib::{
     common::{
         flush_log, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, Kline, LogStatus,
@@ -87,7 +87,7 @@ impl RestApi for BinanceRestApi {
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
-        end_time: MicroSec,
+        _end_time: MicroSec,
         page: &RestPage,
     ) -> anyhow::Result<(Vec<Trade>, RestPage)> {
         log::debug!("get_recent_trades: {:?}", &config.trade_symbol);
@@ -165,7 +165,7 @@ impl RestApi for BinanceRestApi {
         _config: &MarketConfig,
         _start_time: MicroSec,
         _end_time: MicroSec,
-        page: &RestPage,
+        _page: &RestPage,
     ) -> anyhow::Result<(Vec<Kline>, RestPage)> {
         todo!();
     }
@@ -183,7 +183,7 @@ impl RestApi for BinanceRestApi {
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        let server = &self.server_config;
+        //let server = &self.server_config;
 
         let path = "/api/v3/order";
         let side = Self::order_side_string(side);
@@ -321,12 +321,12 @@ impl RestApi for BinanceRestApi {
 
         let timestamp = timestamp.clone();
         let mut timestamp = Series::from(timestamp.clone());
-        timestamp.rename(KEY::timestamp);
+        timestamp.rename(KEY::timestamp.into());
 
         let id_org = df.select_at_idx(0).unwrap();
         let id_org = id_org.cast(&DataType::String)?;        
-        let mut id = Series::from(id_org.clone());
-        id.rename(KEY::id);
+        let mut id = id_org.as_series().unwrap().clone();
+        id.rename(KEY::id.into());
         
         let side = df.select_at_idx(5).unwrap().clone();
 
@@ -344,16 +344,15 @@ impl RestApi for BinanceRestApi {
                 }
             } 
         }).collect();
-        let side = Series::new(KEY::order_side, side_vec);
+        let side = Series::new(KEY::order_side.into(), side_vec);
 
         let mut price = df.select_at_idx(1).unwrap().clone();
-        price.rename(KEY::price);
+        price.rename(KEY::price.into());
 
         let mut size = df.select_at_idx(2).unwrap().clone();
-        size.rename(KEY::size);
+        size.rename(KEY::size.into());
 
-        let df = DataFrame::new(vec![timestamp, side, price, size, id])?;
-
+        let df = DataFrame::new(vec![timestamp.into(), side.into(), price.into(), size.into(), id.into()])?;
 
         Ok(df)
 
@@ -650,7 +649,7 @@ impl BinanceRestApi {
 #[cfg(test)]
 mod binance_api_test {
     use super::*;
-    use crate::BinanceConfig;
+    use crate::{BinanceConfig, BinanceServerConfig};
     use rbot_lib::common::{init_debug_log, init_log, DAYS};
     use rust_decimal_macros::dec;
 
@@ -688,7 +687,7 @@ mod binance_api_test {
         println!("first: {:?}", trades[0]);
         println!("end t: {:?}", trades[trades.len() - 1]);
 
-        let (trades, page) = api.get_trades(&config, 0, 0, &page).await?;
+        let (trades, _page) = api.get_trades(&config, 0, 0, &page).await?;
         println!("first: {:?}", trades[0]);
         println!("end t: {:?}", trades[trades.len() - 1]);
 

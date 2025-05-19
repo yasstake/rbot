@@ -1053,77 +1053,76 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
         total_profit.push(order.total_profit.to_f64().unwrap());
     }
 
-    let log_id = Series::new("log_id", log_id);
-    let symbol = Series::new("symbol", symbol);
-    let create_time = Series::new("create_time", create_time);
-    let status = Series::new("status", status);
-    let order_id = Series::new("order_id", order_id);
-    let client_order_id = Series::new("client_order_id", client_order_id);
-    let order_side = Series::new("order_side", order_side);
-    let order_type = Series::new("order_type", order_type);
-    let order_price = Series::new("order_price", order_price);
-    let order_size = Series::new("order_size", order_size);
-    let remain_size = Series::new("remain_size", remain_size);
-    let transaction_id = Series::new("transaction_id", transaction_id);
-    let update_time = Series::new("update_time", update_time);
-    let execute_price = Series::new("execute_price", execute_price);
-    let execute_size = Series::new("execute_size", execute_size);
-    let quote_vol = Series::new("quote_vol", quote_vol);
-    let commission = Series::new("commission", commission);
-    let commission_asset = Series::new("commission_asset", commission_asset);
-    let is_maker = Series::new("is_maker", is_maker);
-    let message = Series::new("message", message);
-
-    let commission_home = Series::new("commission_home", commission_home);
-    let commission_foreign = Series::new("commission_foreign", commission_foreign);
-    let home_change = Series::new("home_change", home_change);
-    let foreign_change = Series::new("foreign_change", foreign_change);
-    let free_home_change = Series::new("free_home_change", free_home_change);
-    let free_foreign_change = Series::new("free_foreign_change", free_foreign_change);
-    let lock_home_change = Series::new("lock_home_change", lock_home_change);
-    let lock_foreign_change = Series::new("lock_foreign_change", lock_foreign_change);
-    let open_position = Series::new("open_position", open_position);
-    let close_position = Series::new("close_position", close_position);
-    let position = Series::new("position", position);
-    let profit = Series::new("profit", profit);
-    let fee = Series::new("fee", fee);
-    let total_profit = Series::new("total_profit", total_profit);
+    let log_id = Series::new("log_id".into(), log_id);
+    let symbol = Series::new("symbol".into(), symbol);
+    let create_time = Series::new("create_time".into(), create_time);
+    let status = Series::new("status".into(), status);
+    let order_id = Series::new("order_id".into(), order_id);
+    let client_order_id = Series::new("client_order_id".into(), client_order_id);
+    let order_side = Series::new("order_side".into(), order_side);
+    let order_type = Series::new("order_type".into(), order_type);
+    let order_price = Series::new("order_price".into(), order_price);
+    let order_size = Series::new("order_size".into(), order_size);
+    let remain_size = Series::new("remain_size".into(), remain_size);
+    let transaction_id = Series::new("transaction_id".into(), transaction_id);
+    let update_time = Series::new("update_time".into(), update_time);
+    let execute_price = Series::new("execute_price".into(), execute_price);
+    let execute_size = Series::new("execute_size".into(), execute_size);
+    let quote_vol = Series::new("quote_vol".into(), quote_vol);
+    let commission = Series::new("commission".into(), commission);
+    let commission_asset = Series::new("commission_asset".into(), commission_asset);
+    let is_maker = Series::new("is_maker".into(), is_maker);
+    let message = Series::new("message".into(), message);
+    let commission_home = Series::new("commission_home".into(), commission_home);
+    let commission_foreign = Series::new("commission_foreign".into(), commission_foreign);
+    let home_change = Series::new("home_change".into(), home_change);
+    let foreign_change = Series::new("foreign_change".into(), foreign_change);
+    let free_home_change = Series::new("free_home_change".into(), free_home_change);
+    let free_foreign_change = Series::new("free_foreign_change".into(), free_foreign_change);
+    let lock_home_change = Series::new("lock_home_change".into(), lock_home_change);
+    let lock_foreign_change = Series::new("lock_foreign_change".into(), lock_foreign_change);
+    let open_position = Series::new("open_position".into(), open_position);
+    let close_position = Series::new("close_position".into(), close_position);
+    let position = Series::new("position".into(), position);
+    let profit = Series::new("profit".into(), profit);
+    let fee = Series::new("fee".into(), fee);
+    let total_profit = Series::new("total_profit".into(), total_profit);
 
     let mut df = DataFrame::new(vec![
-        log_id,
-        symbol,
-        update_time,
-        create_time,
-        status,
-        order_id,
-        client_order_id,
-        order_side,
-        order_type,
-        order_price,
-        order_size,
-        remain_size,
-        transaction_id,
-        execute_price,
-        execute_size,
-        quote_vol,
-        commission,
-        commission_asset,
-        is_maker,
-        message,
-        commission_home,
-        commission_foreign,
-        home_change,
-        foreign_change,
-        free_home_change,
-        free_foreign_change,
-        lock_home_change,
-        lock_foreign_change,
-        open_position,
-        close_position,
-        position,
-        profit,
-        fee,
-        total_profit,
+        log_id.into(),
+        symbol.into(),
+        update_time.into(),
+        create_time.into(),
+        status.into(),
+        order_id.into(),
+        client_order_id.into(),
+        order_side.into(),
+        order_type.into(),
+        order_price.into(),
+        order_size.into(),
+        remain_size.into(),
+        transaction_id.into(),
+        execute_price.into(),
+        execute_size.into(),
+        quote_vol.into(),
+        commission.into(),
+        commission_asset.into(),
+        is_maker.into(),
+        message.into(),
+        commission_home.into(),
+        commission_foreign.into(),
+        home_change.into(),
+        foreign_change.into(),
+        free_home_change.into(),
+        free_foreign_change.into(),
+        lock_home_change.into(),
+        lock_foreign_change.into(),
+        open_position.into(),
+        close_position.into(),
+        position.into(),
+        profit.into(),
+        fee.into(),
+        total_profit.into(),
     ])
     .unwrap();
 
@@ -1179,7 +1178,7 @@ impl Order {
 
     // TODO: BackTest時の計算を追加する。
     // 通常は、約定時にサーバからのデータで確定するが、
-    // BackTest時は、ローカルで計���する必要がある。
+    // BackTest時は、ローカルで計算する必要がある。
     fn update_commision(&mut self, config: &MarketConfig) {
         let commission = self.commission;
         let commission_asset = self.commission_asset.clone();

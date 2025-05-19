@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Write},
 };
 
-use polars::{datatypes::TimeUnit, export::num::ToPrimitive, frame::DataFrame, lazy::{dsl::col, frame::IntoLazy}, prelude::NamedFrom, series::Series};
+use polars::{datatypes::TimeUnit, frame::DataFrame, lazy::{dsl::col, frame::IntoLazy}, prelude::{Column, NamedFrom}, series::Series};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
@@ -165,12 +165,12 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
         match rec.data {
             LogMessage::Account(account) => {
                 timestamp.push(rec.timestamp);                            
-                home.push(account.home.volume.to_f64().unwrap());
-                home_free.push(account.home.free.to_f64().unwrap());
-                home_locked.push(account.home.locked.to_f64().unwrap());
-                foreign.push(account.foreign.volume.to_f64().unwrap());
-                foreign_free.push(account.foreign.free.to_f64().unwrap());
-                foreign_locked.push(account.foreign.locked.to_f64().unwrap());
+                home.push(account.home.volume.try_into().unwrap());
+                home_free.push(account.home.free.try_into().unwrap());
+                home_locked.push(account.home.locked.try_into().unwrap());
+                foreign.push(account.foreign.volume.try_into().unwrap());
+                foreign_free.push(account.foreign.free.try_into().unwrap());
+                foreign_locked.push(account.foreign.locked.try_into().unwrap());
             }
             _ => {
                 panic!("not supported message type");
@@ -178,24 +178,24 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
         }
     }
 
-    let timestamp = Series::new("timestamp", timestamp);
+    let timestamp = Series::new("timestamp".into(), timestamp);
 
-    let home = Series::new("home", home);
-    let home_free = Series::new("home_free", home_free);
-    let home_locked = Series::new("home_locked", home_locked);
+    let home = Series::new("home".into(), home);
+    let home_free = Series::new("home_free".into(), home_free);
+    let home_locked = Series::new("home_locked".into(), home_locked);
 
-    let foreign = Series::new("foreign", foreign);
-    let foreign_free = Series::new("foreign_free", foreign_free);
-    let foreign_locked = Series::new("foreign_locked", foreign_locked);
+    let foreign = Series::new("foreign".into(), foreign);
+    let foreign_free = Series::new("foreign_free".into(), foreign_free);
+    let foreign_locked = Series::new("foreign_locked".into(), foreign_locked);
 
     let mut df = DataFrame::new(vec![
-        timestamp,
-        home,
-        home_free,
-        home_locked,
-        foreign,
-        foreign_free,
-        foreign_locked,
+        timestamp.into(),
+        home.into(),
+        home_free.into(),
+        home_locked.into(),
+        foreign.into(),
+        foreign_free.into(),
+        foreign_locked.into(),
     ]).unwrap();
 
     let time = df.column("timestamp").unwrap().i64().unwrap().clone();
@@ -455,27 +455,27 @@ impl Logger {
             }
         }
 
-        let log_id  = Series::new("log_id", log_id);
+        let log_id  = Series::new("log_id".into(), log_id);
         //let timestamp_series = Series::new("timestamp", timestamp);
-        let open_position_series = Series::new("open_position", open_position);
-        let close_position_series = Series::new("close_position", close_position);
-        let position_series = Series::new("position", position);
-        let profit_series = Series::new("profit", profit);
-        let fee_series = Series::new("fee", fee);
-        let total_profit_series = Series::new("total_profit", total_profit);
-        let sum_profit_series = Series::new("sum_profit", sum_profit);
+        let open_position_series = Series::new("open_position".into(), open_position);
+        let close_position_series = Series::new("close_position".into(), close_position);
+        let position_series = Series::new("position".into(), position);
+        let profit_series = Series::new("profit".into(), profit);
+        let fee_series = Series::new("fee".into(), fee);
+        let total_profit_series = Series::new("total_profit".into(), total_profit);
+        let sum_profit_series = Series::new("sum_profit".into(), sum_profit);
 
 
         let df = DataFrame::new(vec![
-            log_id,
+            log_id.into(),
         //    timestamp_series,
-            open_position_series,
-            close_position_series,
-            position_series,
-            profit_series,
-            fee_series,
-            total_profit_series,
-            sum_profit_series,
+            open_position_series.into(),
+            close_position_series.into(),
+            position_series.into(),
+            profit_series.into(),
+            fee_series.into(),
+            total_profit_series.into(),
+            sum_profit_series.into(),
         ]).unwrap();
 
         //let time = df.column("timestamp").unwrap().i64().unwrap().clone();
@@ -526,27 +526,27 @@ impl Logger {
             }
         }
 
-        let timestamp_series = Series::new("timestamp", timestamp);
-        let value_series = Series::new(value_name, value);
+        let timestamp_series = Series::new("timestamp".into(), timestamp);
+        let value_series = Series::new(value_name.into(), value);
 
-        let mut column = vec![timestamp_series, value_series];
+        let mut column: Vec<Column> = vec![timestamp_series.into(), value_series.into()];
 
         if value_name2.is_some() {
-            let value_series2 = Series::new(value_name2.unwrap_or(""), value2);
-            column.push(value_series2);
+            let value_series2 = Series::new(value_name2.unwrap_or("").into(), value2);
+            column.push(value_series2.into());
         }
 
         if has_transaction_id {
-            let order_id_series = Series::new("order_id", order_id);
-            let transaction_id_series = Series::new("transaction_id", transaction_id);
+            let order_id_series = Series::new("order_id".into(), order_id);
+            let transaction_id_series = Series::new("transaction_id".into(), transaction_id);
 
-            column.push(order_id_series);
-            column.push(transaction_id_series);
+            column.push(order_id_series.into());
+            column.push(transaction_id_series.into());
         }
 
         if has_log_id {
-            let log_id_series = Series::new("log_id", log_id);
-            column.push(log_id_series);
+            let log_id_series = Series::new("log_id".into(), log_id);
+            column.push(log_id_series.into());
         }
 
         let mut df = DataFrame::new(column).unwrap();

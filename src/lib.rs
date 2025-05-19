@@ -1,12 +1,10 @@
 // Copyright (C) @yasstake
 // All rights reserved. Absolutely NO warranty.
-
-
-use pyo3::{pymodule, types::PyModule, wrap_pyfunction, Bound, PyResult};
+use pyo3::{pymodule, types::{PyModule, PyModuleMethods}, wrap_pyfunction, Bound, PyResult};
 use rbot_lib::{common::{
-    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair, 
-        BoardItem, FeeType, MarketConfig, Order, OrderSide, OrderStatus, OrderType, 
-        ExchangeConfig, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
+    get_orderbook, get_orderbook_list, init_debug_log, init_log, time_string, AccountCoins, AccountPair,
+    BoardItem, FeeType, MarketConfig, Order, OrderSide, OrderStatus, OrderType,
+    ExchangeConfig, Trade, DAYS, DAYS_BEFORE, FLOOR_SEC, HHMM, MIN, NOW, SEC
 }, db::{__delete_data_root, get_data_root, set_data_root}};
 
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
