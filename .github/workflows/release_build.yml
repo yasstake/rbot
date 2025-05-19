@@ -20,7 +20,7 @@ jobs:
       with:
         manylinux: auto
         command: build
-        args: -m ./Cargo.toml --release -o dist --find-interpreter --features "extension-module"
+        args: -m ./Cargo.toml --release -o dist --find-interpreter 
         before-script-linux: |
           # If we're running on rhel centos, install needed packages.
           if command -v yum &> /dev/null; then
@@ -36,7 +36,7 @@ jobs:
             apt update -y && apt-get install -y libssl-dev openssl pkg-config perl-IPC-Cmd 
           fi
     - name: Upload wheels
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: dist
@@ -53,7 +53,7 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         command: build
-        args: -m ./Cargo.toml --release -o dist --find-interpreter --features "extension-module"
+        args: -m ./Cargo.toml --release -o dist --find-interpreter 
     - name: Upload wheels
       uses: actions/upload-artifact@v3
       with:
