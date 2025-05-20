@@ -1,11 +1,7 @@
 #![allow(non_snake_case)]
-use std::env;
-
 use pyo3::prelude::*;
-use rust_decimal_macros::dec;
 use serde_derive::{Deserialize, Serialize};
-
-use rbot_lib::common::{FeeType, MarketConfig, ExchangeConfig};
+use rbot_lib::common::{MarketConfig, ExchangeConfig};
 
 use crate::BYBIT;
 

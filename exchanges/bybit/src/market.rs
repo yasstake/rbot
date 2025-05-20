@@ -103,6 +103,7 @@ impl Bybit {
         self.get_enable_order_feature()
     }
 
+    #[pyo3(signature = (market_config, side, price, size, client_order_id=None))]
     pub fn limit_order(
         &self,
         market_config: &MarketConfig,
@@ -117,6 +118,7 @@ impl Bybit {
         })
     }
 
+    #[pyo3(signature = (market_config, side, size, client_order_id=None))]
     pub fn market_order(
         &self,
         market_config: &MarketConfig,
@@ -615,7 +617,7 @@ mod bybit_test {
         let mut bybit = Bybit::new(false);
         assert_eq!(bybit.get_enable_order_feature(), false);
 
-        bybit.set_enable_order_feature(true);
+        bybit.set_enable_order_with_my_own_risk(true);
         assert_eq!(bybit.get_enable_order_feature(), true);
     }
 

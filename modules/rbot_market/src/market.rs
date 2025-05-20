@@ -42,7 +42,7 @@ use anyhow::Context;
 use rbot_lib::{
     common::{
         AccountPair, MarketConfig, MarketStream, MicroSec, Order, OrderSide, OrderType, Trade,
-        MARKET_HUB, NOW,
+        NOW,
     },
     db::df::KEY,
 };

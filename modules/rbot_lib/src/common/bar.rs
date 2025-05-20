@@ -5,8 +5,9 @@ use std::{
 
 use pyo3::{
     types::{IntoPyDict as _, PyAnyMethods as _, PyModule},
-    Bound, Py, PyAny, Python,
+    Bound, Py, PyAny, Python, ffi::c_str,
 };
+use std::ffi::{CString, CStr};
 
 use super::{calc_class, is_notebook, MarketConfig};
 
@@ -49,9 +50,11 @@ impl PyRestBar {
             format!("{}{}", PY_TQDM_PYTHON, PY_BAR)
         };
 
+        let py_script = CString::new(py_script.as_str()).unwrap();
+
         Python::with_gil(|py| {
             let py_module =
-                PyModule::from_code_bound(py, &py_script, "py_file_bar.py", "py_file_bar");
+                PyModule::from_code(py, py_script.as_c_str(), c_str!("py_file_bar.py"), c_str!("py_file_bar"));
 
             if py_module.is_err() {
                 log::error!("py_file_bar tqdm bar class create error")
@@ -142,8 +145,10 @@ impl PyFileBar {
         };
 
         Python::with_gil(|py| {
+            let py_script = CString::new(py_script.as_str()).unwrap();
+
             let py_module =
-                PyModule::from_code_bound(py, &py_script, "py_file_bar.py", "py_file_bar");
+                PyModule::from_code(py, py_script.as_c_str(), c_str!("py_file_bar.py"), c_str!("py_file_bar"));
 
             if py_module.is_err() {
                 log::error!("py_file_bar tqdm bar class create error")
@@ -226,11 +231,6 @@ impl PyFileBar {
 }
 
 
-
-const PY_RUNNING_BAR: &str = r#"
-
-"#;
-
 pub struct PyRunningBar {
     bar: Py<PyAny>,
     enable: bool,
@@ -258,8 +258,10 @@ impl PyRunningBar {
         };
 
         Python::with_gil(|py| {
+            let py_script = CString::new(py_script.as_str()).unwrap();
+
             let py_module =
-                PyModule::from_code_bound(py, &py_script, "py_running_bar.py", "py_running_bar");
+                PyModule::from_code(py, &py_script, c_str!("py_running_bar.py"), c_str!("py_running_bar"));
 
             if py_module.is_err() {
                 log::error!("py progress tqdm bar class create error")

@@ -2,7 +2,7 @@
 
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::common::{OrderSide, Trade};
 use crate::common::{time_string, MicroSec, SEC};
@@ -25,8 +25,6 @@ use anyhow::anyhow;
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 pub mod KEY {
-    use polars::prelude::PlSmallStr;
-
     pub const timestamp: &str = "timestamp";
 
     // for trade
@@ -616,8 +614,7 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
         .fill_null(FillNullStrategy::Zero)
         .unwrap();
 
-    buy_vol.rename(KEY::buy_volume.into()).clone();
-
+    buy_vol.rename(KEY::buy_volume.into());
 
     let mut sell_vol = vap
         .column("false")
@@ -757,7 +754,6 @@ pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
     Ok(())
 }
 
-use tokio::time::error::Elapsed;
 use ::zip::ZipArchive;
 use polars::prelude::*;
 use rust_decimal::prelude::ToPrimitive;

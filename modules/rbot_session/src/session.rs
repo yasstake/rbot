@@ -1,4 +1,4 @@
-// Copyright(c) 2022-2024. yasstake. All rights reserved.
+// Copyright(c) 2022-2025. yasstake. All rights reserved.
 
 use std::sync::Mutex;
 use std::{collections::VecDeque, sync::Arc};
@@ -25,7 +25,7 @@ use rbot_lib::{
 use anyhow::anyhow;
 
 #[derive(Debug, Clone, PartialEq)]
-#[pyclass]
+#[pyclass(eq, eq_int)]
 pub enum ExecuteMode {
     Real,
     BackTest,

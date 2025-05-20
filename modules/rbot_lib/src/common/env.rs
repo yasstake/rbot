@@ -7,8 +7,7 @@ use std::env::{self, VarError};
 
 use hmac::digest::{consts::False, typenum::NotEq};
 use pyo3::{
-    types::{PyAnyMethods, PyModule},
-    Python,
+    ffi::c_str, types::{PyAnyMethods, PyModule}, Python
 };
 
 use super::{SecretString, ExchangeConfig};
@@ -145,9 +144,9 @@ pub fn env_rbot_multicast_port() -> i64 {
 
 pub fn is_notebook() -> bool {
     Python::with_gil(|py| {
-        let notebook = PyModule::from_code_bound(
+        let notebook = PyModule::from_code(
             py,
-            r#"
+            c_str!(r#"
 import sys
 
 def is_notebook() -> bool:
@@ -163,9 +162,9 @@ def is_notebook() -> bool:
 
     except NameError:
         return False            
-            "#,
-            "notebook.py",
-            "notebook",
+        "#),
+            c_str!("notebook.py"),
+            c_str!("notebook"),
         );
 
         if notebook.is_err() {
