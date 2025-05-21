@@ -27,7 +27,6 @@ use tokio::task::JoinHandle;
 use crate::{BitbankPrivateWsClient, BitbankPublicWsClient, BitbankRestApi, BITBANK_BOARD_DEPTH};
 
 use pyo3::prelude::*;
-use anyhow::anyhow;
 
 pub const BITBANK: &str = "BITBANK";
 
@@ -36,6 +35,7 @@ pub struct Bitbank {
     production: bool,
     enable_order: bool,
     server_config: ExchangeConfig,
+    #[allow(dead_code)]
     user_handler: Option<JoinHandle<()>>,
     api: BitbankRestApi,
 }
@@ -561,7 +561,7 @@ impl MarketImpl<BitbankRestApi> for BitbankMarket {
             time_from
         };
 
-        self._async_download_range(time_from, time_to, verbose).await
+        self._async_download_range_virtual(time_from, time_to, verbose).await
     }
 }
 

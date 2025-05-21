@@ -163,6 +163,7 @@ impl BinancePublicWsClient{
 
 pub struct BinancePrivateWsClient {
     ws: AutoConnectClient<BinanceWsOpMessage>,
+    #[allow(dead_code)]
     server: ExchangeConfig,
     _handler: Option<JoinHandle<()>>,
     listen_key: String,

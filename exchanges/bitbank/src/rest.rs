@@ -101,9 +101,9 @@ impl RestApi for BitbankRestApi {
     ) -> anyhow::Result<(Vec<Trade>, RestPage)> {
         // Bitbank doesn't support getting trades by time range
         // We can only get recent trades
-        Err(anyhow!(
-            "Bitbank does not support getting trades by time range"
-        ))
+        log::warn!("Bitbank does not support getting trades by time range");
+
+        Ok((vec![], RestPage::Done))
     }
 
     async fn get_klines(
@@ -124,8 +124,6 @@ impl RestApi for BitbankRestApi {
             .await
             .with_context(|| format!("get_klines error: {}/{}", server.get_public_api(), path))?;
 
-        println!("response: {}", response);
-
         let rest_response: BitbankRestResponse = serde_json::from_str(&response)
             .with_context(|| format!("parse error in get_klines"))?;
 
@@ -133,13 +131,9 @@ impl RestApi for BitbankRestApi {
             return Err(anyhow!("get_klines error: {:?}", rest_response.data));
         }
 
+        let klines: Vec<Kline> = rest_response.into();
 
-
-        // Bitbank doesn't support getting klines by time range
-        // We can only get klines for a specific time
-        Err(anyhow!(
-            "Bitbank does not support getting klines by time range"
-        ))
+        Ok((klines, RestPage::Done))
     }
 
     fn klines_width(&self) -> i64 {
@@ -374,173 +368,6 @@ impl RestApi for BitbankRestApi {
 }
 
 
-/*
-
-impl BitbankRestApi {
-
-    async fn get(
-        server: &ExchangeConfig,
-        path: &str,
-        params: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let query = format!("{}?{}", path, params);
-
-        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
-            .await
-            .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
-
-        Self::parse_rest_response(response)
-    }
-
-    pub async fn get_sign(
-        server: &ExchangeConfig,
-        path: &str,
-        query_string: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key().extract();
-        let api_secret = server.get_api_secret().extract();
-        let recv_window = "5000";
-
-        let param_to_sign = format!(
-            "{}{}{}{}",
-            timestamp,
-            api_key.clone(),
-            recv_window,
-            query_string
-        );
-        let sign = hmac_sign(&api_secret, &param_to_sign);
-
-        let mut headers: Vec<(&str, &str)> = vec![];
-
-        headers.push(("X-BAPI-SIGN", &sign));
-        headers.push(("X-BAPI-API-KEY", &api_key));
-        headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-        headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-
-        let result = rest_get(&server.get_rest_server(), path, headers, Some(query_string), None)
-            .await
-            .with_context(|| {
-                format!(
-                    "get_sign error: {}/{}/{}",
-                    &server.get_rest_server(), path, query_string
-                )
-            })?;
-
-        Self::parse_rest_response(result)
-    }
-
-    async fn post_sign(
-        server: &ExchangeConfig,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let timestamp = format!("{}", NOW() / 1_000);
-        let api_key = server.get_api_key().extract();
-        let api_secret = server.get_api_secret().extract();
-        let recv_window = "5000";
-
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, body);
-        let sign = hmac_sign(&api_secret, &param_to_sign);
-
-        let mut headers: Vec<(&str, &str)> = vec![];
-
-        headers.push(("X-BAPI-SIGN", &sign));
-        headers.push(("X-BAPI-API-KEY", &api_key));
-        headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-        headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-        headers.push(("Content-Type", "application/json"));
-
-        let response = rest_post(&server.get_rest_server(), path, headers, &body)
-            .await
-            .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
-
-        Self::parse_rest_response(response)
-    }
-
-    fn parse_rest_response(response: String) -> anyhow::Result<BybitRestResponse> {
-        if response == "" {
-            log::warn!("empty response");
-            let response = BybitRestResponse {
-                return_code: 0,
-                return_message: "Ok".to_string(),
-                return_ext_info: Value::Null,
-                time: NOW() / 1_000,
-                body: Value::Null,
-            };
-            return Ok(response);
-        }
-
-        // log::debug!("rest response: {}", response);
-
-        let result = from_str::<BybitRestResponse>(&response)
-            .with_context(|| format!("parse error in parse_rest_response: {:?}", response))?;
-
-        ensure!(
-            result.is_success(),
-            format!("parse rest response error = {}", result.return_message)
-        );
-
-        return Ok(result);
-    }
-}
-
-
-
-*/
-
-/*
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ApiResponse<T> {
-    success: bool,
-    data: T,
-}
-
-pub struct BitbankApiClient {
-    client: reqwest::Client,
-}
-
-impl BitbankApiClient {
-    pub fn new() -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("Bitbank Rust API Client"));
-
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
-
-        BitbankApiClient { client }
-    }
-
-    pub async fn get_ticker(&self, pair: &str) -> Result<Ticker, String> {
-        let url = format!("{}/{}{}", BASE_URL, pair, "/ticker");
-        let response = self.client.get(&url).send().await;
-
-        match response {
-            Ok(res) => {
-                let api_response: ApiResponse<Ticker> = res.json().await.unwrap();
-                Ok(api_response.data)
-            }
-            Err(e) => Err(format!("Error: {}", e)),
-        }
-    }
-
-    pub async fn get_depth(&self, pair: &str) -> Result<Depth, String> {
-        let url = format!("{}/{}{}", BASE_URL, pair, "/depth");
-        let response = self.client.get(&url).send().await;
-
-        match response {
-            Ok(res) => {
-                let api_response: ApiResponse<Depth> = res.json().await.unwrap();
-                Ok(api_response.data)
-            }
-            Err(e) => Err(format!("Error: {}", e)),
-        }
-    }
-}
-*/
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Ticker {

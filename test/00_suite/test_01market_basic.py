@@ -1,7 +1,5 @@
 import pytest
-
-from rbot import Bybit, BybitConfig, Binance, BinanceConfig, init_debug_log
-
+from rbot import Bybit, Binance, Bitbank, init_debug_log
 from time import sleep
 
 
@@ -11,7 +9,8 @@ from time import sleep
             (Bybit(False), "BTC/USDT"),
             (Binance(False), "BTC/USDC"),
             (Binance(False), "BTC/USDT"),
-            (Binance(False), "BTC/USDT:USDT"),
+            (Binance(False), "BTC/USDC"),
+            (Bitbank(False), "BTC/JPY"),
     ]
 )
 def test_call_select_methods(exchange, config):

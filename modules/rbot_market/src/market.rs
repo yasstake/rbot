@@ -848,7 +848,9 @@ where
                 break;
             }
 
-            let trades: Vec<Trade> = convert_klines_to_trades(klines, api.klines_width());
+            let mut trades: Vec<Trade> = convert_klines_to_trades(klines, api.klines_width());
+
+            trades.retain(|trade| trade.time >= time_from && trade.time < time_to);
 
             if verbose {
                 println!(

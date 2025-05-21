@@ -11,7 +11,6 @@ use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
 use binance::{Binance, BinanceConfig};
 use bitbank::Bitbank;
-// use binance::{Binance, BinanceConfig};
 
 
 // use console_subscriber;
