@@ -10,7 +10,7 @@ use rbot_lib::{common::{
 use rbot_session::{Logger, Session, Runner, ExecuteMode};
 use bybit::{Bybit, BybitConfig};
 use binance::{Binance, BinanceConfig};
-
+use bitbank::Bitbank;
 // use binance::{Binance, BinanceConfig};
 
 
@@ -73,8 +73,10 @@ fn rbot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     
     // ByBit
     m.add_class::<Bybit>()?;
-    m.add_class::<BybitConfig>()?;    
+    m.add_class::<BybitConfig>()?;     
 
+    //Bitbank
+    m.add_class::<Bitbank>()?;
 
     Ok(())
 }

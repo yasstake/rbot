@@ -8,8 +8,8 @@ from time import sleep
 @pytest.mark.parametrize(
     "exchange, config",
     [
-            (Bybit(False), BybitConfig.BTCUSDT),
-            (Binance(False), BinanceConfig.BTCUSDT),
+            (Bybit(False), "BTC/USDT"),
+            (Binance(False), "BTC/USDC"),
             (Binance(False), "BTC/USDT"),
             (Binance(False), "BTC/USDT:USDT"),
     ]
@@ -42,7 +42,7 @@ def test_call_select_methods(exchange, config):
             (Bybit(True), "BTC/USDT"),
             (Bybit(True), "BTC/USDT:USDT"),
             (Binance(True), "BTC/USDT"),
-            (Binance(True), "BTC/USDT:USDT"),
+            (Binance(True), "BTC/USDC"),
     ]
 )
 def test_open_market_stream(exchange, config):
