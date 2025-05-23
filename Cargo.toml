@@ -151,6 +151,9 @@ once_cell = { version = "1.19.0" }
 actix-web={version="4.5"}
 actix-rt={version="2.9"}
 
+rust_socketio = { version = "0.6.0" }
+
+
 pyo3 = { version = "0.23.5", features = ["rust_decimal", "abi3-py38", "anyhow", "extension-module"] }
 
 

@@ -90,7 +90,7 @@ class CCXTExchange:
                 public_ws_server = "wss://stream-testnet.bybit.com/v5/public"
                 private_ws_server = "wss://stream-testnet.bybit.com/v5/private"
         elif self.exchange_name == 'bitbank':
-                public_ws_server = "wss://stream.bitbank.cc/v1/public"
+                public_ws_server = "wss://stream.bitbank.cc/socket.io/?EIO=4&transport=websocket"
                 private_ws_server = "wss://stream.bitbank.cc/v1/private"
 
         server_info = {

@@ -2,20 +2,21 @@ use std::time::Duration;
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use anyhow::anyhow;
 
 use rbot_lib::{
-    common::{ExchangeConfig, MarketConfig, MultiMarketMessage},
+    common::{ExchangeConfig, MarketConfig, MultiMarketMessage, Trade, BoardTransfer, ControlMessage},
     net::{AutoConnectClient, ReceiveMessage, WsOpMessage, WebSocketClient},
 };
 
 use crate::{BitbankPrivateWsMessage, BitbankPublicWsMessage, BitbankRestApi, BitbankWsRawMessage};
 use rbot_blockon::BLOCK_ON;
 
-const PING_INTERVAL_SEC: i64 = 30;
+const PING_INTERVAL_SEC: i64 = 15;
 const SWITCH_INTERVAL_SEC: i64 = 60 * 60;
 const SYNC_WAIT_RECORDS: i64 = 100;
 const SYNC_WAIT_RECORDS_FOR_PRIVATE: i64 = 100;
@@ -33,7 +34,9 @@ impl WsOpMessage for BitbankWsOpMessage {
     }
 
     fn make_message(&self) -> Vec<String> {
-        vec![]
+        vec![        
+            r#"42["join-room","depth_diff_xrp_jpy"]"#.to_string(),
+        ]
     }
 
     fn to_string(&self) -> String {
@@ -54,6 +57,8 @@ impl BitbankPublicWsClient {
         let api = BitbankRestApi::new(server);
         let url = server.get_public_ws_server();
 
+        log::debug!("url: {}", url);
+
         let public_ws = AutoConnectClient::new(
             server,
             config,
@@ -63,6 +68,7 @@ impl BitbankPublicWsClient {
             SYNC_WAIT_RECORDS,
             None,
             None,
+            true,
         );
 
         Self {
@@ -116,20 +122,53 @@ impl BitbankPublicWsClient {
 
 impl BitbankPublicWsClient{
     fn parse_message(message: String) -> anyhow::Result<BitbankPublicWsMessage> {
+        log::debug!("message: {:?}", message);
+
+        if message.starts_with("42") {
+            return Ok(BitbankPublicWsMessage {
+                success: 0,
+                data: Value::Null,
+            });
+        }
+
+        if message.starts_with("40") {
+            return Ok(BitbankPublicWsMessage {
+                success: 0,
+                data: Value::Null,
+            });
+        }
+
+        if message.starts_with("2") {
+            log::warn!("message: {:?}", message);
+            return Ok(BitbankPublicWsMessage {
+                success: 0,
+                data: Value::Null,
+            });
+        }
+
+
+        /*
         let m = serde_json::from_str::<BitbankWsRawMessage>(&message)
             .map_err(|e| {
                 log::warn!("Error in serde_json::from_str: {:?}", message);
                 anyhow!("Error in serde_json::from_str: {:?}", message)
             })?;
+        */
 
+        else {
+            log::error!("message: {:?}", message);
+            return Ok(BitbankPublicWsMessage {
+                success: 0,
+                data: Value::Null,
+            });
+        }
 
-        Ok(m.into())
+//        Ok(m.into())
     }
 
     // TODO: implement
     fn convert_ws_message(message: BitbankPublicWsMessage) -> anyhow::Result<MultiMarketMessage> {
-        todo!()
-        // Ok(message.into())
+        Ok(MultiMarketMessage::Message(message.data.to_string()))
     }
 }
 
@@ -189,12 +228,15 @@ impl BitbankPrivateWsClient {
                 match message {
                     Ok(m) => {
                         if let ReceiveMessage::Text(m) = m {
+
+
                             match Self::parse_message(m) {
                                 Err(e) => {
                                     println!("Parse Error: {:?}", e);
                                     continue;
                                 }
                                 Ok(m) => {
+
                                     let market_message = Self::convert_ws_message(m);
 
                                     match market_message
@@ -239,5 +281,30 @@ impl WebSocketClient for BitbankPrivateWsClient {
         &'a mut self,
     ) -> impl Stream<Item = Result<MultiMarketMessage, String>> + Send + 'a {
         self.open_stream().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rbot_lib::common::init_debug_log;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_public_ws_client() -> anyhow::Result<()> {
+        init_debug_log();
+
+        let server = ExchangeConfig::open("bitbank", true)?;
+        log::debug!("server: {:?}", server);
+
+        let config = MarketConfig::default();
+        let mut client = BitbankPublicWsClient::new(&server, &config).await;
+        let stream = client.open_stream().await;
+        let mut stream = Box::pin(stream);
+
+        while let Some(message) = stream.next().await {
+            println!("message: {:?}", message);
+        }
+        Ok(())
     }
 }

@@ -156,6 +156,7 @@ impl BitbankWsRawMessage {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BitbankPublicWsMessage {
     pub success: i64,
     pub data: Value,
@@ -172,7 +173,9 @@ impl BitbankPublicWsMessage {
 
 impl Into<MultiMarketMessage> for BitbankPublicWsMessage {
     fn into(self) -> MultiMarketMessage {
-        todo!()
+        log::debug!("into: {:?}", self);
+
+        MultiMarketMessage::Message(self.data.to_string())
         /*
         // Parse the data field to determine message type
         if let Some(data) = self.data.as_object() {

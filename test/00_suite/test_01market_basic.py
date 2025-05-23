@@ -42,6 +42,7 @@ def test_call_select_methods(exchange, config):
             (Bybit(True), "BTC/USDT:USDT"),
             (Binance(True), "BTC/USDT"),
             (Binance(True), "BTC/USDC"),
+            (Bitbank(True), "BTC/JPY"),
     ]
 )
 def test_open_market_stream(exchange, config):

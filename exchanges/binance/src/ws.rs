@@ -87,6 +87,7 @@ impl WebSocketClient for BinancePublicWsClient {
             SYNC_WAIT_RECORDS_FOR_PUBLIC,
             None,
             None,
+            false,
         );
 
         public_ws.subscribe(&vec![
@@ -187,6 +188,7 @@ impl BinancePrivateWsClient {
             SYNC_WAIT_RECORDS_FOR_PRIVATE,
             None,
             None,
+            false,
         );
 
         Self {

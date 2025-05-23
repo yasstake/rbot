@@ -50,7 +50,7 @@ impl Bitbank {
             production,
             "https://public.bitbank.cc",
             "https://api.bitbank.cc/v1",
-            "wss://stream.bitbank.cc", // Bitbank doesn't have public websocket
+            "wss://stream.bitbank.cc/socket.io/?EIO=3&transport=websocket", // Bitbank doesn't have public websocket
             "", // Bitbank doesn't have private websocket
             "",
         );
