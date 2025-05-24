@@ -20,11 +20,13 @@ pub fn env_rbot_db_root() -> Result<String, VarError> {
     std::env::var("RBOT_DB_ROOT")
 }
 
-const RBOT_ENV_DIR: &str = ".rusty-bot";
+const RBOT_ENV_FILE: &str = ".rusty-bot/.env";
 const API_KEY: &str = "API_KEY";
 const API_SECRET: &str = "API_SECRET";
 
 fn env_reader(exchange_name: &str, key: &str) -> String {
+    let exchange_name = exchange_name.to_uppercase();
+
     if let Ok(v) = env::var(format!("{}_{}", exchange_name, key)) {
         v
     } else {
@@ -41,30 +43,33 @@ fn test_extension(production: bool) -> String {
 }
 
 fn dot_env_reader(exchange_name: &str, production: bool, key: &str) -> String {
+    let exchange_name = exchange_name.to_uppercase();
+
     let user_dir = UserDirs::new().unwrap();
     let home_dir = user_dir.home_dir();
 
-    let rbot_dir = home_dir.join(RBOT_ENV_DIR);
-
-    let file_name = format!("{}{}.env", exchange_name, test_extension(production));
-    let env_file = rbot_dir.join(file_name);
+    let env_file = home_dir.join(RBOT_ENV_FILE);
 
     // if not file exist. return env file
     if !env_file.exists() {
+        log::warn!("env file[{}] not found. read from environment variable.", env_file.display());
         return env_reader(&exchange_name, key);
     }
 
-    let variables = read_file(env_file);
+    let variables = read_file(&env_file);
 
     if variables.is_err() {
+        log::error!("env file[{}] read error. read from environment variable.", env_file.display());
         return "".to_string();
     }
 
     let variables = variables.unwrap();
 
-    let value = variables.get(key);
+    let key = format!("{}_{}{}", exchange_name, key, test_extension(production));
+    let value = variables.get(&key);
 
     if value.is_none() {
+        log::error!("key [{}] is not found", key);
         return "".to_string();
     }
 
@@ -72,7 +77,9 @@ fn dot_env_reader(exchange_name: &str, production: bool, key: &str) -> String {
 }
 
 pub fn env_api_key(exchange_name: &str, production: bool) -> SecretString {
-    let key = dot_env_reader(exchange_name, production, API_KEY);
+    let exchange_name = exchange_name.to_uppercase();
+
+    let key = dot_env_reader(&exchange_name, production, API_KEY);
 
     if key == "" {
         println!(
@@ -91,7 +98,9 @@ pub fn env_api_key(exchange_name: &str, production: bool) -> SecretString {
 }
 
 pub fn env_api_secret(exchange_name: &str, production: bool) -> SecretString {
-    let secret = &dot_env_reader(exchange_name, production, API_SECRET);
+    let exchange_name = exchange_name.to_uppercase();
+
+    let secret = &dot_env_reader(&exchange_name, production, API_SECRET);
 
     if secret == "" {
         println!(

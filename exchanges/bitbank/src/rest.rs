@@ -1,4 +1,5 @@
 use std::{fs::File, io::BufReader, path::PathBuf, str::FromStr};
+use serde_json::Value;
 use tempfile::tempdir;
 
 use polars::frame::DataFrame;
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use rbot_lib::{
     common::{
-        date_string, split_yyyymmdd, AccountCoins, BoardItem, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade
+        date_string, hmac_sign, split_yyyymmdd, AccountCoins, BoardItem, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, NOW
     },
     db::{df_to_parquet, log_download_tmp, TradeBuffer},
     net::{check_exist, rest_get, rest_post, RestApi, RestPage},
@@ -32,8 +33,11 @@ impl BitbankRestApi {
     }
 }
 
+const ACCESS_TIME_WINDOW: i64 = 5000;
+
 // TODO: impl
 impl RestApi for BitbankRestApi {
+
     fn get_exchange(&self) -> ExchangeConfig {
         self.server_config.clone()
     }
@@ -240,13 +244,13 @@ impl RestApi for BitbankRestApi {
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let server = &self.server_config;
-        let path = "/user/assets";
+        let path = "/v1/user/assets";
 
-        let response = rest_get(&server.get_private_api(), &path, vec![], None, None)
+        let response = self.get_sign(&path, None)
             .await
             .with_context(|| format!("get_account error: {}/{}", server.get_private_api(), path))?;
 
-        let rest_response: BitbankRestResponse = serde_json::from_str(&response)
+        let rest_response: BitbankRestResponse = serde_json::from_value(response)
             .with_context(|| format!("parse error in get_account"))?;
 
         if rest_response.success == 0 {
@@ -367,7 +371,76 @@ impl RestApi for BitbankRestApi {
     }
 }
 
+impl BitbankRestApi {
+    // https://github.com/bitbankinc/bitbank-api-docs/blob/master/rest-api_JP.md
+    async fn get_sign(&self, path: &str, params: Option<&str>) -> anyhow::Result<Value> {
+        let server = &self.server_config;
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
 
+        let mut headers: Vec<(&str, &str)> = vec![];
+        headers.push(("ACCESS-KEY", &api_key));
+
+        let timestamp = NOW() / 1000;
+        let now = timestamp.to_string();
+        headers.push(("ACCESS-REQUEST-TIME", &now));
+
+        let time_window = ACCESS_TIME_WINDOW.to_string();
+        headers.push(("ACCESS-TIME-WINDOW", &time_window));
+
+        let message = if let Some(p) = params {
+            format!("{}{}{}", now, path, p)
+        } else {
+            format!("{}{}", now, path)
+        };
+
+        let signature = hmac_sign(&api_secret, &message);
+        headers.push(("ACCESS-SIGNATURE", &signature));
+
+        let response = rest_get(&server.get_private_api(), path, headers, params, None)
+            .await
+            .with_context(|| format!("get_sign error: {}/{}", server.get_private_api(), path))?;
+
+        let v: Value = serde_json::from_str(&response)
+            .with_context(|| format!("parse error in get_sign"))?;
+
+        Ok(v)
+    }
+
+    async fn post_sign(&self, path: &str, params: Option<&str>) -> anyhow::Result<Value> {
+        let server = &self.server_config;
+        let api_key = server.get_api_key().extract();
+        let api_secret = server.get_api_secret().extract();
+
+        let mut headers: Vec<(&str, &str)> = vec![];
+        headers.push(("ACCESS-KEY", &api_key));
+
+        let timestamp = NOW() / 1000;
+        let now = timestamp.to_string();
+        headers.push(("REQUEST-TIME", &now));
+
+        let time_window = ACCESS_TIME_WINDOW.to_string();
+        headers.push(("ACCESS-TIME-WINDOW", &time_window));
+
+        let message = if let Some(p) = params {
+            format!("{}{}{}", now, path, p)
+        } else {
+            format!("{}{}", now, path)
+        };
+
+        let signature = hmac_sign(&api_secret, &message);
+        headers.push(("ACCESS-SIGNATURE", &signature));
+
+        let response = rest_get(&server.get_private_api(), path, headers, params, None)
+            .await
+            .with_context(|| format!("get_sign error: {}/{}", server.get_private_api(), path))?;
+
+        let v: Value = serde_json::from_str(&response)
+            .with_context(|| format!("parse error in get_sign"))?;
+
+        Ok(v)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Ticker {
@@ -390,7 +463,7 @@ mod bitbank_test {
     use std::{path::PathBuf, str::FromStr};
 
     use rbot_lib::{
-        common::{ExchangeConfig, MarketConfig, DAYS, NOW},
+        common::{init_debug_log, ExchangeConfig, MarketConfig, DAYS, NOW},
         net::{RestApi, RestPage},
     };
 
@@ -487,6 +560,17 @@ mod bitbank_test {
         let klines = api.get_klines(&config, NOW() - DAYS(1), NOW(), &RestPage::New).await?;
         println!("{:?}", klines);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_account() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let api = BitbankRestApi::new(&server);
+
+        let account = api.get_account().await?;
+        println!("{:?}", account);
         Ok(())
     }
 }
