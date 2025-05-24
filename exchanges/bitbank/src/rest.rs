@@ -208,17 +208,22 @@ impl RestApi for BitbankRestApi {
 
     async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         let server = &self.server_config;
-        let path = format!("/user/spot/cancel_order");
+        let path = format!("/v1/user/spot/cancel_order");
 
-        let params = format!("pair={}&order_id={}", config.trade_symbol, order_id);
+        let params = BitbankCancelOrderParam {
+            pair: config.trade_symbol.clone(),
+            order_id: order_id.to_string(),
+        };
 
-        let response = rest_post(&server.get_private_api(), &path, vec![], &params)
+        let params = serde_json::to_string(&params).unwrap();
+
+        let response = self.post_sign(&path, Some(&params))
             .await
             .with_context(|| {
                 format!("cancel_order error: {}/{}", server.get_private_api(), path)
             })?;
 
-        let rest_response: BitbankRestResponse = serde_json::from_str(&response)
+        let rest_response: BitbankRestResponse = serde_json::from_value(response)
             .with_context(|| format!("parse error in cancel_order"))?;
 
         if rest_response.success == 0 {
@@ -631,6 +636,19 @@ mod bitbank_test {
             OrderType::Limit, 
             None
         ).await?;
+        println!("{:?}", order);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cancel_order() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let order = api.cancel_order(&config, "46212445576").await?;
         println!("{:?}", order);
 
         Ok(())
