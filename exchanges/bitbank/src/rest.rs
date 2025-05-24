@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, fmt::format, fs::File, io::BufReader, path::PathBuf, str::FromStr};
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -6,6 +6,7 @@ use polars::frame::DataFrame;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use rust_decimal::prelude::ToPrimitive;
 
 use rbot_lib::{
     common::{
@@ -34,6 +35,23 @@ impl BitbankRestApi {
 }
 
 const ACCESS_TIME_WINDOW: i64 = 5000;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BitbankNewOrderParam {
+    pair: String,
+    side: String,
+    amount: String,
+    #[serde(rename = "type")]
+    order_type: String,
+    price: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BitbankCancelOrderParam {
+    pair: String,
+    order_id: String,
+}
+
 
 // TODO: impl
 impl RestApi for BitbankRestApi {
@@ -156,27 +174,28 @@ impl RestApi for BitbankRestApi {
         let server = &self.server_config;
         let path = format!("/v1/user/spot/order");
 
-        let mut params = format!(
-            "pair={}&side={}&amount={}",
-            config.trade_symbol,
-            side.to_string().to_lowercase(),
-            size
-        );
-
-        if order_type == OrderType::Limit {
-            params = format!("{}&price={}", params, price);
-        }
-
         if let Some(id) = client_order_id {
-            params = format!("{}&order_id={}", params, id);
+            log::warn!("client_order_id is not supported in bitbank");
         }
 
-        let response = rest_post(&server.get_private_api(), &path, vec![], &params)
+        let param = BitbankNewOrderParam {
+            pair: config.trade_symbol.clone(),
+            side: side.to_string().to_lowercase(),
+            amount: size.to_string(),
+            order_type: order_type.to_string().to_lowercase(),
+            price: if order_type == OrderType::Limit { Some(price.to_string()) } else { None },
+        };
+
+        let params = serde_json::to_string(&param).unwrap();
+
+        let response = self.post_sign(&path, Some(&params))
             .await
             .with_context(|| format!("new_order error: {}/{}", server.get_private_api(), path))?;
 
+            log::debug!("new_order response: {:?}", response);
+
         let rest_response: BitbankRestResponse =
-            serde_json::from_str(&response).with_context(|| format!("parse error in new_order"))?;
+            serde_json::from_value(response).with_context(|| format!("parse error in new_order"))?;
 
         if rest_response.success == 0 {
             return Err(anyhow!("new_order error: {:?}", rest_response.data));
@@ -422,9 +441,9 @@ impl BitbankRestApi {
         headers.push(("Content-Type", "application/json"));
 
         let message = if let Some(p) = params {
-            format!("{}{}{}{}", now, time_window, path, p)
+            format!("{}{}{}", now, time_window, p)
         } else {
-            format!("{}{}{}", now, time_window, path)
+            format!("{}{}", now, time_window)
         };
 
         let signature = hmac_sign(&api_secret, &message);
@@ -435,6 +454,9 @@ impl BitbankRestApi {
         } else {
             "".to_string()
         };
+
+        log::debug!("post_sign message: {:?}", headers);
+        log::debug!("post_sign params: {}", params);
 
         let response = rest_post(&server.get_private_api(), path, headers, &params)
             .await
@@ -468,9 +490,10 @@ mod bitbank_test {
     use std::{path::PathBuf, str::FromStr};
 
     use rbot_lib::{
-        common::{init_debug_log, ExchangeConfig, MarketConfig, DAYS, NOW},
+        common::{init_debug_log, ExchangeConfig, MarketConfig, OrderSide, OrderType, DAYS, NOW},
         net::{RestApi, RestPage},
     };
+    use rust_decimal::Decimal;
 
     use crate::BitbankRestApi;
 
@@ -589,6 +612,26 @@ mod bitbank_test {
 
         let orders = api.open_orders(&config).await?;
         println!("{:?}", orders);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_new_order() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let order = api.new_order(
+            &config, 
+            OrderSide::Buy, 
+            Decimal::from(100000), 
+            Decimal::from_str("0.001").unwrap(), 
+            OrderType::Limit, 
+            None
+        ).await?;
+        println!("{:?}", order);
 
         Ok(())
     }
