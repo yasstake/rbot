@@ -154,7 +154,7 @@ impl RestApi for BitbankRestApi {
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = format!("/user/spot/order");
+        let path = format!("/v1/user/spot/order");
 
         let mut params = format!(
             "pair={}&side={}&amount={}",
@@ -216,26 +216,21 @@ impl RestApi for BitbankRestApi {
 
     async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = format!("/user/spot/active_orders");
+        let path = format!("/v1/user/spot/active_orders");
 
         let params = format!("pair={}", config.trade_symbol);
 
-        let response = rest_get(
-            &server.get_private_api(),
-            &path,
-            vec![],
-            Some(&params),
-            None,
-        )
-        .await
+        let response = self.get_sign(&path, Some(&params)).await
         .with_context(|| format!("open_orders error: {}/{}", server.get_private_api(), path))?;
 
-        let rest_response: BitbankRestResponse = serde_json::from_str(&response)
+        let rest_response: BitbankRestResponse = serde_json::from_value(response)
             .with_context(|| format!("parse error in open_orders"))?;
 
         if rest_response.success == 0 {
             return Err(anyhow!("open_orders error: {:?}", rest_response.data));
         }
+
+        log::debug!("open_orders response: {:?}", rest_response);
 
         // TODO: Parse orders response and convert to Vec<Order>
         // For now, return an empty vector since we don't have the orders response type defined
@@ -389,10 +384,12 @@ impl BitbankRestApi {
         headers.push(("ACCESS-TIME-WINDOW", &time_window));
 
         let message = if let Some(p) = params {
-            format!("{}{}{}", now, path, p)
+            format!("{}{}{}?{}", now, time_window, path, p)
         } else {
-            format!("{}{}", now, path)
+            format!("{}{}{}", now, time_window, path)
         };
+
+        log::debug!("get_sign message: {}", message);
 
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
@@ -417,23 +414,31 @@ impl BitbankRestApi {
 
         let timestamp = NOW() / 1000;
         let now = timestamp.to_string();
-        headers.push(("REQUEST-TIME", &now));
+        headers.push(("ACCESS-REQUEST-TIME", &now));
 
         let time_window = ACCESS_TIME_WINDOW.to_string();
         headers.push(("ACCESS-TIME-WINDOW", &time_window));
 
+        headers.push(("Content-Type", "application/json"));
+
         let message = if let Some(p) = params {
-            format!("{}{}{}", now, path, p)
+            format!("{}{}{}{}", now, time_window, path, p)
         } else {
-            format!("{}{}", now, path)
+            format!("{}{}{}", now, time_window, path)
         };
 
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
 
-        let response = rest_get(&server.get_private_api(), path, headers, params, None)
+        let params = if let Some(p) = params {
+            p.to_string()
+        } else {
+            "".to_string()
+        };
+
+        let response = rest_post(&server.get_private_api(), path, headers, &params)
             .await
-            .with_context(|| format!("get_sign error: {}/{}", server.get_private_api(), path))?;
+            .with_context(|| format!("post_sign error: {}/{}", server.get_private_api(), path))?;
 
         let v: Value = serde_json::from_str(&response)
             .with_context(|| format!("parse error in get_sign"))?;
@@ -571,6 +576,20 @@ mod bitbank_test {
 
         let account = api.get_account().await?;
         println!("{:?}", account);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_open_orders() -> anyhow::Result<()> {
+        init_debug_log();
+        
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let orders = api.open_orders(&config).await?;
+        println!("{:?}", orders);
+
         Ok(())
     }
 }
