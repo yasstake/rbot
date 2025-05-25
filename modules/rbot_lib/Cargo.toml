@@ -64,8 +64,6 @@ zip = {workspace=true}
 
 tempfile={workspace=true}
 
-pyo3 = {workspace = true}
-
-
+pyo3 = {workspace = true, features=["extension-module", "auto-initialize"]}
 
 

@@ -1,9 +1,10 @@
 use std::str::FromStr as _;
 
 use rbot_lib::common::{
-    string_to_decimal, BoardItem, BoardTransfer, Kline, LogStatus, MicroSec, MultiMarketMessage, OrderSide, Trade
+    string_to_decimal, BoardItem, BoardTransfer, Kline, LogStatus, MicroSec, MultiMarketMessage, Order, OrderSide, OrderStatus, OrderType, Trade
 };
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::{self, Deserialize, Serialize};
 use serde_derive;
 use serde_json::{self, Value};
@@ -20,6 +21,105 @@ pub struct BitbankRestResponse {
     pub success: i64,
     pub data: Value,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankOrder {
+    pub order_id: i64,
+    pub pair: String,
+    pub side: String,
+    pub position_side: Option<String>,
+    #[serde(rename = "type")]
+    pub order_type: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub start_amount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub remaining_amount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub executed_amount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub price: Decimal,
+    pub post_only: bool,
+    pub user_cancelable: bool,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub average_price: Decimal,
+    pub ordered_at: i64,
+    pub expire_at: Option<i64>,
+    //#[serde(deserialize_with = "string_to_decimal")]
+    // pub trigger_price: Decimal,
+    pub status: String
+}
+
+
+
+
+
+pub fn bitbank_order_status(status: &str) -> OrderStatus {
+    match status {
+        //注文ステータス: INACTIVE 非アクティブ, UNFILLED 注文中, PARTIALLY_FILLED 注文中(一部約定), FULLY_FILLED 約定済み, CANCELED_UNFILLED 取消済, CANCELED_PARTIALLY_FILLED 取消済(一部約定)
+        "INACTIVE" => OrderStatus::New,
+        "UNFILLED" => OrderStatus::New,
+        "PARTIALLY_FILLED" => OrderStatus::PartiallyFilled,
+        "FULLY_FILLED" => OrderStatus::Filled,
+        "CANCELED_UNFILLED" => OrderStatus::Canceled,
+        "CANCELED_PARTIALLY_FILLED" => OrderStatus::Canceled,
+        _ => {
+            log::error!("unknown order status: {:?}", status);
+            OrderStatus::Unknown
+        }
+    }
+}
+
+impl Into<Order> for BitbankOrder {
+    fn into(self) -> Order {
+        let order_type = OrderType::from(&self.order_type);
+        let order_side = OrderSide::from(&self.side);
+
+        Order {
+            category: "spot".to_string(),
+            symbol: self.pair,
+            create_time: bitbank_timestamp_to_microsec(self.ordered_at),
+            status: bitbank_order_status(&self.status),
+            order_id: self.order_id.to_string(),
+            client_order_id: "".to_string(),
+            order_side,
+            order_type,
+            order_price: self.price,
+            order_size: self.start_amount,
+            remain_size: self.remaining_amount,
+            transaction_id: self.order_id.to_string(),
+            update_time: self.ordered_at * 1000,
+            execute_price: self.average_price,
+            execute_size: self.executed_amount,
+            quote_vol: self.price * self.start_amount,
+            commission: dec![0.0],
+            commission_asset: "".to_string(),
+            is_maker: order_type.is_maker(),
+            message: "".to_string(),
+            commission_home: dec![0.0],
+            commission_foreign: dec![0.0],
+            home_change: dec![0.0],
+            foreign_change: dec![0.0],
+            free_home_change: dec![0.0],
+            free_foreign_change: dec![0.0],
+            lock_home_change: dec![0.0],
+            lock_foreign_change: dec![0.0],
+            log_id: 0,
+            open_position: dec![0.0],
+            close_position: dec![0.0],
+            position: dec![0.0],
+            profit: dec![0.0],
+            fee: dec![0.0],
+            total_profit: dec![0.0],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BitbankCancelOrderData {
+    pub success: i64,
+    pub data: Value,
+}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BitbankDepth {
@@ -141,6 +241,7 @@ impl Into<Vec<Kline>> for BitbankRestResponse {
     }
 }
 
+ 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BitbankWsRawMessage {
     pub success: i64,
