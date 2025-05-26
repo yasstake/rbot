@@ -25,6 +25,7 @@ rust_decimal_macros = {workspace = true}
 serde = {workspace = true}
 serde_derive = {workspace = true}
 serde_json = {workspace = true}
+json5 = {workspace = true}
 
 crossbeam-channel = {workspace = true}
 csv = {workspace = true}

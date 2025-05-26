@@ -7,9 +7,8 @@ use rbot_lib::common::{
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{self, Deserialize, Serialize};
-use serde_derive;
 use serde_json::{self, Value};
-use tokio::time;
+use json5;
 
 // {"transaction_id":1173302044,"side":"sell","price":"9097038","amount":"0.1000","executed_at":1724716801484}
 
@@ -237,22 +236,65 @@ impl Into<Vec<Kline>> for BitbankRestResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BitbankWsRawMessage {
-    pub message: BitbankPublicWsRoomMessage,
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankPublicWsMessage {
+        room_name: String,
+        data: BitbankPublicWsMessageData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BitbankPublicWsRoomMessage {
-    pub room_name: String,
-    pub message: BitbankPublicWsMessageData,
+pub enum BitbankPublicWsMessageData {
+    Board(BitbankDepth),
+    Snapshot(BitbankSnapshot),
+    Transactions(BitbankTransactions),
+}
+
+impl BitbankPublicWsMessage {
+    pub fn from_str(message: &str) -> anyhow::Result<Self> {
+        let message: Vec<Value> = json5::from_str(message)?;
+
+        if let Some(event_type) = message.get(0).and_then(|v| v.as_str()) {
+            println!("Event type: {}", event_type);
+        }
+
+        let message = message.get(1).unwrap().clone();
+        let room_name = message.get("room_name").unwrap().as_str().unwrap();
+
+        if room_name.starts_with("depth_diff_") {
+            let depth_diff = serde_json::from_value::<BitbankSnapshot>(message.get("message").unwrap().get("data").unwrap().clone())?;
+            return Ok(
+                BitbankPublicWsMessage {
+                    room_name: room_name.to_string(),
+                    data: BitbankPublicWsMessageData::Snapshot(depth_diff),
+                }
+            );
+        }
+        else if room_name.starts_with("depth_whole_") {
+            let depth_whole = serde_json::from_value::<BitbankDepth>(message.get("message").unwrap().get("data").unwrap().clone())?;
+            return Ok(
+                BitbankPublicWsMessage {
+                    room_name: room_name.to_string(),
+                    data: BitbankPublicWsMessageData::Board(depth_whole),
+                }
+            );
+        }
+        else if room_name.starts_with("transactions_") {
+            let transactions = serde_json::from_value::<BitbankTransactions>(message.get("message").unwrap().get("data").unwrap().clone())?;
+            return Ok(
+                BitbankPublicWsMessage {
+                    room_name: room_name.to_string(),
+                    data: BitbankPublicWsMessageData::Transactions(transactions),
+                }
+            );
+        }
+        else {
+            return Err(anyhow::anyhow!("Invalid room name: {}", room_name));
+        }
+    }
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BitbankPublicWsMessageData {
-    pub data: BitbankTransactions
-}
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -261,22 +303,40 @@ pub struct BitbankTransactions{
 }
 
 
+#[derive(Debug, Serialize, Deserialize)]
+
+pub struct BitbankSnapshot {
+    #[serde(rename = "b")]
+    pub bids: Vec<[String; 2]>,
+    #[serde(rename = "a")]
+    pub asks: Vec<[String; 2]>,
+    #[serde(rename = "ao")]
+    pub asks_over: Option<String>,
+    #[serde(rename = "bu")]
+    pub bids_under: Option<String>,
+    #[serde(rename = "am")]
+    pub ask_market: Option<String>,
+    #[serde(rename = "bm")]
+    pub bid_market: Option<String>,
+    #[serde(rename = "t")]
+    pub timestamp: i64,
+    #[serde(rename = "s")]
+    pub sequence_id: String,
+}
+
+
 pub struct BitbankPrivateWsMessage {
     pub message: Value,
 }
 
+
 #[cfg(test)]
 mod test_bitbank_message {
-    use std::str::FromStr as _;
-
     use anyhow::anyhow;
     use rbot_lib::common::{BoardTransfer, Kline, Trade};
-    use rust_decimal::Decimal;
-    use serde_json::Value;
 
     use crate::{
-        bitbank_timestamp_to_microsec, BitbankPublicWsRoomMessage, BitbankRestResponse,
-        BitbankWsRawMessage,
+        BitbankPublicWsMessage, BitbankRestResponse
     };
 
     const MESSAGE: &str = r#"
@@ -348,38 +408,70 @@ mod test_bitbank_message {
     }
 
     #[test]
-    fn test_parse_ws_raw_message() -> anyhow::Result<()> {
+    fn test_parse_ws_room_message() -> anyhow::Result<()> {
         const EVENT_MESSAGE: &str = r#"
         ["message",{"room_name":"transactions_xrp_jpy","message":{"pid":851205254,"data":{"transactions":[{"transaction_id":34745047,"side":"sell","price":"26.930","amount":"4703.5671","executed_at":1570080162855},{"transaction_id":34745046,"side":"sell","price":"26.930","amount":"500.0000","executed_at":1570080162829},{"transaction_id":34745045,"side":"sell","price":"26.930","amount":"378.0000","executed_at":1570080162802},{"transaction_id":34745044,"side":"sell","price":"26.930","amount":"12.0000","executed_at":1570080162758},{"transaction_id":34745043,"side":"sell","price":"26.930","amount":"301.4874","executed_at":1570080162725}]}}}]
     "#;
 
-        let message: Vec<Value> = serde_json::from_str(EVENT_MESSAGE)?;
-
-        // 最初の要素は "message"
-        if let Some(event_type) = message.get(0).and_then(|v| v.as_str()) {
-            println!("Event type: {}", event_type);
-        }
-
-        // 2つ目の要素を構造体に変換
-        if let Some(payload) = message.get(1) {
-            println!("payload.message: {:?}", payload);
-
-            let message: BitbankPublicWsRoomMessage = serde_json::from_value(payload.clone())?;
-            println!("room: {:?}", message.room_name);
-            println!("message: {:?}", message.message);
-            println!("message.data: {:?}", message.message.data);
-        }
-
+        let message = BitbankPublicWsMessage::from_str(EVENT_MESSAGE)?;
+        println!("{:?}", message);
         Ok(())
     }
 
     #[test]
-    fn test_parse_ws_message() -> anyhow::Result<()> {
+    fn test_parse_ws_board_whole() -> anyhow::Result<()> {
         const EVENT_MESSAGE: &str = r#"
-        {"room_name":"transactions_xrp_jpy","message":{"pid":851205254,"data":{"transactions":[{"transaction_id":34745047,"side":"sell","price":"26.930","amount":"4703.5671","executed_at":1570080162855},{"transaction_id":34745046,"side":"sell","price":"26.930","amount":"500.0000","executed_at":1570080162829},{"transaction_id":34745045,"side":"sell","price":"26.930","amount":"378.0000","executed_at":1570080162802},{"transaction_id":34745044,"side":"sell","price":"26.930","amount":"12.0000","executed_at":1570080162758},{"transaction_id":34745043,"side":"sell","price":"26.930","amount":"301.4874","executed_at":1570080162725}]}}}
-    "#;
+[
+    "message",
+    {
+        "room_name": "depth_whole_xrp_jpy",
+        "message": {
+            "data": {
+                "bids": [
+                    [
+                        "27.537",
+                        "6211.6210"
+                    ],
+                    [
+                        "27.523",
+                        "875.3413"
+                    ],
+                ],
+                "asks": [
+                    [
+                        "27.538",
+                        "7233.6837"
+                    ],
+                    [
+                        "27.540",
+                        "19.4551"
+                    ],
+                ],
+                "asks_over": "0.123",
+                "bids_under": "0.123",
+                "asks_under": "0",
+                "bids_over": "0",
+                "ask_market": "0",
+                "bid_market": "0",
+                "timestamp": 1568344476514,
+                "sequenceId": "1234567890"
+            }
+        }
+    }
+]        
+"#;
 
-        let message = serde_json::from_str::<BitbankPublicWsRoomMessage>(EVENT_MESSAGE)?;
+        let message = BitbankPublicWsMessage::from_str(EVENT_MESSAGE)?;
+        println!("{:?}", message);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_ws_snapshot() -> anyhow::Result<()> {
+        const EVENT_MESSAGE: &str = r#"
+["message",{"room_name":"depth_diff_xrp_jpy","message":{"data":{"a":[],"b":[["26.212","1000.0000"],["26.815","0"]],"t":1570080270100,"s":"1234567893"}}}]
+        "#;
+        let message = BitbankPublicWsMessage::from_str(EVENT_MESSAGE)?;
         println!("{:?}", message);
         Ok(())
     }

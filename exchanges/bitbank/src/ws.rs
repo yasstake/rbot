@@ -1,20 +1,15 @@
-use std::time::Duration;
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
 
-use anyhow::anyhow;
 
 use rbot_lib::{
     common::{ExchangeConfig, MarketConfig, MultiMarketMessage, Trade, BoardTransfer, ControlMessage},
     net::{AutoConnectClient, ReceiveMessage, WsOpMessage, WebSocketClient},
 };
 
-use crate::{BitbankPrivateWsMessage, BitbankPublicWsRoomMessage, BitbankRestApi, BitbankWsRawMessage};
-use rbot_blockon::BLOCK_ON;
+use crate::{BitbankPrivateWsMessage, BitbankPublicWsMessage, BitbankRestApi };
 
 const PING_INTERVAL_SEC: i64 = 15;
 const SWITCH_INTERVAL_SEC: i64 = 60 * 60;
@@ -130,22 +125,19 @@ impl BitbankPublicWsClient {
 }
 
 impl BitbankPublicWsClient{
-    fn parse_message(message: String) -> anyhow::Result<BitbankPublicWsRoomMessage> {
+    fn parse_message(message: String) -> anyhow::Result<BitbankPublicWsMessage> {
         log::debug!("message: {:?}", message);
 
-        let m = serde_json::from_str::<Vec<BitbankWsRawMessage>>(&message)
-            .map_err(|e| {
-                log::warn!("Error in serde_json::from_str: {:?}", message);
-                anyhow!("Error in serde_json::from_str: {:?}", message)
-            })?;
+        let message = BitbankPublicWsMessage::from_str(&message)?;
 
         todo!()
     }
 
     // TODO: implement
-    fn convert_ws_message(message: BitbankPublicWsRoomMessage) -> anyhow::Result<MultiMarketMessage> {
+    fn convert_ws_message(message: BitbankPublicWsMessage) -> anyhow::Result<MultiMarketMessage> {
         // TODO: implement
-        Ok(MultiMarketMessage::Message(format!("{:#?}", message.message)))
+        todo!()
+        //Ok(MultiMarketMessage::Message(format!("{:#?}", message.message)))
     }
 }
 

@@ -65,6 +65,8 @@ serde_json = { version = "1.0" }
 serde_derive = { version = "1.0" }
 serde_with = { version = "3.6.1" }
 
+json5 = { version = "0.4.1" }
+
 log = { version = "0.4" }
 env_logger = { version = "0.11.0" }
 tracing = { version = "0.1.40" }

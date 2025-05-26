@@ -1,22 +1,20 @@
-use std::{collections::HashMap, fmt::format, fs::File, io::BufReader, path::PathBuf, str::FromStr};
-use serde_json::Value;
+use std::{fs::File, io::BufReader, path::PathBuf};
 use tempfile::tempdir;
 
 use polars::frame::DataFrame;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::prelude::ToPrimitive as _;
 
 use rbot_lib::{
     common::{
-        date_string, hmac_sign, split_yyyymmdd, AccountCoins, BoardItem, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, NOW
+        date_string, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, NOW
     },
     db::{df_to_parquet, log_download_tmp, TradeBuffer},
-    net::{check_exist, rest_get, rest_post, RestApi, RestPage},
+    net::{rest_get, rest_post, RestApi, RestPage},
 };
 
-use crate::{BitbankOrder, BitbankRestResponse, BitbankTransaction};
+use crate::{BitbankOrder, BitbankRestResponse};
 
 use anyhow::{anyhow, Context as _};
 
