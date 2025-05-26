@@ -13,7 +13,7 @@ use rbot_lib::{
     net::{AutoConnectClient, ReceiveMessage, WsOpMessage, WebSocketClient},
 };
 
-use crate::{BitbankPrivateWsMessage, BitbankPublicWsMessage, BitbankRestApi, BitbankWsRawMessage};
+use crate::{BitbankPrivateWsMessage, BitbankPublicWsRoomMessage, BitbankRestApi, BitbankWsRawMessage};
 use rbot_blockon::BLOCK_ON;
 
 const PING_INTERVAL_SEC: i64 = 15;
@@ -85,10 +85,18 @@ impl BitbankPublicWsClient {
         let mut s = Box::pin(self.ws.open_stream().await);
 
         stream! {
+            let mut try_count = 0;
             while let Some(message) = s.next().await {
+                try_count += 1;
+                if try_count > 10 {
+                    yield Err("try_count > 10".to_string());
+                }
+
                 match message {
                     Ok(m) => {
                         if let ReceiveMessage::Text(m) = m {
+                            println!("message: {:?}", m);
+
                             match Self::parse_message(m) {
                                 Err(e) => {
                                     println!("Parse Error: {:?}", e);
@@ -104,6 +112,7 @@ impl BitbankPublicWsClient {
                                             continue;
                                         }
                                         Ok(m) => {
+                                            try_count = 0;
                                             yield Ok(m);
                                         }
                                     }
@@ -121,54 +130,22 @@ impl BitbankPublicWsClient {
 }
 
 impl BitbankPublicWsClient{
-    fn parse_message(message: String) -> anyhow::Result<BitbankPublicWsMessage> {
+    fn parse_message(message: String) -> anyhow::Result<BitbankPublicWsRoomMessage> {
         log::debug!("message: {:?}", message);
 
-        if message.starts_with("42") {
-            return Ok(BitbankPublicWsMessage {
-                success: 0,
-                data: Value::Null,
-            });
-        }
-
-        if message.starts_with("40") {
-            return Ok(BitbankPublicWsMessage {
-                success: 0,
-                data: Value::Null,
-            });
-        }
-
-        if message.starts_with("2") {
-            log::warn!("message: {:?}", message);
-            return Ok(BitbankPublicWsMessage {
-                success: 0,
-                data: Value::Null,
-            });
-        }
-
-
-        /*
-        let m = serde_json::from_str::<BitbankWsRawMessage>(&message)
+        let m = serde_json::from_str::<Vec<BitbankWsRawMessage>>(&message)
             .map_err(|e| {
                 log::warn!("Error in serde_json::from_str: {:?}", message);
                 anyhow!("Error in serde_json::from_str: {:?}", message)
             })?;
-        */
 
-        else {
-            log::error!("message: {:?}", message);
-            return Ok(BitbankPublicWsMessage {
-                success: 0,
-                data: Value::Null,
-            });
-        }
-
-//        Ok(m.into())
+        todo!()
     }
 
     // TODO: implement
-    fn convert_ws_message(message: BitbankPublicWsMessage) -> anyhow::Result<MultiMarketMessage> {
-        Ok(MultiMarketMessage::Message(message.data.to_string()))
+    fn convert_ws_message(message: BitbankPublicWsRoomMessage) -> anyhow::Result<MultiMarketMessage> {
+        // TODO: implement
+        Ok(MultiMarketMessage::Message(format!("{:#?}", message.message)))
     }
 }
 
@@ -302,8 +279,10 @@ mod tests {
         let stream = client.open_stream().await;
         let mut stream = Box::pin(stream);
 
-        while let Some(message) = stream.next().await {
-            println!("message: {:?}", message);
+
+        for _i in 0..10 {
+            let message = stream.next().await;
+            println!("{:?}", message.unwrap());
         }
         Ok(())
     }

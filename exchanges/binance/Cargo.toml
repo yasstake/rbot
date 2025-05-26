@@ -32,7 +32,5 @@ tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
 
-
-pyo3 = { workspace = true, features = ["macros"] }
-
+pyo3 = {workspace = true}
 

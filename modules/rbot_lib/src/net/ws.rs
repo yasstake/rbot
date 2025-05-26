@@ -287,7 +287,7 @@ where
             let message = message.unwrap();
 
             match message {
-                Message::Text(t) => {
+                Message::Text(mut t) => {
                     // SOcket IO response
                     if t.starts_with("2") { // ping
                         log::warn!("message: {:?}", t);
@@ -297,11 +297,15 @@ where
 
                     if t.starts_with("0") { // connect
                         log::warn!("message: {:?}", t);
-                        self.send_text("40".to_string()).await;
+                        self.send_text("40".to_string()).await; // connect response connect
                         continue;
                     }
+                    let mut t = t.to_string();
+                    if t.starts_with("42") { // event message
+                        t = t.trim_start_matches("42").to_string();
+                    }
 
-                    return Ok(ReceiveMessage::Text(t.to_string()));
+                    return Ok(ReceiveMessage::Text(t));
                 }
                 Message::Binary(b) => {
                     log::debug!("BINARY: {:?}", b);

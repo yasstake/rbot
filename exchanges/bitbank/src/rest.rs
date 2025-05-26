@@ -16,7 +16,7 @@ use rbot_lib::{
     net::{check_exist, rest_get, rest_post, RestApi, RestPage},
 };
 
-use crate::{BitbankOrder, BitbankRestResponse, BitbankTransactions};
+use crate::{BitbankOrder, BitbankRestResponse, BitbankTransaction};
 
 use anyhow::{anyhow, Context as _};
 
