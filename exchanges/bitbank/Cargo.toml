@@ -41,8 +41,7 @@ async-stream = {workspace = true}
 
 tempfile = {workspace=true}
 
-rust_socketio = {workspace=true}
-
+pubnub = {workspace = true}
 
 pyo3 = { workspace = true }
 

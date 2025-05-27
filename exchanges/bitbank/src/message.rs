@@ -238,9 +238,16 @@ impl Into<Vec<Kline>> for BitbankRestResponse {
 
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankPrivateStreamKey {
+    pub pubnub_channel: String,
+    pub pubnub_token: String,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BitbankPublicWsMessage {
-        room_name: String,
-        data: BitbankPublicWsMessageData,
+    pub room_name: String,
+    pub data: BitbankPublicWsMessageData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -14,7 +14,7 @@ use rbot_lib::{
     net::{rest_get, rest_post, RestApi, RestPage},
 };
 
-use crate::{BitbankOrder, BitbankRestResponse};
+use crate::{BitbankOrder, BitbankPrivateStreamKey, BitbankRestResponse};
 
 use anyhow::{anyhow, Context as _};
 
@@ -309,12 +309,18 @@ impl RestApi for BitbankRestApi {
 }
 
 impl BitbankRestApi {
-    async fn get_private_stream_key(&self) -> anyhow::Result<String> {
+    async fn get_private_stream_key(&self) -> anyhow::Result<BitbankPrivateStreamKey> {
         let path = "/v1/user/subscribe";
         let params = None;
         let response = self.get_sign(path, params).await?;
 
-        Ok(response.data.to_string())
+        if response.success == 0 {
+            return Err(anyhow!("get_private_stream_key error: status=0, {:?}", response.data));
+        }
+
+        let data: BitbankPrivateStreamKey = serde_json::from_value(response.data.clone())?;
+
+        Ok(data)
     }
 
     async fn get(&self, host: &str, path: &str, headers: Vec<(&str, &str)>, params: Option<&str>) -> anyhow::Result<BitbankRestResponse> {
