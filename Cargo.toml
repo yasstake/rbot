@@ -65,6 +65,8 @@ serde_json = { version = "1.0" }
 serde_derive = { version = "1.0" }
 serde_with = { version = "3.6.1" }
 
+json5 = { version = "0.4.1" }
+
 log = { version = "0.4" }
 env_logger = { version = "0.11.0" }
 tracing = { version = "0.1.40" }
@@ -111,11 +113,9 @@ pyo3-polars = {version = "0.20.0"}
 polars-arrow = {version = "0.46.0"}
 arrow = {version = "55.1.0"}
 
-
 parquet = "55.1.0"
 
 numpy = { version = "0.23.0" }
-
 
 ndarray = { version = "0.16.1" }
 
@@ -150,6 +150,8 @@ once_cell = { version = "1.19.0" }
 
 actix-web={version="4.5"}
 actix-rt={version="2.9"}
+
+pubnub = { version = "0.6.0" }
 
 pyo3 = { version = "0.23.5", features = ["rust_decimal", "abi3-py38", "anyhow", "extension-module"] }
 

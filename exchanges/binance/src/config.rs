@@ -2,9 +2,9 @@
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 
 use pyo3::{pyclass, pymethods};
-use rust_decimal_macros::dec;
 
-use rbot_lib::common::{env_api_key, env_api_secret, FeeType, MarketConfig, SecretString, ExchangeConfig};
+use rbot_lib::common::MarketConfig;
+use rbot_lib::common::ExchangeConfig;
 
 use crate::BINANCE;
 

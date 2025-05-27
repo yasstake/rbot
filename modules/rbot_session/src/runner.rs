@@ -343,7 +343,7 @@ impl Runner {
                 let kwargs =
                     vec![("connect_ws", true), ("verbose", self.verbose)];
 
-                let kwargs = kwargs.into_py_dict_bound(py);
+                let kwargs = kwargs.into_py_dict(py)?;
                 market.call_method("download", (5, ), Some(&kwargs))?;
                 log::debug!("download_latest is done");
             }
@@ -924,7 +924,7 @@ impl Runner {
 
         let result = 
         Python::with_gil(|py| -> PyResult<()> {
-            let mut session = py_session.borrow_mut(py);
+            let session = py_session.borrow_mut(py);
             agent.call_method1("on_init", (session,))?;
             Ok(())
         });

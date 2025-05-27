@@ -2,8 +2,8 @@ from .rbot import *
 import signal
 import sys
 
-if hasattr(rbot, "__all__"):
-    __all__ = rbot.__all__
+if hasattr(rbot, "__all__"): # type: ignore
+    __all__ = rbot.__all__ # type: ignore
 
 
 def terminate(_a, _b):
@@ -32,5 +32,5 @@ print("!!! ABSOLUTELY NO WARRANTY. USE AT YOUR OWN RISK !!!")
 print("For some exchange, an affliate or referer link may be included.")
 print("Distributed under LGPL license. https://www.gnu.org/licenses/lgpl-3.0.txt")
 print("See the document at https://github.com/yasstake/rusty-bot")
-print("All rights reserved. (c) 2022-2024 rbot(rusty-bot) developers / yasstake")
+print("All rights reserved. (c) 2022-2025 rbot(rusty-bot) developers / yasstake")
 
