@@ -1,0 +1,18 @@
+[package]
+name = "rbot_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rbot_lib = { path = "../../modules/rbot_lib" }
+rbot_market = { path = "../../modules/rbot_market" }
+rbot_blockon = { path = "../../modules/rbot_blockon" }
+
+anyhow = { workspace = true }
+tokio = { workspace = true }
+pyo3 = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true } 

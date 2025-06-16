@@ -1,15 +1,14 @@
-mod config;
 mod market;
 mod message;
 mod rest;
 mod ws;
-mod socket;
 
-pub use config::*;
 pub use market::*;
 pub use message::*;
 pub use rest::*;
 pub use ws::*;
-pub use socket::*;
 
-pub const BITBANK_BOARD_DEPTH: u32 = 200;
+
+pub const HYPERLIQUID: &str = "HYPERLIQUID";
+pub const HYPERLIQUID_BOARD_DEPTH: u32 = 200;
+

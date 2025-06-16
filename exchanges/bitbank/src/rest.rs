@@ -14,7 +14,7 @@ use rbot_lib::{
     net::{rest_get, rest_post, RestApi, RestPage},
 };
 
-use crate::{BitbankOrder, BitbankPrivateStreamKey, BitbankRestResponse};
+use crate::{BitbankOrder, BitbankPrivateStreamKey, BitbankRestResponse, BitbankAssets};
 
 use anyhow::{anyhow, Context as _};
 
@@ -144,7 +144,7 @@ impl RestApi for BitbankRestApi {
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = format!("/v1/user/spot/order");
+        let path = "v1/user/spot/order";
 
         if let Some(id) = client_order_id {
             log::warn!("client_order_id is not supported in bitbank");
@@ -162,7 +162,7 @@ impl RestApi for BitbankRestApi {
 
         let response = self.post_sign(&path, Some(&params))
             .await
-            .with_context(|| format!("new_order error: {}/{}", server.get_private_api(), path))?;
+            .with_context(|| format!("new_order error: {}{}", server.get_private_api(), path))?;
 
         log::debug!("new_order response: {:?}", response);
 
@@ -173,7 +173,7 @@ impl RestApi for BitbankRestApi {
 
     async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         let server = &self.server_config;
-        let path = format!("/v1/user/spot/cancel_order");
+        let path = "v1/user/spot/cancel_order";
 
         let params = BitbankCancelOrderParam {
             pair: config.trade_symbol.clone(),
@@ -185,7 +185,7 @@ impl RestApi for BitbankRestApi {
         let response = self.post_sign(&path, Some(&params))
             .await
             .with_context(|| {
-                format!("cancel_order error: {}/{}", server.get_private_api(), path)
+                format!("cancel_order error: {}{}", server.get_private_api(), path)
             })?;
 
         let order: BitbankOrder = serde_json::from_value(response.data.clone())?;
@@ -195,13 +195,12 @@ impl RestApi for BitbankRestApi {
 
     async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = format!("/v1/user/spot/active_orders");
+        let path = "v1/user/spot/active_orders";
 
         let params = format!("pair={}", config.trade_symbol);
 
         let response = self.get_sign(&path, Some(&params)).await
-        .with_context(|| format!("open_orders error: {}/{}", server.get_private_api(), path))?;
-
+        .with_context(|| format!("open_orders error: {}{}", server.get_private_api(), path))?;
 
         log::debug!("open_orders response: {:?}", response);
 
@@ -212,15 +211,14 @@ impl RestApi for BitbankRestApi {
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let host = self.server_config.get_private_api();
-        let path = "/v1/user/assets";
+        let path = "v1/user/assets";
 
         let response = self.get_sign(path, None)
             .await
-            .with_context(|| format!("get_account error: {}/{}", &host, path))?;
+            .with_context(|| format!("get_account error: {}{}", &host, path))?;
 
-        // TODO: Parse account response and convert to AccountCoins
-        // For now, return an empty AccountCoins since we don't have the account response type defined
-        Ok(AccountCoins::default())
+        let assets: BitbankAssets = serde_json::from_value(response.data.clone())?;
+        Ok(assets.into())
     }
 
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
@@ -309,7 +307,7 @@ impl RestApi for BitbankRestApi {
 }
 
 impl BitbankRestApi {
-    async fn get_private_stream_key(&self) -> anyhow::Result<BitbankPrivateStreamKey> {
+    pub async fn get_private_stream_key(&self) -> anyhow::Result<BitbankPrivateStreamKey> {
         let path = "/v1/user/subscribe";
         let params = None;
         let response = self.get_sign(path, params).await?;
@@ -380,8 +378,9 @@ impl BitbankRestApi {
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
 
-        let response = self.get(&server.get_private_api(), path, headers, params).await
-            .with_context(|| format!("get_sign error: {}/{}", server.get_private_api(), path))?;
+        let full_path = format!("/{}", path);
+        let response = self.get(&server.get_private_api(), &full_path, headers, params).await
+            .with_context(|| format!("get_sign error: {}{}", server.get_private_api(), full_path))?;
 
         Ok(response)
     }
@@ -401,27 +400,19 @@ impl BitbankRestApi {
         let time_window = ACCESS_TIME_WINDOW.to_string();
         headers.push(("ACCESS-TIME-WINDOW", &time_window));
 
-        headers.push(("Content-Type", "application/json"));
-
         let message = if let Some(p) = params {
-            format!("{}{}{}", now, time_window, p)
+            format!("{}{}{}?{}", now, time_window, path, p)
         } else {
-            format!("{}{}", now, time_window)
+            format!("{}{}{}", now, time_window, path)
         };
 
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
 
-        let params = if let Some(p) = params {
-            p.to_string()
-        } else {
-            "".to_string()
-        };
-
-
-        let response = self.post(&server.get_private_api(), path, headers, &params)
+        let full_path = format!("/{}", path);
+        let response = self.post(&server.get_private_api(), &full_path, headers, params.unwrap_or(""))
             .await
-            .with_context(|| format!("post_sign error: {}/{}", server.get_private_api(), path))?;
+            .with_context(|| format!("post_sign error: {}{}", server.get_private_api(), full_path))?;
 
         Ok(response)
     }

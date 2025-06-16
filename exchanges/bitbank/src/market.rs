@@ -24,7 +24,7 @@ use rbot_market::OrderInterfaceImpl;
 use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 
-use crate::{BitbankPrivateWsClient, BitbankPublicWsClient, BitbankRestApi, BITBANK_BOARD_DEPTH};
+use crate::{BitbankPrivateStreamClient, BitbankPublicWsClient, BitbankRestApi, BITBANK_BOARD_DEPTH};
 
 use pyo3::prelude::*;
 
@@ -49,7 +49,7 @@ impl Bitbank {
             BITBANK,
             production,
             "https://public.bitbank.cc",
-            "https://api.bitbank.cc/v1",
+            "https://api.bitbank.cc",
             "wss://stream.bitbank.cc/socket.io/?EIO=3&transport=websocket", // Bitbank doesn't have public websocket
             "", // Bitbank doesn't have private websocket
             "",
@@ -374,7 +374,7 @@ impl BitbankMarket {
         verbose: bool,
     ) -> anyhow::Result<()> {
         BLOCK_ON(async {
-            MarketImpl::async_download_realtime::<BitbankPrivateWsClient> (self, connect_ws, force, verbose).await
+            MarketImpl::async_download_realtime::<BitbankPrivateStreamClient> (self, connect_ws, force, verbose).await
         })
     }
 

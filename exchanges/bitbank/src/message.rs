@@ -1,8 +1,7 @@
 use std::str::FromStr as _;
 
 use rbot_lib::common::{
-    string_to_decimal, BoardItem, BoardTransfer, Kline, LogStatus, MicroSec, MultiMarketMessage,
-    Order, OrderSide, OrderStatus, OrderType, Trade,
+    string_to_decimal, AccountCoins, BoardItem, BoardTransfer, Coin, Kline, LogStatus, MicroSec, MultiMarketMessage, Order, OrderSide, OrderStatus, OrderType, Trade
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -16,10 +15,92 @@ pub fn bitbank_timestamp_to_microsec(timestamp: i64) -> MicroSec {
     timestamp * 1_000
 }
 
+pub fn bitbank_order_status_to_order_status(status: &str) -> OrderStatus {
+    match status {
+        "FULLY_FILLED" => OrderStatus::Filled,
+        "PARTIALLY_FILLED" => OrderStatus::PartiallyFilled,
+        "UNFILLED" | "WAITING" => OrderStatus::New,
+        "CANCELED_UNFILLED" | "CANCELED_PARTIALLY_FILLED" => OrderStatus::Canceled,
+        "REJECTED" => OrderStatus::Rejected,
+        _ => OrderStatus::Unknown,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BitbankRestResponse {
     pub success: i64,
     pub data: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankWithdrawalFee {
+    #[serde(default)]
+    pub min: Option<String>,
+    #[serde(default)]
+    pub max: Option<String>,
+    #[serde(default)]
+    pub under: Option<String>,
+    #[serde(default)]
+    pub over: Option<String>,
+    #[serde(default)]
+    pub threshold: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankNetwork {
+    pub asset: String,
+    pub network: String,
+    pub stop_deposit: bool,
+    pub stop_withdrawal: bool,
+    pub withdrawal_fee: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankAsset {
+    pub asset: String,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub free_amount: Decimal,
+    pub amount_precision: i64,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub onhand_amount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub locked_amount: Decimal,
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub withdrawing_amount: Decimal,
+    pub withdrawal_fee: BitbankWithdrawalFee,
+    pub stop_deposit: bool,
+    pub stop_withdrawal: bool,
+    #[serde(default)]
+    pub network_list: Option<Vec<BitbankNetwork>>,
+    pub collateral_ratio: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankAssets {
+    pub assets: Vec<BitbankAsset>,
+}
+
+impl Into<Coin> for BitbankAsset {
+    fn into(self) -> Coin {
+        Coin {
+            symbol: self.asset,
+            volume: self.free_amount + self.locked_amount,
+            free: self.free_amount,
+            locked: self.locked_amount,
+        }
+    }
+}
+
+impl Into<AccountCoins> for BitbankAssets {
+    fn into(self) -> AccountCoins {
+        let mut coins: Vec<Coin> = vec![];
+
+        for asset in self.assets {
+            coins.push(asset.into());
+        }
+
+        AccountCoins{coins}
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -331,19 +412,340 @@ pub struct BitbankSnapshot {
     pub sequence_id: String,
 }
 
-
-pub struct BitbankPrivateWsMessage {
-    pub message: Value,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankAssetUpdate {
+    pub asset: String,
+    #[serde(rename = "amountPrecision")]
+    pub amount_precision: i64,
+    #[serde(rename = "freeAmount")]
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub free_amount: Decimal,
+    #[serde(rename = "lockedAmount")]
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub locked_amount: Decimal,
+    #[serde(rename = "onhandAmount")]
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub onhand_amount: Decimal,
+    #[serde(rename = "withdrawingAmount")]
+    #[serde(deserialize_with = "string_to_decimal")]
+    pub withdrawing_amount: Decimal,
 }
+
+impl Into<Coin> for BitbankAssetUpdate {
+    fn into(self) -> Coin {
+        Coin {
+            symbol: self.asset,
+            volume: self.free_amount + self.locked_amount,
+            free: self.free_amount,
+            locked: self.locked_amount,
+        }
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankSpotOrder {
+    pub average_price: String,
+    pub canceled_at: Option<i64>,
+    pub executed_amount: String,
+    pub executed_at: i64,
+    pub order_id: i64,
+    pub ordered_at: i64,
+    pub pair: String,
+    pub price: Option<String>,
+    pub trigger_price: Option<String>,
+    pub remaining_amount: String,
+    pub position_side: Option<String>,
+    pub side: String,
+    pub start_amount: String,
+    pub status: String,
+    #[serde(rename = "type")]
+    pub order_type: String,
+    pub expire_at: i64,
+    pub triggered_at: Option<i64>,
+    pub post_only: Option<bool>,
+    pub user_cancelable: bool,
+    pub is_just_triggered: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankOrderInvalidation {
+    pub order_id: Vec<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitbankSpotTrade {
+    pub amount: String,
+    pub executed_at: i64,
+    pub fee_amount_base: String,
+    pub fee_amount_quote: String,
+    pub fee_occurred_amount_quote: String,
+    pub maker_taker: String,
+    pub order_id: i64,
+    pub pair: String,
+    pub price: String,
+    pub position_side: Option<String>,
+    pub side: String,
+    pub trade_id: i64,
+    #[serde(rename = "type")]
+    pub trade_type: String,
+    pub profit_loss: Option<String>,
+    pub interest: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "method")]
+pub enum BitbankPrivateWsMessage {
+    #[serde(rename = "asset_update")]
+    AssetUpdate { params: Vec<BitbankAssetUpdate> },
+    
+    #[serde(rename = "spot_order_new")]
+    SpotOrderNew { params: Vec<BitbankSpotOrder> },
+    
+    #[serde(rename = "spot_order")]
+    SpotOrder { params: Vec<BitbankSpotOrder> },
+    
+    #[serde(rename = "spot_trade")]
+    SpotTrade { params: Vec<BitbankSpotTrade> },
+
+    #[serde(rename = "spot_order_invalidation")]
+    SpotOrderInvalidation { params: BitbankOrderInvalidation },
+}
+
+
+impl Into<MultiMarketMessage> for BitbankPublicWsMessage {
+    fn into(self) -> MultiMarketMessage {
+        match self.data {
+            BitbankPublicWsMessageData::Board(board) => {
+                let mut transfer = BoardTransfer::new();
+                transfer.last_update_time = bitbank_timestamp_to_microsec(board.timestamp);
+                transfer.first_update_id = board.sequence_id.parse::<u64>().unwrap();
+                transfer.last_update_id = board.sequence_id.parse::<u64>().unwrap();
+                transfer.snapshot = false;
+
+                transfer.asks = board.asks.into_iter()
+                    .map(|a| BoardItem {
+                        price: Decimal::from_str(&a[0]).unwrap(),
+                        size: Decimal::from_str(&a[1]).unwrap(),
+                    })
+                    .collect();
+                transfer.bids = board.bids.into_iter()
+                    .map(|b| BoardItem {
+                        price: Decimal::from_str(&b[0]).unwrap(),
+                        size: Decimal::from_str(&b[1]).unwrap(),
+                    })
+                    .collect();
+                MultiMarketMessage::Orderbook(transfer)
+            },
+            BitbankPublicWsMessageData::Snapshot(snapshot) => {
+                let mut transfer = BoardTransfer::new();
+                transfer.last_update_time = bitbank_timestamp_to_microsec(snapshot.timestamp);
+                transfer.first_update_id = snapshot.sequence_id.parse::<u64>().unwrap();
+                transfer.last_update_id = snapshot.sequence_id.parse::<u64>().unwrap();
+                transfer.snapshot = true;
+
+                transfer.asks = snapshot.asks.into_iter()
+                    .map(|a| BoardItem {
+                        price: Decimal::from_str(&a[0]).unwrap(),
+                        size: Decimal::from_str(&a[1]).unwrap(),
+                    })
+                    .collect();
+                transfer.bids = snapshot.bids.into_iter()
+                    .map(|b| BoardItem {
+                        price: Decimal::from_str(&b[0]).unwrap(),
+                        size: Decimal::from_str(&b[1]).unwrap(),
+                    })
+                    .collect();
+                MultiMarketMessage::Orderbook(transfer)
+            },
+            BitbankPublicWsMessageData::Transactions(transactions) => {
+                let trades: Vec<Trade> = transactions.transactions.into_iter()
+                    .map(|t| Trade {
+                        time: bitbank_timestamp_to_microsec(t.timestamp),
+                        order_side: OrderSide::from(&t.side),
+                        price: t.price,
+                        size: t.size,
+                        status: LogStatus::UnFix,
+                        id: format!("{:?}", t.transaction_id),
+                    })
+                    .collect();
+                MultiMarketMessage::Trade(trades)
+            }
+        }
+    }
+}
+
+
+
+impl Into<MultiMarketMessage> for BitbankPrivateWsMessage {
+    fn into(self) -> MultiMarketMessage {
+        match self {
+            BitbankPrivateWsMessage::AssetUpdate { params } => {
+                let coins = params.into_iter()
+                    .map(|a| Coin {
+                        symbol: a.asset,
+                        volume: a.free_amount + a.locked_amount,
+                        free: a.free_amount,
+                        locked: a.locked_amount,
+                    })
+                    .collect();
+                MultiMarketMessage::Account(AccountCoins { coins })
+            },
+            BitbankPrivateWsMessage::SpotOrderNew { params } => {
+                let orders = params.into_iter()
+                    .map(|o| Order {
+                        category: "spot".to_string(),
+                        symbol: o.pair,
+                        create_time: bitbank_timestamp_to_microsec(o.ordered_at),
+                        status: bitbank_order_status_to_order_status(&o.status),
+                        order_id: o.order_id.to_string(),
+                        client_order_id: "".to_string(),
+                        order_side: OrderSide::from(&o.side),
+                        order_type: OrderType::from(&o.order_type),
+                        order_price: o.price.as_ref().map(|p| Decimal::from_str(p).unwrap()).unwrap_or(Decimal::ZERO),
+                        order_size: Decimal::from_str(&o.start_amount).unwrap(),
+                        remain_size: Decimal::from_str(&o.remaining_amount).unwrap(),
+                        transaction_id: "".to_string(),
+                        update_time: bitbank_timestamp_to_microsec(o.executed_at),
+                        execute_price: Decimal::from_str(&o.average_price).unwrap(),
+                        execute_size: Decimal::from_str(&o.executed_amount).unwrap(),
+                        quote_vol: Decimal::ZERO,
+                        commission: Decimal::ZERO,
+                        commission_asset: "".to_string(),
+                        is_maker: false,
+                        message: "".to_string(),
+                        commission_home: Decimal::ZERO,
+                        commission_foreign: Decimal::ZERO,
+                        home_change: Decimal::ZERO,
+                        foreign_change: Decimal::ZERO,
+                        free_home_change: Decimal::ZERO,
+                        free_foreign_change: Decimal::ZERO,
+                        lock_home_change: Decimal::ZERO,
+                        lock_foreign_change: Decimal::ZERO,
+                        open_position: Decimal::ZERO,
+                        close_position: Decimal::ZERO,
+                        position: Decimal::ZERO,
+                        profit: Decimal::ZERO,
+                        fee: Decimal::ZERO,
+                        total_profit: Decimal::ZERO,
+                        log_id: 0,
+                    })
+                    .collect();
+                MultiMarketMessage::Order(orders)
+            },
+            BitbankPrivateWsMessage::SpotOrder { params } => {
+                let orders = params.into_iter()
+                    .map(|o| Order {
+                        category: "spot".to_string(),
+                        symbol: o.pair,
+                        create_time: bitbank_timestamp_to_microsec(o.ordered_at),
+                        status: bitbank_order_status_to_order_status(&o.status),
+                        order_id: o.order_id.to_string(),
+                        client_order_id: "".to_string(),
+                        order_side: OrderSide::from(&o.side),
+                        order_type: OrderType::from(&o.order_type),
+                        order_price: o.price.as_ref().map(|p| Decimal::from_str(p).unwrap()).unwrap_or(Decimal::ZERO),
+                        order_size: Decimal::from_str(&o.start_amount).unwrap(),
+                        remain_size: Decimal::from_str(&o.remaining_amount).unwrap(),
+                        transaction_id: "".to_string(),
+                        update_time: bitbank_timestamp_to_microsec(o.executed_at),
+                        execute_price: Decimal::from_str(&o.average_price).unwrap(),
+                        execute_size: Decimal::from_str(&o.executed_amount).unwrap(),
+                        quote_vol: Decimal::ZERO,
+                        commission: Decimal::ZERO,
+                        commission_asset: "".to_string(),
+                        is_maker: false,
+                        message: "".to_string(),
+                        commission_home: Decimal::ZERO,
+                        commission_foreign: Decimal::ZERO,
+                        home_change: Decimal::ZERO,
+                        foreign_change: Decimal::ZERO,
+                        free_home_change: Decimal::ZERO,
+                        free_foreign_change: Decimal::ZERO,
+                        lock_home_change: Decimal::ZERO,
+                        lock_foreign_change: Decimal::ZERO,
+                        open_position: Decimal::ZERO,
+                        close_position: Decimal::ZERO,
+                        position: Decimal::ZERO,
+                        profit: Decimal::ZERO,
+                        fee: Decimal::ZERO,
+                        total_profit: Decimal::ZERO,
+                        log_id: 0,
+                    })
+                    .collect();
+                MultiMarketMessage::Order(orders)
+            },
+            BitbankPrivateWsMessage::SpotTrade { params } => {
+                let trades = params.into_iter()
+                    .map(|t| Trade {
+                        time: bitbank_timestamp_to_microsec(t.executed_at),
+                        order_side: OrderSide::from(&t.side),
+                        price: Decimal::from_str(&t.price).unwrap(),
+                        size: Decimal::from_str(&t.amount).unwrap(),
+                        status: LogStatus::UnFix,
+                        id: format!("{:?}", t.trade_id),
+                    })
+                    .collect();
+                MultiMarketMessage::Trade(trades)
+            },
+            BitbankPrivateWsMessage::SpotOrderInvalidation { params } => {
+                let orders = params.order_id.into_iter()
+                    .map(|order_id| Order {
+                        category: "spot".to_string(),
+                        symbol: "".to_string(),
+                        create_time: 0,
+                        status: OrderStatus::Canceled,
+                        order_id: order_id.to_string(),
+                        client_order_id: "".to_string(),
+                        order_side: OrderSide::Buy, // default value, actual value unknown
+                        order_type: OrderType::Limit, // default value, actual value unknown
+                        order_price: Decimal::ZERO,
+                        order_size: Decimal::ZERO,
+                        remain_size: Decimal::ZERO,
+                        transaction_id: "".to_string(),
+                        update_time: 0,
+                        execute_price: Decimal::ZERO,
+                        execute_size: Decimal::ZERO,
+                        quote_vol: Decimal::ZERO,
+                        commission: Decimal::ZERO,
+                        commission_asset: "".to_string(),
+                        is_maker: false,
+                        message: "Order invalidated".to_string(),
+                        commission_home: Decimal::ZERO,
+                        commission_foreign: Decimal::ZERO,
+                        home_change: Decimal::ZERO,
+                        foreign_change: Decimal::ZERO,
+                        free_home_change: Decimal::ZERO,
+                        free_foreign_change: Decimal::ZERO,
+                        lock_home_change: Decimal::ZERO,
+                        lock_foreign_change: Decimal::ZERO,
+                        open_position: Decimal::ZERO,
+                        close_position: Decimal::ZERO,
+                        position: Decimal::ZERO,
+                        profit: Decimal::ZERO,
+                        fee: Decimal::ZERO,
+                        total_profit: Decimal::ZERO,
+                        log_id: 0,
+                    })
+                    .collect();
+                MultiMarketMessage::Order(orders)
+            }
+        }
+    }
+}
+
+
+
 
 
 #[cfg(test)]
 mod test_bitbank_message {
     use anyhow::anyhow;
     use rbot_lib::common::{BoardTransfer, Kline, Trade};
+    use rust_decimal::Decimal;
 
     use crate::{
-        BitbankPublicWsMessage, BitbankRestResponse
+        BitbankAssets, BitbankPublicWsMessage, BitbankRestResponse
     };
 
     const MESSAGE: &str = r#"
@@ -482,4 +884,78 @@ mod test_bitbank_message {
         println!("{:?}", message);
         Ok(())
     }
+
+
+    #[test]
+    fn test_parse_assets() -> anyhow::Result<()> {
+        const ASSETS_JSON: &str = r#"{
+            "assets": [
+                {
+                    "asset": "btc",
+                    "free_amount": "0.0",
+                    "amount_precision": 4,
+                    "onhand_amount": "0.0",
+                    "locked_amount": "0.0",
+                    "withdrawing_amount": "0.0",
+                    "withdrawal_fee": {
+                        "min": "20.0",
+                        "max": "50.0"
+                    },
+                    "stop_deposit": false,
+                    "stop_withdrawal": false,
+                    "network_list": [
+                        {
+                            "asset": "jpy",
+                            "network": "jpy",
+                            "stop_deposit": false,
+                            "stop_withdrawal": false,
+                            "withdrawal_fee": "0.0"
+                        }
+                    ],
+                    "collateral_ratio": "0.0"
+                },
+                {
+                    "asset": "jpy", 
+                    "free_amount": "0.0",
+                    "amount_precision": 4,
+                    "onhand_amount": "0.0",
+                    "locked_amount": "0.0", 
+                    "withdrawing_amount": "0.0",
+                    "withdrawal_fee": {
+                        "under": "0.0",
+                        "over": "0.0",
+                        "threshold": "100000.0"
+                    },
+                    "stop_deposit": false,
+                    "stop_withdrawal": false,
+                    "collateral_ratio": "0.0"
+                }
+            ]
+        }"#;
+
+        let assets: BitbankAssets = serde_json::from_str(ASSETS_JSON)?;
+        
+        assert_eq!(assets.assets.len(), 1);
+        let asset = &assets.assets[0];
+        assert_eq!(asset.asset, "jpy");
+        assert_eq!(asset.free_amount, Decimal::ZERO);
+        assert_eq!(asset.amount_precision, 4);
+        assert_eq!(asset.onhand_amount, Decimal::ZERO);
+        assert_eq!(asset.locked_amount, Decimal::ZERO);
+        assert_eq!(asset.withdrawing_amount, Decimal::ZERO);
+        assert_eq!(asset.withdrawal_fee.min, Some("20.0".to_string()));
+        assert_eq!(asset.withdrawal_fee.max, Some("50.0".to_string()));
+        assert_eq!(asset.stop_deposit, false);
+        assert_eq!(asset.stop_withdrawal, false);
+        
+        let network = asset.network_list.as_ref().unwrap().first().unwrap();
+        assert_eq!(network.asset, "jpy");
+        assert_eq!(network.network, "jpy");
+        assert_eq!(network.withdrawal_fee, "0.0");
+        
+        Ok(())
+    }
+
 }
+
+

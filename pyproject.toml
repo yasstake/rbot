@@ -4,12 +4,11 @@ build-backend = "maturin"
 
 [project]
 name = "rbot"
+version = "0.1.0"
 authors = [{name="@yasstake"}]
 description = "Real TICK BASED crypt trading framework, support back_test, dry_run and real_run"
 readme="README.md"
 license = { file = "LICENSE.txt" }
-
-
 requires-python = ">=3.8"
 classifiers = [
     "Intended Audience :: Developers",    
@@ -17,18 +16,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
-    ]
-
-[project.urls]
-Documentation = "https://github.com/yasstake/rusty-bot"
-Repository = "https://github.com/yasstake/rbot"
-
-[tool.maturin]
-python-source = "python"
-
-[tool.setuptools.packages.find]
-exclude = ["build", "tests", "test"]
-
+]
 dependencies = [
     "pyarrow",
     "polars",
@@ -39,3 +27,13 @@ dependencies = [
     "json2html",
     "tqdm"    
 ]
+
+[project.urls]
+Documentation = "https://github.com/yasstake/rusty-bot"
+Repository = "https://github.com/yasstake/rbot"
+
+[tool.maturin]
+python-source = "python"
+
+[tool.setuptools.packages.find]
+exclude = ["build", "tests", "test"]
