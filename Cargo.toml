@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 bybit = {path = "exchanges/bybit"}
 binance = {path = "exchanges/binance"}
 bitbank = {path= "exchanges/bitbank"}
+# hyperliquid = {path = "exchanges/hyperliquid"}
 
 rbot_lib = {path="modules/rbot_lib"}
 rbot_session = {path="modules/rbot_session"}
@@ -35,6 +36,7 @@ members = [
     "exchanges/bitbank",
     "exchanges/bitflyer",
     "exchanges/bybit",
+    # "exchanges/hyperliquid",
 ]
 
 resolver = "2"
@@ -54,6 +56,7 @@ bitbank = { path = "./exchanges/bitbank" }
 bitflyer = { path = "./exchanges/bitflyer" }
 bybit = { path = "./exchanges/bybit" }
 binance = { path = "./exchanges/binance" }
+# hyperliquid = { path = "./exchanges/hyperliquid" }
 
 anyhow = { version = "1.0.79" }
 
@@ -64,6 +67,8 @@ serde = { version = "1.0"}
 serde_json = { version = "1.0" }
 serde_derive = { version = "1.0" }
 serde_with = { version = "3.6.1" }
+
+json5 = { version = "0.4.1" }
 
 log = { version = "0.4" }
 env_logger = { version = "0.11.0" }
@@ -111,11 +116,9 @@ pyo3-polars = {version = "0.20.0"}
 polars-arrow = {version = "0.46.0"}
 arrow = {version = "55.1.0"}
 
-
 parquet = "55.1.0"
 
 numpy = { version = "0.23.0" }
-
 
 ndarray = { version = "0.16.1" }
 
@@ -150,6 +153,8 @@ once_cell = { version = "1.19.0" }
 
 actix-web={version="4.5"}
 actix-rt={version="2.9"}
+
+pubnub = { version = "0.6.0" }
 
 pyo3 = { version = "0.23.5", features = ["rust_decimal", "abi3-py38", "anyhow", "extension-module"] }
 

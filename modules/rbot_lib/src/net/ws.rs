@@ -63,6 +63,7 @@ pub struct SimpleWebsocket<U> {
     url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
     ping_interval_sec: i64,
     ping_thread: Option<tokio::task::JoinHandle<()>>,
+    socket_io_client: bool
 }
 
 impl<U> SimpleWebsocket<U>
@@ -77,6 +78,7 @@ where
         ping_interval_sec: i64,
         init_fn: Option<fn(&ExchangeConfig) -> String>,
         url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
+        socket_io_client: bool,
     ) -> Self {
         log::debug!("new SimpleWebsocket");
         SimpleWebsocket {
@@ -90,10 +92,11 @@ where
             url_generator, // url generator  for reconnect(auth url, if this parameter is set url parameter is ignores)
             ping_interval_sec,
             ping_thread: None,
+            socket_io_client,
         }
     }
 
-    pub async fn connect(&mut self) {
+    pub async fn connect(&mut self) -> anyhow::Result<()> {
         let url = if self.url_generator.is_some() {
             (self.url_generator.as_ref().unwrap())(&self.server, &self.config)
         } else {
@@ -135,13 +138,24 @@ where
             log::debug!("accept message: {:?}", accept);
         }
 
-        let message: String = self.subscribe_message.read().await.to_string();
+        // skip control message if socket_io_client is true
+        if self.socket_io_client {
+            let m = self.receive_text().await;
+            log::debug!("accept message: {:?}", m);
+        }
 
-        if message != "" {
-            self.send_text(message).await;
+        let message = self.subscribe_message.read().await.make_message();
+        if message.len() > 0 {
+            for m in message {
+                self.send_text(m).await;
+                let res = self.receive_text().await;
+                log::debug!("respose message: {:?}", res);
+            }
         }
 
         self.ping_thread = Some(self.spawn_ping_task());
+
+        Ok(())
     }
 
     pub fn spawn_ping_task(&mut self) -> tokio::task::JoinHandle<()> {
@@ -241,18 +255,18 @@ where
 
         self.send_message(Message::Close(None)).await;
 
-        let write_stream = self.write_sream.as_mut().unwrap().clone();
-        let r = write_stream.lock().await.close().await;
-        if r.is_err() {
-            log::warn!("Error: in close stream. {:?}", r.err().unwrap());
-        }
-        self.write_sream = None;
+        let write_stream = self.write_sream.as_mut();
 
-        /*
-        let mut read_stream = self.read_stream.as_mut().unwrap();
-        read_stream.
-        self.read_stream = None;
-        */
+        if write_stream.is_some() {
+            let write_stream = write_stream.unwrap();
+
+            let r = write_stream.lock().await.close().await;
+            if r.is_err() {
+                log::warn!("Error: in close stream. {:?}", r.err().unwrap());
+            }
+        }
+
+        self.write_sream = None;
     }
 
     pub async fn receive_text(&mut self) -> Result<ReceiveMessage, String> {
@@ -273,8 +287,25 @@ where
             let message = message.unwrap();
 
             match message {
-                Message::Text(t) => {
-                    return Ok(ReceiveMessage::Text(t.to_string()));
+                Message::Text(mut t) => {
+                    // SOcket IO response
+                    if t.starts_with("2") { // ping
+                        log::warn!("message: {:?}", t);
+                        self.send_text("3".to_string()).await;
+                        continue;
+                    }
+
+                    if t.starts_with("0") { // connect
+                        log::warn!("message: {:?}", t);
+                        self.send_text("40".to_string()).await; // connect response connect
+                        continue;
+                    }
+                    let mut t = t.to_string();
+                    if t.starts_with("42") { // event message
+                        t = t.trim_start_matches("42").to_string();
+                    }
+
+                    return Ok(ReceiveMessage::Text(t));
                 }
                 Message::Binary(b) => {
                     log::debug!("BINARY: {:?}", b);
@@ -320,6 +351,7 @@ pub struct AutoConnectClient<U> {
     ping_interval: MicroSec,
     init_fn: Option<fn(&ExchangeConfig) -> String>,
     url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
+    socket_io_client: bool,
 }
 
 impl<U> AutoConnectClient<U>
@@ -335,6 +367,7 @@ where
         sync_wait_records: i64,
         init_fn: Option<fn(&ExchangeConfig) -> String>,
         url_generator: Option<fn(&ExchangeConfig, &MarketConfig) -> String>,
+        socket_io_client: bool,
     ) -> Self {
         AutoConnectClient {
             client: None,
@@ -352,6 +385,7 @@ where
             url_generator: url_generator,
             server: server.clone(),
             config: config.clone(),
+            socket_io_client,
         }
     }
 
@@ -366,6 +400,7 @@ where
             self.ping_interval,
             self.init_fn,
             self.url_generator,
+            self.socket_io_client,
         ));
         self.client.as_mut().unwrap().connect().await;
         self.last_connect_time = NOW();
@@ -384,6 +419,7 @@ where
             self.ping_interval,
             self.init_fn,
             self.url_generator,
+            self.socket_io_client,
         ));
         self.next_client.as_mut().unwrap().connect().await;
         self.last_connect_time = NOW();
@@ -704,6 +740,7 @@ mod test_exchange_ws {
             10,
             None,
             Some(url_generator),
+            false,
         );
 
         ws.connect().await;
@@ -738,6 +775,7 @@ mod test_exchange_ws {
             0,
             None,
             Some(url_generator),
+            false,
         );
 
         ws.subscribe(&mut vec!["publicTrade.BTCUSDT".to_string()])
@@ -766,6 +804,7 @@ mod test_exchange_ws {
             0,
             None,
             Some(url_generator),
+            false,
         );
 
         ws.subscribe(&mut vec![
@@ -810,6 +849,7 @@ mod test_exchange_ws {
             10,
             None,
             Some(url_generator),
+            false,
         );
 
         ws.connect().await;
