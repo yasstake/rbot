@@ -49,7 +49,7 @@ impl Bitbank {
             BITBANK,
             production,
             "https://public.bitbank.cc",
-            "https://api.bitbank.cc",
+            "https://api.bitbank.cc/v1",
             "wss://stream.bitbank.cc/socket.io/?EIO=3&transport=websocket", // Bitbank doesn't have public websocket
             "", // Bitbank doesn't have private websocket
             "",
@@ -162,10 +162,8 @@ impl OrderInterfaceImpl<BitbankRestApi> for Bitbank {
         let exchange_name = BITBANK.to_string();
         let server_config = self.server_config.clone();
 
-        /*
         self.user_handler = Some(tokio::task::spawn(async move {
-            let mut ws = BitbankPrivateWsClient::new(&server_config).await;
-            ws.connect().await;
+            let mut ws = BitbankPrivateStreamClient::new(&server_config).await;
 
             let market_channel = MARKET_HUB.open_channel();
             let mut ws_stream = Box::pin(ws.open_stream().await);
@@ -189,11 +187,20 @@ impl OrderInterfaceImpl<BitbankRestApi> for Bitbank {
                             log::debug!("Order: {:?}", o);
                         }
                     }
+                    MultiMarketMessage::Account(account) => {
+                        let _ = market_channel.send(BroadcastMessage {
+                            exchange: exchange_name.clone(),
+                            category: "".to_string(),
+                            symbol: "".to_string(),
+                            msg: MarketMessage::Account(account.clone()),
+                        });
+                    }
+                    _ => {
+                        log::info!("User stream message: {:?}", message);
+                    }
                 }
             }
         }));
-        */
-        todo!();
 
         Ok(())
     }

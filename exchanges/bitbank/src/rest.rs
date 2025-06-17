@@ -1,7 +1,7 @@
 use std::{fs::File, io::BufReader, path::PathBuf};
 use tempfile::tempdir;
 
-use polars::frame::DataFrame;
+use polars::{datatypes::DataType, frame::DataFrame, series::Series, prelude::ChunkCast};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use rust_decimal::prelude::ToPrimitive as _;
@@ -10,7 +10,7 @@ use rbot_lib::{
     common::{
         date_string, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, NOW
     },
-    db::{df_to_parquet, log_download_tmp, TradeBuffer},
+    db::{df_to_parquet, log_download_tmp, TradeBuffer, KEY},
     net::{rest_get, rest_post, RestApi, RestPage},
 };
 
@@ -144,7 +144,7 @@ impl RestApi for BitbankRestApi {
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = "v1/user/spot/order";
+        let path = "/user/spot/order";
 
         if let Some(id) = client_order_id {
             log::warn!("client_order_id is not supported in bitbank");
@@ -173,7 +173,7 @@ impl RestApi for BitbankRestApi {
 
     async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
         let server = &self.server_config;
-        let path = "v1/user/spot/cancel_order";
+        let path = "/user/spot/cancel_order";
 
         let params = BitbankCancelOrderParam {
             pair: config.trade_symbol.clone(),
@@ -182,7 +182,7 @@ impl RestApi for BitbankRestApi {
 
         let params = serde_json::to_string(&params).unwrap();
 
-        let response = self.post_sign(&path, Some(&params))
+            let response = self.post_sign(&path, Some(&params))
             .await
             .with_context(|| {
                 format!("cancel_order error: {}{}", server.get_private_api(), path)
@@ -195,7 +195,7 @@ impl RestApi for BitbankRestApi {
 
     async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
         let server = &self.server_config;
-        let path = "v1/user/spot/active_orders";
+        let path = "/v1/user/spot/active_orders";
 
         let params = format!("pair={}", config.trade_symbol);
 
@@ -211,7 +211,7 @@ impl RestApi for BitbankRestApi {
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
         let host = self.server_config.get_private_api();
-        let path = "v1/user/assets";
+        let path = "/v1/user/assets";
 
         let response = self.get_sign(path, None)
             .await
@@ -378,9 +378,8 @@ impl BitbankRestApi {
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
 
-        let full_path = format!("/{}", path);
-        let response = self.get(&server.get_private_api(), &full_path, headers, params).await
-            .with_context(|| format!("get_sign error: {}{}", server.get_private_api(), full_path))?;
+        let response = self.get(&server.get_private_api(), &path, headers, params).await
+            .with_context(|| format!("get_sign error: {}{}", server.get_private_api(), path))?;
 
         Ok(response)
     }
@@ -409,10 +408,10 @@ impl BitbankRestApi {
         let signature = hmac_sign(&api_secret, &message);
         headers.push(("ACCESS-SIGNATURE", &signature));
 
-        let full_path = format!("/{}", path);
-        let response = self.post(&server.get_private_api(), &full_path, headers, params.unwrap_or(""))
+        let response = self.post(&server.get_private_api(), &path, headers, params.unwrap_or(""))
             .await
-            .with_context(|| format!("post_sign error: {}{}", server.get_private_api(), full_path))?;
+            .with_context(|| format!("post_sign error: {}{}", 
+            server.get_private_api(), &path))?;
 
         Ok(response)
     }
@@ -576,7 +575,7 @@ mod bitbank_test {
             &config, 
             OrderSide::Buy, 
             Decimal::from(100000), 
-            Decimal::from_str("0.001").unwrap(), 
+            Decimal::from_str("0.002").unwrap(), 
             OrderType::Limit, 
             None
         ).await?;

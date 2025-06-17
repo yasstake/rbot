@@ -18,6 +18,26 @@ rbot is a Python crypto trading bot framework written in Rust, designed for tick
 
 The framework supports three execution modes: backtest, dry_run, and production, allowing bots to run without modification across different environments.
 
+## Recent Testing Activities
+
+### Bitbank Market Data Download (2025-01-27)
+Successfully tested Bitbank BTC/JPY market data download functionality:
+- **Script**: `test/bitbank_test/download.py`
+- **Data Range**: 2025-05-12 to 2025-06-17 (36 days total)
+- **Archive Data**: 35 days (2025-05-12 to 2025-06-16)
+- **Database Data**: 1 day (2025-06-16 to 2025-06-17)
+- **Status**: ✅ Working correctly with proper data synchronization
+- **Key Features Tested**:
+  - Historical data download from Bitbank public API
+  - Data archiving and database storage
+  - Real-time data integration
+  - Market object HTML representation
+
+### Environment Setup Notes
+- Virtual environment activation: `source .venv/bin/activate`
+- Current rbot version: 0.1.8
+- Database uses hybrid storage: Parquet for historical data, SQLite for recent data
+
 ## Build and Development Commands
 
 ### Rust Development

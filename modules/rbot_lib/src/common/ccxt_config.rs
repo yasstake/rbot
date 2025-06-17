@@ -82,7 +82,7 @@ pub fn get_server_config(exchange_name: &str, production: bool) -> anyhow::Resul
 }
 
 fn get_market_json(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketJson> {
-    let symbol = symbol.to_uppercase();
+    let symbol = symbol.trim().to_uppercase();
 
     let exchange_config = get_exchange_config(exchange_name)?;
 
@@ -101,7 +101,7 @@ fn get_market_json(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketJs
 
 
 fn get_market_json_by_native_symbol(exchange_name: &str, category: &str, native_symbol: &str) -> anyhow::Result<MarketJson> {
-    let native_symbol = native_symbol.to_uppercase();
+    let native_symbol = native_symbol.trim().to_uppercase();
 
     let exchange_config = get_exchange_config(exchange_name)?;
 
