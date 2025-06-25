@@ -108,8 +108,8 @@ impl Bitflyer {
         };
     }
 
-    pub fn open_market(&self, config: &MarketConfig) -> BitflyerMarket {
-        return BitflyerMarket::new(&self.server_config, config);
+    pub fn open_market(&self, symbol: &str) -> BitflyerMarket {
+        return BitflyerMarket::new(&self.server_config, symbol);
     }
 }
 

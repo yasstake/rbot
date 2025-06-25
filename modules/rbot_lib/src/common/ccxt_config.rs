@@ -82,7 +82,7 @@ pub fn get_server_config(exchange_name: &str, production: bool) -> anyhow::Resul
 }
 
 fn get_market_json(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketJson> {
-    let symbol = symbol.to_uppercase();
+    let symbol = symbol.trim().to_uppercase();
 
     let exchange_config = get_exchange_config(exchange_name)?;
 
@@ -99,6 +99,27 @@ fn get_market_json(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketJs
     ))
 }
 
+
+fn get_market_json_by_native_symbol(exchange_name: &str, category: &str, native_symbol: &str) -> anyhow::Result<MarketJson> {
+    let native_symbol = native_symbol.trim().to_uppercase();
+
+    let exchange_config = get_exchange_config(exchange_name)?;
+
+    for market in exchange_config.markets {
+        if market.trade_category == category && market.trade_symbol == native_symbol {
+            return Ok(market);
+        }
+    }
+
+    Err(anyhow!(
+        "not found market ({}) in exchange({})",
+        native_symbol,
+        exchange_name
+    ))
+}
+
+
+
 pub fn get_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<MarketConfig> {
     let market = get_market_json(exchange_name, symbol)?;
 
@@ -109,14 +130,14 @@ pub fn get_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<Ma
     };
 
     Ok(MarketConfig::new(
-        symbol,
+        &market.symbol,
         exchange_name, 
-        &market.trade_category.clone(),
-        &market.trade_symbol.clone(),
-        &market.foreign_currency.clone(),
-        &market.home_currency.clone(),
-        &market.quote_currency.clone(),
-        &market.settle_currency.clone(),
+        &market.trade_category,
+        &market.trade_symbol,
+        &market.foreign_currency,
+        &market.home_currency,
+        &market.quote_currency,
+        &market.settle_currency,
         market.price_unit,
         market.size_unit,
         market.min_size,
@@ -125,6 +146,34 @@ pub fn get_market_config(exchange_name: &str, symbol: &str) -> anyhow::Result<Ma
         fee_type,
     ))
 }
+
+pub fn get_market_config_by_native_symbol(exchange_name: &str, category: &str, native_symbol: &str) -> anyhow::Result<MarketConfig> {
+    let market = get_market_json_by_native_symbol(exchange_name, category, native_symbol)?;
+
+    let fee_type = if market.settle_currency == market.foreign_currency {
+        FeeType::Foreign
+    } else {
+        FeeType::Home
+    };
+
+    Ok(MarketConfig::new(
+        &market.symbol,
+        exchange_name,
+        &market.trade_category,
+        &market.trade_symbol,
+        &market.foreign_currency,
+        &market.home_currency,
+        &market.quote_currency,
+        &market.settle_currency,
+        market.price_unit,
+        market.size_unit,
+        market.min_size,
+        market.maker_fee,
+        market.taker_fee,
+        fee_type,
+    ))
+}
+
 
 pub fn list_exchange() -> anyhow::Result<Vec<String>> {
     let json_str = include_str!("./exchange.json");
@@ -159,6 +208,22 @@ fn test_read_json() -> anyhow::Result<()> {
 
     let symbols = list_symbols("Bybit")?;
     println!("{:?}", symbols);
+
+    Ok(())
+}
+
+#[test]
+fn test_get_market_config_by_native_symbol() -> anyhow::Result<()> {
+    let market = get_market_config_by_native_symbol("Bybit", "spot", "  BTCUSDT")?;
+    println!("{:?}", market);
+
+    Ok(())
+}
+
+#[test]
+fn test_get_market_config() -> anyhow::Result<()> {
+    let market = get_market_config("Bybit",  "BTC/USDT")?;
+    println!("{:?}", market);
 
     Ok(())
 }

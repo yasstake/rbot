@@ -1,9 +1,9 @@
-// Copyright(c) 2022-2024. yasstake. All rights reserved.
+// Copyright(c) 2022-2025. yasstake. All rights reserved.
 
 use std::sync::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 
-use pyo3::{pyclass, pymethods, PyAny, Python};
+use pyo3::{pyclass, pymethods, PyAny, Python, IntoPyObject};
 
 use pyo3_polars::PyDataFrame;
 use rbot_lib::common::{short_time_string, write_agent_messsage, get_agent_message, FLOOR_SEC};
@@ -25,7 +25,7 @@ use rbot_lib::{
 use anyhow::anyhow;
 
 #[derive(Debug, Clone, PartialEq)]
-#[pyclass]
+#[pyclass(eq, eq_int)]
 pub enum ExecuteMode {
     Real,
     BackTest,

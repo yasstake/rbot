@@ -123,7 +123,7 @@ impl ExchangeConfig {
     }
 }
 
-#[pyclass]
+#[pyclass(eq, eq_int)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FeeType {
     Home,

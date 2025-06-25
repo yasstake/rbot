@@ -96,6 +96,7 @@ impl WebSocketClient for BybitPublicWsClient {
             SYNC_WAIT_RECORDS,
             None,
             None,
+            false,
         );
 
         public_ws.subscribe(&vec![
@@ -194,6 +195,7 @@ impl BybitPrivateWsClient {
             0,
             Some(Self::make_auth_message),
             None,
+            false,
         );
 
         private_ws
