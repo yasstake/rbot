@@ -49,7 +49,7 @@ impl Bitbank {
             BITBANK,
             production,
             "https://public.bitbank.cc",
-            "https://api.bitbank.cc/v1",
+            "https://api.bitbank.cc",
             "wss://stream.bitbank.cc/socket.io/?EIO=3&transport=websocket", // Bitbank doesn't have public websocket
             "", // Bitbank doesn't have private websocket
             "",

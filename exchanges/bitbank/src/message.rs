@@ -763,14 +763,21 @@ mod test_bitbank_message {
     }
 
     #[test]
-
     fn test_parse_board_snapshot() -> anyhow::Result<()> {
         const MESSAGE: &str = r#"
         {
             "success": 1,
             "data": {
                 "asks": [["8613303", "0.0001"], ["8613302", "0.0002"]],
-                "bids": [["8613304", "0.0003"], ["8613305", "0.0004"]]
+                "bids": [["8613304", "0.0003"], ["8613305", "0.0004"]],
+                "asks_over": "0.0",
+                "bids_under": "0.0",
+                "asks_under": "0.0",
+                "bids_over": "0.0",
+                "ask_market": "0.0",
+                "bid_market": "0.0",
+                "timestamp": 1749634400000,
+                "sequenceId": "1234567890"
             }
         }
         "#;
@@ -806,12 +813,12 @@ mod test_bitbank_message {
     }
 
     const EVENT_MESSAGE: &str = r#"
-        "["message",{"room_name":"depth_diff_xrp_jpy","message":{"data":{"a":[["328.342","200"],["328.437","0"],["328.442","0"],["328.340","560.4881"],["328.374","78.5429"],["328.459","9253.7732"],["328.454","371.4093"]],"b":[["328.245","200"],["328.253","0"],["328.251","1000"],["328.216","0"],["317.001","0"],["328.202","0"]],"t":1748176124581,"s":"25555832386","ao":"20249010.0488","bu":"56926540.4967"}}}]"
+        ["message",{"room_name":"depth_diff_xrp_jpy","message":{"data":{"a":[["328.342","200"],["328.437","0"],["328.442","0"],["328.340","560.4881"],["328.374","78.5429"],["328.459","9253.7732"],["328.454","371.4093"]],"b":[["328.245","200"],["328.253","0"],["328.251","1000"],["328.216","0"],["317.001","0"],["328.202","0"]],"t":1748176124581,"s":"25555832386","ao":"20249010.0488","bu":"56926540.4967"}}}]
     "#;
 
     #[test]
     fn test_parse_ws_depth() -> anyhow::Result<()> {
-        let message = serde_json::from_str::<Vec<serde_json::Value>>(EVENT_MESSAGE)?;
+        let message = BitbankPublicWsMessage::from_str(EVENT_MESSAGE)?;
         println!("{:?}", message);
         Ok(())
     }
@@ -935,23 +942,30 @@ mod test_bitbank_message {
 
         let assets: BitbankAssets = serde_json::from_str(ASSETS_JSON)?;
         
-        assert_eq!(assets.assets.len(), 1);
-        let asset = &assets.assets[0];
-        assert_eq!(asset.asset, "jpy");
-        assert_eq!(asset.free_amount, Decimal::ZERO);
-        assert_eq!(asset.amount_precision, 4);
-        assert_eq!(asset.onhand_amount, Decimal::ZERO);
-        assert_eq!(asset.locked_amount, Decimal::ZERO);
-        assert_eq!(asset.withdrawing_amount, Decimal::ZERO);
-        assert_eq!(asset.withdrawal_fee.min, Some("20.0".to_string()));
-        assert_eq!(asset.withdrawal_fee.max, Some("50.0".to_string()));
-        assert_eq!(asset.stop_deposit, false);
-        assert_eq!(asset.stop_withdrawal, false);
+        assert_eq!(assets.assets.len(), 2);
+        let btc_asset = &assets.assets[0];
+        assert_eq!(btc_asset.asset, "btc");
+        assert_eq!(btc_asset.free_amount, Decimal::ZERO);
+        assert_eq!(btc_asset.amount_precision, 4);
+        assert_eq!(btc_asset.onhand_amount, Decimal::ZERO);
+        assert_eq!(btc_asset.locked_amount, Decimal::ZERO);
+        assert_eq!(btc_asset.withdrawing_amount, Decimal::ZERO);
+        assert_eq!(btc_asset.withdrawal_fee.min, Some("20.0".to_string()));
+        assert_eq!(btc_asset.withdrawal_fee.max, Some("50.0".to_string()));
+        assert_eq!(btc_asset.stop_deposit, false);
+        assert_eq!(btc_asset.stop_withdrawal, false);
         
-        let network = asset.network_list.as_ref().unwrap().first().unwrap();
+        let network = btc_asset.network_list.as_ref().unwrap().first().unwrap();
         assert_eq!(network.asset, "jpy");
         assert_eq!(network.network, "jpy");
         assert_eq!(network.withdrawal_fee, "0.0");
+        
+        let jpy_asset = &assets.assets[1];
+        assert_eq!(jpy_asset.asset, "jpy");
+        assert_eq!(jpy_asset.free_amount, Decimal::ZERO);
+        assert_eq!(jpy_asset.withdrawal_fee.under, Some("0.0".to_string()));
+        assert_eq!(jpy_asset.withdrawal_fee.over, Some("0.0".to_string()));
+        assert_eq!(jpy_asset.withdrawal_fee.threshold, Some("100000.0".to_string()));
         
         Ok(())
     }

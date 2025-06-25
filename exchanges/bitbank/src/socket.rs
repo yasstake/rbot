@@ -175,7 +175,7 @@ async fn test_main3() -> Result<(), Box<dyn std::error::Error>> {
     use pubnub::subscribe::{EventEmitter, SubscriptionParams};
     let subscribe_key = PUBNUB_SUB_KEY;
 
-    let mut client = PubNubClientBuilder::with_reqwest_transport()
+    let client = PubNubClientBuilder::with_reqwest_transport()
         .with_keyset(Keyset {
             subscribe_key,
             publish_key: None,
@@ -184,8 +184,37 @@ async fn test_main3() -> Result<(), Box<dyn std::error::Error>> {
         .with_user_id(&keys.pubnub_channel)
         .build()?;
 
-    let subscription = client.subscribe_raw();
-    let event_stream = subscription.execute()?;
+    client.set_token(keys.pubnub_token);
+
+    let subscription = client.subscription(
+        SubscriptionParams{
+            channels: Some(&[&keys.pubnub_channel]),
+            channel_groups: None,
+            options: None,
+        }
+    );
+
+    subscription.subscribe();
+
+    tokio::spawn(
+        subscription
+            .stream()
+            .for_each(|message| async move {
+                match message {
+                    Update::Message(message) => {
+                        if let Ok(utf8_message) = String::from_utf8(message.data.clone()) {
+                            println!("message: {}", utf8_message);
+                        }
+                    },
+                    Update::Signal(message) => {
+                        println!("signal: {:?}", message);
+                    }
+                    _ => {
+                        println!("other: {:?}", message);
+                    }
+                }
+            }),
+    );
 
     sleep(Duration::from_secs(30)).await;
 
