@@ -1,6 +1,6 @@
 import pytest
 
-from rbot import Bybit, init_debug_log, Binance
+from rbot import Bybit, init_debug_log, Binance, Bitbank
 
 @pytest.mark.parametrize(
     "exchange, production",
@@ -8,7 +8,9 @@ from rbot import Bybit, init_debug_log, Binance
             (Bybit(False), False),
             (Bybit(True), True),
             (Binance(False), False),
-            (Binance(True), True)
+            (Binance(True), True),
+            (Bitbank(False), False),
+            (Bitbank(True), True)
     ]
 )
 def test_get_property(exchange, production):

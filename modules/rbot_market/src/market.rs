@@ -42,7 +42,7 @@ use anyhow::Context;
 use rbot_lib::{
     common::{
         AccountPair, MarketConfig, MarketStream, MicroSec, Order, OrderSide, OrderType, Trade,
-        MARKET_HUB, NOW,
+        NOW,
     },
     db::df::KEY,
 };
@@ -848,7 +848,9 @@ where
                 break;
             }
 
-            let trades: Vec<Trade> = convert_klines_to_trades(klines, api.klines_width());
+            let mut trades: Vec<Trade> = convert_klines_to_trades(klines, api.klines_width());
+
+            trades.retain(|trade| trade.time >= time_from && trade.time < time_to);
 
             if verbose {
                 println!(

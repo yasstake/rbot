@@ -253,7 +253,7 @@ impl From<&String> for OrderType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Display, Serialize, Deserialize)]
-#[pyclass]
+#[pyclass(eq, eq_int)]
 pub enum LogStatus {
     UnFixStart,       // WebSocketデータの取得開始ポイント
     UnFix,           // データはWebSocketなどから取得されたが、まだ確定していない

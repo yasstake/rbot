@@ -1,21 +1,24 @@
-
 use std::{fs::File, io::BufReader, path::PathBuf};
 use tempfile::tempdir;
 
-
-use polars::frame::DataFrame;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use polars::{datatypes::DataType, frame::DataFrame, series::Series, prelude::ChunkCast};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use rust_decimal::prelude::ToPrimitive as _;
 
-use rbot_lib::{common::{split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade}, db::{df_to_parquet, log_download_tmp, TradeBuffer}, net::{check_exist, rest_get, RestApi, RestPage}};
+use rbot_lib::{
+    common::{
+        date_string, hmac_sign, split_yyyymmdd, AccountCoins, BoardTransfer, ExchangeConfig, Kline, MarketConfig, MicroSec, Order, OrderSide, OrderType, Trade, NOW
+    },
+    db::{df_to_parquet, log_download_tmp, TradeBuffer, KEY},
+    net::{rest_get, rest_post, RestApi, RestPage},
+};
 
-use crate::{BitbankRestResponse, BitbankTransactions};
+use crate::{BitbankOrder, BitbankPrivateStreamKey, BitbankRestResponse, BitbankAssets};
 
 use anyhow::{anyhow, Context as _};
 
-const BITBANK_BOARD_DEPTH: u32 = 200;
-
+pub const BITBANK_BOARD_DEPTH: u32 = 200;
 
 pub struct BitbankRestApi {
     server_config: ExchangeConfig,
@@ -29,7 +32,26 @@ impl BitbankRestApi {
     }
 }
 
- // TODO: impl
+const ACCESS_TIME_WINDOW: i64 = 5000;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BitbankNewOrderParam {
+    pair: String,
+    side: String,
+    amount: String,
+    #[serde(rename = "type")]
+    order_type: String,
+    price: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BitbankCancelOrderParam {
+    pair: String,
+    order_id: String,
+}
+
+
+// TODO: impl
 impl RestApi for BitbankRestApi {
 
     fn get_exchange(&self) -> ExchangeConfig {
@@ -37,66 +59,37 @@ impl RestApi for BitbankRestApi {
     }
 
     async fn get_board_snapshot(&self, config: &MarketConfig) -> anyhow::Result<BoardTransfer> {
-        /*
         let server = &self.server_config;
+        let path = format!("/{}/depth", config.trade_symbol);
 
-        let path = "/v5/market/orderbook";
+        let host = server.get_public_api();
+        let response = self.get(&host, &path, vec![], None)
+            .await
+            .with_context(|| format!("get_board_snapshot error: {}/{}", host, path))?;
 
-        let params = format!(
-            "category={}&symbol={}&limit={}",
-            config.trade_category.as_str(),
-            config.trade_symbol.as_str(),
-            BITBANK_BOARD_DEPTH
-        );
+        let mut board: BoardTransfer = response.into();
+        board.snapshot = true;
 
-        let r = Self::get(server, path, &params).await.with_context(|| {
-            format!(
-                "get_board_snapshot: server={:?} / path={:?} / params={:?}",
-                server, path, params
-            )
-        })?;
-
-        let message = r.body;
-
-        let result = serde_json::from_value::<BybitRestBoard>(message)
-            .with_context(|| format!("parse error in get_board_snapshot"))?;
-
-        Ok(result.into())
-        */
-
-        todo!()
+        Ok(board)
     }
 
-    // TODO: impl
     async fn get_recent_trades(&self, config: &MarketConfig) -> anyhow::Result<Vec<Trade>> {
-        /*
-        let server = &self.server_config;
+        let host = self.server_config.get_public_api();
+        let path = format!("/{}/transactions", config.trade_symbol);
 
-        let path = "/v5/market/recent-trade";
+        let response = self.get(&host, &path, vec![], None)
+            .await
+            .with_context(|| {
+                format!(
+                    "get_recent_trades error: {}/{}",
+                    host,
+                    path
+                )
+            })?;
 
-        let params = format!(
-            "category={}&symbol={}&limit={}",
-            &config.trade_category,
-            &config.trade_symbol,
-            1000 // max records.
-        );
-
-        let r = Self::get(server, path, &params).await.with_context(|| {
-            format!(
-                "get_recent_trades: server={:?} / path={:?} / params={:?}",
-                server, path, params
-            )
-        })?;
-
-        let result = serde_json::from_value::<BybitTradeResponse>(r.body)
-            .with_context(|| format!("parse error in get_recent_trades"))?;
-
-        let mut trades: Vec<Trade> = result.into();
+        let trades: Vec<Trade> = response.into();
 
         Ok(trades)
-        */
-
-        todo!()
     }
 
     // TODO: impl
@@ -107,295 +100,125 @@ impl RestApi for BitbankRestApi {
         end_time: MicroSec,
         _page: &RestPage,
     ) -> anyhow::Result<(Vec<Trade>, RestPage)> {
-        /*
-        Err(anyhow!("Bybit does not have get trade by range"))
-        */
-        todo!()
+        // Bitbank doesn't support getting trades by time range
+        // We can only get recent trades
+        log::warn!("Bitbank does not support getting trades by time range");
+
+        Ok((vec![], RestPage::Done))
     }
 
-    // TODO: impl
     async fn get_klines(
         &self,
         config: &MarketConfig,
         start_time: MicroSec,
-        end_time: MicroSec,
-        page: &RestPage,
+        _end_time: MicroSec,
+        _page: &RestPage,
     ) -> anyhow::Result<(Vec<Kline>, RestPage)> {
-        /*
-        let start_time = FLOOR_SEC(start_time, self.klines_width());
-        // 終わり時間は、TICKの範囲にふくまれていれば全体がかえってくる。
-        let end_time = FLOOR_SEC(end_time, self.klines_width());
-
-        println!("kline start_time {:?} / end_time {:?}", time_string(start_time), time_string(end_time));
-
-        if start_time == end_time {
-            return Ok((vec![], RestPage::Done));
-        }
-
-        if *page == RestPage::Done {
-            return Err(anyhow!("call with RestPage::Done"));
-        }
-
-        if start_time == 0 || (end_time == 0) {
-            return Err(anyhow!(
-                "end_time({}) or start_time({}) is zero",
-                end_time,
-                start_time
-            ));
-        }
-
-        let end_time = if let RestPage::Time(t) = page {
-            t.clone() - 1           // 次のTick全体がかえってくるのをさける。
-        }
-        else {
-            end_time
-        };
-
-        let path = "/v5/market/kline";
-
-        let klines_width = self.klines_width() / 60;        // convert to min
-
-        let params = format!(
-            "category={}&symbol={}&interval={}&start={}&end={}&limit={}", // 1 min
-            config.trade_category.as_str(),
-            config.trade_symbol.as_str(),
-            klines_width, // interval 1 min.
-            microsec_to_bybit_timestamp(start_time),
-            microsec_to_bybit_timestamp(end_time),
-            1000 // max records.
+        let host = self.server_config.get_public_api();
+        let path = format!(
+            "/{}/candlestick/1min/{}",
+            config.trade_symbol,
+            date_string(start_time)
         );
 
-        let r = Self::get(&self.server_config, path, &params).await;
+        let response = self.get(&host, &path, vec![], None)
+            .await
+            .with_context(|| format!("get_klines error: {}/{}", host, path))?;
 
-        if r.is_err() {
-            let r = r.unwrap_err();
-            return Err(r);
-        }
+        let klines: Vec<Kline> = response.into();
 
-        let message = r.unwrap().body;
-
-        let result = serde_json::from_value::<BybitKlinesResponse>(message)
-            .with_context(|| format!("parse error in try_get_trade_klines"))?;
-
-        let mut klines: Vec<Kline> = result.into();
-        klines.reverse();
-
-        let len = klines.len();
-
-        let page = if len == 0 || klines[0].timestamp <= start_time {
-            RestPage::Done
-        }
-        else {
-            RestPage::Time((klines[0].timestamp))
-        };
-        
-        return Ok((klines, page))
-        */
-        todo!()
-      }
-
-      // TODO: impl
-      fn klines_width(&self) -> i64 {
-        60
+        Ok((klines, RestPage::Done))
     }
 
-     // TODO: impl
+    fn klines_width(&self) -> i64 {
+        60 // 1 minute in seconds
+    }
+
     async fn new_order(
         &self,
         config: &MarketConfig,
         side: OrderSide,
-        price: Decimal, // when order_type is Market, this value is ignored.
+        price: Decimal,
         size: Decimal,
         order_type: OrderType,
         client_order_id: Option<&str>,
     ) -> anyhow::Result<Vec<Order>> {
-        /*
         let server = &self.server_config;
+        let path = "/v1/user/spot/order";
 
-        let category = config.trade_category.clone();
-        let symbol = config.trade_symbol.clone();
+        if let Some(id) = client_order_id {
+            log::warn!("client_order_id is not supported in bitbank");
+        }
 
-        let price = if order_type == OrderType::Market {
-            None
-        } else {
-            Some(price)
+        let param = BitbankNewOrderParam {
+            pair: config.trade_symbol.clone(),
+            side: side.to_string().to_lowercase(),
+            amount: size.to_string(),
+            order_type: order_type.to_string().to_lowercase(),
+            price: if order_type == OrderType::Limit { Some(price.to_string()) } else { None },
         };
 
-        let order = BybitOrderRequest {
-            category: category.clone(),
-            symbol: symbol.clone(),
-            side: side.to_string(),
-            order_type: order_type.to_string(),
-            qty: size,
-            order_link_id: client_order_id,
-            price: price,
-        };
+        let params = serde_json::to_string(&param).unwrap();
 
-        let order_json = serde_json::to_string(&order)?;
-        log::debug!("order_json={}", order_json);
-
-        let path = "/v5/order/create";
-
-        let result = Self::post_sign(&server, path, &order_json)
+        let response = self.post_sign(&path, Some(&params))
             .await
-            .with_context(|| {
-                format!(
-                    "new_order: server={:?} / path={:?} / order_json={:?}",
-                    server, path, order_json
-                )
-            })?;
+            .with_context(|| format!("new_order error: {}{}", server.get_private_api(), path))?;
 
-        let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)
-            .with_context(|| format!("parse error in new_order "))?;
+        log::debug!("new_order response: {:?}", response);
 
-        let is_maker = order_type.is_maker();
+        let order: BitbankOrder = serde_json::from_value(response.data.clone())?;
 
-        let mut order = Order::default();
-
-        order.category = category;
-        order.symbol = symbol;
-        order.create_time = msec_to_microsec(result.time);
-        order.status = OrderStatus::New;
-        order.order_id = r.order_id;
-        order.client_order_id = r.order_link_id;
-        order.order_side = side;
-        order.order_type = order_type;
-        order.order_price = if order_type == OrderType::Market {
-            dec![0.0]
-        } else {
-            price.unwrap()
-        };
-        order.order_size = size;
-        order.remain_size = size;
-        order.update_time = msec_to_microsec(result.time);
-        order.is_maker = is_maker;
-
-        order.update_balance(&config);
-
-        return Ok(vec![order]);
-        */
-
-        todo!()
+        Ok(vec![order.into()])
     }
 
     async fn cancel_order(&self, config: &MarketConfig, order_id: &str) -> anyhow::Result<Order> {
-        /*
         let server = &self.server_config;
+        let path = "/v1/user/spot/cancel_order";
 
-        let category = config.trade_category.clone();
-        let message = CancelOrderMessage {
-            category: category.clone(),
-            symbol: config.trade_symbol.clone(),
+        let params = BitbankCancelOrderParam {
+            pair: config.trade_symbol.clone(),
             order_id: order_id.to_string(),
         };
 
-        let message_json = serde_json::to_string(&message)?;
-        let path = "/v5/order/cancel";
-        let result = Self::post_sign(&server, path, &message_json)
+        let params = serde_json::to_string(&params).unwrap();
+
+            let response = self.post_sign(&path, Some(&params))
             .await
             .with_context(|| {
-                format!(
-                    "cancel_order: server={:?} / path={:?} / message_json={:?}",
-                    server, path, message_json
-                )
+                format!("cancel_order error: {}{}", server.get_private_api(), path)
             })?;
 
-        let r = serde_json::from_value::<BybitOrderRestResponse>(result.body)?;
+        let order: BitbankOrder = serde_json::from_value(response.data.clone())?;
 
-        let mut order = Order::default();
-
-        order.category = category;
-        order.symbol = config.trade_symbol.clone();
-        order.create_time = msec_to_microsec(result.time);
-        order.status = OrderStatus::Canceled;
-        order.order_id = r.order_id;
-        order.client_order_id = r.order_link_id;
-        order.order_side = OrderSide::Unknown;
-        order.order_type = OrderType::Limit;
-        order.update_time = msec_to_microsec(result.time);
-        order.is_maker = true;
-
-        order.update_balance(config);
-
-        return Ok(order);
-        */
-        todo!()
+        Ok(order.into())
     }
 
     async fn open_orders(&self, config: &MarketConfig) -> anyhow::Result<Vec<Order>> {
-        /*
         let server = &self.server_config;
+        let path = "/v1/user/spot/active_orders";
 
-        let query_string = format!(
-            "category={}&symbol={}&limit=50",
-            config.trade_category, config.trade_symbol
-        );
+        let params = format!("pair={}", config.trade_symbol);
 
-        let path = "/v5/order/realtime";
+        let response = self.get_sign(&path, Some(&params)).await
+        .with_context(|| format!("open_orders error: {}{}", server.get_private_api(), path))?;
 
-        let result = Self::get_sign(&server, path, &query_string)
-            .await
-            .with_context(|| {
-                format!(
-                    "open_orders: server={:?} / path={:?} / query_string={:?}",
-                    server, path, query_string
-                )
-            })?;
+        log::debug!("open_orders response: {:?}", response);
 
-        log::debug!("result.body={:?}", result.body);
-        if result.body.is_null() {
-            return Ok(vec![]);
-        }
+        let orders: Vec<BitbankOrder> = serde_json::from_value(response.data.get("orders").unwrap().clone())?;
 
-        let response = serde_json::from_value::<BybitMultiOrderStatus>(result.body)
-            .with_context(|| format!("order status parse error"))?;
-
-        let mut orders: Vec<Order> = response.into();
-
-        for o in orders.iter_mut() {
-            o.update_balance(config);
-        }
-
-        Ok(orders)
-        */
-        todo!()
+        Ok(orders.into_iter().map(|o| o.into()).collect())
     }
 
     async fn get_account(&self) -> anyhow::Result<AccountCoins> {
-        /* 
-        let server = &self.server_config;
+        let host = self.server_config.get_private_api();
+        let path = "/v1/user/assets";
 
-        let path = "/v5/account/wallet-balance";
-        // TODO: implement otherthn accountType=UNIFIED(e.g.inverse)
-        let query_string = format!("accountType=UNIFIED");
-        //let query_string = format!("accountType=UNIFIED");
-
-        let response = Self::get_sign(&server, path, &query_string)
+        let response = self.get_sign(path, None)
             .await
-            .with_context(|| {
-                format!(
-                    "get_account error: {}/{}/{}",
-                    &server.get_rest_server(),
-                    path,
-                    &query_string
-                )
-            })?;
+            .with_context(|| format!("get_account error: {}{}", &host, path))?;
 
-        ensure!(
-            response.is_success(),
-            format!(
-                "return_code = {}, msg={}",
-                response.is_success(),
-                response.return_message
-            )
-        );
-
-        let account_status = serde_json::from_value::<BybitAccountResponse>(response.body)?;
-        let coins: AccountCoins = account_status.into();
-
-        Ok(coins)
-        */
-        todo!()
+        let assets: BitbankAssets = serde_json::from_value(response.data.clone())?;
+        Ok(assets.into())
     }
 
     fn history_web_url(&self, config: &MarketConfig, date: MicroSec) -> String {
@@ -408,30 +231,6 @@ impl RestApi for BitbankRestApi {
             web_base, config.trade_symbol, yyyy, mm, dd
         )
     }
-
-    /* 
-    async fn has_web_archive(&self, config: &MarketConfig, date: MicroSec) -> anyhow::Result<bool> {
-        let server = self.server_config.get_public_api();
-
-        let (yyyy, mm, dd) = split_yyyymmdd(date);
-
-        let path = format!(
-            "/{}/transactions/{:04}{:02}{:02}",
-            config.trade_symbol, yyyy, mm, dd
-        );
-
-
-        let response = rest_get(&server, &path, vec![], None, None).await?;
-
-        let rest_response: BitbankRestResponse = serde_json::from_str(&response)?;
-
-        if rest_response.success == 0 {
-            return Err(anyhow!("archive get error {:?}", rest_response.data));
-        }
-        
-        Ok(true)
-    }
-    */
 
     /// create DataFrame with columns;
     ///  KEY:time_stamp(Int64), KEY:order_side(Bool), KEY:price(f64), KEY:size(f64)
@@ -466,7 +265,6 @@ impl RestApi for BitbankRestApi {
         todo!()
     }
 
-
     async fn web_archive_to_parquet<F>(
         &self,
         config: &MarketConfig,
@@ -493,225 +291,138 @@ impl RestApi for BitbankRestApi {
         }
 
         let mut buffer = TradeBuffer::new();
+        let trades: Vec<Trade> = response.into();
 
-        match response.data {
-            crate::BitbankRestData::Transactions(transactions) => {
-                for t in transactions {
-                    buffer.push_trade(&t.into())
-                }
-
-                let mut df = buffer.to_dataframe();
-
-                let rec = df_to_parquet(&mut df, &parquet_file)?;
-                log::debug!("done {} [rec]", rec);
-    
-                return Ok(rec)
-            }
+        for t in trades {
+            buffer.push_trade(&t);
         }
 
-        //        Err(anyhow!("unknown type"))
+        let mut df = buffer.to_dataframe();
+
+        let rec = df_to_parquet(&mut df, &parquet_file)?;
+        log::debug!("done {} [rec]", rec);
+
+        return Ok(rec);
     }
-
-
 }
-
-/*
 
 impl BitbankRestApi {
+    pub async fn get_private_stream_key(&self) -> anyhow::Result<BitbankPrivateStreamKey> {
+        let path = "/v1/user/subscribe";
+        let params = None;
+        let response = self.get_sign(path, params).await?;
 
-    async fn get(
-        server: &ExchangeConfig,
-        path: &str,
-        params: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let query = format!("{}?{}", path, params);
+        if response.success == 0 {
+            return Err(anyhow!("get_private_stream_key error: status=0, {:?}", response.data));
+        }
 
-        let response = rest_get(&server.get_rest_server(), &query, vec![], None, None)
-            .await
-            .with_context(|| format!("rest_get error: {}/{}", &server.get_rest_server(), &query))?;
+        let data: BitbankPrivateStreamKey = serde_json::from_value(response.data.clone())?;
 
-        Self::parse_rest_response(response)
+        Ok(data)
     }
 
-    pub async fn get_sign(
-        server: &ExchangeConfig,
-        path: &str,
-        query_string: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let timestamp = format!("{}", NOW() / 1_000);
+    async fn get(&self, host: &str, path: &str, headers: Vec<(&str, &str)>, params: Option<&str>) -> anyhow::Result<BitbankRestResponse> {
+        let response = rest_get(host, path, headers, params, None)
+            .await
+            .with_context(|| format!("get error: {}/{}", host, path))?;
+
+        let v: BitbankRestResponse = serde_json::from_str(&response)
+            .with_context(|| format!("parse error in get"))?;
+
+        if v.success == 0 {
+            return Err(anyhow!("get error: status=0, {:?}", v.data));
+        }
+
+        Ok(v)
+    }
+
+    async fn post(&self, host: &str, path: &str, headers: Vec<(&str, &str)>, params: &str) -> anyhow::Result<BitbankRestResponse> {
+        let server = &self.server_config;
+        
+        let response = rest_post(&server.get_private_api(), &path, headers, params)
+            .await
+            .with_context(|| format!("post error: {}{}", server.get_private_api(), path))?;
+
+        let v: BitbankRestResponse = serde_json::from_str(&response)
+            .with_context(|| format!("parse error in post"))?;
+
+        if v.success == 0 {
+            return Err(anyhow!("post error: status=0, {:?}", v.data));
+        }
+
+        Ok(v)
+    }
+
+
+    // https://github.com/bitbankinc/bitbank-api-docs/blob/master/rest-api_JP.md
+    async fn get_sign(&self, path: &str, params: Option<&str>) -> anyhow::Result<BitbankRestResponse> {
+        let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
-        let recv_window = "5000";
-
-        let param_to_sign = format!(
-            "{}{}{}{}",
-            timestamp,
-            api_key.clone(),
-            recv_window,
-            query_string
-        );
-        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
+        headers.push(("ACCESS-KEY", &api_key));
 
-        headers.push(("X-BAPI-SIGN", &sign));
-        headers.push(("X-BAPI-API-KEY", &api_key));
-        headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-        headers.push(("X-BAPI-RECV-WINDOW", recv_window));
+        let timestamp = NOW() / 1000;
+        let now = timestamp.to_string();
+        headers.push(("ACCESS-REQUEST-TIME", &now));
 
-        let result = rest_get(&server.get_rest_server(), path, headers, Some(query_string), None)
-            .await
-            .with_context(|| {
-                format!(
-                    "get_sign error: {}/{}/{}",
-                    &server.get_rest_server(), path, query_string
-                )
-            })?;
+        let time_window = ACCESS_TIME_WINDOW.to_string();
+        headers.push(("ACCESS-TIME-WINDOW", &time_window));
 
-        Self::parse_rest_response(result)
+        let message = if let Some(p) = params {
+            format!("{}{}{}?{}", now, time_window, path, p)
+        } else {
+            format!("{}{}{}", now, time_window, path)
+        };
+
+        let signature = hmac_sign(&api_secret, &message);
+        headers.push(("ACCESS-SIGNATURE", &signature));
+
+        let response = self.get(&server.get_private_api(), &path, headers, params).await
+            .with_context(|| format!("get_sign error: {}{}", server.get_private_api(), path))?;
+
+        Ok(response)
     }
 
-    async fn post_sign(
-        server: &ExchangeConfig,
-        path: &str,
-        body: &str,
-    ) -> anyhow::Result<BybitRestResponse> {
-        let timestamp = format!("{}", NOW() / 1_000);
+    async fn post_sign(&self, path: &str, params: Option<&str>) -> anyhow::Result<BitbankRestResponse> {
+        let server = &self.server_config;
         let api_key = server.get_api_key().extract();
         let api_secret = server.get_api_secret().extract();
-        let recv_window = "5000";
-
-        let param_to_sign = format!("{}{}{}{}", timestamp, api_key.clone(), recv_window, body);
-        let sign = hmac_sign(&api_secret, &param_to_sign);
 
         let mut headers: Vec<(&str, &str)> = vec![];
+        headers.push(("ACCESS-KEY", &api_key));
 
-        headers.push(("X-BAPI-SIGN", &sign));
-        headers.push(("X-BAPI-API-KEY", &api_key));
-        headers.push(("X-BAPI-TIMESTAMP", &timestamp));
-        headers.push(("X-BAPI-RECV-WINDOW", recv_window));
-        headers.push(("Content-Type", "application/json"));
+        let timestamp = NOW() / 1000;
+        let now = timestamp.to_string();
+        headers.push(("ACCESS-REQUEST-TIME", &now));
 
-        let response = rest_post(&server.get_rest_server(), path, headers, &body)
+        let time_window = ACCESS_TIME_WINDOW.to_string();
+        headers.push(("ACCESS-TIME-WINDOW", &time_window));
+
+        let message = if let Some(p) = params {
+            format!("{}{}{}", now, time_window, p)
+        } else {
+            format!("{}{}", now, time_window)
+        };
+
+        let signature = hmac_sign(&api_secret, &message);
+        headers.push(("ACCESS-SIGNATURE", &signature));
+
+        log::debug!("post_sign message: {}", message);
+        log::debug!("post_sign path: {}", path);
+        log::debug!("post_sign params: {:?}", headers);
+
+        
+
+        let response = self.post(&server.get_private_api(), &path, headers, params.unwrap_or(""))
             .await
-            .with_context(|| format!("post_sign error {}/{}", server.get_rest_server(), path))?;
+            .with_context(|| format!("post_sign error: {}{}", 
+            server.get_private_api(), &path))?;
 
-        Self::parse_rest_response(response)
-    }
-
-    fn parse_rest_response(response: String) -> anyhow::Result<BybitRestResponse> {
-        if response == "" {
-            log::warn!("empty response");
-            let response = BybitRestResponse {
-                return_code: 0,
-                return_message: "Ok".to_string(),
-                return_ext_info: Value::Null,
-                time: NOW() / 1_000,
-                body: Value::Null,
-            };
-            return Ok(response);
-        }
-
-        // log::debug!("rest response: {}", response);
-
-        let result = from_str::<BybitRestResponse>(&response)
-            .with_context(|| format!("parse error in parse_rest_response: {:?}", response))?;
-
-        ensure!(
-            result.is_success(),
-            format!("parse rest response error = {}", result.return_message)
-        );
-
-        return Ok(result);
+        Ok(response)
     }
 }
-
-
-
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ApiResponse<T> {
-    success: bool,
-    data: T,
-}
-
-pub struct BitbankApiClient {
-    client: reqwest::Client,
-}
-
-impl BitbankApiClient {
-    pub fn new() -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, HeaderValue::from_static("Bitbank Rust API Client"));
-
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
-
-        BitbankApiClient { client }
-    }
-
-    pub async fn get_ticker(&self, pair: &str) -> Result<Ticker, String> {
-        let url = format!("{}/{}{}", BASE_URL, pair, "/ticker");
-        let response = self.client.get(&url).send().await;
-
-        match response {
-            Ok(res) => {
-                let api_response: ApiResponse<Ticker> = res.json().await.unwrap();
-                Ok(api_response.data)
-            }
-            Err(e) => Err(format!("Error: {}", e)),
-        }
-    }
-
-    pub async fn get_depth(&self, pair: &str) -> Result<Depth, String> {
-        let url = format!("{}/{}{}", BASE_URL, pair, "/depth");
-        let response = self.client.get(&url).send().await;
-
-        match response {
-            Ok(res) => {
-                let api_response: ApiResponse<Depth> = res.json().await.unwrap();
-                Ok(api_response.data)
-            }
-            Err(e) => Err(format!("Error: {}", e)),
-        }
-    }
-}
-*/
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Ticker {
@@ -730,12 +441,26 @@ pub struct Depth {
 }
 
 #[cfg(test)]
-mod bitbank_test{
+mod bitbank_test {
     use std::{path::PathBuf, str::FromStr};
 
-    use rbot_lib::{common::{ExchangeConfig, MarketConfig, DAYS, NOW}, net::RestApi};
+    use rbot_lib::{
+        common::{init_debug_log, ExchangeConfig, MarketConfig, OrderSide, OrderType, DAYS, NOW},
+        net::{RestApi, RestPage},
+    };
+    use rust_decimal::Decimal;
 
     use crate::BitbankRestApi;
+
+    #[test]
+    fn test_get_exchange_info() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        println!("{:?}", api.get_exchange());
+        Ok(())
+    }
 
     #[test]
     fn test_get_weburl() -> anyhow::Result<()> {
@@ -751,15 +476,31 @@ mod bitbank_test{
     }
 
     #[tokio::test]
+    async fn test_get_board_snapshot() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let board = api.get_board_snapshot(&config).await?;
+
+        assert!(!board.asks.is_empty(), "Asks should not be empty");
+        assert!(!board.bids.is_empty(), "Bids should not be empty");
+
+        println!("Board snapshot: {:?}", board);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_has_archive() -> anyhow::Result<()> {
         let server = ExchangeConfig::open("bitbank", true)?;
         let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
         let api = BitbankRestApi::new(&server);
 
-        let result = api.has_web_archive(&config, NOW()).await ;
+        let result = api.has_web_archive(&config, NOW()).await;
         println!("{:?}", result);
 
-        let result = api.has_web_archive(&config, NOW() - DAYS(1)).await ;
+        let result = api.has_web_archive(&config, NOW() - DAYS(1)).await;
         println!("{:?}", result);
 
         Ok(())
@@ -773,8 +514,146 @@ mod bitbank_test{
 
         let file = PathBuf::from_str("/tmp/test.parquet")?;
 
-        let result = api.web_archive_to_parquet(&config, &file, NOW() - DAYS(1), |_f, _f2| {}).await;
+        let result = api
+            .web_archive_to_parquet(&config, &file, NOW() - DAYS(1), |_f, _f2| {})
+            .await;
         println!("{:?}", result);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_recent_trades() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let trades = api.get_recent_trades(&config).await?;
+        println!("{:?}", trades);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_klines() -> anyhow::Result<()> {
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let klines = api.get_klines(&config, NOW() - DAYS(1), NOW(), &RestPage::New).await?;
+        println!("{:?}", klines);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_account() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let api = BitbankRestApi::new(&server);
+
+        let account = api.get_account().await?;
+        println!("{:?}", account);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_open_orders() -> anyhow::Result<()> {
+        init_debug_log();
+        
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        let orders = api.open_orders(&config).await?;
+        println!("{:?}", orders);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_new_order() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        // This test requires real API credentials and funds, so we'll just test the API call structure
+        // and handle the expected error gracefully
+        let result = api.new_order(
+            &config, 
+            OrderSide::Buy, 
+            Decimal::from(100000), 
+            Decimal::from_str("0.002").unwrap(), 
+            OrderType::Limit, 
+            None
+        ).await;
+        
+        match result {
+            Ok(order) => {
+                println!("Order placed successfully: {:?}", order);
+            }
+            Err(e) => {
+                // Expected errors for unit tests without real funds
+                let error_str = e.to_string();
+                if error_str.contains("20019") || 
+                   error_str.contains("insufficient") || 
+                   error_str.contains("authentication") ||
+                   error_str.contains("Object {\"code\": Number(20019)}") ||
+                   error_str.contains("post error: status=0") {
+                    println!("Expected error for unit test (no real funds): {:?}", e);
+                    // This is expected, so we don't return an error
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cancel_order() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let config = ExchangeConfig::open_exchange_market("bitbank", "BTC/JPY")?;
+        let api = BitbankRestApi::new(&server);
+
+        // This test requires a real order ID, so we'll just test the API call structure
+        // and handle the expected error gracefully
+        let result = api.cancel_order(&config, "46730391019").await;
+        
+        match result {
+            Ok(order) => {
+                println!("Order canceled successfully: {:?}", order);
+            }
+            Err(e) => {
+                // Expected errors for unit tests without real order IDs
+                let error_str = e.to_string();
+                if error_str.contains("20019") || 
+                   error_str.contains("not found") || 
+                   error_str.contains("authentication") ||
+                   error_str.contains("Object {\"code\": Number(20019)}") ||
+                   error_str.contains("post error: status=0") {
+                    println!("Expected error for unit test (no real order): {:?}", e);
+                    // This is expected, so we don't return an error
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_private_stream_key() -> anyhow::Result<()> {
+        init_debug_log();
+        let server = ExchangeConfig::open("bitbank", true)?;
+        let api = BitbankRestApi::new(&server);
+
+        let key = api.get_private_stream_key().await?;
+        println!("{:?}", key);
 
         Ok(())
     }

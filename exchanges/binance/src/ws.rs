@@ -18,8 +18,7 @@ use tokio::time::sleep;
 use crate::BinanceRestApi;
 use crate::BinanceUserWsMessage;
 use crate::BinanceWsRawMessage;
-use crate::{BinancePublicWsMessage, BinanceServerConfig};
-
+use crate::BinancePublicWsMessage;
 use serde_derive::{Deserialize, Serialize};
 
 use anyhow::anyhow;
@@ -88,6 +87,7 @@ impl WebSocketClient for BinancePublicWsClient {
             SYNC_WAIT_RECORDS_FOR_PUBLIC,
             None,
             None,
+            false,
         );
 
         public_ws.subscribe(&vec![
@@ -164,6 +164,7 @@ impl BinancePublicWsClient{
 
 pub struct BinancePrivateWsClient {
     ws: AutoConnectClient<BinanceWsOpMessage>,
+    #[allow(dead_code)]
     server: ExchangeConfig,
     _handler: Option<JoinHandle<()>>,
     listen_key: String,
@@ -187,6 +188,7 @@ impl BinancePrivateWsClient {
             SYNC_WAIT_RECORDS_FOR_PRIVATE,
             None,
             None,
+            false,
         );
 
         Self {
@@ -280,6 +282,7 @@ impl BinancePrivateWsClient {
 mod tests {
     use super::*;
     use crate::BinanceConfig;
+    use crate::BinanceServerConfig;
     use rbot_lib::common::init_debug_log;
 
     #[tokio::test]
@@ -315,6 +318,7 @@ mod tests {
     }
 
     #[tokio::test]
+
     async fn test_make_connect_url() {
         let server = BinanceServerConfig::new(false);
         let api = BinanceRestApi::new(&server);

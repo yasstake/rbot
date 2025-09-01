@@ -3,7 +3,7 @@ use crate::{
         date_string, parse_date, time_string, MarketConfig, MicroSec, OrderSide, PyFileBar, Trade,
         DAYS, FLOOR_DAY, MIN, NOW, TODAY,
     },
-    db::{append_df, csv_to_df, df_to_parquet, parquet_to_df, KEY},
+    db::{append_df, parquet_to_df, KEY},
     net::{check_exist, RestApi},
 };
 use anyhow::{anyhow, Context};
@@ -15,10 +15,6 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tokio::io::{AsyncWriteExt as _, BufWriter};
 // Import the `anyhow` crate and the `Result` type.
 use super::{db_path_root, select_df_lazy};
-use polars::lazy::{
-    dsl::{col, lit},
-    frame::IntoLazy,
-};
 use polars::prelude::{DataFrame, NamedFrom};
 use polars::series::Series;
 
@@ -28,7 +24,6 @@ use std::{
     str::FromStr,
     vec,
 };
-use tempfile::tempdir;
 
 const EXTENSION: &str = "parquet";
 
@@ -732,7 +727,7 @@ where
 mod archive_test {
     use std::{path::PathBuf, str::FromStr};
 
-    use crate::{common::{init_debug_log, NOW}, db::TradeArchive};
+    use crate::{common::{init_debug_log, NOW}};
 
     use super::log_download_tmp;
 

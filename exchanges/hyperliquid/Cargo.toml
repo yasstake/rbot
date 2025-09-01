@@ -1,6 +1,6 @@
 [package]
-name = "binance"
-version = "0.1.1"
+name = "hyperliquid"
+version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,6 +14,7 @@ anyhow = {workspace = true}
 
 chrono = {workspace = true}
 log = {workspace = true}
+tracing = {workspace = true}
 
 features = {workspace = true}
 
@@ -25,12 +26,13 @@ serde_json = {workspace = true}
 
 crossbeam-channel = {workspace = true}
 csv = {workspace = true}
+
 polars = {workspace = true}
+
 pyo3-polars = {workspace = true}
 
 tokio = {workspace = true}
 futures = {workspace=true}
 async-stream = {workspace = true}
 
-pyo3 = {workspace = true}
-
+pyo3 = { workspace = true }

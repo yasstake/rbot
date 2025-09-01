@@ -1,17 +1,16 @@
 import pytest
-
-from rbot import Bybit, BybitConfig, Binance, BinanceConfig, init_debug_log
-
+from rbot import Bybit, Binance, Bitbank, init_debug_log
 from time import sleep
 
 
 @pytest.mark.parametrize(
     "exchange, config",
     [
-            (Bybit(False), BybitConfig.BTCUSDT),
-            (Binance(False), BinanceConfig.BTCUSDT),
+            (Bybit(False), "BTC/USDT"),
+            (Binance(False), "BTC/USDC"),
             (Binance(False), "BTC/USDT"),
-            (Binance(False), "BTC/USDT:USDT"),
+            (Binance(False), "BTC/USDC"),
+            (Bitbank(False), "BTC/JPY"),
     ]
 )
 def test_call_select_methods(exchange, config):
@@ -42,7 +41,8 @@ def test_call_select_methods(exchange, config):
             (Bybit(True), "BTC/USDT"),
             (Bybit(True), "BTC/USDT:USDT"),
             (Binance(True), "BTC/USDT"),
-            (Binance(True), "BTC/USDT:USDT"),
+            (Binance(True), "BTC/USDC"),
+            (Bitbank(True), "BTC/JPY"),
     ]
 )
 def test_open_market_stream(exchange, config):

@@ -165,7 +165,7 @@ impl RestApi for BybitRestApi {
         let result = serde_json::from_value::<BybitTradeResponse>(r.body)
             .with_context(|| format!("parse error in get_recent_trades"))?;
 
-        let mut trades: Vec<Trade> = result.into();
+        let trades: Vec<Trade> = result.into();
 
         Ok(trades)
     }
