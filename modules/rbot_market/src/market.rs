@@ -305,7 +305,7 @@ where
         let trade = lock.db_start_up_rec();
         Python::with_gil(|py| {
             if let Some(trade) = trade {
-                Ok(trade.into_py(py))
+                Ok(trade.into_pyobject(py)?.into_any().unbind())
             } else {
                 Ok(Python::None(py))
             }

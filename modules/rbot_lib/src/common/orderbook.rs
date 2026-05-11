@@ -214,11 +214,12 @@ impl BoardTransfer {
             cusum_col.push(cusum.to_f64().unwrap());
         }
 
+        let n = board.len();
         let prices = Series::new("price".into(), prices);
         let sizes = Series::new("size".into(), sizes);
         let sum = Series::new("sum".into(), cusum_col);
 
-        let df = DataFrame::new(vec![prices.into(), sizes.into(), sum.into()]).unwrap();
+        let df = DataFrame::new(n, vec![prices.into(), sizes.into(), sum.into()]).unwrap();
 
         df
     }
@@ -338,10 +339,11 @@ impl Board {
         }
 
         let prices = Series::new("price".into(), prices);
+        let n = prices.len();
         let sizes = Series::new("size".into(), sizes);
         let sum = Series::new("sum".into(), cusum_col);
 
-        let df = DataFrame::new(vec![prices.into(), sizes.into(), sum.into()])?;
+        let df = DataFrame::new(n, vec![prices.into(), sizes.into(), sum.into()])?;
 
         Ok(df)
     }

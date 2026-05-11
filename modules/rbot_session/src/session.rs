@@ -500,7 +500,7 @@ impl Session {
 
             self.push_dummy_q(&vec![order_to_cancel.clone()]);
 
-            return Ok(order_to_cancel.into_py(py));
+            return Ok(order_to_cancel.into_pyobject(py)?.into_any().unbind());
         })
     }
     

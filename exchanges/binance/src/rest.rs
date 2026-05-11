@@ -352,7 +352,8 @@ impl RestApi for BinanceRestApi {
         let mut size = df.select_at_idx(2).unwrap().clone();
         size.rename(KEY::size.into());
 
-        let df = DataFrame::new(vec![timestamp.into(), side.into(), price.into(), size.into(), id.into()])?;
+        let n = timestamp.len();
+        let df = DataFrame::new(n, vec![timestamp.into(), side.into(), price.into(), size.into(), id.into()])?;
 
         Ok(df)
 

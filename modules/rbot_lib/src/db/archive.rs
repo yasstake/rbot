@@ -241,7 +241,7 @@ impl TradeArchive {
         let order_side = Series::new(KEY::order_side.into(), Vec::<String>::new());
         let id = Series::new(KEY::id.into(), Vec::<String>::new());
 
-        let df = DataFrame::new(vec![time.into(), order_side.into(), price.into(), size.into(), id.into()]).unwrap();
+        let df = DataFrame::new(0, vec![time.into(), order_side.into(), price.into(), size.into(), id.into()]).unwrap();
 
         return df;
     }

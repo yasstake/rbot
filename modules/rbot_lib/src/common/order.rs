@@ -18,6 +18,7 @@ use async_std::stream::Cloned;
 use csv::StringRecord;
 use log::Log;
 use polars::prelude::DataFrame;
+use polars::prelude::IntoSeries;
 use polars::prelude::NamedFrom;
 use polars::prelude::TimeUnit;
 use polars::series::Series;
@@ -1088,7 +1089,8 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
     let fee = Series::new("fee".into(), fee);
     let total_profit = Series::new("total_profit".into(), total_profit);
 
-    let mut df = DataFrame::new(vec![
+    let n = log_id.len();
+    let mut df = DataFrame::new(n, vec![
         log_id.into(),
         symbol.into(),
         update_time.into(),
@@ -1128,11 +1130,11 @@ pub fn ordervec_to_dataframe(orders: Vec<Order>) -> DataFrame {
 
     let time = df.column("create_time").unwrap().i64().unwrap().clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    let df = df.with_column(date_time).unwrap();
+    let df = df.with_column(date_time.into_series().into()).unwrap();
 
     let time = df.column("update_time").unwrap().i64().unwrap().clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    let df = df.with_column(date_time).unwrap();
+    let df = df.with_column(date_time.into_series().into()).unwrap();
 
     return df.clone();
 }

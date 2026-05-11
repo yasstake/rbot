@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Write},
 };
 
-use polars::{datatypes::TimeUnit, frame::DataFrame, lazy::{dsl::col, frame::IntoLazy}, prelude::{Column, NamedFrom}, series::Series};
+use polars::{datatypes::TimeUnit, frame::DataFrame, lazy::{dsl::col, frame::IntoLazy}, prelude::{Column, IntoSeries, NamedFrom}, series::Series};
 use pyo3::{pyclass, pymethods, PyResult};
 use pyo3_polars::PyDataFrame;
 use serde_derive::{Deserialize, Serialize};
@@ -188,7 +188,8 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
     let foreign_free = Series::new("foreign_free".into(), foreign_free);
     let foreign_locked = Series::new("foreign_locked".into(), foreign_locked);
 
-    let mut df = DataFrame::new(vec![
+    let n = timestamp.len();
+    let mut df = DataFrame::new(n, vec![
         timestamp.into(),
         home.into(),
         home_free.into(),
@@ -200,7 +201,7 @@ pub fn account_logrec_to_df(accounts: Vec<SingleLogRecord>) -> DataFrame {
 
     let time = df.column("timestamp").unwrap().i64().unwrap().clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    let df = df.with_column(date_time).unwrap();
+    let df = df.with_column(date_time.into_series().into()).unwrap();
 
     return df.clone();
 }
@@ -466,7 +467,8 @@ impl Logger {
         let sum_profit_series = Series::new("sum_profit".into(), sum_profit);
 
 
-        let df = DataFrame::new(vec![
+        let n = log_id.len();
+        let df = DataFrame::new(n, vec![
             log_id.into(),
         //    timestamp_series,
             open_position_series.into(),
@@ -549,11 +551,12 @@ impl Logger {
             column.push(log_id_series.into());
         }
 
-        let mut df = DataFrame::new(column).unwrap();
+        let n = column.first().map(|c| c.len()).unwrap_or(0);
+        let mut df = DataFrame::new(n, column).unwrap();
 
         let time = df.column("timestamp").unwrap().i64().unwrap().clone();
         let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-        let df = df.with_column(date_time).unwrap();
+        let df = df.with_column(date_time.into_series().into()).unwrap();
 
         df.clone()
     }

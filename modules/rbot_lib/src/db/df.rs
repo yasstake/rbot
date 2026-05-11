@@ -15,7 +15,6 @@ use polars::prelude::NamedFrom;
 use polars::prelude::Series;
 use polars::prelude::SortMultipleOptions;
 
-use polars::lazy::frame::pivot::pivot;
 use polars::lazy::prelude::IntoLazy;
 use polars::lazy::prelude::{col, LazyFrame};
 use polars::time::ClosedWindow;
@@ -572,31 +571,36 @@ pub fn ohlcvv_from_ohlcvv_df(
 /// group by unit price and order_side
 pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i64) -> DataFrame {
     let df = select_df_lazy(df, start_time, end_time);
+    let floor_price = (col(KEY::price).floor_div(size.into()) * size.into()).floor();
 
-    let floor_price = col(KEY::price);
-
-    let floor_price = (floor_price.floor_div(size.into()) * size.into()).floor();
-    let vap_gb = df.group_by([col(KEY::order_side), floor_price]);
-
-    let vap = vap_gb
-        .agg([col(KEY::size).sum().alias(KEY::volume)])
+    let buy_df = df
+        .clone()
+        .filter(col(KEY::order_side).eq(lit("Buy")))
+        .group_by([floor_price.clone().alias(KEY::price)])
+        .agg([col(KEY::size).sum().alias(KEY::buy_volume)])
         .collect()
         .unwrap();
 
-    let vap = pivot(
-        &vap,
-        vec![KEY::volume],
-        Some([KEY::price]),
-        Some([KEY::order_side]),
-        false,
-        None,
-        None,
-    )
-    .unwrap();
+    let sell_df = df
+        .filter(col(KEY::order_side).eq(lit("Sell")))
+        .group_by([floor_price.alias(KEY::price)])
+        .agg([col(KEY::size).sum().alias(KEY::sell_volume)])
+        .collect()
+        .unwrap();
 
-    let vap = vap
+    buy_df
+        .lazy()
+        .join(
+            sell_df.lazy(),
+            [col(KEY::price)],
+            [col(KEY::price)],
+            JoinArgs::new(JoinType::Full).with_coalesce(JoinCoalesce::CoalesceColumns),
+        )
+        .with_column(col(KEY::buy_volume).fill_null(lit(0.0f64)))
+        .with_column(col(KEY::sell_volume).fill_null(lit(0.0f64)))
+        .with_column((col(KEY::buy_volume) + col(KEY::sell_volume)).alias(KEY::volume))
         .sort(
-            vec![KEY::price.to_string()],
+            [KEY::price],
             SortMultipleOptions {
                 descending: vec![false],
                 nulls_last: vec![false],
@@ -605,30 +609,8 @@ pub fn vap_df(df: &DataFrame, start_time: MicroSec, end_time: MicroSec, size: i6
                 limit: None,
             },
         )
-        .unwrap();
-
-    let price = vap.column(KEY::price).unwrap().clone();
-    let mut buy_vol = vap
-        .column("true")
+        .collect()
         .unwrap()
-        .fill_null(FillNullStrategy::Zero)
-        .unwrap();
-
-    buy_vol.rename(KEY::buy_volume.into());
-
-    let mut sell_vol = vap
-        .column("false")
-        .unwrap()
-        .fill_null(FillNullStrategy::Zero)
-        .unwrap();
-
-    sell_vol.rename(KEY::sell_volume.into());
-
-    let total_vol = buy_vol.clone() + sell_vol.clone();
-
-    let df = DataFrame::new(vec![price.into(), buy_vol.into(), sell_vol.into(), total_vol.unwrap().into()]).unwrap();
-
-    df
 }
 
 pub struct TradeBuffer {
@@ -696,7 +678,8 @@ impl TradeBuffer {
         let price = Series::new(KEY::price.into(), self.price.to_vec());
         let size = Series::new(KEY::size.into(), self.size.to_vec());
 
-        let df = DataFrame::new(vec![time_stamp.into(), order_side.into(), price.into(), size.into(), id.into() ]).unwrap();
+        let n = self.id.len();
+        let df = DataFrame::new(n, vec![time_stamp.into(), order_side.into(), price.into(), size.into(), id.into() ]).unwrap();
 
         return df;
     }
@@ -714,7 +697,7 @@ pub fn make_empty_ohlcvv() -> DataFrame {
     let start_time = Series::new(KEY::start_time.into(), Vec::<MicroSec>::new());
     let end_time = Series::new(KEY::end_time.into(), Vec::<MicroSec>::new());
 
-    let df = DataFrame::new(vec![
+    let df = DataFrame::new(0, vec![
         time.into(), order_side.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into(), start_time.into(), end_time.into(),
     ])
     .unwrap();
@@ -731,7 +714,7 @@ pub fn make_empty_ohlcv() -> DataFrame {
     let vol = Series::new(KEY::volume.into(), Vec::<f64>::new());
     let count = Series::new(KEY::count.into(), Vec::<i64>::new());
 
-    let df = DataFrame::new(vec![time.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
+    let df = DataFrame::new(0, vec![time.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
 
     return df;
 }
@@ -749,7 +732,7 @@ impl AsDynamicGroupOptions for DynamicGroupOptions {
 pub fn convert_timems_to_datetime(df: &mut DataFrame) -> anyhow::Result<()> {
     let time = df.column(KEY::timestamp)?.i64()?.clone();
     let date_time = time.into_datetime(TimeUnit::Microseconds, None);
-    df.with_column(date_time)?;
+    df.with_column(date_time.into_series().into())?;
 
     Ok(())
 }
@@ -1017,7 +1000,7 @@ mod test_df {
         let vol = Series::new(KEY::volume.into(), Vec::<f64>::new());
         let count = Series::new(KEY::count.into(), Vec::<f64>::new());
 
-        let df = DataFrame::new(vec![t.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
+        let df = DataFrame::new(0, vec![t.into(), open.into(), high.into(), low.into(), close.into(), vol.into(), count.into()]).unwrap();
 
         println!("{:?}", df);
     }

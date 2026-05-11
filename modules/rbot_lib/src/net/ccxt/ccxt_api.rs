@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use pyo3::{types::{PyAnyMethods as _, PyBool, PyModule}, Py, PyAny, Python};
 
 
@@ -14,8 +15,10 @@ pub fn create_ccxt_none() -> Py<PyAny> {
 
 pub fn create_ccxt_handle(exchange: &str, key: &str, secret:&str, production: bool) -> Py<PyAny> {
     Python::with_gil(|py| {
-        let py_module =
-            PyModule::from_code_bound(py, PY_CCXT, "ccxt_api.py", "ccxt_api");
+        let code = CString::new(PY_CCXT).unwrap();
+        let file_name = CString::new("ccxt_api.py").unwrap();
+        let module_name = CString::new("ccxt_api").unwrap();
+        let py_module = PyModule::from_code(py, &code, &file_name, &module_name);
 
         if py_module.is_err() {
             log::error!("ccxt_api class create error")
@@ -25,10 +28,10 @@ pub fn create_ccxt_handle(exchange: &str, key: &str, secret:&str, production: bo
 
         let ccxt_api = py_module.getattr("CCXTApi").unwrap();
 
-        let production = PyBool::new_bound(py, production);
+        let production = PyBool::new(py, production);
 
         let params = (exchange, key, secret, production);
-        
+
         let ccxt_api = ccxt_api.call1(params).unwrap();
 
         ccxt_api.into()
