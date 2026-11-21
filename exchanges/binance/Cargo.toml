@@ -34,3 +34,5 @@ async-stream = {workspace = true}
 
 pyo3 = {workspace = true}
 
+crypto-orderbook = { version = "0.5.2", default-features = false }
+
