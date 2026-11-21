@@ -201,6 +201,8 @@ pub struct BinanceRestBoard {
 impl Into<BoardTransfer> for BinanceRestBoard {
     fn into(self) -> BoardTransfer {
         let mut board = BoardTransfer::new();
+        board.last_update_id = self.last_update_id;
+        board.snapshot = true;
         board.bids = self.bids;
         board.asks = self.asks;
         board

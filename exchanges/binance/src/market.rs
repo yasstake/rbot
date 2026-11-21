@@ -8,6 +8,7 @@ use pyo3_polars::PyDataFrame;
 use rbot_blockon::BLOCK_ON;
 use rbot_lib::common::{AccountCoins, ExchangeConfig, Trade, DAYS, FLOOR_DAY};
 use rbot_lib::common::BoardItem;
+use rbot_lib::common::BoardTransfer;
 use rbot_lib::common::MarketConfig;
 use rbot_lib::common::MarketMessage;
 use rbot_lib::common::MarketStream;
@@ -18,7 +19,7 @@ use rbot_lib::common::OrderBook;
 use rbot_lib::common::MARKET_HUB;
 use rbot_lib::common::NOW;
 use rbot_lib::db::TradeDataFrame;
-use rbot_lib::net::{BroadcastMessage, WebSocketClient as _};
+use rbot_lib::net::{BroadcastMessage, RestApi as _, WebSocketClient as _};
 use rust_decimal::Decimal;
 // Copyright(c) 2022-2024. yasstake. All rights reserved.
 use tokio::task::JoinHandle;
@@ -34,6 +35,9 @@ use crate::BinanceRestApi;
 use crate::BinanceServerConfig;
 
 use pyo3::prelude::*;
+
+use crypto_orderbook::orderbook::sync::{live, Live, Market as SyncMarket};
+use crypto_orderbook::DepthUpdate;
 
 use anyhow::anyhow;
 
@@ -487,6 +491,7 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
         let hub_channel = MARKET_HUB.open_channel();
 
         let mut public_ws = BinancePublicWsClient::new(&server_config, &config).await;
+        let api = self.api.clone();
 
         let exchange_name = config.exchange_name.clone();
         let trade_category = config.trade_category.clone();
@@ -538,8 +543,30 @@ impl MarketImpl<BinanceRestApi> for BinanceMarket {
                         }
                     }
                     MultiMarketMessage::Orderbook(board) => {
-                        let mut b = orderbook.write().unwrap();
-                        b.update(&board);
+                        let last = orderbook.read().unwrap().get_last_update_id();
+                        match depth_sequence(last, &board) {
+                            Live::Apply => orderbook.write().unwrap().update(&board),
+                            Live::Ignore => {}
+                            Live::Gap { expected, got } => {
+                                log::warn!(
+                                    "depth gap: expected U {} got {}, refetching snapshot",
+                                    expected,
+                                    got
+                                );
+                                match api.get_board_snapshot(&config).await {
+                                    Ok(snapshot) => {
+                                        let mut b = orderbook.write().unwrap();
+                                        b.update(&snapshot);
+                                        if depth_sequence(b.get_last_update_id(), &board)
+                                            == Live::Apply
+                                        {
+                                            b.update(&board);
+                                        }
+                                    }
+                                    Err(e) => log::error!("snapshot refetch failed: {:?}", e),
+                                }
+                            }
+                        }
                     }
                     MultiMarketMessage::Control(control) => {
                         // TODO: alert or recovery.
@@ -645,6 +672,53 @@ impl BinanceMarket {
         b.update(&transfer);
     }
 */
+}
+
+/// Binance spot diff-depth sequencing: apply, skip as already applied, or report a gap.
+fn depth_sequence(last_update_id: u64, board: &BoardTransfer) -> Live {
+    let update = DepthUpdate {
+        first_update_id: board.first_update_id,
+        last_update_id: board.last_update_id,
+        prev_last_update_id: None,
+        bids: vec![],
+        asks: vec![],
+    };
+    live(SyncMarket::Spot, last_update_id, &update)
+}
+
+#[cfg(test)]
+mod depth_sequence_test {
+    use super::*;
+
+    fn diff(first: u64, last: u64) -> BoardTransfer {
+        let mut b = BoardTransfer::new();
+        b.first_update_id = first;
+        b.last_update_id = last;
+        b
+    }
+
+    #[test]
+    fn test_depth_sequence() {
+        // first event straddling the snapshot id applies
+        assert_eq!(depth_sequence(100, &diff(95, 102)), Live::Apply);
+        // contiguous diff applies
+        assert_eq!(depth_sequence(102, &diff(103, 104)), Live::Apply);
+        // already covered by the snapshot is skipped
+        assert_eq!(depth_sequence(104, &diff(90, 104)), Live::Ignore);
+        // a dropped 103..=104 is a gap, not a silent apply
+        assert_eq!(
+            depth_sequence(102, &diff(105, 105)),
+            Live::Gap {
+                expected: 103,
+                got: 105
+            }
+        );
+        // no snapshot yet: never apply on an empty board
+        assert!(matches!(
+            depth_sequence(0, &diff(105, 105)),
+            Live::Gap { .. }
+        ));
+    }
 }
 
 #[cfg(test)]
